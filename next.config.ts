@@ -14,6 +14,15 @@ const nextConfig: NextConfig = {
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60,
   },
+  
+  // Improved output tracing to handle route groups
+  output: 'standalone',
+  
+  // Enable experimental features
+  experimental: {
+    // Enhanced stability for route groups
+    serverComponentsExternalPackages: [],
+  }
 };
 
 export default nextConfig;
