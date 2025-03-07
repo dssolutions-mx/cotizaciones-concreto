@@ -18,11 +18,8 @@ const nextConfig: NextConfig = {
   // Improved output tracing to handle route groups
   output: 'standalone',
   
-  // Enable experimental features
-  experimental: {
-    // Enhanced stability for route groups
-    serverComponentsExternalPackages: [],
-  }
+  // External packages configuration (moved from experimental)
+  serverExternalPackages: [],
 };
 
 export default nextConfig;

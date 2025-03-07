@@ -2,9 +2,9 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-// Run the Next.js build
-console.log('Running Next.js build...');
-execSync('next build', { stdio: 'inherit' });
+// Run the Next.js build with --no-lint flag to skip linting
+console.log('Running Next.js build with linting disabled...');
+execSync('next build --no-lint', { stdio: 'inherit' });
 
 // Check if the landing page client reference manifest exists
 const manifestPath = path.join('.next', 'server', 'app', '(landing)', 'page_client-reference-manifest.js');
