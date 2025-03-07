@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Estilos básicos */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Estilos personalizados adicionales */
+body {
+  @apply text-gray-900;
+}
+
+.input-field {
+  @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500;
+}
+
+.btn {
+  @apply px-4 py-2 rounded transition-colors duration-300;
+}
+
+.btn-primary {
+  @apply bg-green-500 text-white hover:bg-green-600;
+}
+
+.btn-secondary {
+  @apply bg-gray-200 text-gray-800 hover:bg-gray-300;
+}
+
+/* Animaciones y transiciones */
+.fade-enter {
+  opacity: 0;
+}
+
+.fade-enter-active {
+  opacity: 1;
+  transition: opacity 300ms ease-in;
+}
+
+.fade-exit {
+  opacity: 1;
+}
+
+.fade-exit-active {
+  opacity: 0;
+  transition: opacity 300ms ease-in;
+}
+
+/* Estilos navegación móvil mejorada */
+@keyframes navItemSelect {
+  0% { transform: scale(0.9); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+.mobile-nav-item {
+  transition: all 0.2s ease;
+}
+
+.mobile-nav-item.active {
+  animation: navItemSelect 0.3s ease forwards;
+}
+
+.mobile-nav-indicator {
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.mobile-menu-overlay {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Estilos responsivos para móviles */
+@media (max-width: 768px) {
+  html, body {
+    @apply text-sm;
+  }
+  
+  .container {
+    @apply px-4;
+  }
+  
+  input, select, textarea {
+    @apply text-base;
+    font-size: 16px !important; /* Evita zoom en inputs en iOS */
+  }
+  
+  /* Estilos simplificados para gráficos */
+  .chart-x-axis-tick {
+    font-size: 10px !important;
+  }
+  
+  .chart-legend {
+    font-size: 10px;
+  }
+  
+  .chart-legend .recharts-legend-wrapper {
+    bottom: 0 !important;
+    right: 0 !important;
+    left: 0 !important;
+    display: flex;
+    justify-content: center;
+  }
+  
+  .chart-legend .recharts-default-legend {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 10px;
+  }
+  
+  .chart-legend .recharts-legend-item {
+    margin-right: 4px !important;
+  }
+}
+
+/* Evitar el desbordamiento horizontal */
+html, body {
+  @apply overflow-x-hidden max-w-full;
+} 
