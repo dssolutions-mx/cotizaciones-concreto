@@ -1,5 +1,5 @@
 {
-  "buildCommand": "next build",
+  "buildCommand": "node build.js",
   "devCommand": "next dev",
   "installCommand": "npm install",
   "outputDirectory": ".next",
