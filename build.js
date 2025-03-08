@@ -9,10 +9,20 @@ const checkEnvVars = () => {
     'NEXT_PUBLIC_SUPABASE_ANON_KEY'
   ];
   
+  let hasAllVars = true;
+  
   for (const varName of requiredVars) {
     if (!process.env[varName]) {
       console.warn(`Warning: ${varName} environment variable is not set`);
+      hasAllVars = false;
     }
+  }
+  
+  if (!hasAllVars) {
+    console.warn('Some environment variables are missing. Using fallbacks for build process.');
+    // Provide fallbacks for build process only
+    process.env.NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder-url.supabase.co';
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder-key';
   }
 };
 

@@ -3,6 +3,16 @@ import { supabase } from '@/lib/supabase';
 
 export async function GET() {
   try {
+    // Check if Supabase is properly initialized
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      console.error('Supabase environment variables are missing');
+      return NextResponse.json({ 
+        notifications: [],
+        recentActivity: [],
+        warning: 'API unavailable - configuration issue'
+      }, { status: 200 });
+    }
+    
     // Execute both queries in parallel for better performance
     const [notificationsResponse, activityResponse] = await Promise.all([
       // Fetch notifications
@@ -89,6 +99,10 @@ export async function GET() {
     
   } catch (error) {
     console.error('Error fetching activity data:', error);
-    return NextResponse.json({ error: 'Error loading activity data' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Error loading activity data',
+      notifications: [],
+      recentActivity: [] 
+    }, { status: 500 });
   }
 } 
