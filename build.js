@@ -29,10 +29,10 @@ const checkEnvVars = () => {
 // Check environment variables
 checkEnvVars();
 
-// Run the Next.js build with --no-lint flag to skip linting
-console.log('Running Next.js build with linting disabled...');
+// Run the Next.js build with linting enabled
+console.log('Running Next.js build with linting enabled...');
 try {
-  execSync('next build --no-lint', { 
+  execSync('next build', { 
     stdio: 'inherit',
     env: {
       ...process.env, // Pass through all environment variables
