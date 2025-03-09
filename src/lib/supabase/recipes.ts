@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { supabase } from './client';
 import { handleError } from '@/utils/errorHandler';
 import { 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { PriceHistoryTable } from '@/components/PriceHistoryTable';
 import { PriceHistoryChart } from '@/components/PriceHistoryChart';
 import {
@@ -11,21 +11,21 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChartBarIcon, TableIcon } from 'lucide-react';
 import { fetchPriceHistoryByClient, fetchPriceHistoryByRecipe } from '@/services/priceHistoryService';
-import type { PriceHistoryFilters, ClientPriceHistory, RecipePriceHistory } from '@/types/priceHistory';
+import type { PriceHistoryFilters, ClientPriceHistory, RecipePriceHistory, ViewMode } from '@/types/priceHistory';
+import type { DateRange } from 'react-day-picker';
+import { PostgrestError } from '@supabase/supabase-js';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { QualityTeamAccessDenied } from '@/components/QualityTeamAccessDenied';
-import { DateRange } from 'react-day-picker';
 
 export default function PriceHistoryPage() {
   const { userProfile } = useAuth();
   const router = useRouter();
-  const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [groupBy, setGroupBy] = useState<'client' | 'recipe'>('client');
   const [filters, setFilters] = useState<PriceHistoryFilters>({});
   const [data, setData] = useState<ClientPriceHistory[] | RecipePriceHistory[]>([]);
@@ -38,24 +38,34 @@ export default function PriceHistoryPage() {
     }
   }, [userProfile, router]);
 
-  useEffect(() => {
-    loadData();
-  }, [filters, groupBy]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const fetchFn = groupBy === 'client' ? fetchPriceHistoryByClient : fetchPriceHistoryByRecipe;
       const result = await fetchFn(filters);
       setData(result);
-    } catch (err) {
-      setError('Error al cargar el historial de precios');
-      console.error(err);
+    } catch (err: unknown) {
+      let errorMessage = 'Error desconocido al cargar el historial de precios';
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err instanceof PostgrestError) {
+        errorMessage = `Error de base de datos: ${err.message}`;
+      } else if (typeof err === 'string') {
+        errorMessage = err;
+      }
+      
+      setError(errorMessage);
+      console.error('Error al cargar el historial de precios:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, groupBy]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const handleDateRangeChange = (range: DateRange | undefined) => {
     setFilters(prev => ({

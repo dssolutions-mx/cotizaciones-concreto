@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, ErrorInfo } from 'react';
+import React, { useState, ErrorInfo } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import './globals.css';
 import { Toaster } from 'react-hot-toast';
@@ -19,6 +20,7 @@ import {
 import { AuthProvider } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
 import ProfileMenu from '@/components/auth/ProfileMenu';
+import AuthStatusIndicator from '@/components/auth/AuthStatusIndicator';
 
 // Estructura simple de navegación
 const NAV_ITEMS = [
@@ -54,10 +56,12 @@ function Navigation({ children }: { children: React.ReactNode }) {
       <aside className="w-64 bg-white shadow-md hidden md:block">
         <div className="p-6 border-b flex justify-between items-center">
           <Link href="/dashboard">
-            <img 
+            <Image 
               src="/images/dcconcretos/logo-dark.svg" 
               alt="DC Concretos" 
               className="h-10 w-auto"
+              width={120}
+              height={40}
             />
           </Link>
         </div>
@@ -83,10 +87,12 @@ function Navigation({ children }: { children: React.ReactNode }) {
         {/* Header móvil */}
         <div className="md:hidden flex items-center justify-between mb-4">
           <Link href="/dashboard">
-            <img 
+            <Image 
               src="/images/dcconcretos/logo-dark.svg" 
               alt="DC Concretos" 
               className="h-8 w-auto"
+              width={96}
+              height={32}
             />
           </Link>
           
@@ -121,6 +127,9 @@ function Navigation({ children }: { children: React.ReactNode }) {
           
           <ProfileMenu />
         </div>
+        
+        {/* Añadir el indicador de estado de autenticación */}
+        <AuthStatusIndicator />
         
         {/* Menú móvil desplegable */}
         {mobileMenuOpen && (
@@ -169,7 +178,6 @@ function Navigation({ children }: { children: React.ReactNode }) {
         {/* Contenido de la página */}
         <div className="mt-4">
           {/* Children */}
-          {/* @ts-ignore */}
           {children}
         </div>
       </main>

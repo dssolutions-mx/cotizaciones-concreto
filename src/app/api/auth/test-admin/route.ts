@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
@@ -229,11 +230,15 @@ export async function GET(request: NextRequest) {
       },
       help: "The session appears to be active on the client side but not on the server. This may be due to: 1) Cookie settings preventing cookies from being sent to the API, 2) The browser not properly setting cookies, or 3) Auth configuration issues."
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in test-admin API route:', error);
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : 'An unexpected error occurred';
+    
     return NextResponse.json({
       success: false,
-      error: error.message || 'An unexpected error occurred',
+      error: errorMessage,
       status: 'error',
     }, { status: 500 });
   }

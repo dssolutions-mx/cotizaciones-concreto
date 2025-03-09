@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { productPriceService } from '@/lib/supabase/product-prices';
 import { QuotesService } from '@/services/quotes';
@@ -71,25 +72,27 @@ interface PendingQuote {
 
 export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabProps) {
   const [quotes, setQuotes] = useState<PendingQuote[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [page, setPage] = useState(1);
+  const [isLoading, setIsLoading] = useState(true);
+  const [page, setPage] = useState(0);
   const [totalQuotes, setTotalQuotes] = useState(0);
-  const quotesPerPage = 25;
+  const [error, setError] = useState<string | null>(null);
+  const quotesPerPage = 10;
   const { hasRole } = useAuth();
 
   // Modal state
   const [selectedQuote, setSelectedQuote] = useState<PendingQuote | null>(null);
-
-  // Add state for editing quote details
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [showQuoteDetails, setShowQuoteDetails] = useState(false);
   const [editingQuoteDetails, setEditingQuoteDetails] = useState<Array<{
     id: string;
-    volume: number;
-    base_price: number;
+    profit_margin: number;
     final_price: number;
     pump_service: boolean;
     pump_price: number | null;
-    profit_margin: number;
-    recipe: {
+    base_price: number;
+    volume: number;
+    recipe?: {
       recipe_code: string;
       strength_fc: number;
       placement_type: string;
@@ -99,99 +102,119 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
     } | null;
   }>>([]);
 
-  const fetchPendingQuotes = async () => {
+  const fetchPendingQuotes = useCallback(async () => {
     try {
       setIsLoading(true);
-      const { data, count, error } = await supabase
+      setError(null);
+      
+      const { data, error } = await supabase
         .from('quotes')
         .select(`
-          id, 
-          quote_number, 
-          construction_site, 
+          id,
+          quote_number,
+          construction_site,
           created_at,
           clients (
-            business_name, 
+            business_name,
             client_code
           ),
           quote_details (
-            id, 
-            volume, 
+            id,
+            volume,
             base_price,
             final_price,
             pump_service,
             pump_price,
             recipe_id,
             recipes (
-              recipe_code, 
-              strength_fc, 
+              recipe_code,
+              strength_fc,
               placement_type,
               max_aggregate_size,
               slump,
               age_days
             )
           )
-        `, { count: 'exact' })
+        `)
         .eq('status', 'PENDING_APPROVAL')
-        .range((page - 1) * quotesPerPage, page * quotesPerPage - 1)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Transform data to match PendingQuote interface
+        .order('created_at', { ascending: false })
+        .range(page * quotesPerPage, (page + 1) * quotesPerPage - 1);
+      
+      if (error) {
+        throw error;
+      }
+      
+      // Transform the data to match our PendingQuote interface
       const transformedQuotes: PendingQuote[] = (data || []).map(quote => {
+        // Handle potential array or object response format
         const clientData = Array.isArray(quote.clients) 
           ? quote.clients[0] 
           : quote.clients;
         
-        const quoteDetailsData = Array.isArray(quote.quote_details)
-          ? quote.quote_details.map(detail => {
-              const recipeData = Array.isArray(detail.recipes) 
-                ? detail.recipes[0] 
-                : detail.recipes;
-              
-              return {
-                id: detail.id,
-                volume: detail.volume,
-                base_price: detail.base_price,
-                final_price: detail.final_price,
-                pump_service: detail.pump_service,
-                pump_price: detail.pump_price,
-                recipe: recipeData ? {
-                  recipe_code: recipeData.recipe_code,
-                  strength_fc: recipeData.strength_fc,
-                  placement_type: recipeData.placement_type,
-                  max_aggregate_size: recipeData.max_aggregate_size,
-                  slump: recipeData.slump,
-                  age_days: recipeData.age_days
-                } : null
-              };
-            })
-          : [];
-
         return {
-          ...quote,
+          id: quote.id,
+          quote_number: quote.quote_number,
+          construction_site: quote.construction_site,
+          created_at: quote.created_at,
           client: clientData ? {
             business_name: clientData.business_name,
             client_code: clientData.client_code
           } : null,
-          quote_details: quoteDetailsData,
-          total_amount: quoteDetailsData.reduce((sum, detail) => sum + (detail.final_price * detail.volume), 0)
+          total_amount: quote.quote_details.reduce((sum, detail) => {
+            const detailTotal = detail.final_price * detail.volume;
+            const pumpTotal = detail.pump_service && detail.pump_price ? detail.pump_price * detail.volume : 0;
+            return sum + detailTotal + pumpTotal;
+          }, 0),
+          quote_details: quote.quote_details.map(detail => {
+            // Handle potential array or object response format for recipes
+            const recipeData = Array.isArray(detail.recipes) 
+              ? detail.recipes[0] 
+              : detail.recipes;
+              
+            return {
+              id: detail.id,
+              volume: detail.volume,
+              base_price: detail.base_price,
+              final_price: detail.final_price,
+              pump_service: detail.pump_service,
+              pump_price: detail.pump_price,
+              recipe: recipeData ? {
+                recipe_code: recipeData.recipe_code,
+                strength_fc: recipeData.strength_fc,
+                placement_type: recipeData.placement_type,
+                max_aggregate_size: recipeData.max_aggregate_size,
+                slump: recipeData.slump,
+                age_days: recipeData.age_days
+              } : null
+            };
+          })
         };
       });
-
+      
       setQuotes(transformedQuotes);
-      setTotalQuotes(count || 0);
-    } catch (error) {
-      console.error('Error fetching pending quotes:', error);
-      alert('No se pudieron cargar las cotizaciones pendientes');
+      
+      // Count total quotes for pagination
+      const { count, error: countError } = await supabase
+        .from('quotes')
+        .select('id', { count: 'exact' })
+        .eq('status', 'PENDING_APPROVAL');
+      
+      if (countError) {
+        console.error('Error counting quotes:', countError);
+      } else {
+        setTotalQuotes(count || 0);
+      }
+    } catch (err) {
+      setError('Error al cargar las cotizaciones pendientes de aprobación');
+      console.error(err);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [page, quotesPerPage]);
 
   useEffect(() => {
     fetchPendingQuotes();
-  }, [page]);
+  }, [fetchPendingQuotes]);
 
   const approveQuote = async (quoteId: string) => {
     try {

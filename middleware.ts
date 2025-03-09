@@ -1,23 +1,20 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
+import { createMiddleware } from './src/lib/supabase/server';
 
 export async function middleware(req: NextRequest) {
   // Create a response object
   const res = NextResponse.next();
   
   try {
-    // Create a supabase middleware client
-    const supabase = createMiddlewareClient({ req, res });
+    // Create a Supabase client for the middleware
+    const supabase = createMiddleware(req, res);
     
-    // Check if the user is authenticated
-    const {
-      data: { session },
-      error
-    } = await supabase.auth.getSession();
+    // Get authenticated user - this is more secure than getSession
+    const { data: { user }, error } = await supabase.auth.getUser();
 
     if (error) {
-      console.error("Middleware session error:", error.message);
+      console.error("Middleware auth error:", error.message);
     }
 
     // URL information
@@ -46,47 +43,26 @@ export async function middleware(req: NextRequest) {
     const isApiRoute = pathname.startsWith('/api') && !pathname.startsWith('/api/public') && !pathname.startsWith('/api/auth');
 
     // If not authenticated and trying to access a protected route (including API routes)
-    if (!session && !isPublicRoute) {
+    if (!user && !isPublicRoute) {
       console.log(`Unauthenticated access attempt to ${pathname}`);
       
       // For API routes, return 401 Unauthorized
       if (isApiRoute) {
-        const errorRes = NextResponse.json(
-          { error: 'Unauthorized - No session found' },
+        return NextResponse.json(
+          { error: 'Unauthorized - No user found' },
           { status: 401 }
         );
-        
-        // Copy cookies from res to errorRes to preserve authentication state
-        res.cookies.getAll().forEach(cookie => {
-          errorRes.cookies.set(cookie.name, cookie.value, cookie);
-        });
-        
-        return errorRes;
       }
       
       // For other routes, redirect to login
       url.pathname = '/login';
-      const redirectRes = NextResponse.redirect(url);
-      
-      // Copy cookies from res to redirectRes to preserve authentication state
-      res.cookies.getAll().forEach(cookie => {
-        redirectRes.cookies.set(cookie.name, cookie.value, cookie);
-      });
-      
-      return redirectRes;
+      return NextResponse.redirect(url);
     }
 
     // If authenticated and trying to access login/register pages
-    if (session && (pathname === '/login' || pathname === '/register')) {
+    if (user && (pathname === '/login' || pathname === '/register')) {
       url.pathname = '/dashboard';
-      const redirectRes = NextResponse.redirect(url);
-      
-      // Copy cookies from res to redirectRes to preserve authentication state
-      res.cookies.getAll().forEach(cookie => {
-        redirectRes.cookies.set(cookie.name, cookie.value, cookie);
-      });
-      
-      return redirectRes;
+      return NextResponse.redirect(url);
     }
 
     return res;

@@ -1,7 +1,11 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import * as XLSX from 'xlsx';
 import { saveRecipeReferenceMaterials } from './recipeReferenceMaterials';
 import { recipeService } from '../supabase/recipes';
 import { ExcelRecipeData } from '@/types/recipes';
+
+// Define a proper row type instead of any[]
+type ExcelRow = Array<string | number | undefined | null>;
 
 // Interfaz para los datos de receta
 interface RecipeData {
@@ -48,7 +52,7 @@ export const processExcelData = async (file: File): Promise<ExcelRecipeData[]> =
     const worksheet = workbook.Sheets[sheetName];
     
     // Determinar el tipo de receta basado en el nombre de la hoja o contenido
-    const sheetData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+    const sheetData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as ExcelRow[];
     const sheetType = detectSheetType(sheetName, sheetData);
     
     if (sheetType === 'FC') {
@@ -65,9 +69,9 @@ export const processExcelData = async (file: File): Promise<ExcelRecipeData[]> =
 };
 
 /**
- * Detecta el tipo de hoja (FC o MR) basado en su nombre y contenido
+ * Detecta el tipo de hoja basado en su nombre y contenido
  */
-function detectSheetType(sheetName: string, sheetData: any[][]): 'FC' | 'MR' | null {
+function detectSheetType(sheetName: string, sheetData: Array<ExcelRow>): 'FC' | 'MR' | null {
   // Verificar por nombre de hoja
   if (sheetName.toLowerCase().includes('fc')) return 'FC';
   if (sheetName.toLowerCase().includes('mr')) return 'MR';
@@ -98,7 +102,7 @@ function processSheet(worksheet: XLSX.WorkSheet, recipeType: 'FC' | 'MR'): Excel
   const rows = XLSX.utils.sheet_to_json(worksheet, { 
     header: 1,
     range: 10 // Índice 10 corresponde a la fila 11
-  }) as any[][];
+  }) as ExcelRow[];
 
   const recipes: ExcelRecipeData[] = [];
 
@@ -127,63 +131,61 @@ function processSheet(worksheet: XLSX.WorkSheet, recipeType: 'FC' | 'MR'): Excel
 }
 
 /**
- * Crea un objeto de receta tipo FC a partir de una fila de datos
+ * Crea un objeto de receta tipo FC a partir de una fila
  */
-function createFCRecipe(row: any[]): ExcelRecipeData {
+function createFCRecipe(row: ExcelRow): ExcelRecipeData {
   return {
     recipeCode: String(row[11]), // Columna L
     recipeType: 'FC',
     characteristics: {
-      strength: parseFloat(row[12] || 0),     // Columna M - f'c en kg/cm²
-      age: parseInt(row[13] || 0),            // Columna N - edad en días
-      placement: String(row[14] || ''),       // Columna O - tipo de colocación (D/B)
-      maxAggregateSize: parseFloat(row[15] || 0), // Columna P - TMA en mm
-      slump: parseFloat(row[16] || 0)         // Columna Q - revenimiento en cm
+      strength: Number(row[12]), // Columna M
+      age: Number(row[13]),     // Columna N
+      placement: String(row[14]),   // Columna O
+      maxAggregateSize: Number(row[15]), // Columna P
+      slump: Number(row[16])    // Columna Q
     },
     materials: {
-      cement: parseFloat(row[45] || 0),       // Columna AT - cemento
-      water: parseFloat(row[46] || 0),        // Columna AU - agua
-      gravel: parseFloat(row[47] || 0),       // Columna AV - grava
-      volcanicSand: parseFloat(row[48] || 0), // Columna AW - arena volcánica
-      basalticSand: parseFloat(row[49] || 0), // Columna AX - arena basáltica
-      additive1: parseFloat(row[53] || 0),    // Columna BB - aditivo 1
-      additive2: parseFloat(row[54] || 0)     // Columna BC - aditivo 2
+      cement: parseFloat(String(row[45] || 0)),       // Columna AT - cemento
+      water: parseFloat(String(row[46] || 0)),        // Columna AU - agua
+      gravel: parseFloat(String(row[47] || 0)),       // Columna AV - grava
+      volcanicSand: parseFloat(String(row[48] || 0)), // Columna AW - arena volcánica
+      basalticSand: parseFloat(String(row[49] || 0)), // Columna AX - arena basáltica
+      additive1: parseFloat(String(row[53] || 0)),    // Columna BB - aditivo 1
+      additive2: parseFloat(String(row[54] || 0))     // Columna BC - aditivo 2
     },
     referenceData: {
-      sssWater: parseFloat(row[19] || 0)  // Column T for water SSS in FC
+      sssWater: parseFloat(String(row[19] || 0))  // Column T for water SSS in FC
     }
   };
 }
 
 /**
- * Crea un objeto de receta tipo MR a partir de una fila de datos
- * Las recetas MR tienen una estructura distinta en las columnas de materiales
- * según la información proporcionada
+ * Crea un objeto de receta tipo MR a partir de una fila
  */
-function createMRRecipe(row: any[]): ExcelRecipeData {
+function createMRRecipe(row: ExcelRow): ExcelRecipeData {
   return {
     recipeCode: String(row[11]), // Columna L
     recipeType: 'MR',
     characteristics: {
-      strength: parseFloat(row[12] || 0),     // Columna M - MR en kg/cm²
-      age: parseInt(row[13] || 0),            // Columna N - edad en días
+      strength: parseFloat(String(row[12] || 0)),     // Columna M - MR en kg/cm²
+      age: parseInt(String(row[13] || 0)),            // Columna N - edad en días
       placement: String(row[14] || ''),       // Columna O - tipo de colocación (D/B)
-      maxAggregateSize: parseFloat(row[15] || 0), // Columna P - TMA en mm
-      slump: parseFloat(row[16] || 0)         // Columna Q - revenimiento en cm
+      maxAggregateSize: parseFloat(String(row[15] || 0)), // Columna P - TMA en mm
+      slump: parseFloat(String(row[16] || 0))         // Columna Q - revenimiento en cm
     },
     materials: {
       // Mapeo según las columnas específicas para MR
-      cement: parseFloat(row[48] || 0),        // Columna AW - CEMENTO
-      water: parseFloat(row[49] || 0),         // Columna AX - AGUA
-      gravel: parseFloat(row[50] || 0),        // Columna AY - GRAVA 20MM
-      gravel40mm: parseFloat(row[51] || 0),    // Columna AZ - GRAVA 40MM
-      volcanicSand: parseFloat(row[52] || 0),  // Columna BA - ARENA VOLCANICA
-      basalticSand: parseFloat(row[53] || 0),  // Columna BB - ARENA BASALTICA
-      additive1: parseFloat(row[58] || 0),     // Columna BG - ADITIVO LINEA
-      additive2: parseFloat(row[59] || 0)      // Columna BH - ADITIVO 2
+      cement: parseFloat(String(row[48] || 0)),        // Columna AW - CEMENTO
+      water: parseFloat(String(row[49] || 0)),         // Columna AX - AGUA
+      gravel: parseFloat(String(row[50] || 0)),        // Columna AY - GRAVA 20MM
+      gravel40mm: parseFloat(String(row[51] || 0)),    // Columna AZ - GRAVA 40MM
+      volcanicSand: parseFloat(String(row[52] || 0)),  // Columna BA - ARENA VOLCANICA
+      basalticSand: parseFloat(String(row[53] || 0)),  // Columna BB - ARENA BASALTICA
+      additive1: parseFloat(String(row[58] || 0)),     // Columna BG - ADITIVO LINEA
+      additive2: parseFloat(String(row[59] || 0))      // Columna BH - ADITIVO 2
     },
     referenceData: {
-      sssWater: parseFloat(row[19] || 0)  // Column T for water SSS in MR
+      sssWater: parseFloat(String(row[19] || 0))  // Column T for water SSS in MR
     }
   };
 }

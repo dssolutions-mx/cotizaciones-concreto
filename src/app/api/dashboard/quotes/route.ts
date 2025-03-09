@@ -44,7 +44,7 @@ export async function GET() {
     const pendingQuotes = recentPendingQuotes ? recentPendingQuotes.map(quote => ({
       id: quote.quote_number,
       client: quote.clients && typeof quote.clients === 'object' 
-        ? (quote.clients as any).business_name || 'Cliente'
+        ? (quote.clients as { business_name?: string }).business_name || 'Cliente'
         : 'Cliente',
       date: new Date(quote.created_at).toISOString().split('T')[0],
       amount: `$${Number(quote.total_amount).toLocaleString('es-MX')}`,

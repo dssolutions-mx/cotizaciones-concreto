@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 'use client';
 
 import React, { useState } from 'react';
@@ -36,10 +37,11 @@ export const UploadExcel = () => {
         processed: recipes.length
       }));
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
       setStatus(prev => ({
         ...prev,
-        errors: [...prev.errors, `Error al procesar el archivo: ${error.message}`]
+        errors: [...prev.errors, `Error al procesar el archivo: ${errorMessage}`]
       }));
     } finally {
       setIsProcessing(false);
@@ -64,10 +66,11 @@ export const UploadExcel = () => {
       }
       setProcessedRecipes([]);
       alert('Recetas guardadas exitosamente');
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
       setStatus(prev => ({
         ...prev,
-        errors: [...prev.errors, `Error al guardar las recetas: ${error.message}`]
+        errors: [...prev.errors, `Error al guardar las recetas: ${errorMessage}`]
       }));
     } finally {
       setIsProcessing(false);
@@ -128,7 +131,7 @@ export const UploadExcel = () => {
                     Tipo
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    f'c/MR
+                    f&apos;c/MR
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Edad

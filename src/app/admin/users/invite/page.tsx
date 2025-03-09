@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { UserRole } from '@/contexts/AuthContext';
 import RoleGuard from '@/components/auth/RoleGuard';
 import Link from 'next/link';
 import { authService } from '@/lib/supabase/auth';
@@ -13,7 +12,6 @@ export default function InviteUserPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,9 +25,9 @@ export default function InviteUserPage() {
       setSuccess(`Invitación enviada a ${email} con éxito. El usuario recibirá un correo para configurar su contraseña.`);
       setEmail('');
       setRole('SALES_AGENT');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error al invitar usuario:', err);
-      setError(err.message || 'Error al enviar la invitación');
+      setError(err instanceof Error ? err.message : 'Error al enviar la invitación');
     } finally {
       setLoading(false);
     }

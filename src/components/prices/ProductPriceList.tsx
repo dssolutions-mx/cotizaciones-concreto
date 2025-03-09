@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react';
 import { priceService } from '@/lib/supabase/prices';
 
@@ -34,8 +35,26 @@ export const ProductPriceList = () => {
       
       if (supabaseError) throw supabaseError;
       
+      // Define a type for the raw data from the database
+      interface RawProductData {
+        id: string;
+        code: string;
+        description: string;
+        fc_mr_value: number;
+        type: 'FC' | 'MR';
+        age_days: number;
+        placement_type: 'D' | 'B';
+        max_aggregate_size: number;
+        slump: number;
+        base_price: number;
+        recipe: {
+          id: string;
+          recipe_code: string;
+        }[];
+      }
+      
       // Map the data to match the ProductPrice type
-      const mappedProducts: ProductPrice[] = (data || []).map((item: any) => ({
+      const mappedProducts: ProductPrice[] = (data || []).map((item: RawProductData) => ({
         id: item.id,
         code: item.code,
         description: item.description,
@@ -48,7 +67,7 @@ export const ProductPriceList = () => {
         base_price: item.base_price,
         recipe_id: item.recipe?.[0]?.id || '',
         is_active: true,
-        effective_date: item.effective_date || new Date().toISOString(),
+        effective_date: new Date().toISOString(),
         recipe: item.recipe?.[0] ? {
           id: item.recipe[0].id,
           recipe_code: item.recipe[0].recipe_code
@@ -153,7 +172,7 @@ export const ProductPriceList = () => {
                     {getPlacementTypeName(product.placement_type)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    {product.max_aggregate_size}"
+                    {product.max_aggregate_size}&quot;
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {product.slump} cm

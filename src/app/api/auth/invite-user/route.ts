@@ -1,7 +1,6 @@
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { UserRole } from '@/contexts/AuthContext';
 import { createClient } from '@supabase/supabase-js';
 
 export async function POST(request: NextRequest) {
@@ -198,10 +197,14 @@ export async function POST(request: NextRequest) {
       message: 'Invitation sent successfully', 
       user: newUserData.user 
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in invite-user API route:', error);
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : 'An unexpected error occurred';
+    
     return NextResponse.json(
-      { error: error.message || 'An unexpected error occurred' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

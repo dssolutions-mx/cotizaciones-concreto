@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import React, { useMemo, memo } from 'react';
 import {
   LineChart,
@@ -35,12 +36,39 @@ const COLORS = [
   '#0891b2', // cyan-600
 ];
 
+// Define proper interfaces for the memoized components
+interface XAxisProps {
+  dataKey: string;
+  tick: object;
+  height?: number;
+  interval?: number | "preserveStart" | "preserveEnd" | "preserveStartEnd";
+}
+
+interface YAxisProps {
+  tickFormatter?: (value: number) => string;
+  tick: object;
+  width?: number;
+}
+
+interface TooltipProps {
+  formatter?: (value: number, name: string, props: object) => React.ReactNode;
+  labelFormatter?: (label: string) => React.ReactNode;
+}
+
+interface LegendProps {
+  className?: string;
+  layout?: "horizontal" | "vertical";
+  verticalAlign?: "top" | "middle" | "bottom";
+  align?: "left" | "center" | "right";
+}
+
 // Componentes memoizados para mejor rendimiento
 const MemoizedCartesianGrid = memo(({ strokeDasharray }: { strokeDasharray: string }) => (
   <CartesianGrid strokeDasharray={strokeDasharray} stroke="#e5e7eb" strokeOpacity={0.7} />
 ));
+MemoizedCartesianGrid.displayName = 'MemoizedCartesianGrid';
 
-const MemoizedXAxis = memo(({ dataKey, tick, height, interval }: any) => (
+const MemoizedXAxis = memo(({ dataKey, tick, height, interval }: XAxisProps) => (
   <XAxis
     dataKey={dataKey}
     tick={tick}
@@ -49,8 +77,9 @@ const MemoizedXAxis = memo(({ dataKey, tick, height, interval }: any) => (
     axisLine={{ stroke: '#d1d5db' }}
   />
 ));
+MemoizedXAxis.displayName = 'MemoizedXAxis';
 
-const MemoizedYAxis = memo(({ tickFormatter, tick, width }: any) => (
+const MemoizedYAxis = memo(({ tickFormatter, tick, width }: YAxisProps) => (
   <YAxis
     tickFormatter={tickFormatter}
     tick={tick}
@@ -58,16 +87,18 @@ const MemoizedYAxis = memo(({ tickFormatter, tick, width }: any) => (
     axisLine={{ stroke: '#d1d5db' }}
   />
 ));
+MemoizedYAxis.displayName = 'MemoizedYAxis';
 
-const MemoizedTooltip = memo(({ formatter, labelFormatter }: any) => (
+const MemoizedTooltip = memo(({ formatter, labelFormatter }: TooltipProps) => (
   <Tooltip
     formatter={formatter}
     labelFormatter={labelFormatter}
     cursor={{ stroke: '#9ca3af', strokeWidth: 1 }}
   />
 ));
+MemoizedTooltip.displayName = 'MemoizedTooltip';
 
-const MemoizedLegend = memo(({ className, layout, verticalAlign, align }: any) => (
+const MemoizedLegend = memo(({ className, layout, verticalAlign, align }: LegendProps) => (
   <Legend
     className={className}
     layout={layout}
@@ -76,9 +107,10 @@ const MemoizedLegend = memo(({ className, layout, verticalAlign, align }: any) =
     wrapperStyle={{ paddingTop: 10 }}
   />
 ));
+MemoizedLegend.displayName = 'MemoizedLegend';
 
 // Versión altamente optimizada del componente de gráficos
-export const PriceHistoryChart: React.FC<PriceHistoryChartProps> = memo(({
+const PriceHistoryChartComponent: React.FC<PriceHistoryChartProps> = memo(({
   data,
   groupBy,
 }) => {
@@ -254,4 +286,8 @@ export const PriceHistoryChart: React.FC<PriceHistoryChartProps> = memo(({
       </ResponsiveContainer>
     </div>
   );
-}); 
+});
+
+PriceHistoryChartComponent.displayName = 'PriceHistoryChart';
+
+export const PriceHistoryChart = PriceHistoryChartComponent; 

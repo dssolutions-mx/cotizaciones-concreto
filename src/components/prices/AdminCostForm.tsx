@@ -71,8 +71,9 @@ export const AdminCostForm = ({ onCostSaved }: AdminCostFormProps) => {
 
       setTimeout(() => setSuccess(false), 3000);
 
-    } catch (err: any) {
-      setError(err.message || 'Error al guardar el gasto');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error al guardar el gasto';
+      setError(errorMessage);
     } finally {
       setIsSubmitting(false);
     }

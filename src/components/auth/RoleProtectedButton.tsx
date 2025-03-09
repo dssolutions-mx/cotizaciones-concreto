@@ -1,9 +1,9 @@
 'use client';
 
-import { ReactNode } from 'react';
+import { ReactNode, ButtonHTMLAttributes } from 'react';
 import { useAuth, UserRole } from '@/contexts/AuthContext';
 
-interface RoleProtectedButtonProps {
+interface RoleProtectedButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   allowedRoles: UserRole | UserRole[];
   onClick: () => void;
   children: ReactNode;
@@ -12,7 +12,6 @@ interface RoleProtectedButtonProps {
   title?: string;
   showDisabled?: boolean;
   disabledMessage?: string;
-  [key: string]: any;
 }
 
 /**

@@ -10,6 +10,7 @@ Este sistema permite visualizar el historial de precios de recetas por cliente e
 - Indicadores de tendencias y cambios porcentuales
 - Interfaz moderna y responsiva
 - Soporte para múltiples clientes y recetas
+- Linting configurado para mantener la calidad del código
 
 ## Requisitos Previos
 
@@ -119,3 +120,19 @@ The dashboard has been optimized with the following improvements:
    - Shortened animation duration for faster perceived load times
 
 These optimizations significantly improve the dashboard load time and provide a smoother user experience, especially for users with slower connections. 
+
+## Calidad de Código y Linting
+
+El proyecto utiliza ESLint para mantener un alto estándar de calidad de código. Hemos configurado reglas que ayudan a prevenir errores comunes y promueven buenas prácticas de desarrollo.
+
+Para obtener más información sobre las reglas de linting y cómo resolver las advertencias comunes, consulta el archivo [LINTING.md](./LINTING.md).
+
+Para ejecutar el linter:
+
+```bash
+# Ejecutar el linter
+npx next lint
+
+# Corregir automáticamente los problemas que se puedan solucionar
+npx next lint --fix
+``` 

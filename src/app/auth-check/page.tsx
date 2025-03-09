@@ -1,11 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
+interface ApiResponse {
+  success: boolean;
+  message: string;
+  session?: unknown;
+  user?: unknown;
+  [key: string]: unknown;
+}
+
 export default function AuthCheckPage() {
-  const [apiResponse, setApiResponse] = useState<any>(null);
-  const [adminApiResponse, setAdminApiResponse] = useState<any>(null);
+  const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
+  const [adminApiResponse, setAdminApiResponse] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [adminLoading, setAdminLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,8 +33,10 @@ export default function AuthCheckPage() {
       const data = await response.json();
       
       setApiResponse(data);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      console.error('Error checking session:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
+      setError(`Error checking session: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -45,8 +55,10 @@ export default function AuthCheckPage() {
       const data = await response.json();
       
       setAdminApiResponse(data);
-    } catch (err: any) {
-      setAdminError(err.message);
+    } catch (err: unknown) {
+      console.error('Error checking admin API:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
+      setAdminError(`Error checking admin API: ${errorMessage}`);
     } finally {
       setAdminLoading(false);
     }

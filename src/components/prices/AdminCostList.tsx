@@ -46,8 +46,10 @@ export const AdminCostList = ({ hasEditPermission = false }: AdminCostListProps)
       }, {} as Record<string, AdminCost>);
 
       setCosts(Object.values(latestCostsMap));
-    } catch (err: any) {
-      setError(err.message || 'Error al cargar los costos administrativos');
+    } catch (err: unknown) {
+      console.error('Error loading administrative costs:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Error al cargar los costos administrativos';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

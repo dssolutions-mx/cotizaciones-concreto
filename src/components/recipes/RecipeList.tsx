@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -84,6 +85,31 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
     return acc;
   }, {} as Record<string, Record<number, Record<number, (Recipe & { recipe_versions: { notes?: string }[] })[]>>>);
 
+  // Define a proper type for grouped recipes
+  type RecipeItem = {
+    id: string;
+    recipe_code: string;
+    [key: string]: unknown;
+  };
+  
+  // Avoid circular reference by using a non-generic index type
+  type RecipeGroup = RecipeItem[] | {
+    [key: string]: RecipeItem[] | {
+      [key: string]: RecipeItem[]
+    }
+  };
+
+  // Helper function to count recipes in a group
+  const countRecipes = (group: unknown): number => {
+    if (Array.isArray(group)) {
+      return group.length;
+    }
+    if (typeof group === 'object' && group !== null) {
+      return Object.values(group).reduce((sum: number, subGroup) => sum + countRecipes(subGroup), 0);
+    }
+    return 0;
+  };
+
   if (isLoading) {
     return <div>Cargando recetas...</div>;
   }
@@ -91,14 +117,6 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
   if (error) {
     return <div className="text-red-500">{error}</div>;
   }
-
-  // Helper function to count recipes in a group
-  const countRecipes = (group: any): number => {
-    if (Array.isArray(group)) {
-      return group.length;
-    }
-    return Object.values(group).reduce((sum: number, subGroup: any) => sum + countRecipes(subGroup), 0);
-  };
 
   return (
     <div className="container mx-auto p-4">

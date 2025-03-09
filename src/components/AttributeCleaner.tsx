@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 'use client';
 
 import { useEffect } from 'react';
@@ -13,7 +14,7 @@ export default function AttributeCleaner() {
       try {
         document.body.removeAttribute('data-new-gr-c-s-check-loaded');
         document.body.removeAttribute('data-gr-ext-installed');
-      } catch (e) {
+      } catch (_e) {
         // Silenciar errores para evitar problemas
       }
     };

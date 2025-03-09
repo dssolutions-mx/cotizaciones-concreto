@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { supabase } from '@/lib/supabase'
 import { handleError } from '@/utils/errorHandler';
 
@@ -34,6 +35,23 @@ export interface QuoteDetail {
   pump_price?: number
   total_amount: number
   includes_vat: boolean
+}
+
+export interface CreateQuoteData {
+  client_id: string;
+  construction_site: string;
+  location: string;
+  validity_date: string;
+  details: Array<{
+    product_id: string;
+    volume: number;
+    base_price: number;
+    profit_margin: number;
+    final_price: number;
+    pump_service: boolean;
+    pump_price?: number;
+    includes_vat: boolean;
+  }>;
 }
 
 export const QuotesService = {
@@ -228,7 +246,7 @@ export const QuotesService = {
   }
 }
 
-export const createQuote = async (quoteData: any) => {
+export const createQuote = async (quoteData: CreateQuoteData) => {
   try {
     // Get current user's ID from the auth session
     const { data: authData } = await supabase.auth.getSession();

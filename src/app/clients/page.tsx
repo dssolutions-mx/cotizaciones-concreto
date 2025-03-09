@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import { clientService } from '@/lib/supabase/clients';
@@ -16,10 +15,6 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { hasRole } = useAuth();
-
-  // Define who can edit clients
-  const canCreateEditClients = hasRole(['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE']);
 
   useEffect(() => {
     const loadClients = async () => {
@@ -27,8 +22,9 @@ export default function ClientsPage() {
         setLoading(true);
         const data = await clientService.getAllClients();
         setClients(data);
-      } catch (err: any) {
-        setError(err.message || 'Error al cargar los clientes');
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : 'Error al cargar los clientes';
+        setError(errorMessage);
         console.error(err);
       } finally {
         setLoading(false);

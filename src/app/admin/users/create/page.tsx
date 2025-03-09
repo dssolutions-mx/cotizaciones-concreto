@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useAuth, UserRole } from '@/contexts/AuthContext';
 import RoleGuard from '@/components/auth/RoleGuard';
 import Link from 'next/link';
@@ -16,7 +15,6 @@ export default function CreateUserPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
   const { user } = useAuth(); // Get the current authenticated user
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -45,9 +43,9 @@ export default function CreateUserPage() {
       setFirstName('');
       setLastName('');
       setRole('SALES_AGENT');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error al crear usuario:', err);
-      setError(err.message || 'Error al crear usuario');
+      setError(err instanceof Error ? err.message : 'Error al crear usuario');
     } finally {
       setLoading(false);
     }

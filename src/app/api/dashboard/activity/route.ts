@@ -81,7 +81,7 @@ export async function GET() {
         id: activity.id,
         text: activity.description,
         user: activity.users && typeof activity.users === 'object' 
-          ? (activity.users as any).name || 'Usuario'
+          ? (activity.users as { name?: string }).name || 'Usuario'
           : 'Usuario',
         time: timeAgo
       };

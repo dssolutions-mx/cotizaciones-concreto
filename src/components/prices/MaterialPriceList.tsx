@@ -47,8 +47,10 @@ export const MaterialPriceList = ({ hasEditPermission = false }: MaterialPriceLi
       }, {} as Record<string, MaterialPrice>);
 
       setPrices(Object.values(latestPricesMap));
-    } catch (err: any) {
-      setError(err.message || 'Error al cargar los precios');
+    } catch (err: unknown) {
+      console.error('Error loading material prices:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Error al cargar los precios';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

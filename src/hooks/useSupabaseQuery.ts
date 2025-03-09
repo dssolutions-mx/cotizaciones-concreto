@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 
 // Sistema de caché simple en memoria
-const queryCache = new Map<string, { data: any; timestamp: number }>();
+const queryCache = new Map<string, { data: unknown; timestamp: number }>();
 
-interface QueryOptions {
+interface QueryOptions<T> {
   cacheTime?: number;
   enabled?: boolean;
   refetchInterval?: number | false;
-  onSuccess?: (data: any) => void;
-  onError?: (error: any) => void;
+  onSuccess?: (data: T) => void;
+  onError?: (error: unknown) => void;
 }
 
 /**
@@ -17,14 +17,14 @@ interface QueryOptions {
  * @param queryFn - Función asíncrona que realiza la consulta a Supabase
  * @param options - Opciones de configuración
  */
-export function useSupabaseQuery<T = any>(
+export function useSupabaseQuery<T>(
   key: string,
   queryFn: () => Promise<T>,
-  options: QueryOptions = {}
+  options: QueryOptions<T> = {}
 ) {
   const [data, setData] = useState<T | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<any>(null);
+  const [error, setError] = useState<unknown>(null);
   
   const {
     cacheTime = 5 * 60 * 1000, // 5 minutos por defecto
@@ -48,10 +48,10 @@ export function useSupabaseQuery<T = any>(
         const cachedItem = queryCache.get(key);
         if (cachedItem && (Date.now() - cachedItem.timestamp < cacheTime)) {
           if (isMounted) {
-            setData(cachedItem.data);
+            setData(cachedItem.data as T);
             setIsLoading(false);
           }
-          return cachedItem.data;
+          return cachedItem.data as T;
         }
         
         // Ejecutar consulta

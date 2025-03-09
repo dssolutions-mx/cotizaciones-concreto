@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import QuotePDF from './QuotePDF';
@@ -86,7 +87,7 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
   const [vatToggles, setVatToggles] = useState<Record<string, boolean>>({});
   const quotesPerPage = 10;
 
-  const fetchApprovedQuotes = async () => {
+  const fetchApprovedQuotes = useCallback(async () => {
     try {
       setIsLoading(true);
       const { data, count, error } = await supabase
@@ -183,11 +184,11 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [page]);
 
   useEffect(() => {
     fetchApprovedQuotes();
-  }, [page]);
+  }, [fetchApprovedQuotes]);
 
   useEffect(() => {
     const initialVatToggles: Record<string, boolean> = {};

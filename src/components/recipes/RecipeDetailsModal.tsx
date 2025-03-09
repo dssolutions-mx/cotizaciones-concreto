@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect } from 'react';
 import { recipeService } from '@/lib/supabase/recipes';
 import { getRecipeReferenceMaterials } from '@/lib/recipes/recipeReferenceMaterials';

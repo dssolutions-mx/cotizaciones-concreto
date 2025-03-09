@@ -41,9 +41,10 @@ export default function ProfilePage() {
 
       setMessage('Perfil actualizado correctamente');
       setTimeout(() => setMessage(null), 3000);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error al actualizar perfil:', err);
-      setError(err.message || 'Error al actualizar el perfil');
+      const errorMessage = err instanceof Error ? err.message : 'Error al actualizar el perfil';
+      setError(errorMessage);
     } finally {
       setSaving(false);
     }

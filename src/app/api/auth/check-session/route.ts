@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
-import { cookies } from 'next/headers';
-import { createClient } from '@supabase/supabase-js';
+import { createServerComponent, createServiceClient } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -57,78 +55,60 @@ export async function GET(request: NextRequest) {
     
     console.log('Expected user from client:', { expectedUserId, expectedEmail });
 
-    // Try using the createRouteHandlerClient approach first
+    // Use the more secure getUser method instead of getSession
     try {
-      const supabase = createRouteHandlerClient({ cookies });
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      const supabase = createServerComponent();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
       
-      if (sessionError) {
-        console.error('Error from getSession():', sessionError);
+      if (userError) {
+        console.error('Error from getUser():', userError);
       }
       
-      if (session) {
-        console.log('Successfully retrieved session from createRouteHandlerClient:', session.user.email);
+      if (user) {
+        console.log('Successfully retrieved user:', user.email);
         
-        // Check if the session matches the expected user if provided
-        if (expectedUserId && session.user.id !== expectedUserId) {
-          console.log(`Session user ID ${session.user.id} doesn't match expected ${expectedUserId}`);
-        } else if (expectedEmail && session.user.email !== expectedEmail) {
-          console.log(`Session email ${session.user.email} doesn't match expected ${expectedEmail}`);
+        // Check if the user matches the expected user if provided
+        if (expectedUserId && user.id !== expectedUserId) {
+          console.log(`User ID ${user.id} doesn't match expected ${expectedUserId}`);
+        } else if (expectedEmail && user.email !== expectedEmail) {
+          console.log(`User email ${user.email} doesn't match expected ${expectedEmail}`);
         } else {
           // Create a Supabase admin client for accessing the profiles
-          const supabaseAdmin = createClient(
-            supabaseUrl,
-            supabaseServiceRoleKey,
-            {
-              auth: {
-                autoRefreshToken: false,
-                persistSession: false
-              }
-            }
-          );
+          const supabaseAdmin = createServiceClient();
           
           // Check if user profile exists
           const { data: userProfile, error: profileError } = await supabaseAdmin
             .from('user_profiles')
             .select('id, role, email, first_name, last_name')
-            .eq('id', session.user.id)
+            .eq('id', user.id)
             .maybeSingle();
             
           return NextResponse.json({
             success: true,
             session: {
               user: {
-                id: session.user.id,
-                email: session.user.email,
+                id: user.id,
+                email: user.email,
               }
             },
             profile: userProfile || null,
             profileExists: !!userProfile,
             profileError: profileError ? profileError.message : null,
-            status: 'session-active',
-            method: 'route-handler-client',
+            status: 'user-authenticated',
+            method: 'auth-getUser',
           });
         }
       } else {
-        console.log('No session found from createRouteHandlerClient');
+        console.log('No authenticated user found');
       }
-    } catch (routeHandlerError) {
-      console.error('Error with route handler client approach:', routeHandlerError);
+    } catch (authError) {
+      console.error('Error with authentication check:', authError);
     }
 
     // If we have expected user information, try to access the profile directly
     if (expectedUserId || expectedEmail) {
       try {
-        const supabaseAdmin = createClient(
-          supabaseUrl,
-          supabaseServiceRoleKey,
-          {
-            auth: {
-              autoRefreshToken: false,
-              persistSession: false
-            }
-          }
-        );
+        const supabaseAdmin = createServiceClient();
         
         let query = supabaseAdmin.from('user_profiles').select('id, role, email, first_name, last_name');
         
@@ -154,7 +134,7 @@ export async function GET(request: NextRequest) {
             profileExists: true,
             status: 'profile-only',
             method: 'direct-profile-query',
-            note: 'Session unavailable but profile found using provided user information'
+            note: 'Authentication check failed but profile found using provided user information'
           });
         }
       } catch (directProfileError) {
@@ -162,25 +142,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Try to find auth cookies using regex
-    const authCookieMatches = Array.from(
-      cookieHeader.matchAll(/sb-([a-zA-Z0-9_-]+)-auth-token/g) || []
-    ).map(match => match[0]);
-
-    console.log(`Found ${authCookieMatches.length} auth cookies via regex`);
-    
-    if (authCookieMatches.length > 0) {
-      // Process auth cookies...
-      // [This part of the code remains the same as before]
-      // [Omitted for brevity]
-    }
-
     // If we reach here, we couldn't find a valid session
     // Create a detailed debug response
     return NextResponse.json({
       success: false,
-      error: 'No auth cookie found',
-      status: 'no-auth-cookie',
+      error: 'No authenticated user found',
+      status: 'auth-failed',
       debug: {
         cookieHeader: cookieHeader.substring(0, 100) + (cookieHeader.length > 100 ? '...' : ''),
         allCookies: allCookieNames,
@@ -193,14 +160,18 @@ export async function GET(request: NextRequest) {
           hasServiceKey: !!supabaseServiceRoleKey,
         }
       },
-      help: "The session appears to be active on the client side but not on the server. This may be due to: 1) Cookie settings preventing cookies from being sent to the API, 2) The browser not properly setting cookies, or 3) Auth configuration issues."
+      help: "The user appears to be logged in on the client side but not on the server. This may be due to: 1) Cookie settings preventing cookies from being sent to the API, 2) The browser not properly setting cookies, or 3) Auth configuration issues."
     });
     
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error in check-session API route:', error);
+    const errorMessage = error instanceof Error 
+      ? error.message 
+      : 'An unexpected error occurred';
+    
     return NextResponse.json({
       success: false,
-      error: error.message || 'An unexpected error occurred',
+      error: errorMessage,
       status: 'error',
     }, { status: 500 });
   }

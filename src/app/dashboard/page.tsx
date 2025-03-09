@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense, ReactNode } from 'react';
+import React, { ReactNode } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
@@ -20,26 +20,10 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
 } from 'recharts';
 
-// Database Services
-import { supabase } from '@/lib/supabase';
-import { clientService } from '@/lib/supabase/clients';
-import { priceService } from '@/lib/supabase/prices';
-import { recipeService } from '@/lib/supabase/recipes';
-
 // Add SWR for data fetching with caching
 import useSWR from 'swr';
 
 // Interface definitions
-interface DashboardMetrics {
-  monthlyQuotes: number;
-  monthlySales: number;
-  activeClients: number;
-  activeRecipes: number;
-  quoteGrowth: number;
-  salesGrowth: number;
-  clientGrowth: number;
-}
-
 interface ChartData {
   name: string;
   value: number;
@@ -66,40 +50,6 @@ interface PendingQuote {
   amount: string;
   status: string;
   constructionSite: string;
-}
-
-// Database type definitions
-interface ClientResult {
-  id: string;
-  business_name: string;
-  client_code: string;
-}
-
-interface ClientsResponse {
-  data: ClientResult[] | null;
-  error: any;
-}
-
-interface Quote {
-  id: string;
-  quote_number: string;
-  created_at: string;
-  total_amount: number;
-  status: string;
-  construction_site: string;
-  clients: {
-    business_name: string;
-  };
-}
-
-interface ActivityLog {
-  id: string;
-  description: string;
-  created_at: string;
-  user_id: string;
-  users: {
-    name: string;
-  };
 }
 
 // Create a fetcher function for SWR

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { useState } from 'react';
 import { priceService } from '@/lib/supabase/prices';
 

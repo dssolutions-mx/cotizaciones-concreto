@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 import QuoteBuilder from '@/components/prices/QuoteBuilder';
 import DraftQuotesTab from '@/components/quotes/DraftQuotesTab';
 import PendingApprovalTab from '@/components/quotes/PendingApprovalTab';
@@ -11,10 +11,15 @@ import RoleGuard from '@/components/auth/RoleGuard';
 // Define tab types
 type TabId = 'draft' | 'pending' | 'approved' | 'create';
 
+// Common props type that all components might receive
+interface TabComponentProps {
+  onDataSaved?: () => void;
+}
+
 interface TabDefinition {
   id: TabId;
   name: string;
-  component: React.ComponentType<any>;
+  component: React.ComponentType<TabComponentProps>;
 }
 
 export default function QuotesPage() {
@@ -60,7 +65,7 @@ export default function QuotesPage() {
     if (TABS.length > 0 && !TABS.some(tab => tab.id === activeTab)) {
       setActiveTab(TABS[0].id);
     }
-  }, [userProfile, TABS]);
+  }, [userProfile, TABS, activeTab]);
 
   const handleDataSaved = () => {
     setRefreshTrigger(prev => prev + 1);

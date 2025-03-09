@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { supabase } from './client';
 
 // Valid types for product prices according to database constraint

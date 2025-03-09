@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { UserRole } from '@/contexts/AuthContext';
 import RoleGuard from '@/components/auth/RoleGuard';
 import Link from 'next/link';
 import { authService } from '@/lib/supabase/auth';
@@ -21,7 +20,6 @@ export default function UserManagementPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
-  const router = useRouter();
 
   useEffect(() => {
     fetchUsers();
@@ -32,9 +30,10 @@ export default function UserManagementPage() {
       setLoading(true);
       const data = await authService.getAllUsers();
       setUsers(data || []);
-    } catch (err: any) {
-      setError(err.message || 'Error al cargar usuarios');
-      console.error(err);
+    } catch (err: unknown) {
+      console.error('Error loading users:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Error al cargar usuarios';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -51,9 +50,10 @@ export default function UserManagementPage() {
       ));
       
       setEditingUser(null);
-    } catch (err: any) {
-      setError(err.message || 'Error al actualizar el rol');
-      console.error(err);
+    } catch (err: unknown) {
+      console.error('Error updating role:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Error al actualizar el rol';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

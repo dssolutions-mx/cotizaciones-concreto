@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { PriceHistoryTable } from '@/components/PriceHistoryTable';
 import { PriceHistoryChart } from '@/components/PriceHistoryChart';
 import {
@@ -11,21 +11,18 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { DatePickerWithRange } from '@/components/ui/date-range-picker';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ChartBarIcon, TableIcon } from 'lucide-react';
 import { fetchPriceHistoryByClient, fetchPriceHistoryByRecipe } from '@/services/priceHistoryService';
 import type { PriceHistoryFilters, ClientPriceHistory, RecipePriceHistory, ViewMode } from '@/types/priceHistory';
 import type { DateRange } from 'react-day-picker';
 import { PostgrestError } from '@supabase/supabase-js';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
 import { QualityTeamAccessDenied } from '@/components/QualityTeamAccessDenied';
 
 export default function PriceHistoryPage() {
   const { userProfile } = useAuth();
-  const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [groupBy, setGroupBy] = useState<'client' | 'recipe'>('client');
   const [filters, setFilters] = useState<PriceHistoryFilters>({});
@@ -33,15 +30,7 @@ export default function PriceHistoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  if (userProfile?.role === 'QUALITY_TEAM') {
-    return <QualityTeamAccessDenied />;
-  }
-
-  useEffect(() => {
-    loadData();
-  }, [filters, groupBy]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -65,7 +54,18 @@ export default function PriceHistoryPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, groupBy]);
+
+  useEffect(() => {
+    if (userProfile?.role !== 'QUALITY_TEAM') {
+      loadData();
+    }
+  }, [filters, groupBy, userProfile?.role, loadData]);
+
+  // Render access denied if user is from quality team
+  if (userProfile?.role === 'QUALITY_TEAM') {
+    return <QualityTeamAccessDenied />;
+  }
 
   const handleDateRangeChange = (range: DateRange | undefined) => {
     setFilters(prev => ({

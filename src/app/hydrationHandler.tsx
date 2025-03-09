@@ -8,17 +8,17 @@ import { useEffect } from 'react';
  */
 export function HydrationErrorHandler() {
   // Este componente solo se usará en desarrollo
-  if (process.env.NODE_ENV !== 'development') {
-    return null;
-  }
+  const isDevelopment = process.env.NODE_ENV === 'development';
   
-  // Solo montamos el efecto en desarrollo
+  // Siempre montamos el efecto pero solo hacemos algo en desarrollo
   useEffect(() => {
+    if (!isDevelopment) return;
+    
     // No hacemos nada más aquí, ya que la consola incorporada
     // en el entorno de desarrollo ya proporciona buenos mensajes de error
     
     return () => {};
-  }, []);
+  }, [isDevelopment]);
 
   return null;
 }
