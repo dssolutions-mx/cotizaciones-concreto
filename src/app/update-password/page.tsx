@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 
-export default function UpdatePasswordPage() {
+// Create a client component that uses useSearchParams
+function UpdatePasswordForm() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -250,5 +251,33 @@ export default function UpdatePasswordPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+// Create a loading fallback component
+function UpdatePasswordLoading() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
+      <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
+        <div className="text-center">
+          <h1 className="text-3xl font-bold text-gray-900">Cargando</h1>
+          <p className="mt-2 text-sm text-gray-600">
+            Por favor espera un momento...
+          </p>
+        </div>
+        <div className="flex justify-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Main page component with Suspense boundary
+export default function UpdatePasswordPage() {
+  return (
+    <Suspense fallback={<UpdatePasswordLoading />}>
+      <UpdatePasswordForm />
+    </Suspense>
   );
 } 
