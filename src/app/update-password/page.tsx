@@ -14,6 +14,8 @@ function UpdatePasswordForm() {
   const [isInvitation, setIsInvitation] = useState(false);
   // Change the approach - don't rely on session checked state
   const [authReady, setAuthReady] = useState(false);
+  // Add a state to track if the update completed
+  const [updateCompleted, setUpdateCompleted] = useState(false);
   // Store tokens directly when found
   const [authTokens, setAuthTokens] = useState<{
     access_token?: string;
@@ -246,6 +248,7 @@ function UpdatePasswordForm() {
     e.preventDefault();
     setMessage(null);
     setError(null);
+    setUpdateCompleted(false);
     
     // Validate passwords
     if (password !== confirmPassword) {
@@ -268,6 +271,7 @@ function UpdatePasswordForm() {
       // Check if there's actually a session or tokens before attempting update
       const { data: sessionCheck } = await supabase.auth.getSession();
       console.log('Current session before update:', sessionCheck?.session ? 'Valid session found' : 'No valid session');
+      console.log('Current session ID:', sessionCheck?.session?.user?.id);
       
       if (!sessionCheck?.session && (!authTokens?.access_token || !authTokens?.refresh_token)) {
         console.error('No valid session or tokens found before password update');
@@ -276,10 +280,13 @@ function UpdatePasswordForm() {
         return;
       }
       
+      // Get access token to use in all attempts
+      const accessToken = sessionCheck?.session?.access_token || authTokens?.access_token;
+      
       // Loop through multiple methods to update password
-      while (!updateSuccessful && updateAttempts < 3) {
+      while (!updateSuccessful && updateAttempts < 4) {  // Increased to 4 to add direct API call
         updateAttempts++;
-        console.log(`Password update attempt ${updateAttempts}/3`);
+        console.log(`Password update attempt ${updateAttempts}/4`);
         
         try {
           // Method 1: Use direct tokens if available
@@ -299,10 +306,12 @@ function UpdatePasswordForm() {
             }
             
             console.log('Session set successfully. Session exists:', !!sessionData?.session);
+            console.log('Session user ID:', sessionData?.session?.user?.id);
             
             // Log user data before update
             const { data: userData } = await supabase.auth.getUser();
             console.log('User data before update:', userData?.user ? 'User found' : 'No user data');
+            console.log('User ID:', userData?.user?.id);
             
             // Now update the password with retry logic
             const { /* data: updateData, */ error: updateError } = await supabase.auth.updateUser({ password });
@@ -318,6 +327,7 @@ function UpdatePasswordForm() {
             
             console.log('Password updated successfully with tokens.');
             updateSuccessful = true;
+            setUpdateCompleted(true);
             break;
           }
           
@@ -339,6 +349,7 @@ function UpdatePasswordForm() {
             }
             
             console.log('Session refreshed, attempting password update');
+            console.log('Session user ID:', refreshResult?.session?.user?.id);
             
             // Update the password using the refreshed session
             const { /* data: updateData, */ error: updateError } = await supabase.auth.updateUser({ password });
@@ -351,11 +362,12 @@ function UpdatePasswordForm() {
             
             console.log('Password updated successfully after session refresh');
             updateSuccessful = true;
+            setUpdateCompleted(true);
             break;
           }
           
           // Method 3: Direct update as last resort
-          else {
+          else if (updateAttempts === 3) {
             console.log('Attempt 3: Direct password update method');
             
             const { /* data: updateData, */ error } = await supabase.auth.updateUser({ password });
@@ -363,12 +375,51 @@ function UpdatePasswordForm() {
             if (error) {
               console.error('Error with direct password update:', error);
               console.error('Error details:', error.message, error.status);
-              throw error;
+              continue; // Try the direct API method as last resort
             }
             
             console.log('Password updated successfully with direct method');
             updateSuccessful = true;
+            setUpdateCompleted(true);
             break;
+          }
+          
+          // Method 4: Use direct API call as absolute last resort
+          else {
+            console.log('Attempt 4: Using direct Auth API call');
+            
+            if (!accessToken) {
+              console.error('No access token available for direct API call');
+              continue;
+            }
+            
+            try {
+              // Make a direct fetch to the Supabase Auth API
+              const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/user`, {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${accessToken}`,
+                  'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+                },
+                body: JSON.stringify({ password })
+              });
+              
+              if (!response.ok) {
+                const errorData = await response.json();
+                console.error('Direct API call failed:', errorData);
+                throw new Error(`API error: ${response.status} - ${JSON.stringify(errorData)}`);
+              }
+              
+              const data = await response.json();
+              console.log('Password updated successfully with direct API call:', data ? 'Response received' : 'No response data');
+              updateSuccessful = true;
+              setUpdateCompleted(true);
+              break;
+            } catch (apiError) {
+              console.error('Error with direct API call:', apiError);
+              throw apiError; // Rethrow to handle in outer catch
+            }
           }
         } catch (attemptError) {
           console.error(`Error during update attempt ${updateAttempts}:`, attemptError);
@@ -378,6 +429,8 @@ function UpdatePasswordForm() {
       }
       
       if (updateSuccessful) {
+        // Make sure updateCompleted is set regardless of how we got here
+        setUpdateCompleted(true);
         // Handle success path
         await handleSuccessAndRedirect();
       } else {
@@ -396,7 +449,7 @@ function UpdatePasswordForm() {
     try {
       console.log('Password update successful, preparing for redirect');
 
-      // Display success message
+      // Display success message immediately
       setMessage("Tu contraseña ha sido actualizada con éxito");
       setLoading(false);
       
@@ -435,29 +488,60 @@ function UpdatePasswordForm() {
       }
       
       // Use a more reliable redirection approach with a clear indicator
-      console.log('Password updated successfully! Redirecting in 2 seconds...');
+      console.log('Password updated successfully! Redirecting immediately...');
       
       // Set a definitive flag in the DOM to indicate success
       document.title = "Contraseña Actualizada - Redirigiendo...";
       
-      // Use a more direct and forceful redirect
+      // Use a shorter timeout and more reliable approach
       setTimeout(() => {
-        console.log('Executing redirect to login page now');
+        // Force an immediate page navigation instead of using router
         try {
-          // Force a hard navigation to login to ensure a fresh state
-          window.location.href = '/login?updated=true';
-        } catch (redirectError) {
-          console.error('Redirect error:', redirectError);
-          // Emergency fallback if location change fails
+          console.log('Executing immediate redirect to login page');
           window.location.replace('/login?updated=true');
+        } catch (redirectError) {
+          console.error('Redirect error (trying fallback):', redirectError);
+          
+          // Fallback to a direct DOM form submission as last resort
+          try {
+            const form = document.createElement('form');
+            form.method = 'GET';
+            form.action = '/login';
+            const hiddenField = document.createElement('input');
+            hiddenField.type = 'hidden';
+            hiddenField.name = 'updated';
+            hiddenField.value = 'true';
+            form.appendChild(hiddenField);
+            document.body.appendChild(form);
+            console.log('Submitting fallback form redirect');
+            form.submit();
+          } catch (formError) {
+            console.error('Form redirect error:', formError);
+          }
         }
-      }, 2000);
+      }, 500); // Reduce to 500ms instead of 2 seconds
     } catch (err) {
       console.error('Error during post-update process:', err);
       setLoading(false);
       setError('La contraseña se actualizó, pero hubo un problema al redireccionar. Por favor, ve a la página de inicio de sesión manualmente.');
     }
   };
+
+  // Add a safety check in the component's render to show login link if update is complete
+  // but we're somehow still on this page
+  useEffect(() => {
+    // If the update was completed but we're still on this page after 3 seconds,
+    // show a manual navigation option
+    if (updateCompleted) {
+      const timer = setTimeout(() => {
+        if (!message) {
+          setMessage("La contraseña parece haberse actualizado correctamente, pero la redirección automática no funcionó. Por favor, haz clic en 'Volver a Iniciar Sesión' abajo.");
+        }
+      }, 3000);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [updateCompleted, message]);
 
   // Show loading state while authentication data is being processed
   if (!authReady) {
@@ -553,12 +637,35 @@ function UpdatePasswordForm() {
           </div>
 
           <div className="text-center">
-            <Link
-              href="/login"
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
-            >
-              Volver a Iniciar Sesión
-            </Link>
+            {updateCompleted ? (
+              <a
+                href="/login?updated=true"
+                className="inline-block mt-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                onClick={(e) => {
+                  // Clear any session data before navigating
+                  try {
+                    for (const key of Object.keys(localStorage)) {
+                      if (key.startsWith('supabase.auth.')) {
+                        localStorage.removeItem(key);
+                      }
+                    }
+                    // Try to sign out synchronously before navigation
+                    supabase.auth.signOut();
+                  } catch (e) {
+                    console.error('Error during emergency sign out:', e);
+                  }
+                }}
+              >
+                Ir a Página de Inicio de Sesión
+              </a>
+            ) : (
+              <Link
+                href="/login"
+                className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+              >
+                Volver a Iniciar Sesión
+              </Link>
+            )}
           </div>
         </form>
       </div>
