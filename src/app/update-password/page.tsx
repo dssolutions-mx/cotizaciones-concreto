@@ -77,6 +77,48 @@ function UpdatePasswordForm() {
 
   // Extract tokens from the URL on mount
   useEffect(() => {
+    // Add explicit check for existing session on component mount
+    const checkExistingSession = async () => {
+      if (sessionChecked) return; // Skip if already checked
+      
+      try {
+        console.log('Performing initial session check on mount...');
+        const { data, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Initial session check error:', error);
+          return;
+        }
+        
+        if (data.session) {
+          console.log('Found existing session on mount:', data.session.user.id);
+          
+          // Force session refresh to ensure it's valid and fully established
+          try {
+            await supabase.auth.refreshSession();
+            console.log('Session refreshed on mount');
+            
+            // Check for user metadata to see if this is an invited user
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user?.user_metadata?.invited) {
+              console.log('This is an invited user (from initial check)');
+              setIsInvitation(true);
+            }
+            
+            // Mark session as checked to stop polling
+            setSessionChecked(true);
+          } catch (refreshErr) {
+            console.error('Error refreshing session on mount:', refreshErr);
+          }
+        }
+      } catch (err) {
+        console.error('Error in initial session check:', err);
+      }
+    };
+    
+    // Check for existing session first
+    checkExistingSession();
+    
     // This is critical for password reset flows - we need to capture auth tokens
     // from the URL hash fragment
     const setAuthFromHash = async () => {
@@ -208,7 +250,26 @@ function UpdatePasswordForm() {
             setIsInvitation(true);
           }
           
+          // Important: signal that session checking is complete
           setSessionChecked(true);
+          
+          // Fix: Attempt to reestablish the session explicitly
+          try {
+            const accessToken = data.session.access_token;
+            const refreshToken = data.session.refresh_token;
+            
+            if (accessToken && refreshToken) {
+              console.log('Explicitly setting session from polling result');
+              await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken
+              });
+              console.log('Session explicitly set from polling result');
+            }
+          } catch (sessionSetError) {
+            console.error('Error setting explicit session from polling:', sessionSetError);
+          }
+          
           return;
         }
         
@@ -229,18 +290,28 @@ function UpdatePasswordForm() {
       }
     };
     
-    // Set up polling interval
-    const pollInterval = setInterval(() => {
-      if (pollAttempts < maxPollAttempts && !sessionChecked) {
-        pollForSession();
-      } else {
-        clearInterval(pollInterval);
-      }
-    }, 2000); // Poll every 2 seconds
+    // Set up polling with proper cleanup
+    let pollIntervalRef: NodeJS.Timeout | null = null;
     
-    // Clean up
+    // Wait 1 second before starting to poll to allow auth system to initialize
+    const initialDelay = setTimeout(() => {
+      pollIntervalRef = setInterval(() => {
+        if (pollAttempts < maxPollAttempts && !sessionChecked) {
+          pollForSession();
+        } else if (pollIntervalRef) {
+          clearInterval(pollIntervalRef);
+          pollIntervalRef = null;
+        }
+      }, 2000); // Poll every 2 seconds
+    }, 1000);
+    
+    // Clean up all timers on unmount
     return () => {
-      clearInterval(pollInterval);
+      clearTimeout(initialDelay);
+      if (pollIntervalRef) {
+        clearInterval(pollIntervalRef);
+        pollIntervalRef = null;
+      }
     };
   }, [checkSession, isInvitation, sessionChecked]);
 

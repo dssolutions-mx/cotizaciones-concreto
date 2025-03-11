@@ -7,6 +7,7 @@ import { User, Session } from '@supabase/supabase-js';
 import { createBrowserClient } from '@supabase/ssr';
 import type { Database } from '@/types/supabase';
 import { checkPermission } from '@/lib/auth/roleUtils';
+import { supabase } from '@/lib/supabase';
 import { 
   cacheUserProfile, 
   getCachedUserProfile,
@@ -62,17 +63,9 @@ const calculateTimeToExpiry = (expiryDate: Date | null): number | null => {
   return Math.max(0, expiryDate.getTime() - now.getTime());
 };
 
-// Create browser-side Supabase client
-const createClient = () => {
-  return createBrowserClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
-};
-
 // Auth provider component
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [supabase] = useState(() => createClient());
+  // Use the singleton Supabase client instead of creating a new one
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -163,7 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthStatus('unauthenticated');
       clearUserCache();
     }
-  }, [supabase]);
+  }, []);
 
   // Refresh session manually (can be called from components)
   const refreshSession = useCallback(async () => {
@@ -224,7 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsSessionLoading(false);
     }
-  }, [supabase, updateAuthState]);
+  }, [updateAuthState]);
   
   // Update the ref whenever refreshSession changes
   useEffect(() => {
@@ -319,7 +312,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
     
     initializeAuth();
-  }, [supabase, router, updateAuthState]);
+  }, [router, updateAuthState]);
 
   // Sign in with email and password
   const signIn = async (email: string, password: string) => {
