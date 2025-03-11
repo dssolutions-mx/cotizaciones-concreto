@@ -2,11 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import { authService } from '@/lib/supabase/auth';
 
 export default function ProfilePage() {
-  const { userProfile, loading } = useAuth();
+  const { userProfile, loading, refreshSession } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -29,16 +29,25 @@ export default function ProfilePage() {
     setSaving(true);
 
     try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({
-          first_name: firstName,
-          last_name: lastName,
-        })
-        .eq('id', userProfile?.id);
+      // Use the enhanced profile update method with retry logic
+      if (!userProfile?.id) {
+        throw new Error('ID de usuario no disponible');
+      }
+      
+      await authService.updateUserProfile(userProfile.id, {
+        first_name: firstName,
+        last_name: lastName,
+      });
 
-      if (error) throw error;
-
+      // Also manually refresh the session to ensure changes are reflected
+      await refreshSession();
+      
+      // Add a second refresh after a short delay to ensure changes are reflected
+      setTimeout(async () => {
+        await refreshSession();
+        console.log('Second refresh completed after profile update');
+      }, 500);
+      
       setMessage('Perfil actualizado correctamente');
       setTimeout(() => setMessage(null), 3000);
     } catch (err: unknown) {

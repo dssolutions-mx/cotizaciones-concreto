@@ -170,16 +170,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setIsSessionLoading(true);
       console.log('Manually refreshing session...');
-      const { data: { session: refreshedSession } } = await supabase.auth.refreshSession();
-      await updateAuthState(refreshedSession);
       
-      const now = new Date();
-      setLastSessionRefresh(now);
-      cacheLastRefresh(now);
+      // Add retry logic for session refresh
+      const maxRetries = 3;
+      let attempts = 0;
+      let refreshSuccess = false;
       
-      console.log('Session refreshed successfully at', now.toISOString());
-    } catch (error) {
-      console.error('Error refreshing session:', error);
+      while (attempts < maxRetries && !refreshSuccess) {
+        attempts++;
+        try {
+          // Try to refresh the session
+          const { data: { session: refreshedSession }, error } = await supabase.auth.refreshSession();
+          
+          if (error) {
+            console.error(`Session refresh attempt ${attempts}/${maxRetries} failed:`, error);
+            
+            // Wait before retrying (exponential backoff)
+            if (attempts < maxRetries) {
+              const delay = Math.pow(2, attempts) * 300; // 600ms, 1200ms, 2400ms
+              console.log(`Waiting ${delay}ms before retry...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+            continue;
+          }
+          
+          // Success - update auth state and break the loop
+          await updateAuthState(refreshedSession);
+          refreshSuccess = true;
+          
+          const now = new Date();
+          setLastSessionRefresh(now);
+          cacheLastRefresh(now);
+          
+          console.log('Session refreshed successfully at', now.toISOString());
+        } catch (retryError) {
+          console.error(`Unexpected error during refresh attempt ${attempts}:`, retryError);
+          if (attempts >= maxRetries) break;
+          
+          // Wait before retrying
+          const delay = Math.pow(2, attempts) * 300;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+      
+      if (!refreshSuccess) {
+        console.error('Failed to refresh session after maximum retries');
+        // Get current session as fallback
+        const { data } = await supabase.auth.getSession();
+        await updateAuthState(data.session);
+      }
+    } catch (err) {
+      console.error('Error refreshing session:', err);
     } finally {
       setIsSessionLoading(false);
     }

@@ -157,6 +157,70 @@ export const authService = {
   },
 
   /**
+   * Actualiza el perfil del usuario con manejo de sesión mejorado
+   */
+  async updateUserProfile(userId: string, profileData: {
+    first_name?: string;
+    last_name?: string;
+    email?: string;
+    role?: UserRole;
+  }) {
+    let attempts = 0;
+    const maxAttempts = 3;
+    let lastError = null;
+    
+    while (attempts < maxAttempts) {
+      try {
+        // Attempt to update user profile
+        const { error } = await supabase
+          .from('user_profiles')
+          .update(profileData)
+          .eq('id', userId);
+          
+        if (!error) {
+          console.log('User profile updated successfully');
+          
+          // Manually refresh session after profile update
+          try {
+            const { error: refreshError } = await supabase.auth.refreshSession();
+            if (refreshError) {
+              console.warn('Session refresh after profile update failed:', refreshError);
+            } else {
+              console.log('Session refreshed after profile update');
+            }
+          } catch (refreshErr) {
+            console.warn('Error refreshing session after profile update:', refreshErr);
+          }
+          
+          return { success: true };
+        }
+        
+        // If there was an error, log it and retry
+        console.error(`Profile update attempt ${attempts + 1}/${maxAttempts} failed:`, error);
+        lastError = error;
+        attempts++;
+        
+        if (attempts < maxAttempts) {
+          // Wait before retrying (increasing delay with each attempt)
+          const delay = 500 * attempts;
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      } catch (err) {
+        console.error(`Unexpected error in profile update attempt ${attempts + 1}:`, err);
+        lastError = err;
+        attempts++;
+        
+        if (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 500 * attempts));
+        }
+      }
+    }
+    
+    // If we reached here, all attempts failed
+    throw lastError || new Error('Failed to update user profile after multiple attempts');
+  },
+
+  /**
    * Enviar invitación por correo electrónico a un nuevo usuario
    */
   async inviteUser(email: string, role: UserRole, callerId?: string, callerEmail?: string) {

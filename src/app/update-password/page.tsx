@@ -128,6 +128,39 @@ function UpdatePasswordForm() {
           }
         } else {
           console.log('No auth tokens found in URL hash');
+          
+          // Check if there's a code in the query parameters (from email link redirect)
+          const queryParams = new URLSearchParams(window.location.search);
+          const authCode = queryParams.get('code');
+          
+          if (authCode) {
+            console.log('Found auth code in query parameters, handling auth from code...');
+            try {
+              // Exchange the code for a session
+              const { error: codeExchangeError } = await supabase.auth.exchangeCodeForSession(authCode);
+              
+              if (codeExchangeError) {
+                console.error('Error exchanging code for session:', codeExchangeError);
+                setError(`Error al procesar el código de autenticación: ${codeExchangeError.message}`);
+                setSessionChecked(true);
+                return;
+              }
+              
+              console.log('Successfully exchanged code for session');
+              
+              // Check for user metadata to see if this is an invited user
+              const { data: { user } } = await supabase.auth.getUser();
+              if (user?.user_metadata?.invited) {
+                console.log('This is an invited user (from code)');
+                setIsInvitation(true);
+              }
+            } catch (codeErr) {
+              console.error('Unexpected error handling auth code:', codeErr);
+              setError('Error inesperado al procesar el código de autenticación');
+              setSessionChecked(true);
+              return;
+            }
+          }
         }
         
         // Now proceed with the regular session check
@@ -140,7 +173,76 @@ function UpdatePasswordForm() {
     };
     
     setAuthFromHash();
-  }, [checkSession]);
+    
+    // Add a session polling mechanism for cases where the redirect
+    // doesn't immediately provide the session
+    let pollAttempts = 0;
+    const maxPollAttempts = 5;
+    
+    const pollForSession = async () => {
+      if (sessionChecked) return; // Stop if session check is already complete
+      
+      pollAttempts += 1;
+      console.log(`Polling for session (attempt ${pollAttempts}/${maxPollAttempts})...`);
+      
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error polling for session:', error);
+          // Only set error and stop polling on last attempt
+          if (pollAttempts >= maxPollAttempts) {
+            setError(`Error al verificar la sesión: ${error.message}`);
+            setSessionChecked(true);
+          }
+          return;
+        }
+        
+        if (data.session) {
+          console.log('Session found on poll attempt:', pollAttempts);
+          
+          // Check for user metadata to see if this is an invited user
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.user_metadata?.invited) {
+            console.log('This is an invited user (from polling)');
+            setIsInvitation(true);
+          }
+          
+          setSessionChecked(true);
+          return;
+        }
+        
+        // If we've hit the max attempts, stop polling
+        if (pollAttempts >= maxPollAttempts) {
+          console.log('Max poll attempts reached, stopping');
+          if (!isInvitation) {
+            setError("No se pudo recuperar la sesión después de varios intentos. Intenta refrescar la página.");
+          }
+          setSessionChecked(true);
+        }
+      } catch (err) {
+        console.error('Error in session polling:', err);
+        if (pollAttempts >= maxPollAttempts) {
+          setError('Error inesperado al verificar la sesión');
+          setSessionChecked(true);
+        }
+      }
+    };
+    
+    // Set up polling interval
+    const pollInterval = setInterval(() => {
+      if (pollAttempts < maxPollAttempts && !sessionChecked) {
+        pollForSession();
+      } else {
+        clearInterval(pollInterval);
+      }
+    }, 2000); // Poll every 2 seconds
+    
+    // Clean up
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [checkSession, isInvitation, sessionChecked]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -163,19 +265,51 @@ function UpdatePasswordForm() {
     try {
       console.log('Updating password...');
       
-      // Try to update password without checking session first
-      const { error } = await supabase.auth.updateUser({
-        password
-      });
-
-      if (error) {
-        console.error('Error updating password:', error);
-        setError(error.message);
+      // Add max retry attempts for better reliability
+      let updateError = null;
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (retryCount < maxRetries) {
+        // Try to update password
+        const { error } = await supabase.auth.updateUser({
+          password
+        });
+        
+        if (!error) {
+          // Success - break out of retry loop
+          console.log('Password updated successfully');
+          updateError = null;
+          break;
+        } else {
+          // Error - log and retry
+          console.error(`Error updating password (attempt ${retryCount + 1}/${maxRetries}):`, error);
+          updateError = error;
+          retryCount++;
+          
+          if (retryCount < maxRetries) {
+            // Wait before next retry (increasing delay with each retry)
+            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+            
+            // Before retrying, check if we have a valid session
+            const { data: sessionData } = await supabase.auth.getSession();
+            if (!sessionData.session) {
+              console.error('No valid session for password update, aborting retries');
+              break;
+            }
+          }
+        }
+      }
+      
+      // Handle final result
+      if (updateError) {
+        console.error('Final error updating password after retries:', updateError);
+        setError(updateError.message);
         setLoading(false);
         return;
       }
       
-      console.log('Password updated successfully');
+      // Password update succeeded
       setMessage("Tu contraseña ha sido actualizada con éxito");
       
       // Sign out the user after password update to ensure a clean state
