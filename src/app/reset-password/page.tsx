@@ -21,8 +21,9 @@ export default function ResetPasswordPage() {
       const origin = typeof window !== 'undefined' ? window.location.origin : 'https://cotizaciones-concreto.vercel.app';
       console.log('Using origin for reset password:', origin);
       
-      // Use hash parameters for better compatibility with Supabase
-      const redirectTo = `${origin}/update-password#source=reset&type=recovery`;
+      // Create a redirect URL without hash parameters initially
+      // Supabase will append the auth tokens to this URL as hash parameters (#access_token=... etc.)
+      const redirectTo = `${origin}/update-password`;
       console.log('Reset password redirect URL:', redirectTo);
       
       const { error } = await supabase.auth.resetPasswordForEmail(email, {

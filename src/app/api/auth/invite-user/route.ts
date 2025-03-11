@@ -181,10 +181,6 @@ export async function POST(request: NextRequest) {
       // Make sure the URL is properly formatted with protocol
       const baseUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`;
       
-      // Use a more specific URL with hash to ensure it's properly handled by Supabase
-      const redirectTo = `${baseUrl}/update-password#source=invitation&type=recovery`;
-      console.log('Reset password redirect URL:', redirectTo);
-
       // Store user metadata to indicate this is an invited user
       const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(
         newUserData.user.id,
@@ -205,7 +201,7 @@ export async function POST(request: NextRequest) {
 
       // Enviar correo de restablecimiento de contraseña
       const { data: resetData, error: resetError } = await supabaseAdmin.auth.resetPasswordForEmail(newUserEmail, {
-        redirectTo
+        redirectTo: `${baseUrl}/update-password`
       });
 
       if (resetError) {

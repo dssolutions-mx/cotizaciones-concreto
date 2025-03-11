@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
@@ -18,66 +18,129 @@ function UpdatePasswordForm() {
   const searchParams = useSearchParams();
 
   // Check if we have a valid session from reset link and check for source parameter
-  useEffect(() => {
-    const checkSession = async () => {
-      try {
-        console.log('Checking session...');
-        
-        // Check URL parameters (both query and hash)
-        const source = searchParams.get('source');
-        const type = searchParams.get('type');
-        
-        // Also check hash parameters
-        const hashParams = new URLSearchParams(
-          typeof window !== 'undefined' ? window.location.hash.replace('#', '') : ''
-        );
-        const hashSource = hashParams.get('source');
-        const hashType = hashParams.get('type');
-        
-        console.log('URL parameters:', { source, type, hashSource, hashType });
-        
-        // Set invitation flag if either source indicates it
-        if (source === 'invitation' || hashSource === 'invitation') {
-          setIsInvitation(true);
-        }
-        
-        // Check for session
-        const { data, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error('Session error:', error);
-          // Don't show error for invitation flow
-          if (!isInvitation) {
-            setError("Error al verificar la sesión: " + error.message);
-          }
-          setSessionChecked(true);
-          return;
-        }
-        
-        if (!data.session) {
-          console.error('No session found');
-          // Don't show error for invitation flow
-          if (!isInvitation) {
-            setError("Sesión inválida o expirada. Por favor, solicita un nuevo correo de restablecimiento.");
-          }
-          setSessionChecked(true);
-          return;
-        }
-
-        console.log('Session found:', data.session.user.id);
-        setSessionChecked(true);
-      } catch (err) {
-        console.error('Unexpected error checking session:', err);
+  const checkSession = useCallback(async () => {
+    try {
+      console.log('Checking session...');
+      
+      // Check URL parameters (both query and hash)
+      const source = searchParams.get('source');
+      const type = searchParams.get('type');
+      
+      // Also check hash parameters
+      const hashParams = new URLSearchParams(
+        typeof window !== 'undefined' ? window.location.hash.replace('#', '') : ''
+      );
+      const hashSource = hashParams.get('source');
+      const hashType = hashParams.get('type');
+      
+      console.log('URL parameters:', { source, type, hashSource, hashType });
+      
+      // Set invitation flag if either source indicates it
+      if (source === 'invitation' || hashSource === 'invitation') {
+        setIsInvitation(true);
+      }
+      
+      // Check for session
+      const { data, error } = await supabase.auth.getSession();
+      
+      if (error) {
+        console.error('Session error:', error);
         // Don't show error for invitation flow
         if (!isInvitation) {
-          setError("Error inesperado al verificar la sesión.");
+          setError("Error al verificar la sesión: " + error.message);
         }
+        setSessionChecked(true);
+        return;
+      }
+      
+      if (!data.session) {
+        console.error('No session found');
+        // Don't show error for invitation flow
+        if (!isInvitation) {
+          setError("Sesión inválida o expirada. Por favor, solicita un nuevo correo de restablecimiento.");
+        }
+        setSessionChecked(true);
+        return;
+      }
+
+      console.log('Session found:', data.session.user.id);
+      setSessionChecked(true);
+    } catch (err) {
+      console.error('Unexpected error checking session:', err);
+      // Don't show error for invitation flow
+      if (!isInvitation) {
+        setError("Error inesperado al verificar la sesión.");
+      }
+      setSessionChecked(true);
+    }
+  }, [searchParams, isInvitation]);
+
+  // Extract tokens from the URL on mount
+  useEffect(() => {
+    // This is critical for password reset flows - we need to capture auth tokens
+    // from the URL hash fragment
+    const setAuthFromHash = async () => {
+      try {
+        if (typeof window === 'undefined') return;
+        
+        // Get hash parameters excluding the # symbol
+        const hashString = window.location.hash.substring(1);
+        
+        // Parse error_code and error_description if present
+        const hashParams = new URLSearchParams(hashString);
+        
+        // Check for hash parameters related to auth flow
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        const errorCode = hashParams.get('error_code');
+        const errorDescription = hashParams.get('error_description');
+        
+        // If we have an error, display it
+        if (errorCode || errorDescription) {
+          console.error('Auth error in URL:', { errorCode, errorDescription });
+          setError(`Error de autenticación: ${errorDescription || errorCode}`);
+          setSessionChecked(true);
+          return;
+        }
+        
+        // If there's access token and refresh token, we can set the session
+        if (accessToken && refreshToken) {
+          console.log('Found auth tokens in URL, setting session');
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken
+          });
+          
+          if (sessionError) {
+            console.error('Error setting session from tokens:', sessionError);
+            setError(`Error al establecer la sesión: ${sessionError.message}`);
+            setSessionChecked(true);
+            return;
+          }
+          
+          console.log('Session set successfully from URL tokens');
+          
+          // Check for user metadata to see if this is an invited user
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.user_metadata?.invited) {
+            console.log('This is an invited user');
+            setIsInvitation(true);
+          }
+        } else {
+          console.log('No auth tokens found in URL hash');
+        }
+        
+        // Now proceed with the regular session check
+        await checkSession();
+      } catch (err) {
+        console.error('Error setting auth from hash:', err);
+        setError('Error inesperado al procesar la URL de autenticación');
         setSessionChecked(true);
       }
     };
     
-    checkSession();
-  }, [searchParams, isInvitation]);
+    setAuthFromHash();
+  }, [checkSession]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
