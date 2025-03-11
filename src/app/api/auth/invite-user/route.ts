@@ -180,11 +180,31 @@ export async function POST(request: NextRequest) {
       
       // Make sure the URL is properly formatted with protocol
       const baseUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`;
-      const redirectTo = `${baseUrl}/update-password?source=invitation`;
+      
+      // Use a more specific URL with hash to ensure it's properly handled by Supabase
+      const redirectTo = `${baseUrl}/update-password#source=invitation&type=recovery`;
       console.log('Reset password redirect URL:', redirectTo);
 
+      // Store user metadata to indicate this is an invited user
+      const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(
+        newUserData.user.id,
+        {
+          user_metadata: {
+            invited: true,
+            invited_at: new Date().toISOString(),
+            invited_by: callerProfile?.email || 'admin',
+            role: role || 'SALES_AGENT'
+          }
+        }
+      );
+
+      if (metadataError) {
+        console.error('Error updating user metadata:', metadataError);
+        // Continue with the process even if metadata update fails
+      }
+
       // Enviar correo de restablecimiento de contraseña
-      const { error: resetError } = await supabaseAdmin.auth.resetPasswordForEmail(newUserEmail, {
+      const { data: resetData, error: resetError } = await supabaseAdmin.auth.resetPasswordForEmail(newUserEmail, {
         redirectTo
       });
 
@@ -195,6 +215,8 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+
+      console.log('Password reset email sent successfully:', resetData);
     }
 
     return NextResponse.json({ 

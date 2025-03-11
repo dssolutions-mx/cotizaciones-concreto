@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 
@@ -12,30 +12,71 @@ export default function UpdatePasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isInvitation, setIsInvitation] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Check if we have a valid session from reset link and check for source parameter
   useEffect(() => {
     const checkSession = async () => {
-      const { data, error } = await supabase.auth.getSession();
-      
-      if (error || !data.session) {
-        setError("Sesión inválida o expirada. Por favor, solicita un nuevo correo de restablecimiento.");
-        return;
-      }
-      
-      // Check if this is an invitation flow
-      const urlParams = new URLSearchParams(window.location.search);
-      const source = urlParams.get('source');
-      console.log('Update password source:', source);
-      
-      if (source === 'invitation') {
-        setIsInvitation(true);
+      try {
+        console.log('Checking session...');
+        
+        // Check URL parameters (both query and hash)
+        const source = searchParams.get('source');
+        const type = searchParams.get('type');
+        
+        // Also check hash parameters
+        const hashParams = new URLSearchParams(
+          typeof window !== 'undefined' ? window.location.hash.replace('#', '') : ''
+        );
+        const hashSource = hashParams.get('source');
+        const hashType = hashParams.get('type');
+        
+        console.log('URL parameters:', { source, type, hashSource, hashType });
+        
+        // Set invitation flag if either source indicates it
+        if (source === 'invitation' || hashSource === 'invitation') {
+          setIsInvitation(true);
+        }
+        
+        // Check for session
+        const { data, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Session error:', error);
+          // Don't show error for invitation flow
+          if (!isInvitation) {
+            setError("Error al verificar la sesión: " + error.message);
+          }
+          setSessionChecked(true);
+          return;
+        }
+        
+        if (!data.session) {
+          console.error('No session found');
+          // Don't show error for invitation flow
+          if (!isInvitation) {
+            setError("Sesión inválida o expirada. Por favor, solicita un nuevo correo de restablecimiento.");
+          }
+          setSessionChecked(true);
+          return;
+        }
+
+        console.log('Session found:', data.session.user.id);
+        setSessionChecked(true);
+      } catch (err) {
+        console.error('Unexpected error checking session:', err);
+        // Don't show error for invitation flow
+        if (!isInvitation) {
+          setError("Error inesperado al verificar la sesión.");
+        }
+        setSessionChecked(true);
       }
     };
     
     checkSession();
-  }, []);
+  }, [searchParams, isInvitation]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,6 +98,8 @@ export default function UpdatePasswordPage() {
 
     try {
       console.log('Updating password...');
+      
+      // Try to update password without checking session first
       const { error } = await supabase.auth.updateUser({
         password
       });
@@ -70,6 +113,15 @@ export default function UpdatePasswordPage() {
       
       console.log('Password updated successfully');
       setMessage("Tu contraseña ha sido actualizada con éxito");
+      
+      // Sign out the user after password update to ensure a clean state
+      try {
+        await supabase.auth.signOut();
+        console.log('User signed out successfully');
+      } catch (signOutErr) {
+        console.error('Error signing out:', signOutErr);
+        // Continue with redirect even if sign out fails
+      }
       
       // Redirect to login after 2 seconds
       try {
@@ -93,6 +145,25 @@ export default function UpdatePasswordPage() {
       }
     }
   };
+
+  // Show loading state while checking session
+  if (!sessionChecked) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
+        <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
+          <div className="text-center">
+            <h1 className="text-3xl font-bold text-gray-900">Verificando sesión</h1>
+            <p className="mt-2 text-sm text-gray-600">
+              Por favor espera mientras verificamos tu sesión...
+            </p>
+          </div>
+          <div className="flex justify-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
@@ -158,7 +229,7 @@ export default function UpdatePasswordPage() {
           <div>
             <button
               type="submit"
-              disabled={loading || !!error}
+              disabled={loading}
               className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md 
                          shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 
                          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500

@@ -19,21 +19,28 @@ export default function ResetPasswordPage() {
     try {
       // Use the official site URL as a fallback
       const origin = typeof window !== 'undefined' ? window.location.origin : 'https://cotizaciones-concreto.vercel.app';
+      console.log('Using origin for reset password:', origin);
+      
+      // Use hash parameters for better compatibility with Supabase
+      const redirectTo = `${origin}/update-password#source=reset&type=recovery`;
+      console.log('Reset password redirect URL:', redirectTo);
       
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${origin}/update-password?source=reset`,
+        redirectTo
       });
 
       if (error) {
+        console.error('Reset password error:', error);
         setError(error.message);
       } else {
+        console.log('Reset password email sent successfully');
         setMessage(
           'Se ha enviado un correo para restablecer tu contraseña. Por favor, revisa tu bandeja de entrada.'
         );
       }
     } catch (err) {
+      console.error('Unexpected error during reset password:', err);
       setError('Ocurrió un error al enviar el correo. Por favor, intenta de nuevo.');
-      console.error(err);
     } finally {
       setLoading(false);
     }
