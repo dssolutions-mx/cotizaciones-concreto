@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
 
@@ -9,9 +9,19 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { signIn, isAuthenticated } = useAuth();
+
+  // Check for updated=true parameter in URL
+  useEffect(() => {
+    const isUpdated = searchParams.get('updated') === 'true';
+    if (isUpdated) {
+      setSuccess('Tu contraseña ha sido actualizada con éxito. Por favor, inicia sesión con tu nueva contraseña.');
+    }
+  }, [searchParams]);
 
   // Redirect to dashboard if already authenticated
   useEffect(() => {
@@ -23,6 +33,7 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
     setLoading(true);
 
     try {
@@ -65,6 +76,12 @@ export default function LoginPage() {
         {error && (
           <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded-md">
             {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="p-3 bg-green-100 border border-green-400 text-green-700 rounded-md">
+            {success}
           </div>
         )}
 

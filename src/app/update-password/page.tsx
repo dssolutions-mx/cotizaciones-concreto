@@ -265,6 +265,17 @@ function UpdatePasswordForm() {
       let updateSuccessful = false;
       let updateAttempts = 0;
       
+      // Check if there's actually a session or tokens before attempting update
+      const { data: sessionCheck } = await supabase.auth.getSession();
+      console.log('Current session before update:', sessionCheck?.session ? 'Valid session found' : 'No valid session');
+      
+      if (!sessionCheck?.session && (!authTokens?.access_token || !authTokens?.refresh_token)) {
+        console.error('No valid session or tokens found before password update');
+        setError('No se pudo actualizar la contraseña: no hay sesión válida. Por favor, inicia sesión nuevamente.');
+        setLoading(false);
+        return;
+      }
+      
       // Loop through multiple methods to update password
       while (!updateSuccessful && updateAttempts < 3) {
         updateAttempts++;
@@ -276,7 +287,7 @@ function UpdatePasswordForm() {
             console.log('Attempt 1: Using stored tokens for password update');
             
             // First ensure we have a valid session with these tokens
-            const { error: sessionError } = await supabase.auth.setSession({
+            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
               access_token: authTokens.access_token,
               refresh_token: authTokens.refresh_token
             });
@@ -287,37 +298,54 @@ function UpdatePasswordForm() {
               continue;
             }
             
+            console.log('Session set successfully. Session exists:', !!sessionData?.session);
+            
+            // Log user data before update
+            const { data: userData } = await supabase.auth.getUser();
+            console.log('User data before update:', userData?.user ? 'User found' : 'No user data');
+            
             // Now update the password with retry logic
-            const { error: updateError } = await supabase.auth.updateUser({ password });
+            const { /* data: updateData, */ error: updateError } = await supabase.auth.updateUser({ password });
+            
+            console.log('Update result:', updateError ? 'Error occurred' : 'Success');
             
             if (updateError) {
               console.error('Error updating password with tokens:', updateError);
+              console.error('Error details:', updateError.message, updateError.status);
               // Continue to next attempt
               continue;
             }
             
-            console.log('Password updated successfully with tokens');
+            console.log('Password updated successfully with tokens.');
             updateSuccessful = true;
             break;
           }
           
-          // Method 2: Use getSession before update
+          // Method 2: Use getSession before update 
           else if (updateAttempts === 2) {
             console.log('Attempt 2: Refreshing session before password update');
             
             // Get current session
-            const { data: refreshResult } = await supabase.auth.getSession();
+            const { data: refreshResult, error: refreshError } = await supabase.auth.getSession();
+            
+            if (refreshError) {
+              console.error('Error getting session in attempt 2:', refreshError);
+              continue;
+            }
             
             if (!refreshResult?.session) {
               console.error('No session found during attempt 2');
               continue;
             }
             
+            console.log('Session refreshed, attempting password update');
+            
             // Update the password using the refreshed session
-            const { error: updateError } = await supabase.auth.updateUser({ password });
+            const { /* data: updateData, */ error: updateError } = await supabase.auth.updateUser({ password });
             
             if (updateError) {
               console.error('Error updating password after refresh:', updateError);
+              console.error('Error details:', updateError.message, updateError.status);
               continue;
             }
             
@@ -330,10 +358,11 @@ function UpdatePasswordForm() {
           else {
             console.log('Attempt 3: Direct password update method');
             
-            const { error } = await supabase.auth.updateUser({ password });
+            const { /* data: updateData, */ error } = await supabase.auth.updateUser({ password });
             
             if (error) {
               console.error('Error with direct password update:', error);
+              console.error('Error details:', error.message, error.status);
               throw error;
             }
             
@@ -373,13 +402,33 @@ function UpdatePasswordForm() {
       
       // IMPORTANT: Sign out the user after password update to force a clean state
       try {
-        // Clear all auth state first to prevent UI issues
-        localStorage.removeItem('supabase.auth.token');
-        localStorage.removeItem('supabase.auth.token.code_verifier');
+        console.log('Preparing to sign out user and clear auth state');
         
-        // Then sign out
-        await supabase.auth.signOut();
-        console.log('User signed out successfully after password update');
+        // Clear tokens from our component state first
+        setAuthTokens(null);
+        
+        // Clear all auth state in a more comprehensive way
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith('supabase.auth.')) {
+            console.log(`Removing localStorage item: ${key}`);
+            localStorage.removeItem(key);
+          }
+        }
+        
+        // Then sign out explicitly
+        const { error: signOutError } = await supabase.auth.signOut({
+          scope: 'global' // Force a complete sign-out on all devices
+        });
+        
+        if (signOutError) {
+          console.error('Error during sign out:', signOutError);
+        } else {
+          console.log('User signed out successfully after password update');
+        }
+        
+        // Verify the sign-out was successful
+        const { data: sessionCheck } = await supabase.auth.getSession();
+        console.log('Session after sign out:', sessionCheck?.session ? 'Still has session (problem)' : 'Session cleared successfully');
       } catch (signOutErr) {
         console.error('Error during sign out (non-fatal):', signOutErr);
         // Continue even if sign out fails
@@ -396,11 +445,11 @@ function UpdatePasswordForm() {
         console.log('Executing redirect to login page now');
         try {
           // Force a hard navigation to login to ensure a fresh state
-          window.location.href = '/login';
+          window.location.href = '/login?updated=true';
         } catch (redirectError) {
           console.error('Redirect error:', redirectError);
           // Emergency fallback if location change fails
-          window.location.replace('/login');
+          window.location.replace('/login?updated=true');
         }
       }, 2000);
     } catch (err) {
