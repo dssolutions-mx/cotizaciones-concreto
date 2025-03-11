@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect, Suspense, useCallback } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase';
+import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
 // Create a client component that uses useSearchParams
 function UpdatePasswordForm() {
@@ -13,307 +12,235 @@ function UpdatePasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [isInvitation, setIsInvitation] = useState(false);
-  const [sessionChecked, setSessionChecked] = useState(false);
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  // Change the approach - don't rely on session checked state
+  const [authReady, setAuthReady] = useState(false);
+  // Store tokens directly when found
+  const [authTokens, setAuthTokens] = useState<{
+    access_token?: string;
+    refresh_token?: string;
+  } | null>(null);
 
-  // Check if we have a valid session from reset link and check for source parameter
-  const checkSession = useCallback(async () => {
-    try {
-      console.log('Checking session...');
-      
-      // Check URL parameters (both query and hash)
-      const source = searchParams.get('source');
-      const type = searchParams.get('type');
-      
-      // Also check hash parameters
-      const hashParams = new URLSearchParams(
-        typeof window !== 'undefined' ? window.location.hash.replace('#', '') : ''
-      );
-      const hashSource = hashParams.get('source');
-      const hashType = hashParams.get('type');
-      
-      console.log('URL parameters:', { source, type, hashSource, hashType });
-      
-      // Set invitation flag if either source indicates it
-      if (source === 'invitation' || hashSource === 'invitation') {
-        setIsInvitation(true);
-      }
-      
-      // Check for session
-      const { data, error } = await supabase.auth.getSession();
-      
-      if (error) {
-        console.error('Session error:', error);
-        // Don't show error for invitation flow
-        if (!isInvitation) {
-          setError("Error al verificar la sesión: " + error.message);
-        }
-        setSessionChecked(true);
-        return;
-      }
-      
-      if (!data.session) {
-        console.error('No session found');
-        // Don't show error for invitation flow
-        if (!isInvitation) {
-          setError("Sesión inválida o expirada. Por favor, solicita un nuevo correo de restablecimiento.");
-        }
-        setSessionChecked(true);
-        return;
-      }
-
-      console.log('Session found:', data.session.user.id);
-      setSessionChecked(true);
-    } catch (err) {
-      console.error('Unexpected error checking session:', err);
-      // Don't show error for invitation flow
-      if (!isInvitation) {
-        setError("Error inesperado al verificar la sesión.");
-      }
-      setSessionChecked(true);
-    }
-  }, [searchParams, isInvitation]);
-
-  // Extract tokens from the URL on mount
+  // Extract authentication data on component mount
   useEffect(() => {
-    // Add explicit check for existing session on component mount
-    const checkExistingSession = async () => {
-      if (sessionChecked) return; // Skip if already checked
-      
+    const extractAuthData = async () => {
       try {
-        console.log('Performing initial session check on mount...');
-        const { data, error } = await supabase.auth.getSession();
+        // Initialize status
+        setLoading(true);
         
-        if (error) {
-          console.error('Initial session check error:', error);
-          return;
-        }
+        // Log all potential sources of auth data for debugging
+        console.log('URL hash present:', !!window.location.hash);
+        console.log('URL query params present:', !!window.location.search);
         
-        if (data.session) {
-          console.log('Found existing session on mount:', data.session.user.id);
-          
-          // Force session refresh to ensure it's valid and fully established
-          try {
-            await supabase.auth.refreshSession();
-            console.log('Session refreshed on mount');
-            
-            // Check for user metadata to see if this is an invited user
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user?.user_metadata?.invited) {
-              console.log('This is an invited user (from initial check)');
-              setIsInvitation(true);
-            }
-            
-            // Mark session as checked to stop polling
-            setSessionChecked(true);
-          } catch (refreshErr) {
-            console.error('Error refreshing session on mount:', refreshErr);
-          }
-        }
-      } catch (err) {
-        console.error('Error in initial session check:', err);
-      }
-    };
-    
-    // Check for existing session first
-    checkExistingSession();
-    
-    // This is critical for password reset flows - we need to capture auth tokens
-    // from the URL hash fragment
-    const setAuthFromHash = async () => {
-      try {
-        if (typeof window === 'undefined') return;
-        
-        // Get hash parameters excluding the # symbol
+        // 1. Check URL hash for tokens (primary method from password reset emails)
         const hashString = window.location.hash.substring(1);
-        
-        // Parse error_code and error_description if present
         const hashParams = new URLSearchParams(hashString);
         
-        // Check for hash parameters related to auth flow
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
         const errorCode = hashParams.get('error_code');
         const errorDescription = hashParams.get('error_description');
         
-        // If we have an error, display it
+        // Handle errors in URL
         if (errorCode || errorDescription) {
           console.error('Auth error in URL:', { errorCode, errorDescription });
           setError(`Error de autenticación: ${errorDescription || errorCode}`);
-          setSessionChecked(true);
+          setLoading(false);
+          setAuthReady(true);
           return;
         }
-        
-        // If there's access token and refresh token, we can set the session
+
+        // 2. If tokens found in hash, use them directly
         if (accessToken && refreshToken) {
-          console.log('Found auth tokens in URL, setting session');
-          const { error: sessionError } = await supabase.auth.setSession({
+          console.log('Found auth tokens in URL hash');
+          
+          // Store tokens for later use (don't trust session state)
+          setAuthTokens({
             access_token: accessToken,
             refresh_token: refreshToken
           });
           
-          if (sessionError) {
-            console.error('Error setting session from tokens:', sessionError);
-            setError(`Error al establecer la sesión: ${sessionError.message}`);
-            setSessionChecked(true);
-            return;
-          }
-          
-          console.log('Session set successfully from URL tokens');
-          
-          // Check for user metadata to see if this is an invited user
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user?.user_metadata?.invited) {
-            console.log('This is an invited user');
-            setIsInvitation(true);
-          }
-        } else {
-          console.log('No auth tokens found in URL hash');
-          
-          // Check if there's a code in the query parameters (from email link redirect)
-          const queryParams = new URLSearchParams(window.location.search);
-          const authCode = queryParams.get('code');
-          
-          if (authCode) {
-            console.log('Found auth code in query parameters, handling auth from code...');
+          // Try to establish session with multiple attempts
+          let sessionEstablished = false;
+          for (let attempt = 1; attempt <= 3 && !sessionEstablished; attempt++) {
             try {
-              // Exchange the code for a session
-              const { error: codeExchangeError } = await supabase.auth.exchangeCodeForSession(authCode);
-              
-              if (codeExchangeError) {
-                console.error('Error exchanging code for session:', codeExchangeError);
-                setError(`Error al procesar el código de autenticación: ${codeExchangeError.message}`);
-                setSessionChecked(true);
-                return;
-              }
-              
-              console.log('Successfully exchanged code for session');
-              
-              // Check for user metadata to see if this is an invited user
-              const { data: { user } } = await supabase.auth.getUser();
-              if (user?.user_metadata?.invited) {
-                console.log('This is an invited user (from code)');
-                setIsInvitation(true);
-              }
-            } catch (codeErr) {
-              console.error('Unexpected error handling auth code:', codeErr);
-              setError('Error inesperado al procesar el código de autenticación');
-              setSessionChecked(true);
-              return;
-            }
-          }
-        }
-        
-        // Now proceed with the regular session check
-        await checkSession();
-      } catch (err) {
-        console.error('Error setting auth from hash:', err);
-        setError('Error inesperado al procesar la URL de autenticación');
-        setSessionChecked(true);
-      }
-    };
-    
-    setAuthFromHash();
-    
-    // Add a session polling mechanism for cases where the redirect
-    // doesn't immediately provide the session
-    let pollAttempts = 0;
-    const maxPollAttempts = 5;
-    
-    const pollForSession = async () => {
-      if (sessionChecked) return; // Stop if session check is already complete
-      
-      pollAttempts += 1;
-      console.log(`Polling for session (attempt ${pollAttempts}/${maxPollAttempts})...`);
-      
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        
-        if (error) {
-          console.error('Error polling for session:', error);
-          // Only set error and stop polling on last attempt
-          if (pollAttempts >= maxPollAttempts) {
-            setError(`Error al verificar la sesión: ${error.message}`);
-            setSessionChecked(true);
-          }
-          return;
-        }
-        
-        if (data.session) {
-          console.log('Session found on poll attempt:', pollAttempts);
-          
-          // Check for user metadata to see if this is an invited user
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user?.user_metadata?.invited) {
-            console.log('This is an invited user (from polling)');
-            setIsInvitation(true);
-          }
-          
-          // Important: signal that session checking is complete
-          setSessionChecked(true);
-          
-          // Fix: Attempt to reestablish the session explicitly
-          try {
-            const accessToken = data.session.access_token;
-            const refreshToken = data.session.refresh_token;
-            
-            if (accessToken && refreshToken) {
-              console.log('Explicitly setting session from polling result');
+              console.log(`Setting session from URL tokens (attempt ${attempt})`);
               await supabase.auth.setSession({
                 access_token: accessToken,
                 refresh_token: refreshToken
               });
-              console.log('Session explicitly set from polling result');
+              
+              // Verify the session was set
+              const { data: sessionCheck } = await supabase.auth.getSession();
+              if (sessionCheck?.session) {
+                console.log('Session successfully established from URL tokens');
+                sessionEstablished = true;
+                
+                // Check if this is an invited user
+                try {
+                  const { data: { user } } = await supabase.auth.getUser();
+                  if (user?.user_metadata?.invited) {
+                    console.log('Detected invited user from URL tokens');
+                    setIsInvitation(true);
+                  }
+                } catch (userError) {
+                  console.error('Error checking user metadata:', userError);
+                }
+              } else {
+                console.warn('Session not established after setSession attempt', attempt);
+                if (attempt < 3) {
+                  // Wait before retrying
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                }
+              }
+            } catch (sessionError) {
+              console.error(`Session setting error (attempt ${attempt}):`, sessionError);
+              if (attempt < 3) {
+                // Wait before retrying
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
             }
-          } catch (sessionSetError) {
-            console.error('Error setting explicit session from polling:', sessionSetError);
           }
           
+          setAuthReady(true);
+          setLoading(false);
           return;
         }
         
-        // If we've hit the max attempts, stop polling
-        if (pollAttempts >= maxPollAttempts) {
-          console.log('Max poll attempts reached, stopping');
-          if (!isInvitation) {
-            setError("No se pudo recuperar la sesión después de varios intentos. Intenta refrescar la página.");
+        // 3. Check for code in query params 
+        const queryParams = new URLSearchParams(window.location.search);
+        const authCode = queryParams.get('code');
+        
+        if (authCode) {
+          console.log('Found auth code in query parameters');
+          try {
+            // Exchange the code for a session - we need to handle differently depending on the source
+            // First, try to get code_verifier from localStorage (where Supabase SDK stores it)
+            let codeVerifier = null;
+            try {
+              // Supabase stores this in localStorage during the auth flow
+              if (typeof window !== 'undefined') {
+                codeVerifier = localStorage.getItem('supabase.auth.token.code_verifier');
+                console.log('Code verifier found in localStorage:', !!codeVerifier);
+              }
+            } catch (storageError) {
+              console.error('Error retrieving code verifier from storage:', storageError);
+            }
+
+            // Use the appropriate method to exchange code based on what's available
+            let authResult;
+            if (codeVerifier) {
+              console.log('Using code verifier with exchangeCodeForSession');
+              authResult = await supabase.auth.exchangeCodeForSession(authCode);
+            } else {
+              // Fallback approach - manually parse the URL and set session
+              console.log('No code verifier, trying direct session method');
+              
+              // Constructing the full URL with the code
+              const redirectUrl = `${window.location.origin}${window.location.pathname}${window.location.search}`;
+              console.log('Using redirect URL:', redirectUrl);
+              
+              // Try to extract session from the URL directly
+              const { data: hashData, error: hashError } = await supabase.auth.getSession();
+              if (hashError) {
+                console.error('Error getting session:', hashError);
+                throw hashError;
+              }
+              authResult = { data: hashData, error: null };
+            }
+            
+            if (authResult.error) {
+              console.error('Error exchanging code for session:', authResult.error);
+              setError(`Error al procesar el código de autenticación: ${authResult.error.message}`);
+              setAuthReady(true);
+              setLoading(false);
+              return;
+            }
+            
+            if (authResult.data?.session) {
+              console.log('Got session from code exchange, storing tokens');
+              // Store tokens for direct use
+              setAuthTokens({
+                access_token: authResult.data.session.access_token,
+                refresh_token: authResult.data.session.refresh_token
+              });
+              
+              // Check if this is an invited user - we need to get user data separately
+              try {
+                // After setting the session, get the user data
+                const { data: userData } = await supabase.auth.getUser();
+                if (userData?.user?.user_metadata?.invited) {
+                  console.log('Detected invited user from code exchange');
+                  setIsInvitation(true);
+                }
+              } catch (userDataError) {
+                console.error('Error getting user data after code exchange:', userDataError);
+              }
+            } else {
+              console.warn('No session returned from code exchange');
+            }
+            
+            setAuthReady(true);
+            setLoading(false);
+            return;
+          } catch (codeErr) {
+            console.error('Unexpected error handling auth code:', codeErr);
+            setError('Error inesperado al procesar el código de autenticación');
+            setAuthReady(true);
+            setLoading(false);
+            return;
           }
-          setSessionChecked(true);
         }
+        
+        // 4. As a fallback, check for existing session
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          
+          if (sessionData?.session) {
+            console.log('Found existing session, using it for password update');
+            setAuthTokens({
+              access_token: sessionData.session.access_token,
+              refresh_token: sessionData.session.refresh_token
+            });
+            
+            // Check if this is an invited user
+            try {
+              const { data: userData } = await supabase.auth.getUser();
+              if (userData?.user?.user_metadata?.invited) {
+                console.log('Detected invited user from existing session');
+                setIsInvitation(true);
+              }
+            } catch (userError) {
+              console.error('Error checking user metadata from existing session:', userError);
+            }
+            
+            setAuthReady(true);
+            setLoading(false);
+            return;
+          }
+        } catch (sessionErr) {
+          console.error('Error checking existing session:', sessionErr);
+        }
+        
+        // 5. If we get here, no auth tokens found - show error but allow form submission
+        console.warn('No authentication tokens found in URL or session');
+        if (isInvitation) {
+          console.log('Invitation flow will attempt direct password update');
+        } else {
+          setError('No se encontró información de autenticación. El restablecimiento de contraseña podría fallar.');
+        }
+        
+        setAuthReady(true);
+        setLoading(false);
       } catch (err) {
-        console.error('Error in session polling:', err);
-        if (pollAttempts >= maxPollAttempts) {
-          setError('Error inesperado al verificar la sesión');
-          setSessionChecked(true);
-        }
+        console.error('Error extracting auth data:', err);
+        setError('Error inesperado al procesar la autenticación');
+        setAuthReady(true);
+        setLoading(false);
       }
     };
     
-    // Set up polling with proper cleanup
-    let pollIntervalRef: NodeJS.Timeout | null = null;
-    
-    // Wait 1 second before starting to poll to allow auth system to initialize
-    const initialDelay = setTimeout(() => {
-      pollIntervalRef = setInterval(() => {
-        if (pollAttempts < maxPollAttempts && !sessionChecked) {
-          pollForSession();
-        } else if (pollIntervalRef) {
-          clearInterval(pollIntervalRef);
-          pollIntervalRef = null;
-        }
-      }, 2000); // Poll every 2 seconds
-    }, 1000);
-    
-    // Clean up all timers on unmount
-    return () => {
-      clearTimeout(initialDelay);
-      if (pollIntervalRef) {
-        clearInterval(pollIntervalRef);
-        pollIntervalRef = null;
-      }
-    };
-  }, [checkSession, isInvitation, sessionChecked]);
+    extractAuthData();
+  }, [isInvitation]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -334,89 +261,157 @@ function UpdatePasswordForm() {
     setLoading(true);
 
     try {
-      console.log('Updating password...');
+      console.log('Updating password with new method...');
+      let updateSuccessful = false;
+      let updateAttempts = 0;
       
-      // Add max retry attempts for better reliability
-      let updateError = null;
-      let retryCount = 0;
-      const maxRetries = 3;
-      
-      while (retryCount < maxRetries) {
-        // Try to update password
-        const { error } = await supabase.auth.updateUser({
-          password
-        });
+      // Loop through multiple methods to update password
+      while (!updateSuccessful && updateAttempts < 3) {
+        updateAttempts++;
+        console.log(`Password update attempt ${updateAttempts}/3`);
         
-        if (!error) {
-          // Success - break out of retry loop
-          console.log('Password updated successfully');
-          updateError = null;
-          break;
-        } else {
-          // Error - log and retry
-          console.error(`Error updating password (attempt ${retryCount + 1}/${maxRetries}):`, error);
-          updateError = error;
-          retryCount++;
-          
-          if (retryCount < maxRetries) {
-            // Wait before next retry (increasing delay with each retry)
-            await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        try {
+          // Method 1: Use direct tokens if available
+          if (authTokens?.access_token && authTokens?.refresh_token && updateAttempts === 1) {
+            console.log('Attempt 1: Using stored tokens for password update');
             
-            // Before retrying, check if we have a valid session
-            const { data: sessionData } = await supabase.auth.getSession();
-            if (!sessionData.session) {
-              console.error('No valid session for password update, aborting retries');
-              break;
+            // First ensure we have a valid session with these tokens
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: authTokens.access_token,
+              refresh_token: authTokens.refresh_token
+            });
+            
+            if (sessionError) {
+              console.error('Error setting session with tokens:', sessionError);
+              // Continue to next attempt
+              continue;
             }
+            
+            // Now update the password with retry logic
+            const { error: updateError } = await supabase.auth.updateUser({ password });
+            
+            if (updateError) {
+              console.error('Error updating password with tokens:', updateError);
+              // Continue to next attempt
+              continue;
+            }
+            
+            console.log('Password updated successfully with tokens');
+            updateSuccessful = true;
+            break;
           }
+          
+          // Method 2: Use getSession before update
+          else if (updateAttempts === 2) {
+            console.log('Attempt 2: Refreshing session before password update');
+            
+            // Get current session
+            const { data: refreshResult } = await supabase.auth.getSession();
+            
+            if (!refreshResult?.session) {
+              console.error('No session found during attempt 2');
+              continue;
+            }
+            
+            // Update the password using the refreshed session
+            const { error: updateError } = await supabase.auth.updateUser({ password });
+            
+            if (updateError) {
+              console.error('Error updating password after refresh:', updateError);
+              continue;
+            }
+            
+            console.log('Password updated successfully after session refresh');
+            updateSuccessful = true;
+            break;
+          }
+          
+          // Method 3: Direct update as last resort
+          else {
+            console.log('Attempt 3: Direct password update method');
+            
+            const { error } = await supabase.auth.updateUser({ password });
+            
+            if (error) {
+              console.error('Error with direct password update:', error);
+              throw error;
+            }
+            
+            console.log('Password updated successfully with direct method');
+            updateSuccessful = true;
+            break;
+          }
+        } catch (attemptError) {
+          console.error(`Error during update attempt ${updateAttempts}:`, attemptError);
+          // Continue to next attempt
+          await new Promise(resolve => setTimeout(resolve, 500)); // Wait before next attempt
         }
       }
       
-      // Handle final result
-      if (updateError) {
-        console.error('Final error updating password after retries:', updateError);
-        setError(updateError.message);
+      if (updateSuccessful) {
+        // Handle success path
+        await handleSuccessAndRedirect();
+      } else {
+        setError('No se pudo actualizar la contraseña. Por favor intenta nuevamente.');
         setLoading(false);
-        return;
-      }
-      
-      // Password update succeeded
-      setMessage("Tu contraseña ha sido actualizada con éxito");
-      
-      // Sign out the user after password update to ensure a clean state
-      try {
-        await supabase.auth.signOut();
-        console.log('User signed out successfully');
-      } catch (signOutErr) {
-        console.error('Error signing out:', signOutErr);
-        // Continue with redirect even if sign out fails
-      }
-      
-      // Redirect to login after 2 seconds
-      try {
-        setTimeout(() => {
-          console.log('Redirecting to login page...');
-          setLoading(false); // Ensure loading is set to false before redirect
-          router.push('/login');
-        }, 2000);
-      } catch (redirectErr) {
-        console.error('Error during redirect:', redirectErr);
-        setLoading(false);
-        setError('Error al redirigir. Por favor, ve a la página de inicio de sesión manualmente.');
       }
     } catch (err) {
       console.error('Error updating password:', err);
       setError('Ocurrió un error al actualizar la contraseña.');
-    } finally {
-      // Ensure loading state is reset if there's an error
-      if (loading) {
-        setLoading(false);
+      setLoading(false);
+    }
+  };
+  
+  // Helper function for post-update actions
+  const handleSuccessAndRedirect = async () => {
+    try {
+      console.log('Password update successful, preparing for redirect');
+
+      // Display success message
+      setMessage("Tu contraseña ha sido actualizada con éxito");
+      setLoading(false);
+      
+      // IMPORTANT: Sign out the user after password update to force a clean state
+      try {
+        // Clear all auth state first to prevent UI issues
+        localStorage.removeItem('supabase.auth.token');
+        localStorage.removeItem('supabase.auth.token.code_verifier');
+        
+        // Then sign out
+        await supabase.auth.signOut();
+        console.log('User signed out successfully after password update');
+      } catch (signOutErr) {
+        console.error('Error during sign out (non-fatal):', signOutErr);
+        // Continue even if sign out fails
       }
+      
+      // Use a more reliable redirection approach with a clear indicator
+      console.log('Password updated successfully! Redirecting in 2 seconds...');
+      
+      // Set a definitive flag in the DOM to indicate success
+      document.title = "Contraseña Actualizada - Redirigiendo...";
+      
+      // Use a more direct and forceful redirect
+      setTimeout(() => {
+        console.log('Executing redirect to login page now');
+        try {
+          // Force a hard navigation to login to ensure a fresh state
+          window.location.href = '/login';
+        } catch (redirectError) {
+          console.error('Redirect error:', redirectError);
+          // Emergency fallback if location change fails
+          window.location.replace('/login');
+        }
+      }, 2000);
+    } catch (err) {
+      console.error('Error during post-update process:', err);
+      setLoading(false);
+      setError('La contraseña se actualizó, pero hubo un problema al redireccionar. Por favor, ve a la página de inicio de sesión manualmente.');
     }
   };
 
-  // Show loading state while checking session
-  if (!sessionChecked) {
+  // Show loading state while authentication data is being processed
+  if (!authReady) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
         <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">

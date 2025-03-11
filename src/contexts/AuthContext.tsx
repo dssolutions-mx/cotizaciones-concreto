@@ -349,10 +349,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     try {
       setLoading(true);
-      await supabase.auth.signOut();
-      // Clear caches
+      console.log('Signing out user...');
+      
+      // Clear all state first to prevent UI flashing
+      setUser(null);
+      setSession(null);
+      setUserProfile(null);
+      setIsAuthenticated(false);
+      setSessionExpiresAt(null);
+      setTimeToExpiration(null);
+      setAuthStatus('unauthenticated');
+      
+      // Clear all caches
       clearUserCache();
-      // Auth state will be updated by the onAuthStateChange listener
+      
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('Error during sign out:', error);
+      } else {
+        console.log('User signed out successfully');
+      }
+      
+      // Force navigation to login page
+      router.push('/login');
     } catch (error) {
       console.error('Sign out error:', error);
     } finally {

@@ -17,14 +17,27 @@ export default function ResetPasswordPage() {
     setLoading(true);
 
     try {
-      // Use the official site URL as a fallback
-      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://cotizaciones-concreto.vercel.app';
+      // Get the site URL with fallback
+      const origin = typeof window !== 'undefined' 
+        ? window.location.origin 
+        : process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app';
+      
       console.log('Using origin for reset password:', origin);
       
-      // Create a clean and simple redirect URL
+      // Create a clean and simple redirect URL without any query parameters
       const redirectTo = `${origin}/update-password`;
       console.log('Reset password redirect URL:', redirectTo);
       
+      // Clear any existing sessions before sending reset email to avoid conflicts
+      try {
+        await supabase.auth.signOut();
+        console.log('Signed out existing user before password reset');
+      } catch (signOutError) {
+        console.error('Error during sign out before reset:', signOutError);
+        // Continue anyway
+      }
+      
+      // Send the password reset email
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo
       });
