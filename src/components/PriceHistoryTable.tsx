@@ -8,15 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  ClientPriceHistory,
-  RecipePriceHistory,
-  PriceHistoryEntry,
-  RecipeInHistory,
-  ClientInHistory
-} from '@/types/priceHistory';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { formatCurrency, formatDate, formatPercentage } from '@/lib/formatters';
+import { formatCurrency, formatDate } from '@/lib/formatters';
 import {
   Select,
   SelectContent,
@@ -25,218 +18,132 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useAuth } from '@/contexts/AuthContext';
+import { ClientPriceData, RecipePriceData, PriceEntry } from '@/types/priceHistory';
 
 interface PriceHistoryTableProps {
-  data: ClientPriceHistory[] | RecipePriceHistory[];
+  data: ClientPriceData[] | RecipePriceData[];
   groupBy: 'client' | 'recipe';
 }
 
-// Función para filtrar entradas de historial de precios
-// Solo mostrar cotizaciones aprobadas, excepto para el equipo de calidad que no debe ver ninguna
-const filterPriceHistory = (entries: PriceHistoryEntry[] | undefined, userRole: string | undefined): PriceHistoryEntry[] => {
-  if (!entries || entries.length === 0) return [];
+// Helper function to group prices by construction site
+const groupByConstructionSite = (recipes: any[]) => {
+  const constructionSites = new Map<string, any[]>();
   
-  // Filtrar para mostrar solo cotizaciones aprobadas
-  return entries.filter(entry => 
-    // Incluir solo entradas que tengan una cotización asociada con status approved
-    entry.quote?.status === 'APPROVED'
-  );
-};
-
-// Función para calcular el precio promedio de una receta
-const calculateAverageRecipePrice = (data: ClientPriceHistory[] | RecipePriceHistory[], recipeId: string): number => {
-  let totalPrice = 0;
-  let count = 0;
-
-  if (!data || data.length === 0 || !recipeId) return 0;
-
-  // Si tenemos datos agrupados por cliente
-  if (data[0] && 'recipes' in data[0]) {
-    const clientData = data as ClientPriceHistory[];
+  recipes.forEach(recipe => {
+    const prices = recipe.prices || [];
     
-    // Recorrer todos los clientes para encontrar la receta específica
-    clientData.forEach(client => {
-      if (!client.recipes) return;
-      const recipe = client.recipes.find(r => r.recipeId === recipeId);
-      if (recipe && recipe.priceHistory) {
-        // Ya no filtramos, consideramos todos los precios activos
-        const activePrices = recipe.priceHistory.filter(p => p.isActive === true);
-        
-        if (activePrices.length > 0) {
-          // Ordenar por fecha más reciente
-          activePrices.sort((a, b) => 
-            new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime()
-          );
-          // Usar el precio activo más reciente
-          const activePrice = activePrices[0].base_price;
-          if (activePrice && activePrice > 0) {
-            totalPrice += activePrice;
-            count++;
-          }
-        }
+    // Group prices by construction site
+    prices.forEach((price: PriceEntry) => {
+      const site = price.construction_site || 'Sin ubicación';
+      if (!constructionSites.has(site)) {
+        constructionSites.set(site, []);
       }
+      
+      // Check if we already have this recipe for this site
+      const siteRecipes = constructionSites.get(site)!;
+      let siteRecipe = siteRecipes.find(r => r.recipeId === recipe.recipeId);
+      
+      if (!siteRecipe) {
+        siteRecipe = {
+          ...recipe,
+          prices: []
+        };
+        siteRecipes.push(siteRecipe);
+      }
+      
+      siteRecipe.prices.push(price);
     });
-  } 
-  // Si tenemos datos agrupados por receta
-  else {
-    const recipeData = data as RecipePriceHistory[];
-    const recipe = recipeData.find(r => r.recipeId === recipeId);
-    
-    if (recipe && recipe.clients) {
-      recipe.clients.forEach(client => {
-        if (!client.priceHistory) return;
-        // Ya no filtramos por cotizaciones aprobadas
-        const activePrices = client.priceHistory.filter(p => p.isActive === true);
-        
-        if (activePrices.length > 0) {
-          // Ordenar por fecha más reciente
-          activePrices.sort((a, b) => 
-            new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime()
-          );
-          // Usar el precio activo más reciente
-          const activePrice = activePrices[0].base_price;
-          if (activePrice && activePrice > 0) {
-            totalPrice += activePrice;
-            count++;
-          }
-        }
-      });
-    }
-  }
-
-  return count > 0 ? totalPrice / count : 0;
+  });
+  
+  return Array.from(constructionSites.entries()).map(([site, recipes]) => ({
+    constructionSite: site,
+    recipes
+  }));
 };
 
-// Función para extraer todas las recetas únicas de los datos
-const extractUniqueRecipes = (data: ClientPriceHistory[] | RecipePriceHistory[]): { id: string; code: string }[] => {
-  const recipeMap = new Map<string, { id: string; code: string }>();
+// Helper function to group client prices by construction site
+const groupClientPricesByConstructionSite = (client: any) => {
+  const constructionSites = new Map<string, PriceEntry[]>();
   
-  if (!data || data.length === 0) return [];
+  const prices = client.prices || [];
   
-  if ('recipes' in data[0]) {
-    // Datos agrupados por cliente
-    const clientData = data as ClientPriceHistory[];
-    clientData.forEach(client => {
-      if (!client.recipes) return;
+  // Group prices by construction site
+  prices.forEach((price: PriceEntry) => {
+    const site = price.construction_site || 'Sin ubicación';
+    if (!constructionSites.has(site)) {
+      constructionSites.set(site, []);
+    }
+    
+    constructionSites.get(site)!.push(price);
+  });
+  
+  return Array.from(constructionSites.entries()).map(([site, prices]) => ({
+    constructionSite: site,
+    prices
+  }));
+};
+
+// Helper function to calculate average price for a recipe
+const calculateAveragePrice = (data: ClientPriceData[] | RecipePriceData[], recipeId: string) => {
+  let activePrices: PriceEntry[] = [];
+  
+  if ('businessName' in data[0]) {
+    // Data is grouped by client
+    (data as ClientPriceData[]).forEach(client => {
       client.recipes.forEach(recipe => {
-        if (recipe && recipe.recipeId) {
-          recipeMap.set(recipe.recipeId, { id: recipe.recipeId, code: recipe.recipeCode });
+        if (recipe.recipeId === recipeId) {
+          const activeRecipePrices = recipe.prices.filter(p => p.is_active);
+          activePrices = [...activePrices, ...activeRecipePrices];
         }
       });
     });
   } else {
-    // Datos agrupados por receta
-    const recipeData = data as RecipePriceHistory[];
-    recipeData.forEach(recipe => {
-      if (recipe && recipe.recipeId) {
-        recipeMap.set(recipe.recipeId, { id: recipe.recipeId, code: recipe.recipeCode });
-      }
-    });
+    // Data is grouped by recipe
+    const recipe = (data as RecipePriceData[]).find(r => r.recipeId === recipeId);
+    if (recipe) {
+      recipe.clients.forEach(client => {
+        const activeClientPrices = client.prices.filter(p => p.is_active);
+        activePrices = [...activePrices, ...activeClientPrices];
+      });
+    }
   }
   
-  return Array.from(recipeMap.values());
-};
-
-// Función para renderizar el historial de precios
-const renderPriceHistory = (history: PriceHistoryEntry[], parentKey: string) => {
-  if (!history || history.length === 0) return null;
+  if (activePrices.length === 0) return null;
   
-  return history.map((entry, index) => (
-    <TableRow key={`${parentKey}-price-${entry.id || index}`} className="bg-muted/50">
-      <TableCell colSpan={4} />
-      <TableCell>{formatDate(entry.effectiveDate)}</TableCell>
-      <TableCell>{entry.code}</TableCell>
-      <TableCell>{formatCurrency(entry.base_price)}</TableCell>
-      <TableCell>{entry.type}</TableCell>
-      <TableCell>
-        {entry.isActive && (
-          <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
-            Activo
-          </span>
-        )}
-      </TableCell>
-      <TableCell>
-        {entry.quoteId && (
-          <span className="text-sm text-muted-foreground">
-            Cotización #{entry.quoteId}
-          </span>
-        )}
-      </TableCell>
-    </TableRow>
-  ));
+  const sum = activePrices.reduce((acc, price) => acc + price.base_price, 0);
+  return sum / activePrices.length;
 };
 
-// Funciones de utilidad para la comparación de precios
-const getComparisonColor = (currentPrice: number, averagePrice: number): string => {
-  if (currentPrice === averagePrice) return 'text-gray-600';
-  return currentPrice > averagePrice ? 'text-green-600' : 'text-red-600';
-};
-
-const getComparisonText = (currentPrice: number, averagePrice: number): string => {
-  if (currentPrice === averagePrice) return 'Igual al promedio';
-  
-  const diff = currentPrice - averagePrice;
-  const percentage = averagePrice > 0 ? (diff / averagePrice) * 100 : 0;
-  
-  return `${formatCurrency(diff)} (${formatPercentage(percentage)})`;
-};
-
-// Componente principal
 export const PriceHistoryTable: React.FC<PriceHistoryTableProps> = ({ data, groupBy }) => {
   const { userProfile } = useAuth();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [selectedRecipe, setSelectedRecipe] = useState<string>("");
-  
-  const clientsWithFilteredData = useMemo(() => {
-    if (!data || data.length === 0) return [];
+  const [expandedSites, setExpandedSites] = useState<Set<string>>(new Set());
+  const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
+  const [selectedFilter, setSelectedFilter] = useState<string>('all');
 
-    if (groupBy === 'client') {
-      return (data as ClientPriceHistory[]).map(client => ({
-        ...client,
-        recipes: client.recipes.map(recipe => ({
-          ...recipe,
-          // Filtrar para mostrar solo cotizaciones aprobadas
-          priceHistory: filterPriceHistory(recipe.priceHistory, userProfile?.role),
-          // Usar el precio más reciente de cotizaciones aprobadas
-          currentPrice: recipe.priceHistory?.filter(p => p.isActive && p.quote?.status === 'APPROVED')
-            .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime())[0]?.base_price || 0
-        }))
-      }));
-    } else {
-      return (data as RecipePriceHistory[]).map(recipe => ({
-        ...recipe,
-        clients: recipe.clients.map(client => ({
-          ...client,
-          // Filtrar para mostrar solo cotizaciones aprobadas
-          priceHistory: filterPriceHistory(client.priceHistory, userProfile?.role),
-          // Usar el precio más reciente de cotizaciones aprobadas
-          currentPrice: client.priceHistory?.filter(p => p.isActive && p.quote?.status === 'APPROVED')
-            .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime())[0]?.base_price || 0
-        }))
-      }));
-    }
-  }, [data, groupBy, userProfile]);
-  
-  // Obtener recetas únicas para el filtro
-  const uniqueRecipes = useMemo(() => {
-    return extractUniqueRecipes(clientsWithFilteredData);
-  }, [clientsWithFilteredData]);
-  
-  // Filtrar datos según la receta seleccionada
-  const filteredData = useMemo(() => {
-    if (!selectedRecipe) return clientsWithFilteredData;
+  // Calculate average prices for all recipes
+  const averagePrices = useMemo(() => {
+    const priceMap = new Map<string, number | null>();
     
-    if (groupBy === 'client') {
-      return (clientsWithFilteredData as ClientPriceHistory[]).map(client => ({
-        ...client,
-        recipes: client.recipes?.filter(recipe => recipe.recipeId === selectedRecipe) || []
-      })).filter(client => client.recipes && client.recipes.length > 0);
+    if ('businessName' in data[0]) {
+      // Data is grouped by client
+      (data as ClientPriceData[]).forEach(client => {
+        client.recipes.forEach(recipe => {
+          if (!priceMap.has(recipe.recipeId)) {
+            priceMap.set(recipe.recipeId, calculateAveragePrice(data, recipe.recipeId));
+          }
+        });
+      });
     } else {
-      return (clientsWithFilteredData as RecipePriceHistory[]).filter(recipe => recipe.recipeId === selectedRecipe);
+      // Data is grouped by recipe
+      (data as RecipePriceData[]).forEach(recipe => {
+        priceMap.set(recipe.recipeId, calculateAveragePrice(data, recipe.recipeId));
+      });
     }
-  }, [clientsWithFilteredData, selectedRecipe, groupBy]);
+    
+    return priceMap;
+  }, [data]);
 
-  // Manejar la expansión/colapso de filas
   const toggleRow = (id: string) => {
     setExpandedRows(prev => {
       const newSet = new Set(prev);
@@ -249,725 +156,563 @@ export const PriceHistoryTable: React.FC<PriceHistoryTableProps> = ({ data, grou
     });
   };
 
-  // Manejar el cambio de receta seleccionada
-  const handleRecipeChange = (recipeId: string) => {
-    setSelectedRecipe(recipeId === 'all' ? "" : recipeId);
+  const toggleSite = (clientId: string, site: string) => {
+    const compositeId = `${clientId}-${site}`;
+    setExpandedSites(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(compositeId)) {
+        newSet.delete(compositeId);
+      } else {
+        newSet.add(compositeId);
+      }
+      return newSet;
+    });
   };
 
-  if (!clientsWithFilteredData || clientsWithFilteredData.length === 0) {
+  const toggleClient = (recipeId: string, clientId: string) => {
+    const compositeId = `${recipeId}-${clientId}`;
+    setExpandedClients(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(compositeId)) {
+        newSet.delete(compositeId);
+      } else {
+        newSet.add(compositeId);
+      }
+      return newSet;
+    });
+  };
+
+  const getLatestPrice = (prices: PriceEntry[]) => {
+    if (!prices || prices.length === 0) return null;
+    
+    const activePrices = prices.filter(p => p.is_active);
+    if (activePrices.length > 0) {
+      return activePrices.sort((a, b) => {
+        const dateA = new Date(a.effective_date);
+        const dateB = new Date(b.effective_date);
+        return dateB.getTime() - dateA.getTime();
+      })[0];
+    }
+    return prices.sort((a, b) => {
+      const dateA = new Date(a.effective_date);
+      const dateB = new Date(b.effective_date);
+      return dateB.getTime() - dateA.getTime();
+    })[0];
+  };
+
+  const calculatePriceChange = (price: number, recipeId: string) => {
+    const avgPrice = averagePrices.get(recipeId);
+    if (!avgPrice) return null;
+    
+    const difference = price - avgPrice;
+    const percentage = ((difference / avgPrice) * 100);
+    
+    return {
+      amount: difference,
+      percentage: percentage
+    };
+  };
+
+  // Mobile-specific card component
+  const MobilePriceCard = ({ 
+    mainName, 
+    subItems, 
+    isClient, 
+    mainId 
+  }: { 
+    mainName: string, 
+    subItems: any[], 
+    isClient: boolean, 
+    mainId: string 
+  }) => {
+    // Group sub-items by construction site
+    const groupedSubItems = useMemo(() => {
+      const siteMap = new Map<string, any[]>();
+
+      subItems.forEach(subItem => {
+        const subItemPrices = 'prices' in subItem ? subItem.prices : [];
+        
+        subItemPrices.forEach((price: PriceEntry) => {
+          const site = price.construction_site || 'Sin ubicación';
+          
+          if (!siteMap.has(site)) {
+            siteMap.set(site, []);
+          }
+          
+          // Check if this subItem is already in the site group
+          const siteGroup = siteMap.get(site)!;
+          const existingSubItem = siteGroup.find(item => 
+            (isClient 
+              ? item.recipeId === subItem.recipeId 
+              : item.clientId === subItem.clientId)
+          );
+          
+          if (!existingSubItem) {
+            siteGroup.push(subItem);
+          }
+        });
+      });
+
+      // Convert map to array of site groups
+      return Array.from(siteMap.entries()).map(([site, items]) => ({
+        constructionSite: site,
+        items
+      }));
+    }, [subItems, isClient]);
+
     return (
-      <div className="p-4 text-center">
-        No hay datos de historial de precios disponibles con cotizaciones aprobadas.
+      <div className="bg-white shadow-md rounded-lg mb-4 overflow-hidden">
+        {/* Header */}
+        <div className="bg-primary/10 p-3 flex justify-between items-center">
+          <h3 className="font-semibold text-sm">{mainName}</h3>
+          <span className="text-xs text-gray-500">
+            {subItems.length} {isClient 
+              ? (subItems.length === 1 ? 'receta' : 'recetas') 
+              : (subItems.length === 1 ? 'cliente' : 'clientes')}
+          </span>
+        </div>
+
+        {/* Expandable content */}
+        {expandedRows.has(mainId) && (
+          <div className="p-3 space-y-4">
+            {groupedSubItems.map((siteGroup, siteIndex) => (
+              <div 
+                key={`${mainId}-site-${siteIndex}`} 
+                className="bg-gray-50 rounded-lg p-3 shadow-sm"
+              >
+                {/* Construction Site Header */}
+                <div className="flex justify-between items-center mb-3 border-b pb-2">
+                  <h4 className="font-semibold text-sm text-primary">
+                    {siteGroup.constructionSite}
+                  </h4>
+                  <span className="text-xs text-gray-500">
+                    {siteGroup.items.length} {siteGroup.items.length === 1 
+                      ? (isClient ? 'receta' : 'cliente') 
+                      : (isClient ? 'recetas' : 'clientes')}
+                  </span>
+                </div>
+
+                {/* Items within this construction site */}
+                <div className="space-y-3">
+                  {siteGroup.items.map((subItem, itemIndex) => {
+                    const subId = isClient 
+                      ? (subItem as { recipeId: string }).recipeId 
+                      : (subItem as { clientId: string }).clientId;
+                    const subName = isClient 
+                      ? (subItem as { recipeCode: string }).recipeCode 
+                      : (subItem as { businessName: string }).businessName;
+                    const prices = 'prices' in subItem ? subItem.prices : [];
+                    
+                    // Filter prices for this specific construction site
+                    const sitePrices = prices.filter((p: PriceEntry) => 
+                      p.construction_site === siteGroup.constructionSite
+                    );
+                    
+                    const latestPrice = getLatestPrice(sitePrices);
+                    
+                    // Determine the correct recipeId for price comparison
+                    const recipeId = isClient 
+                      ? subId 
+                      : (groupBy === 'recipe' 
+                          ? mainId  // For recipe view, use the main recipe ID
+                          : subId   // For client view, use the client's recipe ID
+                        );
+                    
+                    const priceChange = latestPrice ? 
+                      calculatePriceChange(latestPrice.base_price, recipeId) : null;
+
+                    return (
+                      <div 
+                        key={`${mainId}-${siteGroup.constructionSite}-${subId}`} 
+                        className="bg-white rounded-lg p-3 shadow-sm"
+                      >
+                        <div className="flex justify-between items-center mb-2">
+                          <h5 className="font-medium text-sm">{subName}</h5>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <span className="block text-xs text-gray-600">Precio Actual</span>
+                            <p className="font-semibold text-sm">
+                              {latestPrice ? formatCurrency(latestPrice.base_price) : '-'}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="block text-xs text-gray-600">Diferencia</span>
+                            <p className={`font-semibold text-sm ${
+                              priceChange?.amount && priceChange.amount >= 0 
+                                ? 'text-green-600' 
+                                : 'text-red-600'
+                            }`}>
+                              {priceChange 
+                                ? `${formatCurrency(priceChange.amount)} (${priceChange.percentage.toFixed(1)}%)` 
+                                : '-'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 flex justify-between items-center">
+                          <span className="text-xs text-gray-500">
+                            {latestPrice 
+                              ? `Actualizado: ${formatDate(new Date(latestPrice.effective_date))}` 
+                              : 'Sin fecha'}
+                          </span>
+                          {latestPrice?.is_active && (
+                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                              Activo
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Expand/Collapse Toggle */}
+        <button 
+          onClick={() => toggleRow(mainId)}
+          className="w-full bg-gray-100 hover:bg-gray-200 text-center py-2 text-sm font-medium transition-colors"
+        >
+          {expandedRows.has(mainId) ? 'Ocultar Detalles' : 'Ver Detalles'}
+        </button>
       </div>
     );
+  };
+
+  if (!data || data.length === 0) {
+    return <div className="p-4 text-center">No hay datos de historial de precios disponibles.</div>;
   }
 
   return (
-    <div className="space-y-6">
-      <div className="text-sm text-gray-500 italic">
-        Nota: Solo se muestran precios de cotizaciones aprobadas
+    <div>
+      <div className="mb-4">
+        <Select
+          value={selectedFilter}
+          onValueChange={value => setSelectedFilter(value)}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder={`Filtrar por ${groupBy === 'client' ? 'receta' : 'cliente'}`} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Mostrar todo</SelectItem>
+            {/* Add filter options based on your data */}
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="flex justify-between items-center mb-4">
-        <div className="w-full md:w-72">
-          <Select
-            value={selectedRecipe || "all"}
-            onValueChange={handleRecipeChange}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Filtrar por receta" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todas las recetas</SelectItem>
-              {uniqueRecipes.map((recipe) => (
-                <SelectItem key={recipe.id} value={recipe.id}>
-                  {recipe.code}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* Versión móvil (Cards) */}
-      <div className="md:hidden space-y-4">
-        {filteredData.length === 0 ? (
-          <div className="text-center py-4 bg-gray-50 rounded-md">
-            No se encontraron datos que coincidan con el filtro seleccionado.
-          </div>
-        ) : (
-          groupBy === 'client' ? (
-            (filteredData as ClientPriceHistory[]).map((client, clientIndex) => {
-              const clientKey = `client-${client.clientId}-${clientIndex}`;
-              const isClientExpanded = expandedRows.has(clientKey);
-
-              return (
-                <div key={clientKey} className="bg-white rounded-md shadow-sm overflow-hidden">
-                  <div 
-                    className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-50"
-                    onClick={() => toggleRow(clientKey)}
-                  >
-                    <div className="font-medium">{client.businessName}</div>
-                    <div className="text-gray-500">
-                      {isClientExpanded ? (
-                        <ChevronDown className="h-5 w-5" />
-                      ) : (
-                        <ChevronRight className="h-5 w-5" />
-                      )}
-                    </div>
-                  </div>
-                  
-                  {isClientExpanded && client.recipes && (
-                    <div className="border-t border-gray-100">
-                      {client.recipes.map((recipe, recipeIndex) => {
-                        const recipeKey = `${clientKey}-recipe-${recipe.recipeId}-${recipeIndex}`;
-                        const isRecipeExpanded = expandedRows.has(recipeKey);
-                        const averagePrice = calculateAverageRecipePrice(data, recipe.recipeId);
-                        
-                        return (
-                          <div key={recipeKey} className="border-t border-gray-100">
-                            <div 
-                              className="p-4 pl-8 flex flex-col cursor-pointer hover:bg-gray-50"
-                              onClick={() => toggleRow(recipeKey)}
-                            >
-                              <div className="flex justify-between items-center">
-                                <div className="font-medium">Receta: {recipe.recipeCode}</div>
-                                <div className="text-gray-500">
-                                  {isRecipeExpanded ? (
-                                    <ChevronDown className="h-5 w-5" />
-                                  ) : (
-                                    <ChevronRight className="h-5 w-5" />
-                                  )}
-                                </div>
-                              </div>
-                              
-                              <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                                <div>Precio actual:</div>
-                                <div className="text-right">{formatCurrency(recipe.currentPrice)}</div>
-                                
-                                <div>Precio promedio:</div>
-                                <div className="text-right">{formatCurrency(averagePrice)}</div>
-                                
-                                <div>Comparación:</div>
-                                <div className={`text-right ${getComparisonColor(recipe.currentPrice, averagePrice)}`}>
-                                  {getComparisonText(recipe.currentPrice, averagePrice)}
-                                </div>
-                              </div>
-                            </div>
-                            
-                            {isRecipeExpanded && recipe.priceHistory && (
-                              <div className="bg-gray-50 p-4 pl-12">
-                                <div className="text-sm font-medium mb-2">Historial de precios:</div>
-                                <div className="space-y-2">
-                                  {recipe.priceHistory.slice(0, 5).map((entry, historyIndex) => (
-                                    <div key={`${recipeKey}-history-${historyIndex}`} className="bg-white p-3 rounded border border-gray-200 text-sm">
-                                      <div className="grid grid-cols-2 gap-1">
-                                        <div>Fecha:</div>
-                                        <div className="text-right">{formatDate(entry.effectiveDate)}</div>
-                                        
-                                        <div>Precio:</div>
-                                        <div className="text-right">{formatCurrency(entry.base_price)}</div>
-                                        
-                                        <div>Estado:</div>
-                                        <div className="text-right">
-                                          {entry.isActive ? (
-                                            <div className="flex justify-end">
-                                              <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800">
-                                                Activo
-                                              </span>
-                                            </div>
-                                          ) : (
-                                            <div className="flex justify-end">
-                                              <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
-                                                Inactivo
-                                              </span>
-                                            </div>
-                                          )}
-                                        </div>
-                                        
-                                        {entry.quoteId && (
-                                          <>
-                                            <div>Cotización:</div>
-                                            <div className="text-right">#{entry.quoteId}</div>
-                                          </>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                  
-                                  {recipe.priceHistory.length > 5 && (
-                                    <div className="text-center text-sm text-gray-500 mt-2">
-                                      Mostrando 5 de {recipe.priceHistory.length} registros
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          ) : (
-            (filteredData as RecipePriceHistory[]).map((recipe, recipeIndex) => {
-              const recipeKey = `recipe-${recipe.recipeId}-${recipeIndex}`;
-              const isRecipeExpanded = expandedRows.has(recipeKey);
-
-              return (
-                <div key={recipeKey} className="bg-white rounded-md shadow-sm overflow-hidden">
-                  <div 
-                    className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-50"
-                    onClick={() => toggleRow(recipeKey)}
-                  >
-                    <div className="font-medium">{recipe.recipeCode}</div>
-                    <div className="text-gray-500">
-                      {isRecipeExpanded ? (
-                        <ChevronDown className="h-5 w-5" />
-                      ) : (
-                        <ChevronRight className="h-5 w-5" />
-                      )}
-                    </div>
-                  </div>
-                  
-                  {isRecipeExpanded && recipe.clients && (
-                    <div className="border-t border-gray-100">
-                      {recipe.clients.map((client, clientIndex) => {
-                        const clientKey = `${recipeKey}-client-${client.clientId}-${clientIndex}`;
-                        const isClientExpanded = expandedRows.has(clientKey);
-                        const averagePrice = calculateAverageRecipePrice(data, recipe.recipeId);
-                        
-                        return (
-                          <div key={clientKey} className="border-t border-gray-100">
-                            <div 
-                              className="p-4 pl-8 flex flex-col cursor-pointer hover:bg-gray-50"
-                              onClick={() => toggleRow(clientKey)}
-                            >
-                              <div className="flex justify-between items-center">
-                                <div className="font-medium">Cliente: {client.businessName}</div>
-                                <div className="text-gray-500">
-                                  {isClientExpanded ? (
-                                    <ChevronDown className="h-5 w-5" />
-                                  ) : (
-                                    <ChevronRight className="h-5 w-5" />
-                                  )}
-                                </div>
-                              </div>
-                              
-                              <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                                <div>Precio actual:</div>
-                                <div className="text-right">{formatCurrency(client.currentPrice)}</div>
-                                
-                                <div>Precio promedio:</div>
-                                <div className="text-right">{formatCurrency(averagePrice)}</div>
-                                
-                                <div>Comparación:</div>
-                                <div className={`text-right ${getComparisonColor(client.currentPrice, averagePrice)}`}>
-                                  {getComparisonText(client.currentPrice, averagePrice)}
-                                </div>
-                              </div>
-                            </div>
-                            
-                            {isClientExpanded && client.priceHistory && (
-                              <div className="bg-gray-50 p-4 pl-12">
-                                <div className="text-sm font-medium mb-2">Historial de precios:</div>
-                                <div className="space-y-2">
-                                  {client.priceHistory.slice(0, 5).map((entry, historyIndex) => (
-                                    <div key={`${clientKey}-history-${historyIndex}`} className="bg-white p-3 rounded border border-gray-200 text-sm">
-                                      <div className="grid grid-cols-2 gap-1">
-                                        <div>Fecha:</div>
-                                        <div className="text-right">{formatDate(entry.effectiveDate)}</div>
-                                        
-                                        <div>Precio:</div>
-                                        <div className="text-right">{formatCurrency(entry.base_price)}</div>
-                                        
-                                        <div>Estado:</div>
-                                        <div className="text-right">
-                                          {entry.isActive ? (
-                                            <div className="flex justify-end">
-                                              <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800">
-                                                Activo
-                                              </span>
-                                            </div>
-                                          ) : (
-                                            <div className="flex justify-end">
-                                              <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
-                                                Inactivo
-                                              </span>
-                                            </div>
-                                          )}
-                                        </div>
-                                        
-                                        {entry.quoteId && (
-                                          <>
-                                            <div>Cotización:</div>
-                                            <div className="text-right">#{entry.quoteId}</div>
-                                          </>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                  
-                                  {client.priceHistory.length > 5 && (
-                                    <div className="text-center text-sm text-gray-500 mt-2">
-                                      Mostrando 5 de {client.priceHistory.length} registros
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })
-          )
-        )}
-      </div>
-
-      {/* Versión escritorio (Tabla) */}
-      <div className="hidden md:block overflow-x-auto">
-        {groupBy === 'client' ? (
-          // Vista por cliente
-          <Table className="border border-collapse shadow-sm rounded-lg overflow-hidden">
-            <TableHeader>
-              <TableRow className="bg-primary/10">
-                <TableHead className="w-10 border"></TableHead>
-                <TableHead className="border font-semibold">Cliente</TableHead>
-                <TableHead className="border font-semibold">Obra</TableHead>
-                <TableHead className="border font-semibold">Producto</TableHead>
-                <TableHead className="border font-semibold text-right">Precio Actual</TableHead>
-                <TableHead className="border font-semibold text-right">Precio Promedio</TableHead>
-                <TableHead className="border font-semibold text-right">Comparación</TableHead>
-                <TableHead className="border font-semibold">Última Actualización</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredData.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-6 border bg-gray-50 text-gray-500">
-                    No se encontraron datos que coincidan con el filtro seleccionado.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                (filteredData as ClientPriceHistory[]).flatMap((client, clientIndex) => {
-                  if (!client.recipes || client.recipes.length === 0) {
-                    return (
-                      <TableRow key={`client-empty-${clientIndex}`}>
-                        <TableCell className="border"></TableCell>
-                        <TableCell className="border font-medium">{client.businessName}</TableCell>
-                        <TableCell colSpan={6} className="text-center text-gray-500 border">
-                          No hay productos disponibles
-                        </TableCell>
-                      </TableRow>
-                    );
-                  }
-
-                  // Crear la fila del cliente
-                  const clientKey = `client-${client.clientId}-${clientIndex}`;
-                  const isClientExpanded = expandedRows.has(clientKey);
-                  
-                  // Obtener todas las obras (sitios de construcción) de este cliente
-                  const clientSites: Record<string, {
-                    site: string,
-                    entries: (PriceHistoryEntry & { recipeCode?: string; recipeDescription?: string; recipeId?: string })[]
-                  }> = {};
-                  
-                  client.recipes.forEach(recipe => {
-                    if (!recipe.priceHistory) return;
-                    
-                    // Solo considerar entradas de cotizaciones aprobadas
-                    recipe.priceHistory.forEach(entry => {
-                      // Verificar que el entry tenga una cotización aprobada
-                      if (entry.quote?.status !== 'APPROVED') return;
-                      
-                      const site = entry.construction_site || 'General';
-                      
-                      // Inicializar el sitio si no existe
-                      if (!clientSites[site]) {
-                        clientSites[site] = {
-                          site,
-                          entries: []
-                        };
-                      }
-                      
-                      // En esta vista, agregamos información de la receta actual
-                      const enrichedEntry = {
-                        ...entry,
-                        recipeCode: recipe.recipeCode, // Usamos el código de receta del scope actual
-                        recipeId: recipe.recipeId // Agregamos también el ID de la receta
-                      };
-                      
-                      clientSites[site].entries.push(enrichedEntry);
-                    });
-                  });
-                  
-                  return [
-                    // Fila principal del cliente
+      {/* Desktop table */}
+      <div className="hidden sm:block">
+        <Table className="w-full">
+          <TableHeader>
+            <TableRow className="bg-primary/10">
+              <TableHead className="w-10 p-2 sm:p-4"></TableHead>
+              <TableHead className="p-2 sm:p-4">{groupBy === 'client' ? 'Cliente' : 'Receta'}</TableHead>
+              <TableHead className="p-2 sm:p-4 hidden sm:table-cell">Obra</TableHead>
+              <TableHead className="p-2 sm:p-4">{groupBy === 'client' ? 'Receta' : 'Cliente'}</TableHead>
+              <TableHead className="text-right p-2 sm:p-4 hidden sm:table-cell">Precio Actual</TableHead>
+              <TableHead className="text-right p-2 sm:p-4 hidden md:table-cell">Diferencia con Promedio</TableHead>
+              <TableHead className="p-2 sm:p-4 hidden sm:table-cell">Última Actualización</TableHead>
+              <TableHead className="p-2 sm:p-4 hidden sm:table-cell">Estado</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.map((item: ClientPriceData | RecipePriceData) => {
+              const isClient = 'businessName' in item;
+              const mainId = isClient ? item.clientId : item.recipeId;
+              const mainName = isClient ? item.businessName : item.recipeCode;
+              
+              // For client view, group by construction site
+              if (isClient && groupBy === 'client') {
+                const clientItem = item as ClientPriceData;
+                const constructionSites = groupByConstructionSite(clientItem.recipes);
+                
+                return (
+                  <React.Fragment key={mainId}>
+                    {/* Main client row */}
                     <TableRow 
-                      key={clientKey}
-                      className={`cursor-pointer transition-colors hover:bg-primary/5 ${isClientExpanded ? 'bg-gray-50' : ''} ${clientIndex === 0 ? 'border-t-2 border-t-primary/20' : ''}`}
-                      onClick={() => toggleRow(clientKey)}
+                      className="cursor-pointer hover:bg-primary/5"
+                      onClick={() => toggleRow(mainId)}
                     >
-                      <TableCell className="border text-center">
-                        <div className="bg-primary/10 rounded-full p-1 inline-flex items-center justify-center transition-colors hover:bg-primary/20">
-                          {isClientExpanded ? (
-                            <ChevronDown className="h-4 w-4 text-primary/80" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4 text-primary/80" />
-                          )}
-                        </div>
+                      <TableCell>
+                        {expandedRows.has(mainId) ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
                       </TableCell>
-                      <TableCell className="border font-medium text-primary-foreground/90">{client.businessName}</TableCell>
-                      <TableCell className="border" colSpan={6}>
-                        <div className="flex items-center justify-between">
-                          <span>{Object.keys(clientSites).length} obras</span>
-                          <span className="text-xs text-gray-500 italic">Haga clic para ver detalles</span>
-                        </div>
+                      <TableCell className="font-medium">{mainName}</TableCell>
+                      <TableCell>
+                        {constructionSites.length} {constructionSites.length === 1 ? 'obra' : 'obras'}
                       </TableCell>
-                    </TableRow>,
-                    
-                    // Si el cliente está expandido, mostrar sus obras
-                    ...(isClientExpanded ? Object.entries(clientSites).map(([siteName, siteData], siteIndex) => {
-                      const siteKey = `${clientKey}-site-${siteName}-${siteIndex}`;
-                      const isSiteExpanded = expandedRows.has(siteKey);
-                      
-                      // Obtener el precio actual (el activo más reciente)
-                      const activeEntries = siteData.entries.filter(entry => entry.isActive);
-                      const currentEntry = activeEntries.length > 0 ? activeEntries[0] : siteData.entries[0];
-                      const currentPrice = currentEntry?.base_price || 0;
-                      const lastUpdated = currentEntry?.effectiveDate;
-                      
-                      // Calcular el precio promedio para la receta del sitio
-                      // Usamos el ID de la receta del primer entry (todos los entries en un sitio deberían ser de la misma receta)
-                      const recipeId = siteData.entries.length > 0 ? siteData.entries[0].recipeId : undefined;
-                      const averagePrice = recipeId ? calculateAverageRecipePrice(data, recipeId) : 0;
-                      
-                      return [
-                        // Fila de la obra
-                        <TableRow 
-                          key={siteKey}
-                          className={`cursor-pointer hover:bg-gray-100 ${isSiteExpanded ? 'bg-gray-100' : 'bg-gray-50'}`}
-                          onClick={() => toggleRow(siteKey)}
-                        >
-                          <TableCell className="border text-center">
-                            <div className="bg-gray-200 rounded-full p-1 inline-flex items-center justify-center transition-colors hover:bg-gray-300 ml-2">
-                              {isSiteExpanded ? (
-                                <ChevronDown className="h-3.5 w-3.5 text-gray-700" />
-                              ) : (
-                                <ChevronRight className="h-3.5 w-3.5 text-gray-700" />
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="border"></TableCell>
-                          <TableCell className="border font-medium pl-4 text-gray-800">{siteName}</TableCell>
-                          <TableCell className="border" colSpan={5}>
-                            <div className="flex items-center justify-between">
-                              <span>{siteData.entries.length} productos</span>
-                              <span className="text-xs text-gray-500 italic">Haga clic para ver productos</span>
-                            </div>
-                          </TableCell>
-                        </TableRow>,
-                        
-                        // Si la obra está expandida, mostrar sus productos
-                        ...(isSiteExpanded ? siteData.entries.map((entry, historyIndex) => {
-                          const recipeKey = `${siteKey}-entry-${entry.id}-${historyIndex}`;
-                          const isRecipeExpanded = expandedRows.has(recipeKey);
-                          
-                          // Usar el recipeId que agregamos al enriquecer la entrada
-                          const entryRecipeId = entry.recipeId;
-                          // Calcular el precio promedio para esta receta específica
-                          const entryAveragePrice = entryRecipeId ? calculateAverageRecipePrice(data, entryRecipeId) : 0;
-                          
-                          return (
-                            <TableRow 
-                              key={recipeKey}
-                              className={`transition-colors ${isRecipeExpanded ? 'bg-blue-50' : 'hover:bg-blue-50/50'}`}
-                              onClick={() => toggleRow(recipeKey)}
-                            >
-                              <TableCell className="border text-center">
-                                <div className="bg-blue-100 rounded-full p-1 inline-flex items-center justify-center transition-colors hover:bg-blue-200 ml-4">
-                                  {isRecipeExpanded ? (
-                                    <ChevronDown className="h-3 w-3 text-blue-700" />
-                                  ) : (
-                                    <ChevronRight className="h-3 w-3 text-blue-700" />
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="border"></TableCell>
-                              <TableCell className="border"></TableCell>
-                              <TableCell className="border font-medium pl-6 text-blue-900">
-                                {entry.recipeCode || entry.code} 
-                                <span className="text-xs text-gray-500 italic ml-2">
-                                  ({entry.type || 'Estándar'})
-                                  {entry.quoteId && ` - Cotización #${entry.quoteId}`}
-                                </span>
-                              </TableCell>
-                              <TableCell className="border font-medium text-right">{formatCurrency(currentPrice)}</TableCell>
-                              <TableCell className="border text-right">{formatCurrency(entryAveragePrice)}</TableCell>
-                              <TableCell className={`border ${getComparisonColor(currentPrice, entryAveragePrice)} font-medium text-right`}>
-                                {getComparisonText(currentPrice, entryAveragePrice)}
-                              </TableCell>
-                              <TableCell className="border text-gray-600">
-                                {lastUpdated ? formatDate(lastUpdated) : "-"}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        }) : [])
-                      ];
-                    }) : [])
-                  ];
-                })
-              )}
-            </TableBody>
-          </Table>
-        ) : (
-          // Vista por receta
-          <Table className="border border-collapse shadow-sm rounded-lg overflow-hidden">
-            <TableHeader>
-              <TableRow className="bg-primary/10">
-                <TableHead className="w-10 border"></TableHead>
-                <TableHead className="border font-semibold">Producto</TableHead>
-                <TableHead className="border font-semibold">Cliente</TableHead>
-                <TableHead className="border font-semibold">Obra</TableHead>
-                <TableHead className="border font-semibold text-right">Precio Actual</TableHead>
-                <TableHead className="border font-semibold text-right">Precio Promedio</TableHead>
-                <TableHead className="border font-semibold text-right">Comparación</TableHead>
-                <TableHead className="border font-semibold">Última Actualización</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredData.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-center py-6 border bg-gray-50 text-gray-500">
-                    No se encontraron datos que coincidan con el filtro seleccionado.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                (filteredData as RecipePriceHistory[]).flatMap((recipe, recipeIndex) => {
-                  if (!recipe.clients || recipe.clients.length === 0) {
-                    return (
-                      <TableRow key={`recipe-empty-${recipeIndex}`}>
-                        <TableCell className="border"></TableCell>
-                        <TableCell className="border font-medium">{recipe.recipeCode}</TableCell>
-                        <TableCell colSpan={6} className="text-center text-gray-500 border">
-                          No hay clientes disponibles
-                        </TableCell>
-                      </TableRow>
-                    );
-                  }
+                      <TableCell colSpan={5}></TableCell>
+                    </TableRow>
 
-                  // Crear la fila del producto
-                  const recipeKey = `recipe-${recipe.recipeId}-${recipeIndex}`;
-                  const isRecipeExpanded = expandedRows.has(recipeKey);
-                  const averagePrice = calculateAverageRecipePrice(data, recipe.recipeId);
-                  
-                  return [
-                    // Fila principal del producto
-                    <TableRow 
-                      key={recipeKey}
-                      className={`cursor-pointer transition-colors hover:bg-primary/5 ${isRecipeExpanded ? 'bg-gray-50' : ''} ${recipeIndex === 0 ? 'border-t-2 border-t-primary/20' : ''}`}
-                      onClick={() => toggleRow(recipeKey)}
-                    >
-                      <TableCell className="border text-center">
-                        <div className="bg-primary/10 rounded-full p-1 inline-flex items-center justify-center transition-colors hover:bg-primary/20">
-                          {isRecipeExpanded ? (
-                            <ChevronDown className="h-4 w-4 text-primary/80" />
-                          ) : (
-                            <ChevronRight className="h-4 w-4 text-primary/80" />
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="border font-medium text-primary-foreground/90">{recipe.recipeCode}</TableCell>
-                      <TableCell className="border" colSpan={6}>
-                        <div className="flex items-center justify-between">
-                          <span>{recipe.clients.length} clientes utilizan este producto</span>
-                          <span className="text-xs text-gray-500 italic">Haga clic para ver clientes</span>
-                        </div>
-                      </TableCell>
-                    </TableRow>,
-                    
-                    // Si el producto está expandido, mostrar los clientes
-                    ...(isRecipeExpanded ? recipe.clients.flatMap((client, clientIndex) => {
-                      const clientKey = `${recipeKey}-client-${client.clientId}-${clientIndex}`;
-                      const isClientExpanded = expandedRows.has(clientKey);
+                    {/* Construction site rows */}
+                    {expandedRows.has(mainId) && constructionSites.map(site => {
+                      const siteId = `${mainId}-${site.constructionSite}`;
                       
-                      // Obtener todas las obras (sitios de construcción) de este cliente
-                      const clientSites: Record<string, {
-                        site: string,
-                        entries: (PriceHistoryEntry & { recipeCode?: string; recipeDescription?: string; recipeId?: string })[]
-                      }> = {};
-                      
-                      client.priceHistory?.forEach(entry => {
-                        // Verificar que el entry tenga una cotización aprobada
-                        if (entry.quote?.status !== 'APPROVED') return;
-                        
-                        const site = entry.construction_site || 'General';
-                        
-                        // Inicializar el sitio si no existe
-                        if (!clientSites[site]) {
-                          clientSites[site] = {
-                            site,
-                            entries: []
-                          };
-                        }
-                        
-                        // En esta vista, agregamos información de la receta actual
-                        const enrichedEntry = {
-                          ...entry,
-                          recipeCode: recipe.recipeCode, // Usamos el código de receta del scope actual
-                          recipeId: recipe.recipeId // Agregamos también el ID de la receta
-                        };
-                        
-                        clientSites[site].entries.push(enrichedEntry);
-                      });
-                      
-                      return [
-                        // Fila del cliente
-                        <TableRow 
-                          key={clientKey}
-                          className={`cursor-pointer transition-colors ${isClientExpanded ? 'bg-gray-100' : 'bg-gray-50 hover:bg-gray-100'}`}
-                          onClick={() => toggleRow(clientKey)}
-                        >
-                          <TableCell className="border text-center">
-                            <div className="bg-gray-200 rounded-full p-1 inline-flex items-center justify-center transition-colors hover:bg-gray-300 ml-2">
-                              {isClientExpanded ? (
-                                <ChevronDown className="h-3.5 w-3.5 text-gray-700" />
-                              ) : (
-                                <ChevronRight className="h-3.5 w-3.5 text-gray-700" />
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="border"></TableCell>
-                          <TableCell className="border font-medium pl-4 text-gray-800">{client.businessName}</TableCell>
-                          <TableCell className="border">
-                            <div className="flex items-center justify-between">
-                              <span>{Object.keys(clientSites).length} obras</span>
-                              {Object.keys(clientSites).length > 0 && (
-                                <span className="text-xs text-gray-500 italic">Haga clic para ver obras</span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="border font-medium text-right">{formatCurrency(client.currentPrice)}</TableCell>
-                          <TableCell className="border text-right">{formatCurrency(averagePrice)}</TableCell>
-                          <TableCell className={`border ${getComparisonColor(client.currentPrice, averagePrice)} font-medium text-right`}>
-                            {getComparisonText(client.currentPrice, averagePrice)}
-                          </TableCell>
-                          <TableCell className="border">
-                            {client.priceHistory && client.priceHistory.length > 0 ? formatDate(client.priceHistory[0].effectiveDate) : "-"}
-                          </TableCell>
-                        </TableRow>,
-                        
-                        // Si el cliente está expandido, mostrar los sitios
-                        ...(isClientExpanded ? Object.entries(clientSites).map(([siteName, siteData], siteIndex) => {
-                          const siteKey = `${clientKey}-site-${siteName}-${siteIndex}`;
-                          const isSiteExpanded = expandedRows.has(siteKey);
-                          
-                          // Obtener el precio actual (el activo más reciente)
-                          const activeEntries = siteData.entries.filter(entry => entry.isActive);
-                          const currentEntry = activeEntries.length > 0 ? activeEntries[0] : siteData.entries[0];
-                          const sitePrice = currentEntry?.base_price || 0;
-                          
-                          return [
-                            // Fila de la obra
-                            <TableRow 
-                              key={siteKey}
-                              className={`cursor-pointer transition-colors ${isSiteExpanded ? 'bg-blue-50/70' : 'hover:bg-blue-50/50'}`}
-                              onClick={() => toggleRow(siteKey)}
-                            >
-                              <TableCell className="border text-center">
-                                <div className="bg-blue-100 rounded-full p-1 inline-flex items-center justify-center transition-colors hover:bg-blue-200 ml-4">
-                                  {isSiteExpanded ? (
-                                    <ChevronDown className="h-3 w-3 text-blue-700" />
-                                  ) : (
-                                    <ChevronRight className="h-3 w-3 text-blue-700" />
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="border"></TableCell>
-                              <TableCell className="border"></TableCell>
-                              <TableCell className="border font-medium pl-6 text-blue-900">{siteName}</TableCell>
-                              <TableCell className="border font-medium text-right">{formatCurrency(sitePrice)}</TableCell>
-                              <TableCell className="border text-right">{formatCurrency(averagePrice)}</TableCell>
-                              <TableCell className={`border ${getComparisonColor(sitePrice, averagePrice)} font-medium text-right`}>
-                                {getComparisonText(sitePrice, averagePrice)}
-                              </TableCell>
-                              <TableCell className="border">
-                                {activeEntries.length > 0 && (
-                                  <div className="flex justify-end">
-                                    <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800">
-                                      Precio Activo
-                                    </span>
-                                  </div>
-                                )}
-                              </TableCell>
-                              <TableCell className="border">
-                                {currentEntry && (
-                                  <div className="flex items-center gap-1">
-                                    <span>{formatDate(currentEntry.effectiveDate)}</span>
-                                    {isSiteExpanded ? null : <span className="text-xs text-gray-500 italic">Haga clic para más detalles</span>}
-                                  </div>
-                                )}
-                              </TableCell>
-                            </TableRow>,
+                      return (
+                        <React.Fragment key={siteId}>
+                          <TableRow 
+                            className="cursor-pointer bg-muted/30 hover:bg-primary/5"
+                            onClick={() => toggleSite(mainId, site.constructionSite)}
+                          >
+                            <TableCell></TableCell>
+                            <TableCell className="font-medium">
+                              {site.constructionSite}
+                            </TableCell>
+                            <TableCell>
+                              {site.recipes.length} {site.recipes.length === 1 ? 'receta' : 'recetas'}
+                            </TableCell>
+                            <TableCell colSpan={5}></TableCell>
+                          </TableRow>
+
+                          {/* Recipe rows for this site */}
+                          {expandedSites.has(siteId) && site.recipes.map(recipe => {
+                            const latestPrice = getLatestPrice(recipe.prices);
+                            const priceChange = latestPrice ? 
+                              calculatePriceChange(latestPrice.base_price, recipe.recipeId) : null;
                             
-                            // Si el sitio está expandido, mostrar las entradas de historial
-                            ...(isSiteExpanded ? siteData.entries.map((entry, historyIndex) => (
-                              <TableRow key={`${siteKey}-history-${historyIndex}`} className="bg-blue-50/30 hover:bg-blue-50/50 transition-colors">
-                                <TableCell className="border"></TableCell>
-                                <TableCell className="border"></TableCell>
-                                <TableCell className="border"></TableCell>
-                                <TableCell className="border text-sm text-gray-600 pl-10">
-                                  {entry.recipeCode || entry.code} 
-                                  <span className="text-xs text-gray-500 italic ml-2">
-                                    ({entry.type || 'Estándar'})
-                                    {entry.quoteId && ` - Cotización #${entry.quoteId}`}
-                                  </span>
+                            return (
+                              <TableRow 
+                                key={`${siteId}-${recipe.recipeId}`}
+                                className="bg-muted/50"
+                              >
+                                <TableCell></TableCell>
+                                <TableCell>{recipe.recipeCode}</TableCell>
+                                <TableCell>
+                                  {latestPrice?.construction_site || '-'}
                                 </TableCell>
-                                <TableCell className="border text-right">{formatCurrency(entry.base_price)}</TableCell>
-                                <TableCell className="border text-right">
-                                  {entry.recipeId ? formatCurrency(calculateAverageRecipePrice(data, entry.recipeId)) : "-"}
+                                <TableCell className="text-right">
+                                  {latestPrice ? formatCurrency(latestPrice.base_price) : '-'}
                                 </TableCell>
-                                <TableCell className="border text-right">
-                                  {entry.recipeId ? (
-                                    <span className={getComparisonColor(entry.base_price, calculateAverageRecipePrice(data, entry.recipeId))}>
-                                      {getComparisonText(entry.base_price, calculateAverageRecipePrice(data, entry.recipeId))}
+                                <TableCell className="text-right">
+                                  {priceChange ? (
+                                    <span className={priceChange.amount >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                      {formatCurrency(priceChange.amount)} ({priceChange.percentage.toFixed(1)}%)
                                     </span>
-                                  ) : "-"}
+                                  ) : '-'}
                                 </TableCell>
-                                <TableCell className="border">
-                                  {entry.isActive ? (
-                                    <div className="flex justify-end">
-                                      <span className="px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800">
-                                        Activo
-                                      </span>
-                                    </div>
-                                  ) : (
-                                    <div className="flex justify-end">
-                                      <span className="px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
-                                        Inactivo
-                                      </span>
-                                    </div>
+                                <TableCell>
+                                  {latestPrice ? formatDate(new Date(latestPrice.effective_date)) : '-'}
+                                </TableCell>
+                                <TableCell>
+                                  {latestPrice?.is_active && (
+                                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                                      Activo
+                                    </span>
                                   )}
                                 </TableCell>
-                                <TableCell className="border">{formatDate(entry.effectiveDate)}</TableCell>
                               </TableRow>
-                            )) : [])
-                          ];
-                        }) : [])
-                      ];
-                    }) : [])
-                  ];
-                })
-              )}
-            </TableBody>
-          </Table>
-        )}
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              } else if (!isClient && groupBy === 'recipe') {
+                // Recipe view with construction sites
+                const recipeItem = item as RecipePriceData;
+                
+                return (
+                  <React.Fragment key={mainId}>
+                    {/* Main recipe row */}
+                    <TableRow 
+                      className="cursor-pointer hover:bg-primary/5"
+                      onClick={() => toggleRow(mainId)}
+                    >
+                      <TableCell>
+                        {expandedRows.has(mainId) ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                      </TableCell>
+                      <TableCell className="font-medium">{mainName}</TableCell>
+                      <TableCell>
+                        {recipeItem.clients.length} {recipeItem.clients.length === 1 ? 'cliente' : 'clientes'}
+                      </TableCell>
+                      <TableCell colSpan={5}></TableCell>
+                    </TableRow>
+
+                    {/* Client rows */}
+                    {expandedRows.has(mainId) && recipeItem.clients.map(client => {
+                      const clientId = client.clientId;
+                      const compositeId = `${mainId}-${clientId}`;
+                      
+                      // Group client prices by construction site
+                      const clientSites = groupClientPricesByConstructionSite(client);
+                      const totalSites = clientSites.length;
+                      
+                      return (
+                        <React.Fragment key={compositeId}>
+                          {/* Client row */}
+                          <TableRow 
+                            className="cursor-pointer bg-muted/30 hover:bg-primary/5"
+                            onClick={() => toggleClient(mainId, clientId)}
+                          >
+                            <TableCell></TableCell>
+                            <TableCell className="font-medium">
+                              {client.businessName}
+                            </TableCell>
+                            <TableCell>
+                              {totalSites} {totalSites === 1 ? 'obra' : 'obras'}
+                            </TableCell>
+                            <TableCell colSpan={4}></TableCell>
+                          </TableRow>
+
+                          {/* Construction site rows for this client */}
+                          {expandedClients.has(compositeId) && clientSites.map((site, index) => {
+                            const latestPrice = getLatestPrice(site.prices);
+                            const priceChange = latestPrice ? 
+                              calculatePriceChange(latestPrice.base_price, mainId) : null;
+                            
+                            return (
+                              <TableRow 
+                                key={`${compositeId}-${site.constructionSite}-${index}`}
+                                className="bg-muted/50"
+                              >
+                                <TableCell></TableCell>
+                                <TableCell>{site.constructionSite}</TableCell>
+                                <TableCell>
+                                  {latestPrice?.construction_site || '-'}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {latestPrice ? formatCurrency(latestPrice.base_price) : '-'}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  {priceChange ? (
+                                    <span className={priceChange.amount >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                      {formatCurrency(priceChange.amount)} ({priceChange.percentage.toFixed(1)}%)
+                                    </span>
+                                  ) : '-'}
+                                </TableCell>
+                                <TableCell>
+                                  {latestPrice ? formatDate(new Date(latestPrice.effective_date)) : '-'}
+                                </TableCell>
+                                <TableCell>
+                                  {latestPrice?.is_active && (
+                                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                                      Activo
+                                    </span>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              } else {
+                // Fallback view for other scenarios
+                const subItems = isClient 
+                  ? (item as ClientPriceData).recipes 
+                  : (item as RecipePriceData).clients;
+
+                return (
+                  <React.Fragment key={mainId}>
+                    {/* Main row */}
+                    <TableRow 
+                      className="cursor-pointer hover:bg-primary/5"
+                      onClick={() => toggleRow(mainId)}
+                    >
+                      <TableCell>
+                        {expandedRows.has(mainId) ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                      </TableCell>
+                      <TableCell className="font-medium">{mainName}</TableCell>
+                      <TableCell>
+                        {subItems.length} {isClient 
+                          ? (subItems.length === 1 ? 'receta' : 'recetas') 
+                          : (subItems.length === 1 ? 'cliente' : 'clientes')}
+                      </TableCell>
+                      <TableCell colSpan={5}></TableCell>
+                    </TableRow>
+
+                    {/* Sub-items */}
+                    {expandedRows.has(mainId) && subItems.map(subItem => {
+                      const subId = isClient 
+                        ? (subItem as { recipeId: string }).recipeId 
+                        : (subItem as { clientId: string }).clientId;
+                      const subName = isClient 
+                        ? (subItem as { recipeCode: string }).recipeCode 
+                        : (subItem as { businessName: string }).businessName;
+                      const prices = 'prices' in subItem ? subItem.prices : [];
+                      const latestPrice = getLatestPrice(prices);
+                      const recipeId = isClient ? subId : mainId;
+                      const priceChange = latestPrice ? 
+                        calculatePriceChange(latestPrice.base_price, recipeId) : null;
+                            
+                      return (
+                        <TableRow 
+                          key={`${mainId}-${subId}`}
+                          className="bg-muted/50"
+                        >
+                          <TableCell></TableCell>
+                          <TableCell>{subName}</TableCell>
+                          <TableCell>{latestPrice?.construction_site || '-'}</TableCell>
+                          <TableCell className="text-right">
+                            {latestPrice ? formatCurrency(latestPrice.base_price) : '-'}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {priceChange ? (
+                              <span className={priceChange.amount >= 0 ? 'text-green-600' : 'text-red-600'}>
+                                {formatCurrency(priceChange.amount)} ({priceChange.percentage.toFixed(1)}%)
+                              </span>
+                            ) : '-'}
+                          </TableCell>
+                          <TableCell>
+                            {latestPrice ? formatDate(new Date(latestPrice.effective_date)) : '-'}
+                          </TableCell>
+                          <TableCell>
+                            {latestPrice?.is_active && (
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-800">
+                                Activo
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              }
+            })}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Mobile-specific card view */}
+      <div className="sm:hidden space-y-4">
+        {data.map((item: ClientPriceData | RecipePriceData) => {
+          const isClient = 'businessName' in item;
+          const mainId = isClient ? item.clientId : item.recipeId;
+          const mainName = isClient ? item.businessName : item.recipeCode;
+          
+          const subItems = isClient 
+            ? (item as ClientPriceData).recipes 
+            : (item as RecipePriceData).clients;
+
+          return (
+            <MobilePriceCard
+              key={mainId}
+              mainName={mainName}
+              subItems={subItems}
+              isClient={isClient}
+              mainId={mainId}
+            />
+          );
+        })}
       </div>
     </div>
   );

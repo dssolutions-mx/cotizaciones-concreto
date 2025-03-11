@@ -17,8 +17,11 @@ export default function ResetPasswordPage() {
     setLoading(true);
 
     try {
+      // Use the official site URL as a fallback
+      const origin = typeof window !== 'undefined' ? window.location.origin : 'https://cotizaciones-concreto.vercel.app';
+      
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/update-password`,
+        redirectTo: `${origin}/update-password?source=reset`,
       });
 
       if (error) {

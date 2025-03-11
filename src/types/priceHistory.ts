@@ -1,8 +1,5 @@
 import { Database } from './supabase';
 
-type Tables = Database['public']['Tables'];
-type QuoteRow = Tables['quotes']['Row'];
-
 export type PriceHistoryFilters = {
   clientId?: string;
   recipeId?: string;
@@ -16,57 +13,52 @@ export type PriceChange = {
   percentage: number;
 };
 
-export type PriceHistoryEntry = {
+export interface PriceEntry {
   id: string;
   code: string;
   description: string;
-  fc_mr_value: number;
+  base_price: number;
+  is_active: boolean;
+  effective_date: Date;
+  construction_site: string | null;
   type: 'STANDARD' | 'SPECIAL' | 'QUOTED';
+  quote_id: string | null;
+  fc_mr_value: number;
   age_days: number;
   placement_type: string;
-  max_aggregate_size: number;
-  slump: number;
-  base_price: number;
-  isActive: boolean;
-  effectiveDate: Date;
-  quoteId?: string;
-  quote?: QuoteRow;
-  createdAt?: Date;
-  updatedAt?: Date;
-  approvalDate?: Date;
-  construction_site?: string;
-};
+  max_aggregate_size: string;
+  slump: string;
+  quote_number?: string;
+  quote_status?: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  created_at: Date;
+}
 
-export type RecipeInHistory = {
+export interface RecipeInHistory {
   recipeId: string;
   recipeCode: string;
-  currentPrice: number;
-  priceHistory: PriceHistoryEntry[];
-  priceChange: PriceChange;
-};
+  prices: PriceEntry[];
+}
 
-export type ClientInHistory = {
+export interface ClientInHistory {
   clientId: string;
   businessName: string;
-  currentPrice: number;
-  priceHistory: PriceHistoryEntry[];
-  priceChange: PriceChange;
-};
+  prices: PriceEntry[];
+}
 
-export type ClientPriceHistory = {
+export interface ClientPriceData {
   clientId: string;
   businessName: string;
   recipes: RecipeInHistory[];
-};
+}
 
-export type RecipePriceHistory = {
+export interface RecipePriceData {
   recipeId: string;
   recipeCode: string;
-  strengthFc: number;
-  ageDays: number;
-  placementType: string;
   clients: ClientInHistory[];
-};
+}
+
+export type { ClientPriceData as ClientPriceHistory };
+export type { RecipePriceData as RecipePriceHistory };
 
 export type ViewMode = 'table' | 'chart';
 

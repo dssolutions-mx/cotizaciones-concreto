@@ -11,15 +11,26 @@ export default function UpdatePasswordPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isInvitation, setIsInvitation] = useState(false);
   const router = useRouter();
 
-  // Check if we have a valid session from reset link
+  // Check if we have a valid session from reset link and check for source parameter
   useEffect(() => {
     const checkSession = async () => {
       const { data, error } = await supabase.auth.getSession();
       
       if (error || !data.session) {
         setError("Sesión inválida o expirada. Por favor, solicita un nuevo correo de restablecimiento.");
+        return;
+      }
+      
+      // Check if this is an invitation flow
+      const urlParams = new URLSearchParams(window.location.search);
+      const source = urlParams.get('source');
+      console.log('Update password source:', source);
+      
+      if (source === 'invitation') {
+        setIsInvitation(true);
       }
     };
     
@@ -45,25 +56,41 @@ export default function UpdatePasswordPage() {
     setLoading(true);
 
     try {
+      console.log('Updating password...');
       const { error } = await supabase.auth.updateUser({
         password
       });
 
       if (error) {
+        console.error('Error updating password:', error);
         setError(error.message);
-      } else {
-        setMessage("Tu contraseña ha sido actualizada con éxito");
-        
-        // Redirect to login after 2 seconds
+        setLoading(false);
+        return;
+      }
+      
+      console.log('Password updated successfully');
+      setMessage("Tu contraseña ha sido actualizada con éxito");
+      
+      // Redirect to login after 2 seconds
+      try {
         setTimeout(() => {
+          console.log('Redirecting to login page...');
+          setLoading(false); // Ensure loading is set to false before redirect
           router.push('/login');
         }, 2000);
+      } catch (redirectErr) {
+        console.error('Error during redirect:', redirectErr);
+        setLoading(false);
+        setError('Error al redirigir. Por favor, ve a la página de inicio de sesión manualmente.');
       }
     } catch (err) {
+      console.error('Error updating password:', err);
       setError('Ocurrió un error al actualizar la contraseña.');
-      console.error(err);
     } finally {
-      setLoading(false);
+      // Ensure loading state is reset if there's an error
+      if (loading) {
+        setLoading(false);
+      }
     }
   };
 
@@ -71,9 +98,13 @@ export default function UpdatePasswordPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
       <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">Actualizar Contraseña</h1>
+          <h1 className="text-3xl font-bold text-gray-900">
+            {isInvitation ? 'Configura tu Contraseña' : 'Actualizar Contraseña'}
+          </h1>
           <p className="mt-2 text-sm text-gray-600">
-            Crea una nueva contraseña para tu cuenta
+            {isInvitation 
+              ? 'Crea una contraseña para acceder a tu cuenta' 
+              : 'Crea una nueva contraseña para tu cuenta'}
           </p>
         </div>
 

@@ -13,7 +13,6 @@ import {
 import {
   ClientPriceHistory,
   RecipePriceHistory,
-  PriceHistoryEntry,
 } from '@/types/priceHistory';
 import { formatCurrency, formatDate } from '@/lib/formatters';
 
@@ -133,7 +132,7 @@ const PriceHistoryChartComponent: React.FC<PriceHistoryChartProps> = memo(({
         }
 
         client.recipes.forEach(recipe => {
-          if (!recipe.priceHistory) {
+          if (!recipe.prices || recipe.prices.length === 0) {
             console.log('Recipe has no price history:', recipe);
             return;
           }
@@ -141,8 +140,8 @@ const PriceHistoryChartComponent: React.FC<PriceHistoryChartProps> = memo(({
           const seriesKey = `${client.businessName} - ${recipe.recipeCode}`;
           series[seriesKey] = {};
           
-          recipe.priceHistory.forEach(entry => {
-            const dateStr = formatDate(entry.effectiveDate);
+          recipe.prices.forEach(entry => {
+            const dateStr = formatDate(entry.effective_date);
             allDates.add(dateStr);
             series[seriesKey][dateStr] = entry.base_price;
           });
@@ -157,16 +156,16 @@ const PriceHistoryChartComponent: React.FC<PriceHistoryChartProps> = memo(({
         }
 
         recipe.clients.forEach(client => {
-          if (!client.priceHistory) {
+          if (!client.prices || client.prices.length === 0) {
             console.log('Client has no price history:', client);
             return;
           }
 
-          const seriesKey = `${recipe.recipeCode} (${recipe.strengthFc} kg/cm²) - ${client.businessName}`;
+          const seriesKey = `${recipe.recipeCode} - ${client.businessName}`;
           series[seriesKey] = {};
           
-          client.priceHistory.forEach(entry => {
-            const dateStr = formatDate(entry.effectiveDate);
+          client.prices.forEach(entry => {
+            const dateStr = formatDate(entry.effective_date);
             allDates.add(dateStr);
             series[seriesKey][dateStr] = entry.base_price;
           });

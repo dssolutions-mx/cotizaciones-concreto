@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { PriceHistoryTable } from '@/components/PriceHistoryTable';
 import { PriceHistoryChart } from '@/components/PriceHistoryChart';
 import {
@@ -29,13 +29,16 @@ export default function PriceHistoryPage() {
   const [data, setData] = useState<ClientPriceHistory[] | RecipePriceHistory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const debounceTimer = useRef<NodeJS.Timeout | undefined>(undefined);
 
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
+      console.log('Loading price history data with filters:', filters);
       const fetchFn = groupBy === 'client' ? fetchPriceHistoryByClient : fetchPriceHistoryByRecipe;
       const result = await fetchFn(filters);
+      console.log('Price history data loaded:', result);
       setData(result);
     } catch (error: unknown) {
       let errorMessage = 'Error desconocido al cargar el historial de precios';
@@ -49,7 +52,6 @@ export default function PriceHistoryPage() {
       }
       
       setError(errorMessage);
-      // Tipamos el error como unknown para el console.error
       console.error('Error al cargar el historial de precios:', error as unknown);
     } finally {
       setLoading(false);
@@ -57,9 +59,26 @@ export default function PriceHistoryPage() {
   }, [filters, groupBy]);
 
   useEffect(() => {
-    if (userProfile?.role !== 'QUALITY_TEAM') {
-      loadData();
+    if (userProfile?.role === 'QUALITY_TEAM') {
+      return;
     }
+
+    // Clear any existing timer
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+
+    // Set a new timer to load data after a delay
+    debounceTimer.current = setTimeout(() => {
+      loadData();
+    }, 300); // 300ms debounce
+
+    // Cleanup function to clear the timer if the component unmounts
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+    };
   }, [filters, groupBy, userProfile?.role, loadData]);
 
   // Render access denied if user is from quality team
@@ -149,7 +168,11 @@ export default function PriceHistoryPage() {
         </div>
       ) : (
         <>
-          {viewMode === 'table' ? (
+          {data.length === 0 ? (
+            <div className="p-4 text-center text-muted-foreground">
+              No se encontraron datos de historial de precios con los filtros actuales.
+            </div>
+          ) : viewMode === 'table' ? (
             <PriceHistoryTable data={data} groupBy={groupBy} />
           ) : (
             <PriceHistoryChart data={data} groupBy={groupBy} />

@@ -174,8 +174,13 @@ export async function POST(request: NextRequest) {
       }
 
       // Construir la URL de redirección
-      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
-      const redirectTo = `${siteUrl}/update-password?action=invitation`;
+      const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://cotizaciones-concreto.vercel.app';
+      console.log('Site URL from env:', process.env.NEXT_PUBLIC_SITE_URL);
+      console.log('Using site URL:', siteUrl);
+      
+      // Make sure the URL is properly formatted with protocol
+      const baseUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`;
+      const redirectTo = `${baseUrl}/update-password?source=invitation`;
       console.log('Reset password redirect URL:', redirectTo);
 
       // Enviar correo de restablecimiento de contraseña
