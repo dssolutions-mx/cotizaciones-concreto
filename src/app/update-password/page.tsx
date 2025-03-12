@@ -78,8 +78,21 @@ function UpdatePasswordForm() {
       async (event, session) => {
         debugLog(`Global auth event detected: ${event}`, { 
           sessionExists: !!session,
-          email: session?.user?.email 
+          email: session?.user?.email,
+          userId: session?.user?.id
         });
+        
+        // Handle PASSWORD_RECOVERY event specifically
+        if (event === 'PASSWORD_RECOVERY') {
+          debugLog('Password recovery flow detected, setting authReady');
+          setAuthReady(true);
+          setLoading(false);
+          
+          // If there's an email in the session, store it
+          if (session?.user?.email) {
+            setInviteEmail(session.user.email);
+          }
+        }
         
         // Always set authReady for any auth event except INITIAL_SESSION
         if (event !== 'INITIAL_SESSION') {
@@ -106,6 +119,7 @@ function UpdatePasswordForm() {
     
     // Cleanup subscription on unmount
     return () => {
+      debugLog('Cleaning up global auth listener');
       subscription.unsubscribe();
     };
   }, [authListenerSetUp]);
@@ -118,11 +132,17 @@ function UpdatePasswordForm() {
     
     // Set up auth change listener to detect USER_UPDATED event
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event) => {
-        debugLog(`Auth event detected during password update attempt: ${event}`);
+      async (event, session) => {
+        debugLog(`Auth event detected during password update attempt: ${event}`, {
+          sessionExists: !!session,
+          userId: session?.user?.id,
+          userEmail: session?.user?.email,
+          eventType: event
+        });
         
-        if (event === 'USER_UPDATED') {
-          debugLog('Password update confirmed through auth event');
+        // Check for any of these events that could indicate password update
+        if (event === 'USER_UPDATED' || event === 'PASSWORD_RECOVERY' || event === 'TOKEN_REFRESHED') {
+          debugLog(`Password update confirmed through auth event: ${event}`);
           // Password updated successfully
           setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
           setPassword('');
@@ -139,6 +159,7 @@ function UpdatePasswordForm() {
     
     // Cleanup subscription on unmount
     return () => {
+      debugLog('Cleaning up password update auth listener');
       subscription.unsubscribe();
     };
   }, [passwordUpdateAttempted]);
@@ -359,7 +380,7 @@ function UpdatePasswordForm() {
       debugLog("Found active session, proceeding with password update");
       
       // Update password synchronously
-      const { error: updateError } = await supabase.auth.updateUser({ 
+      const { error: updateError, data } = await supabase.auth.updateUser({ 
         password 
       });
       
@@ -371,9 +392,28 @@ function UpdatePasswordForm() {
         return;
       }
       
-      // Success case is now handled by the auth state change listener
+      debugLog("Password update API call completed successfully", data);
+      
+      // Set up a fallback timer to show success in case the auth event doesn't fire
+      const fallbackSuccessTimer = setTimeout(() => {
+        debugLog("Fallback success timer triggered - forcing success state");
+        // Only proceed if we're still loading and haven't received the USER_UPDATED event
+        if (loading && passwordUpdateAttempted) {
+          debugLog("USER_UPDATED event wasn't detected, showing success manually");
+          setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
+          setPassword('');
+          setConfirmPassword('');
+          setLoading(false);
+          setPasswordUpdateAttempted(false);
+          setCountdown(5);
+        }
+      }, 3000); // Wait 3 seconds for the USER_UPDATED event before forcing success
+      
+      // The main success case should still be handled by the auth state change listener
       debugLog("Password update API call completed, waiting for auth event");
-      // Don't modify UI here - wait for the auth event
+      
+      // Cleanup the fallback timer if component unmounts
+      return () => clearTimeout(fallbackSuccessTimer);
       
     } catch (err) {
       debugLog("Error during password update process", err);
