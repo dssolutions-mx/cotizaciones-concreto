@@ -210,8 +210,7 @@ function UpdatePasswordForm() {
         sessionEmail: sessionData?.session?.user?.email
       });
 
-      let updateError;
-      let updateResult;
+      let userId = sessionData?.session?.user?.id;
 
       // If we have an access token in the URL (password reset flow)
       if (accessToken) {
@@ -227,67 +226,52 @@ function UpdatePasswordForm() {
           setLoading(false);
           return;
         }
-        
-        debugLog("Session set from access token, updating password");
-        updateResult = await supabase.auth.updateUser({ 
-          password,
-          data: { last_password_update: new Date().toISOString() }
-        });
-        updateError = updateResult.error;
-      } 
-      // If we have a session (invitation or normal flow)
-      else if (sessionData?.session) {
-        debugLog("Using current session for password update");
-        updateResult = await supabase.auth.updateUser({ 
-          password,
-          data: { last_password_update: new Date().toISOString() }
-        });
-        updateError = updateResult.error;
+
+        userId = sessionResult.data.user?.id;
       }
-      else {
-        debugLog("No valid auth context found for password update");
-        setError("No se encontró una sesión válida para actualizar la contraseña.");
+
+      if (!userId) {
+        debugLog("No user ID found for password update");
+        setError("No se pudo identificar el usuario para actualizar la contraseña.");
         setLoading(false);
         return;
       }
-      
-      if (updateError) {
-        debugLog("Error updating password", updateError);
-        setError(`Error al actualizar la contraseña: ${updateError.message}`);
-        setLoading(false);
-        return;
-      }
-      
-      debugLog("Password update API call completed successfully", {
-        user: updateResult?.data?.user,
-        error: updateResult?.error
+
+      // Call our API endpoint to update the password
+      const response = await fetch('/api/auth/update-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          password,
+          userId
+        })
       });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        debugLog("Error from password update API", result);
+        setError(result.error || 'Error al actualizar la contraseña');
+        setLoading(false);
+        return;
+      }
       
-      // Set up a fallback timer in case the auth event doesn't fire
-      fallbackTimer = setTimeout(() => {
-        debugLog("Fallback success timer triggered");
-        if (loading) {
-          debugLog("Auth event wasn't detected, showing success manually");
-          setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
-          setPassword('');
-          setConfirmPassword('');
-          setLoading(false);
-          setCountdown(5);
-        }
-      }, 3000);
+      debugLog("Password update API call completed successfully", result);
+      
+      // Show success message and start countdown
+      setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
+      setPassword('');
+      setConfirmPassword('');
+      setLoading(false);
+      setCountdown(5);
       
     } catch (err) {
       debugLog("Error during password update process", err);
       setError("Ocurrió un error al actualizar la contraseña");
       setLoading(false);
     }
-
-    // Return cleanup function for the fallback timer
-    return () => {
-      if (fallbackTimer) {
-        clearTimeout(fallbackTimer);
-      }
-    };
   };
 
   // Show loading state while authentication data is being processed
