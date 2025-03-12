@@ -48,6 +48,53 @@ function LoginForm() {
     if (isUpdated) {
       setSuccess('Tu contraseña ha sido actualizada con éxito. Por favor, inicia sesión con tu nueva contraseña.');
     }
+    
+    // Check for force_logout parameter which indicates we need to ensure the user is logged out
+    const forceLogout = searchParams.get('force_logout') === 'true';
+    if (forceLogout) {
+      console.log('Detected force_logout parameter, ensuring user is completely logged out');
+      // Perform a complete logout to clear any lingering session
+      const performForceLogout = async () => {
+        try {
+          console.log('Executing force logout');
+          
+          // Try to sign out with global scope
+          const { error } = await supabase.auth.signOut({ scope: 'global' });
+          if (error) {
+            console.error('Error during force logout:', error);
+          } else {
+            console.log('Force logout successful');
+          }
+          
+          // Clear any potential tokens from local storage
+          try {
+            localStorage.removeItem('supabase.auth.token');
+            localStorage.removeItem('sb-access-token');
+            localStorage.removeItem('sb-refresh-token');
+            
+            // Look for any auth-related keys
+            Object.keys(localStorage).forEach(key => {
+              if (key.toLowerCase().includes('auth') || 
+                  key.toLowerCase().includes('token') || 
+                  key.toLowerCase().includes('supabase') || 
+                  key.toLowerCase().includes('sb-')) {
+                console.log(`Clearing auth-related key: ${key}`);
+                localStorage.removeItem(key);
+              }
+            });
+          } catch (storageErr) {
+            console.error('Error clearing storage during force logout:', storageErr);
+          }
+          
+          // Display a message indicating the logout was forced
+          setSuccess('La sesión se ha cerrado para proteger tu cuenta después de actualizar la contraseña. Por favor, inicia sesión con tu nueva contraseña.');
+        } catch (err) {
+          console.error('Exception during force logout:', err);
+        }
+      };
+      
+      performForceLogout();
+    }
   }, [searchParams]);
 
   // Redirect to dashboard if already authenticated
