@@ -3,7 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 // Import the singleton instance instead of the createClient function
-import { supabase } from '@/lib/supabase/client';
+import { supabase } from '@/lib/supabase';
 
 // Component that uses useSearchParams
 function AuthCallbackHandler() {
@@ -35,6 +35,7 @@ function AuthCallbackHandler() {
         // Handle invitation flow (access_token in hash)
         if (accessToken && refreshToken) {
           console.log('Found tokens in URL hash, setting session in callback page');
+          console.log('Type parameter:', type);
           
           try {
             const { data, error } = await supabase.auth.setSession({
@@ -49,14 +50,40 @@ function AuthCallbackHandler() {
             }
             
             console.log('Session set successfully in callback page', data.user?.email);
+            console.log('User data:', data.user);
             
             // Redirect to update-password page for invitation flows
             if (type === 'invite' || type === 'signup') {
               console.log('Redirecting to update-password page');
-              router.push('/update-password');
+              try {
+                // Try Next.js router first
+                router.replace('/update-password');
+                
+                // Fallback to window.location if router doesn't work
+                setTimeout(() => {
+                  console.log('Fallback redirect to update-password');
+                  window.location.href = '/update-password';
+                }, 2000);
+              } catch (navError) {
+                console.error('Navigation error:', navError);
+                // Direct fallback
+                window.location.href = '/update-password';
+              }
             } else {
               // For other auth flows, redirect to dashboard
-              router.push('/dashboard');
+              console.log('Redirecting to dashboard (non-invitation flow)');
+              try {
+                router.replace('/dashboard');
+                
+                // Fallback
+                setTimeout(() => {
+                  console.log('Fallback redirect to dashboard');
+                  window.location.href = '/dashboard';
+                }, 2000);
+              } catch (navError) {
+                console.error('Navigation error:', navError);
+                window.location.href = '/dashboard';
+              }
             }
           } catch (err) {
             console.error('Exception setting session from tokens in callback:', err);
@@ -129,6 +156,30 @@ function AuthCallbackHandler() {
         {error && (
           <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded-md">
             {error}
+          </div>
+        )}
+        
+        {!loading && !error && (
+          <div className="mt-6 text-center">
+            <p className="text-sm text-gray-600 mb-4">
+              Si no eres redirigido automáticamente, haz clic en el botón:
+            </p>
+            <button
+              onClick={() => {
+                try {
+                  router.replace('/update-password');
+                  setTimeout(() => {
+                    window.location.href = '/update-password';
+                  }, 1000);
+                } catch (err) {
+                  console.error('Error during manual navigation:', err);
+                  window.location.href = '/update-password';
+                }
+              }}
+              className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Continuar a Configurar Contraseña
+            </button>
           </div>
         )}
       </div>

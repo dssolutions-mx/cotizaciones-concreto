@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase/client';
+import { supabase } from '@/lib/supabase';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Session, User } from '@supabase/supabase-js';
 
@@ -62,6 +62,16 @@ function UpdatePasswordForm() {
         const accessToken = hashParams.get('access_token');
         const refreshToken = hashParams.get('refresh_token');
         const tokenType = hashParams.get('type');
+        
+        console.log('URL parameters:', { 
+          code, 
+          type, 
+          hasHash: typeof window !== 'undefined' && !!window.location.hash,
+          hashLength: typeof window !== 'undefined' ? window.location.hash.length : 0,
+          accessToken: accessToken ? 'present' : 'not present',
+          refreshToken: refreshToken ? 'present' : 'not present',
+          tokenType
+        });
         
         // Determine if this is an invitation flow
         if (type === 'invite' || type === 'signup' || tokenType === 'invite') {
@@ -409,9 +419,29 @@ function UpdatePasswordForm() {
           
           {/* Show session status for debugging */}
           {process.env.NODE_ENV === 'development' && (
-            <p className="mt-2 text-xs text-gray-500">
-              Estado de sesión: {sessionEstablished ? 'Establecida' : 'No establecida'}
-            </p>
+            <div className="mt-2 text-xs text-gray-500">
+              <p>Estado de sesión: {sessionEstablished ? 'Establecida' : 'No establecida'}</p>
+              <button 
+                onClick={async () => {
+                  try {
+                    const { data } = await supabase.auth.getSession();
+                    console.log('Current session debug:', data);
+                    alert(
+                      `Session debug:\n` +
+                      `Has session: ${!!data.session}\n` +
+                      `User email: ${data.session?.user?.email || 'none'}\n` +
+                      `Expires at: ${data.session?.expires_at ? new Date(data.session.expires_at * 1000).toLocaleString() : 'n/a'}`
+                    );
+                  } catch (err) {
+                    console.error('Error checking session:', err);
+                    alert('Error checking session: ' + String(err));
+                  }
+                }}
+                className="mt-1 text-xs text-indigo-600 underline"
+              >
+                Debug Session
+              </button>
+            </div>
           )}
         </div>
 
