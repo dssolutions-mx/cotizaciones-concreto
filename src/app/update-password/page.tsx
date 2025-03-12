@@ -281,7 +281,7 @@ function UpdatePasswordForm() {
           );
           
           // Force a small delay to ensure auth state is settled
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, 500));
           
           // Immediately trigger sign out with multiple approaches
           try {
@@ -308,8 +308,8 @@ function UpdatePasswordForm() {
               console.log('User successfully signed out after password update');
             }
             
-            // Force a small delay to ensure signOut completes
-            await new Promise(resolve => setTimeout(resolve, 300));
+            // Force a larger delay to ensure signOut completes
+            await new Promise(resolve => setTimeout(resolve, 800));
             
             // Verify the session is really gone
             const { data: sessionAfter } = await supabase.auth.getSession();
@@ -317,27 +317,70 @@ function UpdatePasswordForm() {
               sessionAfter?.session ? 'Still active (sign out failed)' : 'None (sign out succeeded)'
             );
             
-            // If session still exists, try one more aggressive approach
+            // If session still exists, try more aggressive approaches
             if (sessionAfter?.session) {
               console.log('Session still exists after sign out attempts, trying direct storage clearing');
               
               // Directly clear auth storage if available in this environment
               try {
+                console.log('Clearing all potential Supabase auth tokens from storage');
+                
+                // Attempt to clear the most common Supabase storage keys
                 localStorage.removeItem('supabase.auth.token');
-                // Look for any key containing auth-token
+                localStorage.removeItem('sb-access-token');
+                localStorage.removeItem('sb-refresh-token');
+                
+                // Look for any key containing auth-related terms
+                const keysToCheck = ['auth', 'token', 'supabase', 'sb-'];
                 Object.keys(localStorage).forEach(key => {
-                  if (key.includes('auth-token')) {
-                    console.log(`Clearing potential auth storage key: ${key}`);
-                    localStorage.removeItem(key);
+                  for (const term of keysToCheck) {
+                    if (key.toLowerCase().includes(term)) {
+                      console.log(`Clearing potential auth storage key: ${key}`);
+                      localStorage.removeItem(key);
+                      break;
+                    }
                   }
                 });
-                console.log('Storage cleared manually');
+                
+                // Try to invalidate the current Supabase session
+                try {
+                  console.log('Attempting to invalidate session directly');
+                  
+                  // Create an empty session to force logout
+                  await supabase.auth.signOut();
+                  
+                  // Another approach: try clearing all cookies
+                  if (typeof document !== 'undefined') {
+                    console.log('Clearing cookies to force logout');
+                    document.cookie.split(';').forEach(c => {
+                      document.cookie = c.replace(/^ +/, '').replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
+                    });
+                  }
+                } catch (invalidateErr) {
+                  console.error('Error invalidating session:', invalidateErr);
+                }
+                
+                console.log('Storage and session cleared manually');
                 
                 // Check one more time
                 const { data: finalCheck } = await supabase.auth.getSession();
-                console.log('Session after manual storage clear:', 
+                console.log('Session after manual clear:', 
                   finalCheck?.session ? 'Still active (all attempts failed)' : 'None (manual clear succeeded)'
                 );
+                
+                // If still not working, try to recreate the Supabase client
+                if (finalCheck?.session) {
+                  console.log('CRITICAL: Session still active after all attempts. Trying final approach...');
+                  try {
+                    // Force a page reload which should clear the session state
+                    console.log('Will force page reload to clear session');
+                    setTimeout(() => {
+                      window.location.href = '/login?force_logout=true';
+                    }, 3000);
+                  } catch (reloadErr) {
+                    console.error('Error during forced reload:', reloadErr);
+                  }
+                }
               } catch (storageErr) {
                 console.error('Error clearing storage:', storageErr);
               }
@@ -392,7 +435,30 @@ function UpdatePasswordForm() {
   useEffect(() => {
     if (message && countdown === 0) {
       console.log('Auto-redirecting to login page after password update');
-      router.push('/login');
+      try {
+        // Clear any potential lingering session data before navigation
+        localStorage.removeItem('supabase.auth.token');
+        localStorage.removeItem('sb-access-token');
+        localStorage.removeItem('sb-refresh-token');
+        
+        // Force a complete logout before redirect
+        const forceSignOut = async () => {
+          try {
+            await supabase.auth.signOut({ scope: 'global' });
+          } catch (err) {
+            console.error('Error during final sign out:', err);
+          }
+          
+          // Navigate to login with force_logout parameter
+          router.push('/login?force_logout=true');
+        };
+        
+        forceSignOut();
+      } catch (navError) {
+        console.error('Navigation error:', navError);
+        // Direct fallback with forced reload to clear state
+        window.location.href = '/login?force_logout=true';
+      }
     }
   }, [message, countdown, router]);
 
@@ -602,7 +668,7 @@ function UpdatePasswordForm() {
             )}
             <div className="mt-4 text-center">
               <Link
-                href="/login"
+                href="/login?force_logout=true"
                 className="inline-block px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
               >
                 Ir a Iniciar Sesión Ahora
@@ -663,7 +729,7 @@ function UpdatePasswordForm() {
 
           <div className="text-center">
             <Link
-              href="/login"
+              href="/login?force_logout=true"
               className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
             >
               Volver a Iniciar Sesión
