@@ -274,20 +274,79 @@ function UpdatePasswordForm() {
           setConfirmPassword('');
           setLoading(false);
           
-          // Immediately trigger sign out
+          // Verify session before sign out (for debugging)
+          const { data: sessionBefore } = await supabase.auth.getSession();
+          console.log('Session before sign out attempt:', 
+            sessionBefore?.session ? `Active (${sessionBefore.session.user.email})` : 'None'
+          );
+          
+          // Force a small delay to ensure auth state is settled
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          // Immediately trigger sign out with multiple approaches
           try {
-            console.log('Forcefully signing out user after password update');
-            const { error } = await supabase.auth.signOut({ scope: 'global' });
-            if (error) {
-              console.error('Error during force sign out:', error);
+            console.log('Forcefully signing out user after password update (global scope)');
+            
+            // Try first with global scope
+            const { error: signOutError } = await supabase.auth.signOut({ 
+              scope: 'global' 
+            });
+            
+            if (signOutError) {
+              console.error('Error during force sign out:', signOutError);
+              
+              // If global sign out fails, try without scope param as fallback
+              console.log('Attempting fallback sign out method...');
+              const { error: fallbackError } = await supabase.auth.signOut();
+              
+              if (fallbackError) {
+                console.error('Fallback sign out also failed:', fallbackError);
+              } else {
+                console.log('Fallback sign out succeeded');
+              }
             } else {
               console.log('User successfully signed out after password update');
             }
+            
+            // Force a small delay to ensure signOut completes
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // Verify the session is really gone
+            const { data: sessionAfter } = await supabase.auth.getSession();
+            console.log('Session after sign out attempt:', 
+              sessionAfter?.session ? 'Still active (sign out failed)' : 'None (sign out succeeded)'
+            );
+            
+            // If session still exists, try one more aggressive approach
+            if (sessionAfter?.session) {
+              console.log('Session still exists after sign out attempts, trying direct storage clearing');
+              
+              // Directly clear auth storage if available in this environment
+              try {
+                localStorage.removeItem('supabase.auth.token');
+                // Look for any key containing auth-token
+                Object.keys(localStorage).forEach(key => {
+                  if (key.includes('auth-token')) {
+                    console.log(`Clearing potential auth storage key: ${key}`);
+                    localStorage.removeItem(key);
+                  }
+                });
+                console.log('Storage cleared manually');
+                
+                // Check one more time
+                const { data: finalCheck } = await supabase.auth.getSession();
+                console.log('Session after manual storage clear:', 
+                  finalCheck?.session ? 'Still active (all attempts failed)' : 'None (manual clear succeeded)'
+                );
+              } catch (storageErr) {
+                console.error('Error clearing storage:', storageErr);
+              }
+            }
           } catch (err) {
-            console.error('Exception during sign out:', err);
+            console.error('Exception during sign out process:', err);
           }
           
-          // Start countdown for auto-redirect
+          // Start countdown for auto-redirect regardless of sign out success
           let count = 5;
           setCountdown(count);
           
@@ -305,10 +364,13 @@ function UpdatePasswordForm() {
               // Redirect to login page
               console.log('Countdown complete, redirecting to login page');
               try {
+                // Clear any potential lingering session data before navigation
+                localStorage.removeItem('supabase.auth.token');
+                
                 router.push('/login');
               } catch (navError) {
                 console.error('Navigation error:', navError);
-                // Direct fallback
+                // Direct fallback with forced reload to clear state
                 window.location.href = '/login';
               }
             }
