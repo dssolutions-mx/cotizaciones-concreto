@@ -23,6 +23,8 @@ function UpdatePasswordForm() {
   const [invitationFlow, setInvitationFlow] = useState(false); // Track if we're in an invitation flow
   const [inviteEmail, setInviteEmail] = useState<string | null>(null); // Store the email from invitation
   const [authListenerSetUp, setAuthListenerSetUp] = useState(false);
+  const [passwordUpdateAttempted, setPasswordUpdateAttempted] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
 
   // CRITICAL: Add a timeout to ensure users don't get stuck on loading screen
   useEffect(() => {
@@ -107,6 +109,71 @@ function UpdatePasswordForm() {
       subscription.unsubscribe();
     };
   }, [authListenerSetUp]);
+
+  // Listen for auth state changes specifically for password update completion
+  useEffect(() => {
+    if (!passwordUpdateAttempted) return;
+
+    debugLog('Setting up specific auth state listener for password update confirmation');
+    
+    // Set up auth change listener to detect USER_UPDATED event
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event) => {
+        debugLog(`Auth event detected during password update attempt: ${event}`);
+        
+        if (event === 'USER_UPDATED') {
+          debugLog('Password update confirmed through auth event');
+          // Password updated successfully
+          setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
+          setPassword('');
+          setConfirmPassword('');
+          setLoading(false);
+          
+          // Start countdown for redirect
+          debugLog('Starting countdown for redirect');
+          setCountdown(5);
+          setPasswordUpdateAttempted(false);
+        }
+      }
+    );
+    
+    // Cleanup subscription on unmount
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [passwordUpdateAttempted]);
+
+  // Effect to handle countdown and redirect
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    
+    if (countdown !== null) {
+      debugLog(`Countdown: ${countdown}`);
+      
+      if (countdown <= 0) {
+        debugLog('Countdown complete, redirecting to login');
+        // Handle sign out if needed
+        try {
+          supabase.auth.signOut({ scope: 'global' }).then(() => {
+            debugLog('User signed out during redirect');
+            window.location.href = `/login?updated=true&t=${Date.now()}`;
+          });
+        } catch (e) {
+          debugLog('Error during signout, forcing redirect', e);
+          window.location.href = `/login?updated=true&t=${Date.now()}`;
+        }
+        return;
+      }
+      
+      timer = setTimeout(() => {
+        setCountdown(prev => prev !== null ? prev - 1 : null);
+      }, 1000);
+    }
+    
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [countdown]);
 
   // Extract authentication data on component mount
   useEffect(() => {
@@ -273,9 +340,9 @@ function UpdatePasswordForm() {
     
     debugLog("Password validation passed, proceeding with update");
     setLoading(true);
+    setPasswordUpdateAttempted(true);
     
     try {
-      // DIRECT APPROACH: Just update the password and immediately show success
       debugLog("Using ultra-simplified password update approach");
       
       // Get current session synchronously
@@ -285,6 +352,7 @@ function UpdatePasswordForm() {
         debugLog("No active session, cannot update password");
         setError("No hay una sesión activa. Por favor, intenta de nuevo o solicita un nuevo correo de invitación.");
         setLoading(false);
+        setPasswordUpdateAttempted(false);
         return;
       }
       
@@ -299,84 +367,19 @@ function UpdatePasswordForm() {
         debugLog("Error updating password", updateError);
         setError(`Error al actualizar la contraseña: ${updateError.message}`);
         setLoading(false);
+        setPasswordUpdateAttempted(false);
         return;
       }
       
-      // Success case - immediately show success message
-      debugLog("Password update succeeded, showing success UI");
+      // Success case is now handled by the auth state change listener
+      debugLog("Password update API call completed, waiting for auth event");
+      // Don't modify UI here - wait for the auth event
       
-      // Create success element directly in DOM to avoid any React state issues
-      const successHtml = `
-        <div class="flex min-h-screen flex-col items-center justify-center bg-gray-50">
-          <div class="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
-            <div class="text-center">
-              <svg 
-                class="mx-auto h-12 w-12 text-green-500" 
-                fill="none" 
-                stroke="currentColor" 
-                viewBox="0 0 24 24" 
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path 
-                  stroke-linecap="round" 
-                  stroke-linejoin="round" 
-                  stroke-width="2" 
-                  d="M5 13l4 4L19 7" 
-                />
-              </svg>
-              <h1 class="mt-4 text-3xl font-bold text-gray-900">¡Contraseña Actualizada!</h1>
-              <p class="mt-2 text-lg text-gray-600">
-                Tu contraseña ha sido actualizada correctamente.
-              </p>
-              <p class="mt-2 text-sm text-gray-500">
-                Serás redirigido a la página de inicio de sesión en 3 segundos...
-              </p>
-            </div>
-            
-            <div class="mt-8 text-center">
-              <a
-                href="/login?updated=true&t=${Date.now()}"
-                class="inline-block w-full px-4 py-2 text-lg font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
-              >
-                Ir a Iniciar Sesión Ahora
-              </a>
-            </div>
-          </div>
-        </div>
-      `;
-      
-      // Replace the entire content of the page with our success message
-      document.body.innerHTML = successHtml;
-      
-      // Clean up auth state
-      try {
-        for (const key of Object.keys(localStorage)) {
-          if (key.startsWith('supabase.auth.')) {
-            localStorage.removeItem(key);
-          }
-        }
-        
-        document.cookie.split(";").forEach(function(c) {
-          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-        });
-        
-        await supabase.auth.signOut({ scope: 'global' });
-      } catch (e) {
-        debugLog("Non-critical error during cleanup", e);
-        // Continue anyway
-      }
-      
-      // Redirect after 3 seconds
-      setTimeout(() => {
-        debugLog("Auto-redirecting to login page");
-        window.location.href = `/login?updated=true&t=${Date.now()}`;
-      }, 3000);
-      
-      return;
     } catch (err) {
       debugLog("Error during password update process", err);
       setError("Ocurrió un error al actualizar la contraseña");
       setLoading(false);
+      setPasswordUpdateAttempted(false);
     }
   };
 
@@ -426,7 +429,20 @@ function UpdatePasswordForm() {
 
         {message && (
           <div className="p-3 bg-green-100 border border-green-400 text-green-700 rounded-md">
-            {message}
+            <p>{message}</p>
+            {countdown !== null && (
+              <p className="mt-2 font-medium">
+                Redirigiendo en {countdown} segundo{countdown !== 1 ? 's' : ''}...
+              </p>
+            )}
+            <div className="mt-4 text-center">
+              <Link
+                href="/login"
+                className="inline-block px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+              >
+                Ir a Iniciar Sesión Ahora
+              </Link>
+            </div>
           </div>
         )}
 
