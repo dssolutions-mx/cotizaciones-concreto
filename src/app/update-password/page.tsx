@@ -260,43 +260,56 @@ function UpdatePasswordForm() {
       if (invitationFlow && inviteEmail) {
         debugLog(`Using invitation flow for email: ${inviteEmail}`);
         
-        // For invitations, we need to update the user's password directly
-        const { data, error: updateError } = await supabase.auth.updateUser({ 
-          password 
-        });
-        
-        if (updateError) {
-          debugLog("Error updating password in invitation flow", updateError);
-          setError(`Error al actualizar la contraseña: ${updateError.message}`);
+        try {
+          // For invitations, we need to use signUp with the same email instead of updateUser
+          // This is a Supabase-specific approach for handling invitations
+          debugLog("Using signUp method for invitation flow");
+          
+          const { data, error: signUpError } = await supabase.auth.signUp({
+            email: inviteEmail,
+            password: password,
+            options: {
+              // Do not send email confirmation since this is an invite
+              emailRedirectTo: window.location.origin + '/login'
+            }
+          });
+          
+          if (signUpError) {
+            debugLog("Error setting password in invitation flow", signUpError);
+            setError(`Error al configurar la contraseña: ${signUpError.message}`);
+            setLoading(false);
+            setPasswordUpdateAttempted(false);
+            return;
+          }
+          
+          // Log detailed API response to verify signup success
+          debugLog("Password set via signUp in invitation flow", {
+            success: !!data?.user,
+            userId: data?.user?.id,
+            email: data?.user?.email
+          });
+          
+          if (!data?.user) {
+            debugLog("Signup API returned success but no user data");
+            setError("La configuración de contraseña no pudo ser verificada. Por favor, intenta de nuevo.");
+            setLoading(false);
+            setPasswordUpdateAttempted(false);
+            return;
+          }
+          
+          // If we got here, the password was successfully set at the API level
+          debugLog("Password set CONFIRMED via API response");
+          
+          // Handle success case
+          handleSuccessAndRedirect();
+          return;
+        } catch (err) {
+          debugLog("Unexpected error in invitation flow", err);
+          setError("Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde.");
           setLoading(false);
           setPasswordUpdateAttempted(false);
           return;
         }
-        
-        // Log detailed API response to verify password update
-        debugLog("Password update API call completed successfully in invitation flow", {
-          userUpdated: !!data?.user,
-          userId: data?.user?.id,
-          email: data?.user?.email,
-          updatedAt: data?.user?.updated_at
-        });
-        
-        // 3. Verify the update was successful by checking the user data
-        if (!data?.user) {
-          debugLog("Password update API returned success but no user data");
-          setError("La actualización de contraseña no pudo ser verificada. Por favor, intenta de nuevo.");
-          setLoading(false);
-          setPasswordUpdateAttempted(false);
-          return;
-        }
-        
-        // If we got here, the password was successfully updated at the API level
-        debugLog("Password update CONFIRMED via API response");
-        
-        // Handle success case without waiting for USER_UPDATED event
-        // Some flows may not trigger the event
-        handleSuccessAndRedirect();
-        return;
       }
       
       // Standard password reset flow (not invitation)
