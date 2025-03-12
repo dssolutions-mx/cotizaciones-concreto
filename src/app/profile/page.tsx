@@ -161,7 +161,15 @@ export default function ProfilePage() {
           />
         </div>
 
-        <div className="flex items-center justify-end">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => router.push('/profile/change-password')}
+            className="bg-gray-100 text-gray-800 hover:bg-gray-200 font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+          >
+            Cambiar Contraseña
+          </button>
+          
           <button
             type="submit"
             disabled={saving}

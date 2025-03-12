@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
 // Create a client component that uses useSearchParams
 function LoginForm() {
@@ -12,9 +13,34 @@ function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loginAttempted, setLoginAttempted] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const { signIn, isAuthenticated } = useAuth();
+
+  // Listen for auth state changes to improve login flow
+  useEffect(() => {
+    if (!loginAttempted) return;
+
+    // Set up auth change listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event) => {
+        console.log('Auth event detected in login page:', event);
+        
+        if (event === 'SIGNED_IN') {
+          console.log('Login confirmed through auth event');
+          setLoading(false);
+          setLoginAttempted(false);
+          router.push('/dashboard');
+        }
+      }
+    );
+    
+    // Cleanup subscription on unmount
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [loginAttempted, router]);
 
   // Check for updated=true parameter in URL
   useEffect(() => {
@@ -36,6 +62,7 @@ function LoginForm() {
     setError(null);
     setSuccess(null);
     setLoading(true);
+    setLoginAttempted(true);
 
     try {
       const { error } = await signIn(email, password);
@@ -53,14 +80,16 @@ function LoginForm() {
         } else {
           setError(`Error al iniciar sesión: ${error.message || 'Credenciales inválidas'}`);
         }
-      } else {
-        router.push('/dashboard');
+        
+        setLoading(false);
+        setLoginAttempted(false);
       }
+      // Success case is handled by the auth state change listener
     } catch (err) {
       console.error('Unexpected login error:', err);
       setError('Ocurrió un error inesperado al iniciar sesión. Por favor, intenta de nuevo.');
-    } finally {
       setLoading(false);
+      setLoginAttempted(false);
     }
   };
 
@@ -101,6 +130,7 @@ function LoginForm() {
               onChange={(e) => setEmail(e.target.value)}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
                          focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              disabled={loading}
             />
           </div>
 
@@ -118,6 +148,7 @@ function LoginForm() {
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
                          focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              disabled={loading}
             />
           </div>
 
