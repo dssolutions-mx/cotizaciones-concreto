@@ -20,14 +20,16 @@ function UpdatePasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [authReady, setAuthReady] = useState(false);
-  const [passwordUpdateAttempted, setPasswordUpdateAttempted] = useState(false);
-  const [showSuccessScreen, setShowSuccessScreen] = useState(false);
   const [invitationFlow, setInvitationFlow] = useState(false); // Track if we're in an invitation flow
   const [inviteEmail, setInviteEmail] = useState<string | null>(null); // Store the email from invitation
+  const [authListenerSetUp, setAuthListenerSetUp] = useState(false);
 
-  // Listen for ALL auth state changes including SIGNED_IN for invitation flows
+  // Listen for ALL auth state changes including SIGNED_IN for invitation flows - ONLY ONCE
   useEffect(() => {
+    if (authListenerSetUp) return; // Prevent multiple listeners
+    
     debugLog('Setting up global auth state listener');
+    setAuthListenerSetUp(true);
     
     // Set up auth change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -50,13 +52,6 @@ function UpdatePasswordForm() {
             debugLog('Identified as invitation flow for email', session.user.email);
           }
         }
-        
-        // Handle password update specific events
-        if (passwordUpdateAttempted && event === 'USER_UPDATED') {
-          debugLog('Password update confirmed through auth event');
-          setPasswordUpdateAttempted(false);
-          handleSuccessAndRedirect();
-        }
       }
     );
     
@@ -64,7 +59,7 @@ function UpdatePasswordForm() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [passwordUpdateAttempted]);
+  }, [authListenerSetUp]);
 
   // Extract authentication data on component mount
   useEffect(() => {
@@ -200,38 +195,7 @@ function UpdatePasswordForm() {
     extractAuthData();
   }, [searchParams]);
 
-  // Function to handle successful password update
-  const handleSuccessAndRedirect = async () => {
-    debugLog('Handling successful password update');
-    
-    // Show success message
-    setMessage("Tu contraseña ha sido actualizada con éxito");
-    setLoading(false);
-    setShowSuccessScreen(true);
-    
-    // Clear local storage to prevent cookie/storage conflicts
-    for (const key of Object.keys(localStorage)) {
-      if (key.startsWith('supabase.auth.')) {
-        localStorage.removeItem(key);
-      }
-    }
-    
-    // Clear cookies
-    document.cookie.split(";").forEach(function(c) {
-      document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-    });
-    
-    // Explicit sign out
-    await supabase.auth.signOut({ scope: 'global' });
-    
-    // Delay before redirecting
-    setTimeout(() => {
-      debugLog("Redirecting to login page");
-      // Direct navigation with cache-busting
-      window.location.href = `/login?updated=true&t=${Date.now()}`;
-    }, 3000);
-  };
-
+  // SUPER DIRECT approach that avoids ANY asynchronous issues
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     debugLog("Password update form submitted");
@@ -253,90 +217,110 @@ function UpdatePasswordForm() {
     
     debugLog("Password validation passed, proceeding with update");
     setLoading(true);
-    setPasswordUpdateAttempted(true);
-
+    
     try {
-      // ------ SIMPLIFIED APPROACH ------
-      debugLog("Using simplified direct password update approach");
+      // DIRECT APPROACH: Just update the password and immediately show success
+      debugLog("Using ultra-simplified password update approach");
       
-      // 1. Get the current session
+      // Get current session synchronously
       const { data: sessionData } = await supabase.auth.getSession();
-      
-      debugLog("Current session", { 
-        exists: !!sessionData?.session,
-        email: sessionData?.session?.user?.email,
-        userId: sessionData?.session?.user?.id
-      });
       
       if (!sessionData?.session) {
         debugLog("No active session, cannot update password");
         setError("No hay una sesión activa. Por favor, intenta de nuevo o solicita un nuevo correo de invitación.");
         setLoading(false);
-        setPasswordUpdateAttempted(false);
         return;
       }
       
-      // 2. Update the password directly
-      debugLog("Updating password for user");
+      debugLog("Found active session, proceeding with password update");
       
-      try {
-        const { error: updateError } = await supabase.auth.updateUser({ 
-          password 
-        });
-        
-        if (updateError) {
-          debugLog("Error updating password", updateError);
-          setError(`Error al actualizar la contraseña: ${updateError.message}`);
-          setLoading(false);
-          setPasswordUpdateAttempted(false);
-          return;
-        }
-        
-        // 3. Show success immediately without trying to verify login
-        debugLog("Password update API call completed successfully - not waiting for verification");
-        
-        // Show success screen
-        setMessage("Tu contraseña ha sido actualizada con éxito");
+      // Update password synchronously
+      const { error: updateError } = await supabase.auth.updateUser({ 
+        password 
+      });
+      
+      if (updateError) {
+        debugLog("Error updating password", updateError);
+        setError(`Error al actualizar la contraseña: ${updateError.message}`);
         setLoading(false);
-        setShowSuccessScreen(true);
-        
-        // Clear local storage to prevent cookie/storage conflicts
+        return;
+      }
+      
+      // Success case - immediately show success message
+      debugLog("Password update succeeded, showing success UI");
+      
+      // Create success element directly in DOM to avoid any React state issues
+      const successHtml = `
+        <div class="flex min-h-screen flex-col items-center justify-center bg-gray-50">
+          <div class="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
+            <div class="text-center">
+              <svg 
+                class="mx-auto h-12 w-12 text-green-500" 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24" 
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path 
+                  stroke-linecap="round" 
+                  stroke-linejoin="round" 
+                  stroke-width="2" 
+                  d="M5 13l4 4L19 7" 
+                />
+              </svg>
+              <h1 class="mt-4 text-3xl font-bold text-gray-900">¡Contraseña Actualizada!</h1>
+              <p class="mt-2 text-lg text-gray-600">
+                Tu contraseña ha sido actualizada correctamente.
+              </p>
+              <p class="mt-2 text-sm text-gray-500">
+                Serás redirigido a la página de inicio de sesión en 3 segundos...
+              </p>
+            </div>
+            
+            <div class="mt-8 text-center">
+              <a
+                href="/login?updated=true&t=${Date.now()}"
+                class="inline-block w-full px-4 py-2 text-lg font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+              >
+                Ir a Iniciar Sesión Ahora
+              </a>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      // Replace the entire content of the page with our success message
+      document.body.innerHTML = successHtml;
+      
+      // Clean up auth state
+      try {
         for (const key of Object.keys(localStorage)) {
           if (key.startsWith('supabase.auth.')) {
             localStorage.removeItem(key);
           }
         }
         
-        // Clear cookies
         document.cookie.split(";").forEach(function(c) {
           document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
         });
         
-        // Explicit sign out and redirect after a delay
-        try {
-          await supabase.auth.signOut({ scope: 'global' });
-        } catch (signOutError) {
-          debugLog("Error during sign out (non-critical)", signOutError);
-        }
-        
-        setTimeout(() => {
-          debugLog("Redirecting to login page");
-          window.location.href = `/login?updated=true&t=${Date.now()}`;
-        }, 3000);
-        
-        return;
-      } catch (updateError) {
-        debugLog("Unexpected error during password update", updateError);
-        setError("Ocurrió un error inesperado al actualizar la contraseña. Por favor, intenta de nuevo.");
-        setLoading(false);
-        setPasswordUpdateAttempted(false);
-        return;
+        await supabase.auth.signOut({ scope: 'global' });
+      } catch (e) {
+        debugLog("Non-critical error during cleanup", e);
+        // Continue anyway
       }
+      
+      // Redirect after 3 seconds
+      setTimeout(() => {
+        debugLog("Auto-redirecting to login page");
+        window.location.href = `/login?updated=true&t=${Date.now()}`;
+      }, 3000);
+      
+      return;
     } catch (err) {
       debugLog("Error during password update process", err);
       setError("Ocurrió un error al actualizar la contraseña");
       setLoading(false);
-      setPasswordUpdateAttempted(false);
     }
   };
 
@@ -353,48 +337,6 @@ function UpdatePasswordForm() {
           </div>
           <div className="flex justify-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // If update is complete, show success screen
-  if (showSuccessScreen) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
-        <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
-          <div className="text-center">
-            <svg 
-              className="mx-auto h-12 w-12 text-green-500" 
-              fill="none" 
-              stroke="currentColor" 
-              viewBox="0 0 24 24" 
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M5 13l4 4L19 7" 
-              />
-            </svg>
-            <h1 className="mt-4 text-3xl font-bold text-gray-900">¡Contraseña Actualizada!</h1>
-            <p className="mt-2 text-lg text-gray-600">
-              Tu contraseña ha sido actualizada correctamente.
-            </p>
-            <p className="mt-2 text-sm text-gray-500">
-              Serás redirigido a la página de inicio de sesión en unos segundos...
-            </p>
-          </div>
-          
-          <div className="mt-8 text-center">
-            <a
-              href={`/login?updated=true&t=${Date.now()}`}
-              className="inline-block w-full px-4 py-2 text-lg font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
-            >
-              Ir a Iniciar Sesión Ahora
-            </a>
           </div>
         </div>
       </div>
