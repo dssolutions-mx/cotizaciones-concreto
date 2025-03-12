@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 // Import the singleton instance instead of the createClient function
 import { supabase } from '@/lib/supabase';
@@ -12,6 +12,50 @@ function AuthCallbackHandler() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [authEventHandled, setAuthEventHandled] = useState(false);
+
+  // Define redirection functions as callbacks to include them in dependency arrays
+  const redirectToUpdatePassword = useCallback(() => {
+    console.log('Executing redirect to update-password');
+    
+    // Add a visible link immediately for manual navigation
+    const container = document.querySelector('.text-center');
+    if (container) {
+      const link = document.createElement('a');
+      link.href = '/update-password';
+      link.innerText = 'Click here to set your password';
+      link.className = 'inline-flex justify-center mt-4 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
+      container.appendChild(link);
+    }
+    
+    // Try multiple redirect approaches
+    try {
+      // Use Next.js router
+      router.push('/update-password');
+      
+      // Use direct location change as fallback
+      setTimeout(() => {
+        window.location.href = '/update-password';
+      }, 1000);
+    } catch (err) {
+      console.error('Error in redirect:', err);
+      // Direct fallback
+      window.location.href = '/update-password';
+    }
+  }, [router]);
+  
+  const redirectToDashboard = useCallback(() => {
+    console.log('Executing redirect to dashboard');
+    try {
+      router.push('/dashboard');
+      setTimeout(() => {
+        window.location.href = '/dashboard';
+      }, 1000);
+    } catch (err) {
+      console.error('Error in redirect:', err);
+      window.location.href = '/dashboard';
+    }
+  }, [router]);
 
   // Add a useEffect to inject CSP meta tag
   useEffect(() => {
@@ -33,6 +77,46 @@ function AuthCallbackHandler() {
       }
     };
   }, []);
+
+  // Set up an auth state listener for SIGNED_IN event
+  useEffect(() => {
+    if (authEventHandled) return;
+    
+    console.log('Setting up auth state listener for SIGNED_IN event');
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log(`Auth event detected in auth callback: ${event}`, session ? 'Session present' : 'No session');
+      
+      if (event === 'SIGNED_IN' && session && !authEventHandled) {
+        console.log('SIGNED_IN event detected with valid session:', session.user.email);
+        setAuthEventHandled(true);
+        
+        // Check if this is a new user (likely from invitation)
+        const isNewUser = session.user.created_at === session.user.last_sign_in_at;
+        const isInviteFlow = window.location.hash.includes('type=invite');
+        
+        console.log('User info:', {
+          isNewUser,
+          isInviteFlow,
+          email: session.user.email,
+          created_at: session.user.created_at ? new Date(session.user.created_at).toLocaleString() : 'unknown',
+          last_sign_in_at: session.user.last_sign_in_at ? new Date(session.user.last_sign_in_at).toLocaleString() : 'unknown'
+        });
+        
+        if (isNewUser || isInviteFlow) {
+          console.log('Redirecting to update-password after SIGNED_IN event (new user or invite)');
+          redirectToUpdatePassword();
+        } else {
+          console.log('Redirecting to dashboard after SIGNED_IN event (existing user)');
+          redirectToDashboard();
+        }
+      }
+    });
+    
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [authEventHandled, redirectToDashboard, redirectToUpdatePassword]);
 
   // Check first if we already have a session, regardless of URL parameters
   useEffect(() => {
@@ -69,55 +153,13 @@ function AuthCallbackHandler() {
     };
     
     checkExistingSession();
-  }, []);
-
-  // Helper functions for redirection
-  const redirectToUpdatePassword = () => {
-    console.log('Executing redirect to update-password');
-    
-    // Add a visible link immediately for manual navigation
-    const container = document.querySelector('.text-center');
-    if (container) {
-      const link = document.createElement('a');
-      link.href = '/update-password';
-      link.innerText = 'Click here to set your password';
-      link.className = 'inline-flex justify-center mt-4 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
-      container.appendChild(link);
-    }
-    
-    // Try multiple redirect approaches
-    try {
-      // Use Next.js router
-      router.push('/update-password');
-      
-      // Use direct location change as fallback
-      setTimeout(() => {
-        window.location.href = '/update-password';
-      }, 1000);
-    } catch (err) {
-      console.error('Error in redirect:', err);
-      // Direct fallback
-      window.location.href = '/update-password';
-    }
-  };
-  
-  const redirectToDashboard = () => {
-    try {
-      router.push('/dashboard');
-      setTimeout(() => {
-        window.location.href = '/dashboard';
-      }, 1000);
-    } catch (err) {
-      console.error('Error in redirect:', err);
-      window.location.href = '/dashboard';
-    }
-  };
+  }, [redirectToDashboard, redirectToUpdatePassword]);
 
   // Process URL parameters for authentication
   useEffect(() => {
-    // Skip if we already handled a session in the first effect
-    if (!sessionChecked) {
-      console.log('Waiting for session check to complete before processing URL params');
+    // Skip if we already handled a session in the first effect or an auth event was already handled
+    if (!sessionChecked || authEventHandled) {
+      console.log(`Waiting for checks to complete before processing URL params (sessionChecked: ${sessionChecked}, authEventHandled: ${authEventHandled})`);
       return;
     }
     
@@ -163,12 +205,19 @@ function AuthCallbackHandler() {
             
             console.log('Session set successfully from tokens', data.user?.email);
             
-            // For invitation flows, redirect to update-password
-            if (type === 'invite' || type === 'signup') {
-              redirectToUpdatePassword();
-            } else {
-              redirectToDashboard();
-            }
+            // The auth state change listener should handle redirection
+            // But in case it doesn't, set a failsafe timeout
+            setTimeout(() => {
+              if (!authEventHandled) {
+                console.log('Failsafe redirect after setting session');
+                // For invitation flows, redirect to update-password
+                if (type === 'invite' || type === 'signup') {
+                  redirectToUpdatePassword();
+                } else {
+                  redirectToDashboard();
+                }
+              }
+            }, 2000);
           } catch (err) {
             console.error('Exception setting session from tokens:', err);
             setError('Error al procesar la autenticación');
@@ -189,14 +238,14 @@ function AuthCallbackHandler() {
             
             console.log('Code exchanged for session successfully');
             
-            // Check session after exchange
-            const { data: sessionData } = await supabase.auth.getSession();
-            
-            if (sessionData?.session) {
-              redirectToDashboard();
-            } else {
-              setError('No se pudo establecer la sesión');
-            }
+            // The auth state change listener should handle redirection
+            // But in case it doesn't, set a failsafe timeout
+            setTimeout(() => {
+              if (!authEventHandled) {
+                console.log('Failsafe redirect after exchanging code');
+                redirectToDashboard();
+              }
+            }, 2000);
           } catch (err) {
             console.error('Exception exchanging code:', err);
             setError('Error al procesar el código de autenticación');
@@ -231,20 +280,29 @@ function AuthCallbackHandler() {
     };
     
     handleCallback();
-  }, [router, searchParams, sessionChecked]);
+  }, [router, searchParams, sessionChecked, authEventHandled, redirectToDashboard, redirectToUpdatePassword]);
 
   // Set up a fallback timer to ensure redirect happens
   useEffect(() => {
+    if (authEventHandled) return;
+    
     const fallbackTimer = setTimeout(() => {
       console.log('Fallback timer triggered - checking session one more time');
       
       // One last check for session
       supabase.auth.getSession().then(({ data }) => {
-        if (data.session) {
+        if (data.session && !authEventHandled) {
           console.log('Session found in fallback timer', data.session.user.email);
           
           // If we have a session but page still showing, force redirect
-          redirectToUpdatePassword();
+          const isNewUser = data.session.user.created_at === data.session.user.last_sign_in_at;
+          const isInviteFlow = window.location.hash.includes('type=invite');
+          
+          if (isNewUser || isInviteFlow) {
+            redirectToUpdatePassword();
+          } else {
+            redirectToDashboard();
+          }
         } else {
           console.log('No session in fallback timer');
           setLoading(false);
@@ -253,7 +311,7 @@ function AuthCallbackHandler() {
     }, 5000);
     
     return () => clearTimeout(fallbackTimer);
-  }, []);
+  }, [authEventHandled, redirectToDashboard, redirectToUpdatePassword]);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
@@ -265,6 +323,16 @@ function AuthCallbackHandler() {
               error ? 'Ocurrió un error al procesar la autenticación' : 
               'Redireccionando...'}
           </p>
+          
+          {/* Add a direct manual link that's always visible */}
+          <div className="mt-4">
+            <a 
+              href="/update-password"
+              className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+            >
+              Si la página no cambia, haz clic aquí para ir a configurar tu contraseña
+            </a>
+          </div>
         </div>
         
         {loading && (
