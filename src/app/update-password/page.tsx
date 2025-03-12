@@ -251,47 +251,59 @@ function UpdatePasswordForm() {
 
   // Set up auth state listener to detect password update events
   useEffect(() => {
-    if (loading || !authReady || passwordUpdateAttempted) return;
+    // Only set up the listener when we're ready and password update is attempted
+    if (!authReady || !passwordUpdateAttempted) return;
 
-    console.log('Setting up auth listener for password update. please adhere to the @Supabase auth and @subaserules.mdc');
+    console.log('Setting up auth listener for password update (watching for USER_UPDATED event)');
+
+    // Create a variable to store the interval ID for cleanup
+    let countdownInterval: NodeJS.Timeout | null = null;
 
     // Subscribe to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth event detected in password update:', event, session ? 'Session present' : 'No session');
 
-        // Check for successful password update
+        // Check for successful password update event
         if (event === 'USER_UPDATED' && passwordUpdateAttempted) {
-          console.log('Password update confirmed through auth event');
+          console.log('Password update confirmed through USER_UPDATED auth event');
           
           // Display success message
           setMessage('¡Contraseña actualizada con éxito!');
+          setPassword('');
+          setConfirmPassword('');
           setLoading(false);
+          
+          // Immediately trigger sign out
+          try {
+            console.log('Forcefully signing out user after password update');
+            const { error } = await supabase.auth.signOut({ scope: 'global' });
+            if (error) {
+              console.error('Error during force sign out:', error);
+            } else {
+              console.log('User successfully signed out after password update');
+            }
+          } catch (err) {
+            console.error('Exception during sign out:', err);
+          }
           
           // Start countdown for auto-redirect
           let count = 5;
           setCountdown(count);
           
-          // Explicitly logout the user and redirect
-          const countdown = setInterval(async () => {
+          // Set up countdown timer for UI feedback
+          countdownInterval = setInterval(() => {
             count -= 1;
             setCountdown(count);
             
             if (count <= 0) {
-              clearInterval(countdown);
-              
-              // Explicitly sign out the user
-              try {
-                console.log('Signing out user after password update');
-                const { error } = await supabase.auth.signOut();
-                if (error) {
-                  console.error('Error signing out:', error);
-                }
-              } catch (err) {
-                console.error('Exception during sign out:', err);
+              if (countdownInterval) {
+                clearInterval(countdownInterval);
+                countdownInterval = null;
               }
               
-              // Redirect to login page regardless of sign out result
+              // Redirect to login page
+              console.log('Countdown complete, redirecting to login page');
               try {
                 router.push('/login');
               } catch (navError) {
@@ -305,20 +317,22 @@ function UpdatePasswordForm() {
       }
     );
 
-    // Clean up subscription on unmount
+    // Clean up subscription and any active interval on unmount
     return () => {
       subscription.unsubscribe();
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+      }
     };
-  }, [loading, authReady, passwordUpdateAttempted, router]);
+  }, [authReady, passwordUpdateAttempted, router]);
 
-  // Effect to handle countdown and redirect
+  // Add a dedicated auto-redirect after successful password update
   useEffect(() => {
-    // Skip this effect as we're now handling countdown in the auth state change handler
-    if (countdown === null || !message) return;
-    
-    // Keep this effect only for fallback/compatibility with the rest of the code
-    // but don't trigger any redirects from here, as they're handled in the auth state change handler
-  }, [countdown, message, router]);
+    if (message && countdown === 0) {
+      console.log('Auto-redirecting to login page after password update');
+      router.push('/login');
+    }
+  }, [message, countdown, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
