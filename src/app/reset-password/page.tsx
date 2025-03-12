@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase/client';
 import Link from 'next/link';
 
 export default function ResetPasswordPage() {
@@ -24,8 +24,8 @@ export default function ResetPasswordPage() {
       
       console.log('Using origin for reset password:', origin);
       
-      // Create a clean and simple redirect URL without any query parameters
-      const redirectTo = `${origin}/update-password`;
+      // Create a redirect URL with a type parameter to identify the flow
+      const redirectTo = `${origin}/update-password?type=recovery`;
       console.log('Reset password redirect URL:', redirectTo);
       
       // Clear any existing sessions before sending reset email to avoid conflicts
@@ -47,6 +47,7 @@ export default function ResetPasswordPage() {
         setError(error.message);
       } else {
         console.log('Reset password email sent successfully');
+        console.log('Email will contain a link to:', redirectTo);
         setMessage(
           'Se ha enviado un correo para restablecer tu contraseña. Por favor, revisa tu bandeja de entrada.'
         );

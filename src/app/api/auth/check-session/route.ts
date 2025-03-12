@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
 
     // Use the more secure getUser method instead of getSession
     try {
-      const supabase = createServerComponent();
+      const supabase = await createServerComponent();
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
       if (userError) {

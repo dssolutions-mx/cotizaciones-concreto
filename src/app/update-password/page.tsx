@@ -3,72 +3,153 @@
 import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-// Helper function to log debug information
-function debugLog(message: string, data: unknown = null) {
-  console.log(`[DEBUG] ${message}`, data || '');
-}
-
-// Create a client component that uses useSearchParams
+// Main component that uses useSearchParams
 function UpdatePasswordForm() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [passwordUpdateAttempted, setPasswordUpdateAttempted] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [invitationFlow, setInvitationFlow] = useState(false);
   const [inviteEmail, setInviteEmail] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState<number | null>(null);
-  const [passwordUpdateAttempted, setPasswordUpdateAttempted] = useState(false);
 
-  // Effect to handle countdown and redirect
+  // Initialize auth state on component mount
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    
-    if (countdown !== null) {
-      debugLog(`Countdown: ${countdown}`);
-      
-      if (countdown <= 0) {
-        debugLog('Countdown complete, redirecting to login');
-        // Handle sign out if needed
-        try {
-          supabase.auth.signOut({ scope: 'global' }).then(() => {
-            debugLog('User signed out during redirect');
-            window.location.href = `/login?updated=true&t=${Date.now()}`;
-          });
-        } catch (e) {
-          debugLog('Error during signout, forcing redirect', e);
-          window.location.href = `/login?updated=true&t=${Date.now()}`;
+    const initializeAuth = async () => {
+      try {
+        setLoading(true);
+        console.log('Initializing auth state for password update...');
+        
+        // Check for recovery token in URL
+        const code = searchParams.get('code');
+        const type = searchParams.get('type');
+        
+        // Check for hash parameters (used in invitation flows)
+        const hashParams = new URLSearchParams(
+          typeof window !== 'undefined' ? window.location.hash.substring(1) : ''
+        );
+        const accessToken = hashParams.get('access_token');
+        const refreshToken = hashParams.get('refresh_token');
+        const tokenType = hashParams.get('type');
+        
+        // Determine if this is an invitation flow
+        if (type === 'invite' || type === 'signup' || tokenType === 'invite') {
+          console.log('Detected invitation flow');
+          setInvitationFlow(true);
         }
-        return;
+        
+        // First check if we have tokens in the URL hash (invitation flow)
+        if (accessToken && refreshToken) {
+          console.log('Found tokens in URL hash, setting session');
+          try {
+            const { data, error } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken
+            });
+            
+            if (error) {
+              console.error('Error setting session from tokens:', error);
+              setError(`Error al establecer la sesión: ${error.message}`);
+            } else if (data.user) {
+              console.log('Session set successfully from tokens');
+              setInviteEmail(data.user.email || null);
+            }
+            
+            setAuthReady(true);
+          } catch (err) {
+            console.error('Exception setting session from tokens:', err);
+            setError('Error al procesar la invitación');
+            setAuthReady(true);
+          }
+        }
+        // Check current session if no tokens in URL
+        else {
+          // Check current session first
+          const { data: sessionData } = await supabase.auth.getSession();
+          
+          if (sessionData?.session) {
+            console.log('Found existing session', {
+              email: sessionData.session.user.email,
+            });
+            
+            if (sessionData.session.user.email) {
+              setInviteEmail(sessionData.session.user.email);
+            }
+            
+            setAuthReady(true);
+          } 
+          // If no session but we have a recovery code, exchange it
+          else if (code) {
+            console.log('Exchanging recovery code for session');
+            try {
+              const { error } = await supabase.auth.exchangeCodeForSession(code);
+              
+              if (error) {
+                console.error('Error exchanging code:', error.message);
+                setError(`Error al procesar el código de recuperación: ${error.message}`);
+              } else {
+                // Get the session after exchange
+                const { data: newSession } = await supabase.auth.getSession();
+                
+                if (newSession?.session?.user?.email) {
+                  setInviteEmail(newSession.session.user.email);
+                }
+                
+                console.log('Successfully exchanged code for session');
+              }
+            } catch (exchangeError) {
+              console.error('Exception during code exchange:', exchangeError);
+              setError('Error al procesar el código de recuperación');
+            }
+            
+            setAuthReady(true);
+          } else {
+            console.log('No auth data found');
+            setError('No se encontró información de autenticación válida');
+            setAuthReady(true);
+          }
+        }
+      } catch (err) {
+        console.error('Error initializing auth:', err);
+        setError('Error al inicializar la autenticación');
+        setAuthReady(true);
+      } finally {
+        setLoading(false);
       }
-      
-      timer = setTimeout(() => {
-        setCountdown(prev => prev !== null ? prev - 1 : null);
-      }, 1000);
-    }
-    
-    return () => {
-      if (timer) clearTimeout(timer);
     };
-  }, [countdown]);
+    
+    initializeAuth();
+    
+    // Set up a fallback timer to ensure we don't get stuck
+    const fallbackTimer = setTimeout(() => {
+      console.log('Fallback timeout triggered - forcing authReady state');
+      setAuthReady(true);
+      setLoading(false);
+    }, 5000);
+    
+    return () => clearTimeout(fallbackTimer);
+  }, [searchParams]);
 
   // Listen for auth state changes to detect when password is updated
   useEffect(() => {
     if (!passwordUpdateAttempted) return;
 
-    debugLog('Setting up auth listener for password update');
+    console.log('Setting up auth listener for password update');
     // Set up auth change listener to detect USER_UPDATED event
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event) => {
-        debugLog('Auth event detected in password update:', event);
+        console.log('Auth event detected in password update:', event);
         
         if (event === 'USER_UPDATED') {
-          debugLog('Password update confirmed through auth event');
+          console.log('Password update confirmed through auth event');
           setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
           setPassword('');
           setConfirmPassword('');
@@ -85,187 +166,79 @@ function UpdatePasswordForm() {
     };
   }, [passwordUpdateAttempted]);
 
-  // Extract authentication data and set up auth listener on mount
+  // Effect to handle countdown and redirect
   useEffect(() => {
-    let authSubscription: { data: { subscription: { unsubscribe: () => void } } } | null = null;
+    let timer: NodeJS.Timeout;
     
-    const setupAuth = async () => {
-      try {
-        setLoading(true);
-        debugLog("Setting up authentication");
-        
-        // Set up auth change listener first
-        authSubscription = supabase.auth.onAuthStateChange(async (event, session) => {
-          debugLog(`Auth event detected: ${event}`, {
-            sessionExists: !!session,
-            email: session?.user?.email,
-            userId: session?.user?.id
-          });
-          
-          // Set auth ready for these events
-          if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'PASSWORD_RECOVERY' || event === 'INITIAL_SESSION') {
-            setAuthReady(true);
-            setLoading(false);
-            
-            if (session?.user?.email) {
-              setInviteEmail(session.user.email);
-              setInvitationFlow(true);
-            }
-          }
+    if (countdown !== null) {
+      console.log(`Countdown: ${countdown}`);
+      
+      if (countdown <= 0) {
+        console.log('Countdown complete, redirecting to login');
+        // Sign out and redirect
+        supabase.auth.signOut().then(() => {
+          router.push('/login');
         });
-        
-        // Check current session
-        const { data: currentSession } = await supabase.auth.getSession();
-        
-        if (currentSession?.session) {
-          debugLog("Found existing session", {
-            email: currentSession.session.user.email,
-            id: currentSession.session.user.id
-          });
-          
-          if (currentSession.session.user.email) {
-            setInviteEmail(currentSession.session.user.email);
-            setInvitationFlow(true);
-          }
-          
-          setAuthReady(true);
-          setLoading(false);
-        } else {
-          // Try to extract auth data from URL
-          const hashString = window.location.hash.substring(1);
-          const hashParams = new URLSearchParams(hashString);
-          const code = searchParams.get('code');
-          const type = searchParams.get('type');
-          
-          if (type === 'invite' || type === 'signup') {
-            setInvitationFlow(true);
-          }
-          
-          // Check for tokens in URL hash
-          const accessToken = hashParams.get('access_token');
-          const refreshToken = hashParams.get('refresh_token');
-          
-          if (accessToken && refreshToken) {
-            debugLog("Setting session from URL tokens");
-            await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken
-            });
-            setAuthReady(true);
-          }
-          // Check for recovery code
-          else if (code) {
-            debugLog("Exchanging code for session");
-            await supabase.auth.exchangeCodeForSession(code);
-            setAuthReady(true);
-          }
-          else {
-            debugLog("No auth data found");
-            setError("No se encontró información de autenticación válida.");
-            setAuthReady(true);
-          }
-        }
-        
-        setLoading(false);
-      } catch (err) {
-        debugLog("Error setting up auth", err);
-        setError("Error al procesar la autenticación");
-        setAuthReady(true);
-        setLoading(false);
+        return;
       }
-    };
+      
+      timer = setTimeout(() => {
+        setCountdown(prev => prev !== null ? prev - 1 : null);
+      }, 1000);
+    }
     
-    // Set up a timeout to ensure we don't get stuck
-    const fallbackTimer = setTimeout(() => {
-      debugLog('Fallback timeout triggered - forcing authReady state');
-      setAuthReady(true);
-      setLoading(false);
-    }, 5000);
-    
-    setupAuth();
-    
-    // Cleanup function
     return () => {
-      clearTimeout(fallbackTimer);
-      if (authSubscription) {
-        authSubscription.data.subscription.unsubscribe();
-      }
+      if (timer) clearTimeout(timer);
     };
-  }, [searchParams]);
+  }, [countdown, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    debugLog("Password update form submitted");
     setMessage(null);
     setError(null);
-    
+
     // Validate passwords
     if (password !== confirmPassword) {
-      debugLog("Password validation failed - passwords don't match");
       setError("Las contraseñas no coinciden");
       return;
     }
-    
+
     if (password.length < 8) {
-      debugLog("Password validation failed - password too short");
       setError("La contraseña debe tener al menos 8 caracteres");
       return;
     }
-    
-    debugLog("Password validation passed, proceeding with update");
+
     setLoading(true);
     setPasswordUpdateAttempted(true);
-    
+
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const hashString = window.location.hash.substring(1);
-      const hashParams = new URLSearchParams(hashString);
-      const accessToken = hashParams.get('access_token');
-      
-      debugLog("Current auth state", {
-        hasSession: !!sessionData?.session,
-        hasAccessToken: !!accessToken,
-        sessionUserId: sessionData?.session?.user?.id,
-        sessionEmail: sessionData?.session?.user?.email
-      });
-
-      // If we have an access token in the URL (password reset flow)
-      if (accessToken) {
-        debugLog("Using access token from URL for password update");
-        const sessionResult = await supabase.auth.setSession({ 
-          access_token: accessToken, 
-          refresh_token: '' 
-        });
-        
-        if (sessionResult.error) {
-          debugLog("Error setting session from access token", sessionResult.error);
-          setError(`Error al establecer la sesión: ${sessionResult.error.message}`);
-          setLoading(false);
-          setPasswordUpdateAttempted(false);
-          return;
-        }
-      }
-
+      console.log('Attempting to update password...');
       // Update password directly using the authenticated session
-      debugLog('Attempting to update password...');
-      const { error: updateError } = await supabase.auth.updateUser({
-        password
+      const { error } = await supabase.auth.updateUser({
+        password: password
       });
 
-      if (updateError) {
-        debugLog('Error updating password:', updateError);
-        setError(`Error al actualizar la contraseña: ${updateError.message}`);
+      if (error) {
+        console.error('Error al actualizar la contraseña:', error);
+        
+        // Check for the specific "same password" error
+        if (error.message && error.message.includes("different from the old password")) {
+          setError("La nueva contraseña debe ser diferente a la contraseña actual");
+        } else {
+          setError(`Error al actualizar la contraseña: ${error.message}`);
+        }
+        
         setLoading(false);
         setPasswordUpdateAttempted(false);
         return;
       }
 
-      // Success case is handled by the auth state change listener
-      debugLog('Password update API call completed successfully');
+      // The success case is now handled by the auth state change listener
+      console.log('Password update API call completed successfully');
       
     } catch (err) {
-      debugLog("Error during password update process", err);
-      setError("Ocurrió un error al actualizar la contraseña");
+      console.error('Error inesperado al cambiar la contraseña:', err);
+      setError('Ocurrió un error inesperado al cambiar la contraseña');
       setLoading(false);
       setPasswordUpdateAttempted(false);
     }
@@ -349,6 +322,7 @@ function UpdatePasswordForm() {
               onChange={(e) => setPassword(e.target.value)}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
                          focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              disabled={countdown !== null || loading}
             />
           </div>
 
@@ -366,13 +340,14 @@ function UpdatePasswordForm() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
                          focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              disabled={countdown !== null || loading}
             />
           </div>
 
           <div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || countdown !== null}
               className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md 
                          shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 
                          focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500
@@ -396,7 +371,7 @@ function UpdatePasswordForm() {
   );
 }
 
-// Create a loading fallback component
+// Loading fallback component
 function UpdatePasswordLoading() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
