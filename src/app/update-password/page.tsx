@@ -231,7 +231,25 @@ function UpdatePasswordForm() {
         return;
       }
       
-      debugLog("Password update API call completed successfully", data);
+      // Log detailed API response to verify password update
+      debugLog("Password update API call completed successfully", {
+        userUpdated: !!data?.user,
+        userId: data?.user?.id,
+        updatedAt: data?.user?.updated_at,
+        responseData: data
+      });
+      
+      // 3. Verify the update was successful by checking the user data
+      if (!data?.user) {
+        debugLog("Password update API returned success but no user data");
+        setError("La actualización de contraseña no pudo ser verificada. Por favor, intenta de nuevo.");
+        setLoading(false);
+        setPasswordUpdateAttempted(false);
+        return;
+      }
+      
+      // If we got here, the password was successfully updated at the API level
+      debugLog("Password update CONFIRMED via API response");
       
       // Set a fallback timer in case the USER_UPDATED event is not triggered
       const fallbackTimer = setTimeout(() => {
