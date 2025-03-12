@@ -261,44 +261,81 @@ function UpdatePasswordForm() {
         debugLog(`Using invitation flow for email: ${inviteEmail}`);
         
         try {
-          // For invitations, we need to use signUp with the same email instead of updateUser
-          // This is a Supabase-specific approach for handling invitations
-          debugLog("Using signUp method for invitation flow");
+          // For invitations, we'll try a more direct approach
+          debugLog("Using direct reset password approach for invitation flow");
           
-          const { data, error: signUpError } = await supabase.auth.signUp({
-            email: inviteEmail,
-            password: password,
-            options: {
-              // Do not send email confirmation since this is an invite
-              emailRedirectTo: window.location.origin + '/login'
+          // First, try to update the password directly on the current session
+          const { data: updateData, error: updateError } = await supabase.auth.updateUser({ 
+            password 
+          });
+          
+          if (updateError) {
+            debugLog("Error updating password directly", updateError);
+            
+            // If direct update fails, try resetting password for the invited email
+            debugLog("Trying password reset approach for invited email");
+            const { data: resetData, error: resetError } = await supabase.auth.resetPasswordForEmail(
+              inviteEmail, 
+              {
+                redirectTo: window.location.origin + '/login'
+              }
+            );
+            
+            if (resetError) {
+              debugLog("Error in both approaches", resetError);
+              setError(`Error al configurar la contraseña: ${resetError.message}`);
+              setLoading(false);
+              setPasswordUpdateAttempted(false);
+              return;
             }
-          });
-          
-          if (signUpError) {
-            debugLog("Error setting password in invitation flow", signUpError);
-            setError(`Error al configurar la contraseña: ${signUpError.message}`);
+            
+            debugLog("Password reset email sent as fallback");
+            // We'll treat this as a success case and log the user out
+            setMessage("Se ha enviado un correo para restablecer tu contraseña. Por favor, revisa tu bandeja de entrada.");
             setLoading(false);
-            setPasswordUpdateAttempted(false);
+            setShowSuccessScreen(true);
+            setTimeout(() => {
+              window.location.href = `/login?reset=true&t=${Date.now()}`;
+            }, 3000);
             return;
           }
           
-          // Log detailed API response to verify signup success
-          debugLog("Password set via signUp in invitation flow", {
-            success: !!data?.user,
-            userId: data?.user?.id,
-            email: data?.user?.email
+          // Log detailed API response to verify update success
+          debugLog("Password update API call completed successfully in invitation flow", {
+            userUpdated: !!updateData?.user,
+            userId: updateData?.user?.id,
+            email: updateData?.user?.email,
+            updatedAt: updateData?.user?.updated_at
           });
           
-          if (!data?.user) {
-            debugLog("Signup API returned success but no user data");
-            setError("La configuración de contraseña no pudo ser verificada. Por favor, intenta de nuevo.");
+          // Before redirecting to success, verify we can actually log in with these credentials
+          debugLog("Attempting to verify login with new credentials");
+          
+          // Sign out first to ensure clean state
+          await supabase.auth.signOut();
+          
+          // Try to log in with the new credentials
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email: inviteEmail,
+            password: password
+          });
+          
+          if (signInError) {
+            debugLog("Failed to verify login - password likely not set correctly", signInError);
+            setError("La contraseña se actualizó pero no pudimos verificar el inicio de sesión. Por favor, intenta iniciar sesión manualmente.");
             setLoading(false);
-            setPasswordUpdateAttempted(false);
+            
+            // Still redirect to login page after delay
+            setTimeout(() => {
+              window.location.href = `/login?t=${Date.now()}`;
+            }, 3000);
             return;
           }
           
-          // If we got here, the password was successfully set at the API level
-          debugLog("Password set CONFIRMED via API response");
+          debugLog("Login verification successful!", { user: signInData?.user?.id });
+          
+          // If we got here, the password was successfully set AND verified
+          debugLog("Password update CONFIRMED via login verification");
           
           // Handle success case
           handleSuccessAndRedirect();
