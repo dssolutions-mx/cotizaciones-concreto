@@ -24,12 +24,52 @@ function UpdatePasswordForm() {
   const [inviteEmail, setInviteEmail] = useState<string | null>(null); // Store the email from invitation
   const [authListenerSetUp, setAuthListenerSetUp] = useState(false);
 
+  // CRITICAL: Add a timeout to ensure users don't get stuck on loading screen
+  useEffect(() => {
+    if (authReady) return; // Don't set up timeout if already ready
+    
+    debugLog('Setting up auth ready fallback timeout');
+    
+    // Force auth ready state after 5 seconds maximum
+    const fallbackTimer = setTimeout(() => {
+      debugLog('Fallback timeout triggered - forcing authReady state');
+      setAuthReady(true);
+      setLoading(false);
+      
+      // Check if we have a session at this point
+      supabase.auth.getSession().then(({ data }) => {
+        if (data?.session?.user?.email) {
+          setInviteEmail(data.session.user.email);
+          setInvitationFlow(true);
+          debugLog('Found email on forced ready:', data.session.user.email);
+        }
+      });
+    }, 5000);
+    
+    // Clean up timeout
+    return () => clearTimeout(fallbackTimer);
+  }, [authReady]);
+
   // Listen for ALL auth state changes including SIGNED_IN for invitation flows - ONLY ONCE
   useEffect(() => {
     if (authListenerSetUp) return; // Prevent multiple listeners
     
     debugLog('Setting up global auth state listener');
     setAuthListenerSetUp(true);
+    
+    // First check immediate session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        debugLog('Found immediate session, setting authReady', { email: session.user.email });
+        setAuthReady(true);
+        setLoading(false);
+        
+        if (session.user.email) {
+          setInviteEmail(session.user.email);
+          setInvitationFlow(true);
+        }
+      }
+    });
     
     // Set up auth change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -38,6 +78,13 @@ function UpdatePasswordForm() {
           sessionExists: !!session,
           email: session?.user?.email 
         });
+        
+        // Always set authReady for any auth event except INITIAL_SESSION
+        if (event !== 'INITIAL_SESSION') {
+          debugLog(`Setting authReady to true due to auth event: ${event}`);
+          setAuthReady(true);
+          setLoading(false);
+        }
         
         // Handle initial sign in (especially for invitation links)
         if (event === 'SIGNED_IN') {
@@ -124,6 +171,8 @@ function UpdatePasswordForm() {
           if (sessionError) {
             debugLog("Error setting session with tokens", sessionError);
             setError(`Error al establecer sesión: ${sessionError.message}`);
+            // Still proceed with auth ready even if there's an error
+            setAuthReady(true);
           } else {
             debugLog("Session successfully established from URL tokens", { 
               userId: sessionData?.session?.user?.id,
@@ -153,6 +202,8 @@ function UpdatePasswordForm() {
             if (exchangeError) {
               debugLog("Error exchanging code for session", exchangeError);
               setError(`Error al procesar el código: ${exchangeError.message}`);
+              // Still proceed with auth ready even if there's an error
+              setAuthReady(true);
             } else if (data?.session) {
               debugLog("Code successfully exchanged for session", { 
                 userId: data.session.user.id,
@@ -170,10 +221,14 @@ function UpdatePasswordForm() {
             } else {
               debugLog("No session returned from code exchange");
               setError("No se pudo establecer la sesión con el código proporcionado.");
+              // Still proceed with auth ready even if there's no session
+              setAuthReady(true);
             }
           } catch (codeError) {
             debugLog("Unexpected error exchanging code", codeError);
             setError("Error inesperado al procesar el código de autenticación");
+            // Still proceed with auth ready even if there's an error
+            setAuthReady(true);
           }
         }
         // 3. Fallback case - no auth data found
@@ -187,6 +242,7 @@ function UpdatePasswordForm() {
       } catch (err) {
         debugLog("Error extracting auth data", err);
         setError("Error al procesar la autenticación");
+        // Always ensure we set authReady to true even if there's an error
         setAuthReady(true);
         setLoading(false);
       }
