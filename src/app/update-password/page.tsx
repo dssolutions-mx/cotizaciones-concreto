@@ -19,10 +19,11 @@ function UpdatePasswordForm() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [isInvitation] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [passwordUpdateAttempted, setPasswordUpdateAttempted] = useState(false);
   const [showSuccessScreen, setShowSuccessScreen] = useState(false);
+  const [invitationFlow, setInvitationFlow] = useState(false); // Track if we're in an invitation flow
+  const [inviteEmail, setInviteEmail] = useState<string | null>(null); // Store the email from invitation
 
   // Listen for ALL auth state changes including SIGNED_IN for invitation flows
   useEffect(() => {
@@ -31,46 +32,30 @@ function UpdatePasswordForm() {
     // Set up auth change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        debugLog(`Global auth event detected: ${event}`, { sessionExists: !!session });
+        debugLog(`Global auth event detected: ${event}`, { 
+          sessionExists: !!session,
+          email: session?.user?.email 
+        });
         
         // Handle initial sign in (especially for invitation links)
         if (event === 'SIGNED_IN') {
           debugLog('User signed in, setting authReady to true');
           setAuthReady(true);
           setLoading(false);
+          
+          // If there's an email in the session, store it for the invitation flow
+          if (session?.user?.email) {
+            setInviteEmail(session.user.email);
+            setInvitationFlow(true);
+            debugLog('Identified as invitation flow for email', session.user.email);
+          }
         }
         
         // Handle password update specific events
         if (passwordUpdateAttempted && event === 'USER_UPDATED') {
           debugLog('Password update confirmed through auth event');
           setPasswordUpdateAttempted(false);
-          
-          // Show success message
-          setMessage("Tu contraseña ha sido actualizada con éxito");
-          setLoading(false);
-          setShowSuccessScreen(true);
-          
-          // Clear local storage to prevent cookie/storage conflicts
-          for (const key of Object.keys(localStorage)) {
-            if (key.startsWith('supabase.auth.')) {
-              localStorage.removeItem(key);
-            }
-          }
-          
-          // Clear cookies
-          document.cookie.split(";").forEach(function(c) {
-            document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-          });
-          
-          // Explicit sign out
-          await supabase.auth.signOut({ scope: 'global' });
-          
-          // Delay before redirecting
-          setTimeout(() => {
-            debugLog("Redirecting to login page");
-            // Direct navigation with cache-busting
-            window.location.href = `/login?updated=true&t=${Date.now()}`;
-          }, 3000);
+          handleSuccessAndRedirect();
         }
       }
     );
@@ -93,8 +78,17 @@ function UpdatePasswordForm() {
         
         if (currentSession?.session) {
           debugLog("Found existing session on initialization", { 
-            userId: currentSession.session.user.id 
+            userId: currentSession.session.user.id,
+            email: currentSession.session.user.email
           });
+          
+          // If there's an email in the session, it's likely an invitation
+          if (currentSession.session.user.email) {
+            setInviteEmail(currentSession.session.user.email);
+            setInvitationFlow(true);
+            debugLog('Identified as invitation flow for email', currentSession.session.user.email);
+          }
+          
           setAuthReady(true);
           setLoading(false);
           return; // Exit early if we already have a session
@@ -112,6 +106,12 @@ function UpdatePasswordForm() {
           code,
           type
         });
+        
+        // Check for invitation type
+        if (type === 'invite' || type === 'signup') {
+          debugLog("Detected invitation link", { type });
+          setInvitationFlow(true);
+        }
         
         // 1. Check URL hash for tokens - usual flow from password reset emails
         const accessToken = hashParams.get('access_token');
@@ -131,8 +131,17 @@ function UpdatePasswordForm() {
             setError(`Error al establecer sesión: ${sessionError.message}`);
           } else {
             debugLog("Session successfully established from URL tokens", { 
-              userId: sessionData?.session?.user?.id 
+              userId: sessionData?.session?.user?.id,
+              email: sessionData?.session?.user?.email
             });
+            
+            // If there's an email in the session, store it for the invitation flow
+            if (sessionData?.session?.user?.email) {
+              setInviteEmail(sessionData.session.user.email);
+              setInvitationFlow(true);
+              debugLog('Identified as invitation flow for email', sessionData.session.user.email);
+            }
+            
             setAuthReady(true);
           }
         }
@@ -150,7 +159,18 @@ function UpdatePasswordForm() {
               debugLog("Error exchanging code for session", exchangeError);
               setError(`Error al procesar el código: ${exchangeError.message}`);
             } else if (data?.session) {
-              debugLog("Code successfully exchanged for session", { userId: data.session.user.id });
+              debugLog("Code successfully exchanged for session", { 
+                userId: data.session.user.id,
+                email: data.session.user.email
+              });
+              
+              // If there's an email in the session, it's likely an invitation
+              if (data.session.user.email) {
+                setInviteEmail(data.session.user.email);
+                setInvitationFlow(true);
+                debugLog('Identified as invitation flow for email', data.session.user.email);
+              }
+              
               setAuthReady(true);
             } else {
               debugLog("No session returned from code exchange");
@@ -180,6 +200,38 @@ function UpdatePasswordForm() {
     extractAuthData();
   }, [searchParams]);
 
+  // Function to handle successful password update
+  const handleSuccessAndRedirect = async () => {
+    debugLog('Handling successful password update');
+    
+    // Show success message
+    setMessage("Tu contraseña ha sido actualizada con éxito");
+    setLoading(false);
+    setShowSuccessScreen(true);
+    
+    // Clear local storage to prevent cookie/storage conflicts
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('supabase.auth.')) {
+        localStorage.removeItem(key);
+      }
+    }
+    
+    // Clear cookies
+    document.cookie.split(";").forEach(function(c) {
+      document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+    });
+    
+    // Explicit sign out
+    await supabase.auth.signOut({ scope: 'global' });
+    
+    // Delay before redirecting
+    setTimeout(() => {
+      debugLog("Redirecting to login page");
+      // Direct navigation with cache-busting
+      window.location.href = `/login?updated=true&t=${Date.now()}`;
+    }, 3000);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     debugLog("Password update form submitted");
@@ -204,11 +256,56 @@ function UpdatePasswordForm() {
     setPasswordUpdateAttempted(true);
 
     try {
+      // Special handling for invitation flow
+      if (invitationFlow && inviteEmail) {
+        debugLog(`Using invitation flow for email: ${inviteEmail}`);
+        
+        // For invitations, we need to update the user's password directly
+        const { data, error: updateError } = await supabase.auth.updateUser({ 
+          password 
+        });
+        
+        if (updateError) {
+          debugLog("Error updating password in invitation flow", updateError);
+          setError(`Error al actualizar la contraseña: ${updateError.message}`);
+          setLoading(false);
+          setPasswordUpdateAttempted(false);
+          return;
+        }
+        
+        // Log detailed API response to verify password update
+        debugLog("Password update API call completed successfully in invitation flow", {
+          userUpdated: !!data?.user,
+          userId: data?.user?.id,
+          email: data?.user?.email,
+          updatedAt: data?.user?.updated_at
+        });
+        
+        // 3. Verify the update was successful by checking the user data
+        if (!data?.user) {
+          debugLog("Password update API returned success but no user data");
+          setError("La actualización de contraseña no pudo ser verificada. Por favor, intenta de nuevo.");
+          setLoading(false);
+          setPasswordUpdateAttempted(false);
+          return;
+        }
+        
+        // If we got here, the password was successfully updated at the API level
+        debugLog("Password update CONFIRMED via API response");
+        
+        // Handle success case without waiting for USER_UPDATED event
+        // Some flows may not trigger the event
+        handleSuccessAndRedirect();
+        return;
+      }
+      
+      // Standard password reset flow (not invitation)
       // 1. Check if we have valid tokens or session
       const { data: sessionData } = await supabase.auth.getSession();
       debugLog("Session before update", { 
         exists: !!sessionData?.session,
-        userId: sessionData?.session?.user?.id
+        userId: sessionData?.session?.user?.id,
+        email: sessionData?.session?.user?.email
       });
       
       if (!sessionData?.session) {
@@ -235,8 +332,8 @@ function UpdatePasswordForm() {
       debugLog("Password update API call completed successfully", {
         userUpdated: !!data?.user,
         userId: data?.user?.id,
-        updatedAt: data?.user?.updated_at,
-        responseData: data
+        email: data?.user?.email,
+        updatedAt: data?.user?.updated_at
       });
       
       // 3. Verify the update was successful by checking the user data
@@ -257,31 +354,7 @@ function UpdatePasswordForm() {
         if (loading) {
           // Force success state if we're still loading after 3 seconds
           debugLog("Forcing success state via fallback timer");
-          setMessage("Tu contraseña ha sido actualizada con éxito");
-          setLoading(false);
-          setShowSuccessScreen(true);
-          setPasswordUpdateAttempted(false);
-          
-          // Clear local storage to prevent cookie/storage conflicts
-          for (const key of Object.keys(localStorage)) {
-            if (key.startsWith('supabase.auth.')) {
-              localStorage.removeItem(key);
-            }
-          }
-          
-          // Clear cookies
-          document.cookie.split(";").forEach(function(c) {
-            document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
-          });
-          
-          // Explicit sign out
-          supabase.auth.signOut({ scope: 'global' }).then(() => {
-            // Delay before redirecting
-            setTimeout(() => {
-              debugLog("Redirecting to login page (from fallback)");
-              window.location.href = `/login?updated=true&t=${Date.now()}`;
-            }, 3000);
-          });
+          handleSuccessAndRedirect();
         }
       }, 3000); // Wait 3 seconds for the event before falling back
       
@@ -362,13 +435,18 @@ function UpdatePasswordForm() {
       <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">
-            {isInvitation ? 'Configura tu Contraseña' : 'Actualizar Contraseña'}
+            {invitationFlow ? 'Configura tu Contraseña' : 'Actualizar Contraseña'}
           </h1>
           <p className="mt-2 text-sm text-gray-600">
-            {isInvitation 
+            {invitationFlow 
               ? 'Crea una contraseña para acceder a tu cuenta' 
               : 'Crea una nueva contraseña para tu cuenta'}
           </p>
+          {inviteEmail && (
+            <p className="mt-2 text-sm font-medium text-indigo-600">
+              {inviteEmail}
+            </p>
+          )}
         </div>
 
         {error && (
