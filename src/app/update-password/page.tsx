@@ -211,8 +211,17 @@ function UpdatePasswordForm() {
         userId: sessionData?.session?.user?.id
       });
       
+      if (!sessionData?.session) {
+        debugLog("No active session found, cannot update password");
+        setError("No hay una sesión activa. Por favor, inténtalo de nuevo.");
+        setLoading(false);
+        setPasswordUpdateAttempted(false);
+        return;
+      }
+      
       // 2. Try updating the password
-      const { error: updateError } = await supabase.auth.updateUser({ password });
+      debugLog("Calling updateUser with new password");
+      const { data, error: updateError } = await supabase.auth.updateUser({ password });
       
       if (updateError) {
         debugLog("Error updating password", updateError);
@@ -222,8 +231,9 @@ function UpdatePasswordForm() {
         return;
       }
       
-      debugLog("Password update API call completed successfully");
-      // The success case and redirect is now handled by the auth state change listener
+      debugLog("Password update API call completed successfully", data);
+      // Don't set loading to false or showSuccessScreen to true here
+      // The auth state change listener will handle that when it receives the USER_UPDATED event
       
     } catch (err) {
       debugLog("Error during password update process", err);
