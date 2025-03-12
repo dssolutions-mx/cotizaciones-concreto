@@ -14,7 +14,27 @@ let supabaseInstance: ReturnType<typeof createBrowserClient<Database>> | null = 
 function getSupabaseClient() {
   if (supabaseInstance === null) {
     if (typeof window !== 'undefined') {
-      supabaseInstance = createBrowserClient<Database>(supabaseUrl, supabaseKey);
+      // Create the client with specific storage options to ensure consistency
+      supabaseInstance = createBrowserClient<Database>(supabaseUrl, supabaseKey, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true, // This is important for invitation links
+          flowType: 'pkce' // Use PKCE flow for better security
+        },
+        global: {
+          // Add custom headers if needed
+          headers: {
+            'x-client-info': 'cotizaciones-concreto-app'
+          }
+        }
+      });
+      
+      // Process URL hash for auth tokens if present (for invitation flows)
+      if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token=')) {
+        console.log('Detected auth tokens in URL hash, will be processed by Supabase client');
+      }
+      
       console.log('Created Supabase client singleton instance');
     } else {
       // Create a placeholder client for SSR that will be replaced on the client side

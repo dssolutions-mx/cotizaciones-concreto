@@ -26,8 +26,8 @@ export async function POST(req: Request) {
     const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app';
     console.log('Using origin URL for invite:', origin);
     
-    // Create a clean redirect URL without any query params that might cause issues
-    const redirectTo = `${origin}/update-password`;
+    // Use the auth/callback page for better handling of invitation flows
+    const redirectTo = `${origin}/auth/callback`;
     console.log('Invite redirect URL:', redirectTo);
 
     // Create user with Supabase Admin (invited users must verify email)
@@ -36,6 +36,7 @@ export async function POST(req: Request) {
       data: {
         invited: true,
         invited_at: new Date().toISOString(),
+        role: role, // Store role in user metadata for easier access
       },
     });
 

@@ -4,6 +4,22 @@ import { createServerClient } from '@supabase/ssr';
 import type { Database } from '@/types/supabase';
 
 export async function middleware(request: NextRequest) {
+  // Check for invitation links (they have a hash with access_token)
+  // Note: We can't access the hash directly in middleware, but we can check for the presence of '#' in the URL
+  const hasHash = request.url.includes('#');
+  const isInvitationLink = hasHash && 
+    (request.url.includes('/update-password') || 
+     request.url.includes('/auth/callback') || 
+     request.url.includes('/auth-check'));
+  
+  // For invitation links, we want to bypass normal auth checks
+  if (isInvitationLink) {
+    console.log('Detected invitation link in middleware, bypassing auth checks');
+    // Just pass through without auth checks for invitation links
+    return NextResponse.next();
+  }
+  
+  // Normal auth flow for non-invitation links
   let supabaseResponse = NextResponse.next({
     request,
   });
@@ -57,7 +73,8 @@ export async function middleware(request: NextRequest) {
   console.log(`Middleware processing: ${pathname}`, {
     authenticated: !!user,
     userEmail: user?.email || 'none',
-    hasHash: request.url.includes('#'),
+    hasHash: hasHash,
+    isInvitationLink: isInvitationLink
   });
 
   // Define public routes that don't require authentication
@@ -78,21 +95,12 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/public') ||
     pathname.startsWith('/api/auth');
     
-  // Check for invitation links (they have a hash with access_token)
-  const hasInvitationToken = request.url.includes('#access_token=');
-  
-  // If this is an invitation link, allow access
-  if (hasInvitationToken && pathname === '/update-password') {
-    console.log('Allowing access to update-password with invitation token');
-    return supabaseResponse;
-  }
-
-  // Check if this is an API route
-  const isApiRoute = pathname.startsWith('/api') && !pathname.startsWith('/api/public') && !pathname.startsWith('/api/auth');
-
   // If not authenticated and trying to access a protected route (including API routes)
   if (!user && !isPublicRoute) {
     console.log(`Unauthenticated access attempt to ${pathname}`);
+    
+    // Check if this is an API route
+    const isApiRoute = pathname.startsWith('/api') && !pathname.startsWith('/api/public') && !pathname.startsWith('/api/auth');
     
     // For API routes, return 401 Unauthorized
     if (isApiRoute) {

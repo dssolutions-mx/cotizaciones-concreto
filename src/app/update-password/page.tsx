@@ -30,6 +30,19 @@ function UpdatePasswordForm() {
   // Store session data for debugging purposes
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [currentSessionData, setCurrentSessionData] = useState<SessionData | null>(null);
+  const [sessionEstablished, setSessionEstablished] = useState(false);
+
+  // Process URL hash for auth tokens if present (for invitation flows)
+  useEffect(() => {
+    // This effect runs only once on component mount to handle URL hash
+    if (typeof window !== 'undefined' && window.location.hash && window.location.hash.includes('access_token=')) {
+      console.log('Detected auth tokens in URL hash in component mount effect');
+      setInvitationFlow(true);
+      
+      // Let the Supabase client handle the tokens automatically
+      // We'll check for session in the next effect
+    }
+  }, []);
 
   // Initialize auth state on component mount
   useEffect(() => {
@@ -60,21 +73,26 @@ function UpdatePasswordForm() {
         if (accessToken && refreshToken) {
           console.log('Found tokens in URL hash, setting session');
           try {
-            const { data, error } = await supabase.auth.setSession({
+            // Wait a moment to ensure Supabase client has initialized
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken
             });
             
-            if (error) {
-              console.error('Error setting session from tokens:', error);
-              setError(`Error al establecer la sesión: ${error.message}`);
-            } else if (data.user) {
-              console.log('Session set successfully from tokens', data);
-              setInviteEmail(data.user.email || null);
+            if (sessionError) {
+              console.error('Error setting session from tokens:', sessionError);
+              setError(`Error al establecer la sesión: ${sessionError.message}`);
+            } else if (sessionData.user) {
+              console.log('Session set successfully from tokens', sessionData);
+              setInviteEmail(sessionData.user.email || null);
               setCurrentSessionData({
-                session: data.session,
-                user: data.user
+                session: sessionData.session,
+                user: sessionData.user
               });
+              setSessionEstablished(true);
             }
             
             setAuthReady(true);
@@ -102,6 +120,7 @@ function UpdatePasswordForm() {
               session: sessionData.session,
               user: sessionData.session.user
             });
+            setSessionEstablished(true);
             setAuthReady(true);
           } 
           // If no session but we have a recovery code, exchange it
@@ -125,6 +144,7 @@ function UpdatePasswordForm() {
                   session: newSession.session,
                   user: newSession.session?.user || null
                 });
+                setSessionEstablished(!!newSession.session);
                 console.log('Successfully exchanged code for session', newSession);
               }
             } catch (exchangeError) {
@@ -155,6 +175,17 @@ function UpdatePasswordForm() {
       console.log('Fallback timeout triggered - forcing authReady state');
       setAuthReady(true);
       setLoading(false);
+      
+      // Check session one more time before giving up
+      supabase.auth.getSession().then(({ data }) => {
+        if (data.session) {
+          console.log('Session found in fallback check', data.session.user.email);
+          setSessionEstablished(true);
+          setInviteEmail(data.session.user.email || null);
+        } else {
+          console.log('No session found in fallback check');
+        }
+      });
     }, 5000);
     
     return () => clearTimeout(fallbackTimer);
@@ -164,7 +195,7 @@ function UpdatePasswordForm() {
   useEffect(() => {
     if (!passwordUpdateAttempted) return;
 
-    console.log('Setting up auth listener for password update. please addhere to the @Supabase auth and @subaserules.mdc');
+    console.log('Setting up auth listener for password update. please adhere to the @Supabase auth and @subaserules.mdc');
     // Set up auth change listener to detect USER_UPDATED event
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
@@ -245,14 +276,56 @@ function UpdatePasswordForm() {
       
       if (!currentSession?.session) {
         console.error('No valid session found for password update');
-        setError("No hay una sesión válida. Por favor, intenta acceder nuevamente desde el enlace de invitación.");
-        setLoading(false);
-        setPasswordUpdateAttempted(false);
-        return;
+        
+        // For invitation flows, try to recover the session from URL hash
+        if (invitationFlow && typeof window !== 'undefined' && window.location.hash) {
+          console.log('Attempting to recover session from URL hash for invitation flow');
+          
+          const hashParams = new URLSearchParams(window.location.hash.substring(1));
+          const accessToken = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+          
+          if (accessToken && refreshToken) {
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+              const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken
+              });
+              
+              if (sessionError) {
+                console.error('Error recovering session from hash:', sessionError);
+                setError(`Error al recuperar la sesión: ${sessionError.message}`);
+                setLoading(false);
+                setPasswordUpdateAttempted(false);
+                return;
+              }
+              
+              console.log('Session recovered successfully for password update');
+              // Continue with password update
+            } catch (err) {
+              console.error('Exception recovering session:', err);
+              setError('Error al recuperar la sesión para actualizar la contraseña');
+              setLoading(false);
+              setPasswordUpdateAttempted(false);
+              return;
+            }
+          } else {
+            setError("No hay una sesión válida. Por favor, intenta acceder nuevamente desde el enlace de invitación.");
+            setLoading(false);
+            setPasswordUpdateAttempted(false);
+            return;
+          }
+        } else {
+          setError("No hay una sesión válida. Por favor, intenta acceder nuevamente desde el enlace de invitación.");
+          setLoading(false);
+          setPasswordUpdateAttempted(false);
+          return;
+        }
       }
       
       // Update password directly using the authenticated session
-      const { data, error } = await supabase.auth.updateUser({
+      const { data: userData, error } = await supabase.auth.updateUser({
         password: password
       });
 
@@ -272,7 +345,7 @@ function UpdatePasswordForm() {
       }
 
       // Log success even if the auth event doesn't fire
-      console.log('Password update API call completed successfully', data);
+      console.log('Password update API call completed successfully', userData);
       
       // If we don't get an auth event within 3 seconds, show success anyway
       const fallbackTimer = setTimeout(() => {
@@ -331,6 +404,13 @@ function UpdatePasswordForm() {
           {inviteEmail && (
             <p className="mt-2 text-sm font-medium text-indigo-600">
               {inviteEmail}
+            </p>
+          )}
+          
+          {/* Show session status for debugging */}
+          {process.env.NODE_ENV === 'development' && (
+            <p className="mt-2 text-xs text-gray-500">
+              Estado de sesión: {sessionEstablished ? 'Establecida' : 'No establecida'}
             </p>
           )}
         </div>
