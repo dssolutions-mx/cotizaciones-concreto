@@ -4,6 +4,13 @@ import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase/client';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { Session, User } from '@supabase/supabase-js';
+
+// Define types for session data
+interface SessionData {
+  session: Session | null;
+  user: User | null;
+}
 
 // Main component that uses useSearchParams
 function UpdatePasswordForm() {
@@ -20,6 +27,9 @@ function UpdatePasswordForm() {
   const [authReady, setAuthReady] = useState(false);
   const [invitationFlow, setInvitationFlow] = useState(false);
   const [inviteEmail, setInviteEmail] = useState<string | null>(null);
+  // Store session data for debugging purposes
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [currentSessionData, setCurrentSessionData] = useState<SessionData | null>(null);
 
   // Initialize auth state on component mount
   useEffect(() => {
@@ -59,8 +69,12 @@ function UpdatePasswordForm() {
               console.error('Error setting session from tokens:', error);
               setError(`Error al establecer la sesión: ${error.message}`);
             } else if (data.user) {
-              console.log('Session set successfully from tokens');
+              console.log('Session set successfully from tokens', data);
               setInviteEmail(data.user.email || null);
+              setCurrentSessionData({
+                session: data.session,
+                user: data.user
+              });
             }
             
             setAuthReady(true);
@@ -84,6 +98,10 @@ function UpdatePasswordForm() {
               setInviteEmail(sessionData.session.user.email);
             }
             
+            setCurrentSessionData({
+              session: sessionData.session,
+              user: sessionData.session.user
+            });
             setAuthReady(true);
           } 
           // If no session but we have a recovery code, exchange it
@@ -103,7 +121,11 @@ function UpdatePasswordForm() {
                   setInviteEmail(newSession.session.user.email);
                 }
                 
-                console.log('Successfully exchanged code for session');
+                setCurrentSessionData({
+                  session: newSession.session,
+                  user: newSession.session?.user || null
+                });
+                console.log('Successfully exchanged code for session', newSession);
               }
             } catch (exchangeError) {
               console.error('Exception during code exchange:', exchangeError);
@@ -142,11 +164,11 @@ function UpdatePasswordForm() {
   useEffect(() => {
     if (!passwordUpdateAttempted) return;
 
-    console.log('Setting up auth listener for password update');
+    console.log('Setting up auth listener for password update. please addhere to the @Supabase auth and @subaserules.mdc');
     // Set up auth change listener to detect USER_UPDATED event
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event) => {
-        console.log('Auth event detected in password update:', event);
+      async (event, session) => {
+        console.log('Auth event detected in password update:', event, session ? 'Session present' : 'No session');
         
         if (event === 'USER_UPDATED') {
           console.log('Password update confirmed through auth event');
@@ -213,8 +235,24 @@ function UpdatePasswordForm() {
 
     try {
       console.log('Attempting to update password...');
+      
+      // Verify we have a valid session before updating
+      const { data: currentSession } = await supabase.auth.getSession();
+      console.log('Current session before password update:', 
+        currentSession?.session ? 'Valid session' : 'No valid session',
+        currentSession?.session?.user?.email || 'No email'
+      );
+      
+      if (!currentSession?.session) {
+        console.error('No valid session found for password update');
+        setError("No hay una sesión válida. Por favor, intenta acceder nuevamente desde el enlace de invitación.");
+        setLoading(false);
+        setPasswordUpdateAttempted(false);
+        return;
+      }
+      
       // Update password directly using the authenticated session
-      const { error } = await supabase.auth.updateUser({
+      const { data, error } = await supabase.auth.updateUser({
         password: password
       });
 
@@ -233,8 +271,23 @@ function UpdatePasswordForm() {
         return;
       }
 
-      // The success case is now handled by the auth state change listener
-      console.log('Password update API call completed successfully');
+      // Log success even if the auth event doesn't fire
+      console.log('Password update API call completed successfully', data);
+      
+      // If we don't get an auth event within 3 seconds, show success anyway
+      const fallbackTimer = setTimeout(() => {
+        if (passwordUpdateAttempted) {
+          console.log('Auth event not detected, showing success message anyway');
+          setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
+          setPassword('');
+          setConfirmPassword('');
+          setLoading(false);
+          setCountdown(5);
+          setPasswordUpdateAttempted(false);
+        }
+      }, 3000);
+      
+      return () => clearTimeout(fallbackTimer);
       
     } catch (err) {
       console.error('Error inesperado al cambiar la contraseña:', err);

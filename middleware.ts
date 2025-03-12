@@ -17,13 +17,20 @@ export async function middleware(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+          // First set cookies on the request object
+          cookiesToSet.forEach(({ name, value, options }) => {
+            request.cookies.set(name, value);
+          });
+          
+          // Create a new response with the updated request
           supabaseResponse = NextResponse.next({
             request,
           });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
+          
+          // Then set cookies on the response with full options
+          cookiesToSet.forEach(({ name, value, options }) => {
+            supabaseResponse.cookies.set(name, value, options);
+          });
         },
       },
     }
@@ -45,6 +52,13 @@ export async function middleware(request: NextRequest) {
   // URL information
   const url = request.nextUrl.clone();
   const { pathname } = url;
+  
+  // Log request details for debugging
+  console.log(`Middleware processing: ${pathname}`, {
+    authenticated: !!user,
+    userEmail: user?.email || 'none',
+    hasHash: request.url.includes('#'),
+  });
 
   // Define public routes that don't require authentication
   // Rutas que son accesibles sin autenticación

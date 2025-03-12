@@ -1,133 +1,208 @@
 'use client';
 
-import { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase/client';
 
-interface ApiResponse {
+interface SessionInfo {
+  hasSession: boolean;
+  user: {
+    id: string;
+    email: string | null;
+    lastSignInAt: string | null;
+    createdAt: string | null;
+  } | null;
+  expiresAt: string | null;
+  tokenType: string | null;
+}
+
+interface UpdateResult {
   success: boolean;
-  message: string;
-  session?: unknown;
-  user?: unknown;
-  [key: string]: unknown;
+  error?: string;
+  user?: {
+    id: string;
+    email: string | null;
+    updatedAt: string;
+  } | null;
 }
 
 export default function AuthCheckPage() {
-  const [apiResponse, setApiResponse] = useState<ApiResponse | null>(null);
-  const [adminApiResponse, setAdminApiResponse] = useState<ApiResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [adminLoading, setAdminLoading] = useState(false);
+  const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [adminError, setAdminError] = useState<string | null>(null);
-  const { user, userProfile, session, isAuthenticated } = useAuth();
+  const [updateResult, setUpdateResult] = useState<UpdateResult | null>(null);
+  const [testPassword, setTestPassword] = useState('');
 
-  const checkSession = async () => {
+  useEffect(() => {
+    async function checkAuth() {
+      try {
+        setLoading(true);
+        
+        // Get current session
+        const { data, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('Error getting session:', error);
+          setError(error.message);
+          return;
+        }
+        
+        // Format session data for display
+        setSessionInfo({
+          hasSession: !!data.session,
+          user: data.session?.user ? {
+            id: data.session.user.id,
+            email: data.session.user.email || null,
+            lastSignInAt: data.session.user.last_sign_in_at || null,
+            createdAt: data.session.user.created_at || null,
+          } : null,
+          expiresAt: data.session?.expires_at 
+            ? new Date(data.session.expires_at * 1000).toISOString() 
+            : null,
+          tokenType: data.session?.token_type || null,
+        });
+        
+      } catch (err) {
+        console.error('Unexpected error checking auth:', err);
+        setError(err instanceof Error ? err.message : 'Unknown error');
+      } finally {
+        setLoading(false);
+      }
+    }
+    
+    checkAuth();
+  }, []);
+  
+  const handleTestPasswordUpdate = async () => {
+    if (!testPassword || testPassword.length < 8) {
+      setError('Password must be at least 8 characters');
+      return;
+    }
+    
     try {
       setLoading(true);
       setError(null);
       
-      const queryParams = new URLSearchParams();
-      if (user?.id) queryParams.append('userId', user.id);
-      if (user?.email) queryParams.append('email', user.email);
+      // Test password update
+      const { data, error } = await supabase.auth.updateUser({
+        password: testPassword
+      });
       
-      const response = await fetch(`/api/auth/check-session?${queryParams.toString()}`);
-      const data = await response.json();
+      if (error) {
+        console.error('Error updating password:', error);
+        setError(error.message);
+        setUpdateResult({ success: false, error: error.message });
+        return;
+      }
       
-      setApiResponse(data);
-    } catch (err: unknown) {
-      console.error('Error checking session:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
-      setError(`Error checking session: ${errorMessage}`);
+      console.log('Password update successful:', data);
+      setUpdateResult({ 
+        success: true, 
+        user: data.user ? {
+          id: data.user.id,
+          email: data.user.email || null,
+          updatedAt: new Date().toISOString()
+        } : null 
+      });
+      
+      // Refresh session info
+      const { data: sessionData } = await supabase.auth.getSession();
+      setSessionInfo({
+        hasSession: !!sessionData.session,
+        user: sessionData.session?.user ? {
+          id: sessionData.session.user.id,
+          email: sessionData.session.user.email || null,
+          lastSignInAt: sessionData.session.user.last_sign_in_at || null,
+          createdAt: sessionData.session.user.created_at || null,
+        } : null,
+        expiresAt: sessionData.session?.expires_at 
+          ? new Date(sessionData.session.expires_at * 1000).toISOString() 
+          : null,
+        tokenType: sessionData.session?.token_type || null,
+      });
+      
+    } catch (err) {
+      console.error('Unexpected error updating password:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      setUpdateResult({ success: false, error: String(err) });
     } finally {
       setLoading(false);
     }
   };
 
-  const checkAdminApi = async () => {
-    try {
-      setAdminLoading(true);
-      setAdminError(null);
-      
-      const queryParams = new URLSearchParams();
-      if (user?.id) queryParams.append('userId', user.id);
-      if (user?.email) queryParams.append('email', user.email);
-      
-      const response = await fetch(`/api/auth/test-admin?${queryParams.toString()}`);
-      const data = await response.json();
-      
-      setAdminApiResponse(data);
-    } catch (err: unknown) {
-      console.error('Error checking admin API:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Error desconocido';
-      setAdminError(`Error checking admin API: ${errorMessage}`);
-    } finally {
-      setAdminLoading(false);
-    }
-  };
-
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Authentication Status Check</h1>
+    <div className="max-w-4xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-6">Authentication Check</h1>
       
-      <div className="mb-6 p-4 bg-gray-100 rounded-lg">
-        <h2 className="text-xl font-semibold mb-2">Client-Side Auth State</h2>
-        <div className="space-y-2">
-          <p><strong>Authenticated:</strong> {isAuthenticated ? 'Yes' : 'No'}</p>
-          <p><strong>User ID:</strong> {user?.id || 'Not logged in'}</p>
-          <p><strong>User Email:</strong> {user?.email || 'Not available'}</p>
-          <p><strong>User Role:</strong> {userProfile?.role || 'Not available'}</p>
-          <p><strong>Session:</strong> {session ? 'Active' : 'None'}</p>
+      {loading && (
+        <div className="flex items-center justify-center p-6">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
         </div>
-      </div>
-      
-      <div className="mb-6 flex space-x-4">
-        <button 
-          onClick={checkSession}
-          disabled={loading}
-          className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
-        >
-          {loading ? 'Checking...' : 'Check Session API'}
-        </button>
-        
-        <button 
-          onClick={checkAdminApi}
-          disabled={adminLoading}
-          className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
-        >
-          {adminLoading ? 'Checking...' : 'Test Admin API'}
-        </button>
-      </div>
+      )}
       
       {error && (
-        <div className="mb-6 p-4 bg-red-100 text-red-700 rounded-lg">
-          <h2 className="font-semibold">Error:</h2>
+        <div className="p-4 mb-6 bg-red-100 border border-red-400 text-red-700 rounded-md">
+          <p className="font-bold">Error:</p>
           <p>{error}</p>
         </div>
       )}
       
-      {apiResponse && (
-        <div className="mb-6 p-4 bg-green-50 rounded-lg">
-          <h2 className="text-xl font-semibold mb-2">Session API Response</h2>
-          <pre className="bg-gray-800 text-green-400 p-4 rounded overflow-auto">
-            {JSON.stringify(apiResponse, null, 2)}
-          </pre>
+      {sessionInfo && (
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold mb-4">Session Information</h2>
+          <div className="bg-gray-100 p-4 rounded-md overflow-x-auto">
+            <pre className="text-sm">{JSON.stringify(sessionInfo, null, 2)}</pre>
+          </div>
         </div>
       )}
       
-      {adminError && (
-        <div className="mb-6 p-4 bg-red-100 text-red-700 rounded-lg">
-          <h2 className="font-semibold">Admin API Error:</h2>
-          <p>{adminError}</p>
+      <div className="mb-8">
+        <h2 className="text-xl font-semibold mb-4">Test Password Update</h2>
+        <div className="flex items-end gap-4">
+          <div className="flex-1">
+            <label htmlFor="testPassword" className="block text-sm font-medium text-gray-700 mb-1">
+              Test Password
+            </label>
+            <input
+              id="testPassword"
+              type="password"
+              value={testPassword}
+              onChange={(e) => setTestPassword(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder="Enter test password"
+              disabled={loading}
+            />
+          </div>
+          <button
+            onClick={handleTestPasswordUpdate}
+            disabled={loading || !testPassword}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {loading ? 'Testing...' : 'Test Update'}
+          </button>
         </div>
-      )}
+        
+        {updateResult && (
+          <div className={`mt-4 p-4 rounded-md ${updateResult.success ? 'bg-green-100 border-green-400 text-green-700' : 'bg-red-100 border-red-400 text-red-700'}`}>
+            <p className="font-bold">{updateResult.success ? 'Success:' : 'Error:'}</p>
+            <div className="mt-2 overflow-x-auto">
+              <pre className="text-sm">{JSON.stringify(updateResult, null, 2)}</pre>
+            </div>
+          </div>
+        )}
+      </div>
       
-      {adminApiResponse && (
-        <div className="mb-6 p-4 bg-green-50 rounded-lg">
-          <h2 className="text-xl font-semibold mb-2">Admin API Response</h2>
-          <pre className="bg-gray-800 text-green-400 p-4 rounded overflow-auto">
-            {JSON.stringify(adminApiResponse, null, 2)}
-          </pre>
-        </div>
-      )}
+      <div className="mt-6">
+        <h2 className="text-xl font-semibold mb-4">Debug Information</h2>
+        <p className="text-sm text-gray-600 mb-2">
+          Browser URL: <code className="bg-gray-100 px-1">{typeof window !== 'undefined' ? window.location.href : 'N/A'}</code>
+        </p>
+        <p className="text-sm text-gray-600 mb-2">
+          URL Hash: <code className="bg-gray-100 px-1">{typeof window !== 'undefined' ? window.location.hash : 'N/A'}</code>
+        </p>
+        <p className="text-sm text-gray-600">
+          User Agent: <code className="bg-gray-100 px-1">{typeof navigator !== 'undefined' ? navigator.userAgent : 'N/A'}</code>
+        </p>
+      </div>
     </div>
   );
 } 
