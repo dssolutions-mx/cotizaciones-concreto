@@ -30,6 +30,57 @@ export async function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
   const { pathname } = url;
   
+  // Extract query params for better control over auth flow
+  const searchParams = url.searchParams;
+  
+  // Check if this is a force logout situation
+  const isForceLogout = searchParams.get('force_logout') === 'true';
+  
+  if (isForceLogout) {
+    console.log('Detected force_logout in middleware - bypassing auth checks and clearing session cookies');
+    
+    // Create a response that adds CSP headers and clears auth cookies
+    const response = NextResponse.next({
+      request,
+    });
+    
+    // Add CSP headers
+    const nonce = generateNonce();
+    const cspHeader = getCSPHeader(nonce);
+    response.headers.set('Content-Security-Policy', cspHeader);
+    response.headers.set('X-CSP-Nonce', nonce);
+    
+    // Attempt to clear auth cookies by setting them to expire
+    try {
+      // Clear all Supabase auth cookies (these names are typical for Supabase)
+      const cookieNames = [
+        'sb-access-token', 
+        'sb-refresh-token',
+        'supabase-auth-token',
+        '__session',
+        'sb-auth-token'
+      ];
+      
+      cookieNames.forEach(name => {
+        response.cookies.set({
+          name,
+          value: '',
+          expires: new Date(0),
+          path: '/',
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+          httpOnly: true
+        });
+      });
+      
+      console.log('Cleared auth cookies in middleware for force_logout');
+    } catch (clearError) {
+      console.error('Error clearing cookies in middleware:', clearError);
+    }
+    
+    return response;
+  }
+  
   // Check for invitation links (they have a hash with access_token)
   // Note: We can't access the hash directly in middleware, but we can check for the presence of '#' in the URL
   const hasHash = request.url.includes('#');
@@ -131,7 +182,8 @@ export async function middleware(request: NextRequest) {
     pathname.includes('.') || 
     pathname.startsWith('/images') || 
     pathname.startsWith('/api/public') ||
-    pathname.startsWith('/api/auth');
+    pathname.startsWith('/api/auth') ||
+    isForceLogout; // Consider any URL with force_logout=true as public
     
   // If not authenticated and trying to access a protected route (including API routes)
   if (!user && !isPublicRoute) {
@@ -170,6 +222,12 @@ export async function middleware(request: NextRequest) {
 
   // If authenticated and trying to access login/register pages
   if (user && (pathname === '/login' || pathname === '/register')) {
+    // Skip the redirect if this is a force logout request
+    if (isForceLogout) {
+      console.log('Detected force_logout, allowing access to login page even though user is authenticated');
+      return supabaseResponse;
+    }
+    
     const dashboardUrl = url.clone();
     dashboardUrl.pathname = '/dashboard';
     const redirectResponse = NextResponse.redirect(dashboardUrl);
