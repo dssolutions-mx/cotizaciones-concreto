@@ -232,8 +232,43 @@ function UpdatePasswordForm() {
       }
       
       debugLog("Password update API call completed successfully", data);
-      // Don't set loading to false or showSuccessScreen to true here
-      // The auth state change listener will handle that when it receives the USER_UPDATED event
+      
+      // Set a fallback timer in case the USER_UPDATED event is not triggered
+      const fallbackTimer = setTimeout(() => {
+        debugLog("Fallback timer triggered - no USER_UPDATED event detected");
+        if (loading) {
+          // Force success state if we're still loading after 3 seconds
+          debugLog("Forcing success state via fallback timer");
+          setMessage("Tu contraseña ha sido actualizada con éxito");
+          setLoading(false);
+          setShowSuccessScreen(true);
+          setPasswordUpdateAttempted(false);
+          
+          // Clear local storage to prevent cookie/storage conflicts
+          for (const key of Object.keys(localStorage)) {
+            if (key.startsWith('supabase.auth.')) {
+              localStorage.removeItem(key);
+            }
+          }
+          
+          // Clear cookies
+          document.cookie.split(";").forEach(function(c) {
+            document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+          });
+          
+          // Explicit sign out
+          supabase.auth.signOut({ scope: 'global' }).then(() => {
+            // Delay before redirecting
+            setTimeout(() => {
+              debugLog("Redirecting to login page (from fallback)");
+              window.location.href = `/login?updated=true&t=${Date.now()}`;
+            }, 3000);
+          });
+        }
+      }, 3000); // Wait 3 seconds for the event before falling back
+      
+      // Clean up the fallback timer if component unmounts
+      return () => clearTimeout(fallbackTimer);
       
     } catch (err) {
       debugLog("Error during password update process", err);
