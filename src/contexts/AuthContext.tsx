@@ -4,7 +4,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { User, Session } from '@supabase/supabase-js';
-import { createBrowserClient } from '@supabase/ssr';
 import type { Database } from '@/types/supabase';
 import { checkPermission } from '@/lib/auth/roleUtils';
 import { supabase } from '@/lib/supabase';
