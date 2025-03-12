@@ -283,114 +283,119 @@ function UpdatePasswordForm() {
           // Force a small delay to ensure auth state is settled
           await new Promise(resolve => setTimeout(resolve, 500));
           
-          // Immediately trigger sign out with multiple approaches
+          // IMPORTANT: Instead of trying multiple approaches sequentially, use a more
+          // comprehensive approach that forces an immediate and complete logout
+          
           try {
-            console.log('Forcefully signing out user after password update (global scope)');
+            console.log('Executing guaranteed forced logout sequence');
             
-            // Try first with global scope
-            const { error: signOutError } = await supabase.auth.signOut({ 
-              scope: 'global' 
-            });
-            
-            if (signOutError) {
-              console.error('Error during force sign out:', signOutError);
+            // 1. Prepare a function to clear ALL storage mechanisms
+            const clearAllStorageMechanisms = () => {
+              console.log('Clearing all storage mechanisms');
               
-              // If global sign out fails, try without scope param as fallback
-              console.log('Attempting fallback sign out method...');
-              const { error: fallbackError } = await supabase.auth.signOut();
-              
-              if (fallbackError) {
-                console.error('Fallback sign out also failed:', fallbackError);
-              } else {
-                console.log('Fallback sign out succeeded');
-              }
-            } else {
-              console.log('User successfully signed out after password update');
-            }
-            
-            // Force a larger delay to ensure signOut completes
-            await new Promise(resolve => setTimeout(resolve, 800));
-            
-            // Verify the session is really gone
-            const { data: sessionAfter } = await supabase.auth.getSession();
-            console.log('Session after sign out attempt:', 
-              sessionAfter?.session ? 'Still active (sign out failed)' : 'None (sign out succeeded)'
-            );
-            
-            // If session still exists, try more aggressive approaches
-            if (sessionAfter?.session) {
-              console.log('Session still exists after sign out attempts, trying direct storage clearing');
-              
-              // Directly clear auth storage if available in this environment
+              // Clear localStorage thoroughly
               try {
-                console.log('Clearing all potential Supabase auth tokens from storage');
+                // Clear all known Supabase auth keys
+                const keysToTry = [
+                  'supabase.auth.token',
+                  'sb-access-token',
+                  'sb-refresh-token',
+                  'supabase.auth.expires_at',
+                  'supabase.auth.expires_in'
+                ];
                 
-                // Attempt to clear the most common Supabase storage keys
-                localStorage.removeItem('supabase.auth.token');
-                localStorage.removeItem('sb-access-token');
-                localStorage.removeItem('sb-refresh-token');
-                
-                // Look for any key containing auth-related terms
-                const keysToCheck = ['auth', 'token', 'supabase', 'sb-'];
-                Object.keys(localStorage).forEach(key => {
-                  for (const term of keysToCheck) {
-                    if (key.toLowerCase().includes(term)) {
-                      console.log(`Clearing potential auth storage key: ${key}`);
-                      localStorage.removeItem(key);
-                      break;
-                    }
-                  }
+                // Directly clear known keys
+                keysToTry.forEach(key => {
+                  try { localStorage.removeItem(key); } catch (_) {}
                 });
                 
-                // Try to invalidate the current Supabase session
-                try {
-                  console.log('Attempting to invalidate session directly');
-                  
-                  // Create an empty session to force logout
-                  await supabase.auth.signOut();
-                  
-                  // Another approach: try clearing all cookies
-                  if (typeof document !== 'undefined') {
-                    console.log('Clearing cookies to force logout');
-                    document.cookie.split(';').forEach(c => {
-                      document.cookie = c.replace(/^ +/, '').replace(/=.*/, '=;expires=' + new Date().toUTCString() + ';path=/');
-                    });
+                // Find and clear anything that looks like an auth token
+                Object.keys(localStorage).forEach(key => {
+                  if (key.toLowerCase().includes('auth') || 
+                      key.toLowerCase().includes('token') || 
+                      key.toLowerCase().includes('supabase') || 
+                      key.toLowerCase().includes('sb-')) {
+                    console.log(`Clearing auth-related localStorage key: ${key}`);
+                    localStorage.removeItem(key);
                   }
-                } catch (invalidateErr) {
-                  console.error('Error invalidating session:', invalidateErr);
-                }
-                
-                console.log('Storage and session cleared manually');
-                
-                // Check one more time
-                const { data: finalCheck } = await supabase.auth.getSession();
-                console.log('Session after manual clear:', 
-                  finalCheck?.session ? 'Still active (all attempts failed)' : 'None (manual clear succeeded)'
+                });
+              } catch (storageErr) {
+                console.error('Error clearing localStorage:', storageErr);
+              }
+              
+              // Clear all cookies 
+              try {
+                console.log('Clearing all cookies');
+                document.cookie.split(';').forEach(c => {
+                  const cookieName = c.split('=')[0].trim();
+                  document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+                  document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
+                });
+              } catch (cookieErr) {
+                console.error('Error clearing cookies:', cookieErr);
+              }
+              
+              // Try clearing sessionStorage too, just to be thorough
+              try {
+                sessionStorage.clear();
+              } catch (sessionErr) {
+                console.error('Error clearing sessionStorage:', sessionErr);
+              }
+            };
+            
+            // 2. First try the official signOut method with global scope
+            console.log('Executing signOut with global scope');
+            await supabase.auth.signOut({ scope: 'global' });
+            
+            // 3. Clear ALL storage regardless of signOut success
+            clearAllStorageMechanisms();
+            
+            // 4. Check if we're still logged in
+            const { data: checkSession } = await supabase.auth.getSession();
+            
+            if (checkSession?.session) {
+              console.log('Still logged in after first attempt, trying more aggressive approach');
+              
+              // 5. If still logged in, create a new supabase client
+              // This is a drastic measure but should help break any lingering connections
+              try {
+                const { createClient } = await import('@supabase/supabase-js');
+                const freshClient = createClient(
+                  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+                  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+                  { 
+                    auth: { 
+                      persistSession: false // Critical: don't persist this session
+                    }
+                  }
                 );
                 
-                // If still not working, try to recreate the Supabase client
-                if (finalCheck?.session) {
-                  console.log('CRITICAL: Session still active after all attempts. Trying final approach...');
-                  try {
-                    // Force a page reload which should clear the session state
-                    console.log('Will force page reload to clear session');
-                    setTimeout(() => {
-                      window.location.href = '/login?force_logout=true';
-                    }, 3000);
-                  } catch (reloadErr) {
-                    console.error('Error during forced reload:', reloadErr);
-                  }
-                }
-              } catch (storageErr) {
-                console.error('Error clearing storage:', storageErr);
+                // Try another signOut with the fresh client
+                await freshClient.auth.signOut({ scope: 'global' });
+                console.log('Executed signOut with fresh client');
+                
+                // Clear all storage again for good measure
+                clearAllStorageMechanisms();
+              } catch (freshClientErr) {
+                console.error('Error creating fresh client:', freshClientErr);
               }
             }
+            
+            // 6. Set a flag in sessionStorage to force login page to execute extra logout logic
+            try {
+              sessionStorage.setItem('force_complete_logout', 'true');
+            } catch (_) {
+              console.error('Failed to set session storage flag');
+            }
+            
+            console.log('Forced logout sequence completed');
+            
           } catch (err) {
-            console.error('Exception during sign out process:', err);
+            console.error('Exception during guaranteed forced logout process:', err);
           }
           
           // Start countdown for auto-redirect regardless of sign out success
-          let count = 5;
+          let count = 3; // Shorter countdown for better UX
           setCountdown(count);
           
           // Set up countdown timer for UI feedback
@@ -404,18 +409,10 @@ function UpdatePasswordForm() {
                 countdownInterval = null;
               }
               
-              // Redirect to login page
-              console.log('Countdown complete, redirecting to login page');
-              try {
-                // Clear any potential lingering session data before navigation
-                localStorage.removeItem('supabase.auth.token');
-                
-                router.push('/login');
-              } catch (navError) {
-                console.error('Navigation error:', navError);
-                // Direct fallback with forced reload to clear state
-                window.location.href = '/login';
-              }
+              // IMPORTANT: Use full page reload to /login with force_logout=true
+              // rather than just a router.push which keeps the JS context
+              console.log('Countdown complete, performing hard redirect to login');
+              window.location.href = '/login?force_logout=true&t=' + new Date().getTime();
             }
           }, 1000);
         }
@@ -435,30 +432,53 @@ function UpdatePasswordForm() {
   useEffect(() => {
     if (message && countdown === 0) {
       console.log('Auto-redirecting to login page after password update');
+      
+      // Instead of async function with try/catch, use a direct hard redirect
+      // This is more reliable for completely breaking the session
+      
+      // Set the special flag to ensure login page knows this is a complete logout
       try {
-        // Clear any potential lingering session data before navigation
-        localStorage.removeItem('supabase.auth.token');
-        localStorage.removeItem('sb-access-token');
-        localStorage.removeItem('sb-refresh-token');
-        
-        // Force a complete logout before redirect
-        const forceSignOut = async () => {
-          try {
-            await supabase.auth.signOut({ scope: 'global' });
-          } catch (err) {
-            console.error('Error during final sign out:', err);
-          }
-          
-          // Navigate to login with force_logout parameter
-          router.push('/login?force_logout=true');
-        };
-        
-        forceSignOut();
-      } catch (navError) {
-        console.error('Navigation error:', navError);
-        // Direct fallback with forced reload to clear state
-        window.location.href = '/login?force_logout=true';
+        sessionStorage.setItem('force_complete_logout', 'true');
+      } catch (_) {
+        console.error('Failed to set session storage flag');
       }
+      
+      // Do one final storage clearing before navigation
+      try {
+        // Clear localStorage thoroughly
+        const keysToTry = [
+          'supabase.auth.token',
+          'sb-access-token',
+          'sb-refresh-token',
+          'supabase.auth.expires_at',
+          'supabase.auth.expires_in'
+        ];
+        
+        keysToTry.forEach(key => {
+          try { localStorage.removeItem(key); } catch (_) {}
+        });
+        
+        Object.keys(localStorage).forEach(key => {
+          if (key.toLowerCase().includes('auth') || 
+              key.toLowerCase().includes('token') || 
+              key.toLowerCase().includes('supabase') || 
+              key.toLowerCase().includes('sb-')) {
+            localStorage.removeItem(key);
+          }
+        });
+        
+        // Clear cookies 
+        document.cookie.split(';').forEach(c => {
+          const cookieName = c.split('=')[0].trim();
+          document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+          document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
+        });
+      } catch (e) {
+        console.error('Error in final storage clearing:', e);
+      }
+      
+      // Force a hard reload to the login page with cache-busting parameter
+      window.location.href = '/login?force_logout=true&t=' + new Date().getTime();
     }
   }, [message, countdown, router]);
 

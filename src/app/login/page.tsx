@@ -53,37 +53,107 @@ function LoginForm() {
     const forceLogout = searchParams.get('force_logout') === 'true';
     if (forceLogout) {
       console.log('Detected force_logout parameter, ensuring user is completely logged out');
-      // Perform a complete logout to clear any lingering session
+      
+      // Execute complete logout process
       const performForceLogout = async () => {
         try {
-          console.log('Executing force logout');
+          console.log('Executing force logout on login page');
           
-          // Try to sign out with global scope
-          const { error } = await supabase.auth.signOut({ scope: 'global' });
-          if (error) {
-            console.error('Error during force logout:', error);
-          } else {
-            console.log('Force logout successful');
+          // First check for the special flag that indicates we need complete logout
+          const needsCompleteLogout = sessionStorage.getItem('force_complete_logout') === 'true';
+          console.log('Complete logout required:', needsCompleteLogout);
+          
+          // Clear the flag so we don't repeat this unnecessarily
+          try {
+            sessionStorage.removeItem('force_complete_logout');
+          } catch (_) {}
+          
+          // Define a thorough storage clearing function
+          const clearAllStorage = () => {
+            // Clear localStorage
+            try {
+              // Clear all known Supabase auth keys
+              const keysToTry = [
+                'supabase.auth.token',
+                'sb-access-token',
+                'sb-refresh-token',
+                'supabase.auth.expires_at',
+                'supabase.auth.expires_in'
+              ];
+              
+              // Directly clear known keys
+              keysToTry.forEach(key => {
+                try { localStorage.removeItem(key); } catch (_) {}
+              });
+              
+              // Find and clear anything that looks like an auth token
+              Object.keys(localStorage).forEach(key => {
+                if (key.toLowerCase().includes('auth') || 
+                    key.toLowerCase().includes('token') || 
+                    key.toLowerCase().includes('supabase') || 
+                    key.toLowerCase().includes('sb-')) {
+                  console.log(`Clearing auth-related localStorage key: ${key}`);
+                  localStorage.removeItem(key);
+                }
+              });
+            } catch (storageErr) {
+              console.error('Error clearing localStorage:', storageErr);
+            }
+            
+            // Clear all cookies
+            try {
+              document.cookie.split(';').forEach(c => {
+                const cookieName = c.split('=')[0].trim();
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+                document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
+              });
+            } catch (cookieErr) {
+              console.error('Error clearing cookies:', cookieErr);
+            }
+            
+            // Clear sessionStorage
+            try {
+              sessionStorage.clear();
+            } catch (_) {}
+          };
+          
+          // Execute signOut with multiple approaches
+          try {
+            // Try global signOut first
+            await supabase.auth.signOut({ scope: 'global' });
+            
+            // Create a fresh client with persistSession: false
+            const { createClient } = await import('@supabase/supabase-js');
+            const freshClient = createClient(
+              process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+              process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+              { 
+                auth: { 
+                  persistSession: false
+                }
+              }
+            );
+            
+            // Try another signOut with this client
+            await freshClient.auth.signOut({ scope: 'global' });
+          } catch (signOutErr) {
+            console.error('Error during sign out:', signOutErr);
           }
           
-          // Clear any potential tokens from local storage
-          try {
-            localStorage.removeItem('supabase.auth.token');
-            localStorage.removeItem('sb-access-token');
-            localStorage.removeItem('sb-refresh-token');
+          // Clear all storage
+          clearAllStorage();
+          
+          // Check if we're still logged in after all this
+          const { data: checkSession } = await supabase.auth.getSession();
+          if (checkSession?.session) {
+            console.log('CRITICAL: Still logged in after all logout attempts. Trying page reload.');
             
-            // Look for any auth-related keys
-            Object.keys(localStorage).forEach(key => {
-              if (key.toLowerCase().includes('auth') || 
-                  key.toLowerCase().includes('token') || 
-                  key.toLowerCase().includes('supabase') || 
-                  key.toLowerCase().includes('sb-')) {
-                console.log(`Clearing auth-related key: ${key}`);
-                localStorage.removeItem(key);
-              }
-            });
-          } catch (storageErr) {
-            console.error('Error clearing storage during force logout:', storageErr);
+            // If we're still logged in, something is very wrong - try reloading the page
+            if (needsCompleteLogout) {
+              window.location.reload();
+            }
+          } else {
+            console.log('Logout successful, user is signed out');
           }
           
           // Display a message indicating the logout was forced
