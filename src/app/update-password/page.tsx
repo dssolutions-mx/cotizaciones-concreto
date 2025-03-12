@@ -24,16 +24,24 @@ function UpdatePasswordForm() {
   const [passwordUpdateAttempted, setPasswordUpdateAttempted] = useState(false);
   const [showSuccessScreen, setShowSuccessScreen] = useState(false);
 
-  // Listen for auth state changes specifically for USER_UPDATED event
+  // Listen for ALL auth state changes including SIGNED_IN for invitation flows
   useEffect(() => {
-    if (!passwordUpdateAttempted) return;
-
+    debugLog('Setting up global auth state listener');
+    
     // Set up auth change listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event) => {
-        debugLog('Auth event detected in update password page:', event);
+      async (event, session) => {
+        debugLog(`Global auth event detected: ${event}`, { sessionExists: !!session });
         
-        if (event === 'USER_UPDATED') {
+        // Handle initial sign in (especially for invitation links)
+        if (event === 'SIGNED_IN') {
+          debugLog('User signed in, setting authReady to true');
+          setAuthReady(true);
+          setLoading(false);
+        }
+        
+        // Handle password update specific events
+        if (passwordUpdateAttempted && event === 'USER_UPDATED') {
           debugLog('Password update confirmed through auth event');
           setPasswordUpdateAttempted(false);
           
@@ -80,7 +88,19 @@ function UpdatePasswordForm() {
         setLoading(true);
         debugLog("Component initialized");
         
-        // Get URL params and hash
+        // First, check if we already have a session
+        const { data: currentSession } = await supabase.auth.getSession();
+        
+        if (currentSession?.session) {
+          debugLog("Found existing session on initialization", { 
+            userId: currentSession.session.user.id 
+          });
+          setAuthReady(true);
+          setLoading(false);
+          return; // Exit early if we already have a session
+        }
+        
+        // Otherwise, try to extract auth data from URL
         const hashString = window.location.hash.substring(1);
         const hashParams = new URLSearchParams(hashString);
         const code = searchParams.get('code');
@@ -117,7 +137,8 @@ function UpdatePasswordForm() {
           }
         }
         // 2. Check for code in params - PKCE flow
-        else if (code && type === 'recovery') {
+        else if (code) {
+          // Handle any type of code flow (recovery, signup invitation, etc)
           debugLog("Found auth code in query parameters", { code, type });
           
           try {
@@ -140,20 +161,11 @@ function UpdatePasswordForm() {
             setError("Error inesperado al procesar el código de autenticación");
           }
         }
-        // 3. Fallback to existing session
+        // 3. Fallback case - no auth data found
         else {
-          debugLog("No tokens or code found in URL, checking for existing session");
-          
-          const { data: sessionData } = await supabase.auth.getSession();
-          
-          if (sessionData?.session) {
-            debugLog("Found existing session", { userId: sessionData.session.user.id });
-            setAuthReady(true);
-          } else {
-            debugLog("No session found");
-            setError("No se encontró información de autenticación. El restablecimiento de contraseña podría fallar.");
-            setAuthReady(true);
-          }
+          debugLog("No tokens or code found in URL, and no existing session");
+          setError("No se encontró información de autenticación. El restablecimiento de contraseña podría fallar.");
+          setAuthReady(true);
         }
         
         setLoading(false);
