@@ -20,149 +20,9 @@ function UpdatePasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [authReady, setAuthReady] = useState(false);
-  const [invitationFlow, setInvitationFlow] = useState(false); // Track if we're in an invitation flow
-  const [inviteEmail, setInviteEmail] = useState<string | null>(null); // Store the email from invitation
-  const [authListenerSetUp, setAuthListenerSetUp] = useState(false);
-  const [passwordUpdateAttempted, setPasswordUpdateAttempted] = useState(false);
+  const [invitationFlow, setInvitationFlow] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
-
-  // CRITICAL: Add a timeout to ensure users don't get stuck on loading screen
-  useEffect(() => {
-    if (authReady) return; // Don't set up timeout if already ready
-    
-    debugLog('Setting up auth ready fallback timeout');
-    
-    // Force auth ready state after 5 seconds maximum
-    const fallbackTimer = setTimeout(() => {
-      debugLog('Fallback timeout triggered - forcing authReady state');
-      setAuthReady(true);
-      setLoading(false);
-      
-      // Check if we have a session at this point
-      supabase.auth.getSession().then(({ data }) => {
-        if (data?.session?.user?.email) {
-          setInviteEmail(data.session.user.email);
-          setInvitationFlow(true);
-          debugLog('Found email on forced ready:', data.session.user.email);
-        }
-      });
-    }, 5000);
-    
-    // Clean up timeout
-    return () => clearTimeout(fallbackTimer);
-  }, [authReady]);
-
-  // Listen for ALL auth state changes including SIGNED_IN for invitation flows - ONLY ONCE
-  useEffect(() => {
-    if (authListenerSetUp) return; // Prevent multiple listeners
-    
-    debugLog('Setting up global auth state listener');
-    setAuthListenerSetUp(true);
-    
-    // First check immediate session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        debugLog('Found immediate session, setting authReady', { email: session.user.email });
-        setAuthReady(true);
-        setLoading(false);
-        
-        if (session.user.email) {
-          setInviteEmail(session.user.email);
-          setInvitationFlow(true);
-        }
-      }
-    });
-    
-    // Set up auth change listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        debugLog(`Global auth event detected: ${event}`, { 
-          sessionExists: !!session,
-          email: session?.user?.email,
-          userId: session?.user?.id
-        });
-        
-        // Handle PASSWORD_RECOVERY event specifically
-        if (event === 'PASSWORD_RECOVERY') {
-          debugLog('Password recovery flow detected, setting authReady');
-          setAuthReady(true);
-          setLoading(false);
-          
-          // If there's an email in the session, store it
-          if (session?.user?.email) {
-            setInviteEmail(session.user.email);
-          }
-        }
-        
-        // Always set authReady for any auth event except INITIAL_SESSION
-        if (event !== 'INITIAL_SESSION') {
-          debugLog(`Setting authReady to true due to auth event: ${event}`);
-          setAuthReady(true);
-          setLoading(false);
-        }
-        
-        // Handle initial sign in (especially for invitation links)
-        if (event === 'SIGNED_IN') {
-          debugLog('User signed in, setting authReady to true');
-          setAuthReady(true);
-          setLoading(false);
-          
-          // If there's an email in the session, store it for the invitation flow
-          if (session?.user?.email) {
-            setInviteEmail(session.user.email);
-            setInvitationFlow(true);
-            debugLog('Identified as invitation flow for email', session.user.email);
-          }
-        }
-      }
-    );
-    
-    // Cleanup subscription on unmount
-    return () => {
-      debugLog('Cleaning up global auth listener');
-      subscription.unsubscribe();
-    };
-  }, [authListenerSetUp]);
-
-  // Listen for auth state changes specifically for password update completion
-  useEffect(() => {
-    if (!passwordUpdateAttempted) return;
-
-    debugLog('Setting up specific auth state listener for password update confirmation');
-    
-    // Set up auth change listener to detect USER_UPDATED event
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        debugLog(`Auth event detected during password update attempt: ${event}`, {
-          sessionExists: !!session,
-          userId: session?.user?.id,
-          userEmail: session?.user?.email,
-          eventType: event
-        });
-        
-        // Check for any of these events that could indicate password update
-        if (event === 'USER_UPDATED' || event === 'PASSWORD_RECOVERY' || event === 'TOKEN_REFRESHED') {
-          debugLog(`Password update confirmed through auth event: ${event}`);
-          // Password updated successfully
-          setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
-          setPassword('');
-          setConfirmPassword('');
-          setLoading(false);
-          
-          // Start countdown for redirect
-          debugLog('Starting countdown for redirect');
-          setCountdown(5);
-          setPasswordUpdateAttempted(false);
-        }
-      }
-    );
-    
-    // Cleanup subscription on unmount
-    return () => {
-      debugLog('Cleaning up password update auth listener');
-      subscription.unsubscribe();
-    };
-  }, [passwordUpdateAttempted]);
 
   // Effect to handle countdown and redirect
   useEffect(() => {
@@ -196,150 +56,123 @@ function UpdatePasswordForm() {
     };
   }, [countdown]);
 
-  // Extract authentication data on component mount
+  // Extract authentication data and set up auth listener on mount
   useEffect(() => {
-    const extractAuthData = async () => {
+    let authSubscription: { data: { subscription: { unsubscribe: () => void } } } | null = null;
+    
+    const setupAuth = async () => {
       try {
         setLoading(true);
-        debugLog("Component initialized");
+        debugLog("Setting up authentication");
         
-        // First, check if we already have a session
+        // Set up auth change listener first
+        authSubscription = supabase.auth.onAuthStateChange(async (event, session) => {
+          debugLog(`Auth event detected: ${event}`, {
+            sessionExists: !!session,
+            email: session?.user?.email,
+            userId: session?.user?.id
+          });
+          
+          if (event === 'USER_UPDATED') {
+            debugLog('Password update detected through auth event');
+            setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
+            setPassword('');
+            setConfirmPassword('');
+            setLoading(false);
+            setCountdown(5);
+          }
+          
+          // Set auth ready for these events
+          if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'PASSWORD_RECOVERY' || event === 'INITIAL_SESSION') {
+            setAuthReady(true);
+            setLoading(false);
+            
+            if (session?.user?.email) {
+              setInviteEmail(session.user.email);
+              setInvitationFlow(true);
+            }
+          }
+        });
+        
+        // Check current session
         const { data: currentSession } = await supabase.auth.getSession();
         
         if (currentSession?.session) {
-          debugLog("Found existing session on initialization", { 
-            userId: currentSession.session.user.id,
-            email: currentSession.session.user.email
+          debugLog("Found existing session", {
+            email: currentSession.session.user.email,
+            id: currentSession.session.user.id
           });
           
-          // If there's an email in the session, it's likely an invitation
           if (currentSession.session.user.email) {
             setInviteEmail(currentSession.session.user.email);
             setInvitationFlow(true);
-            debugLog('Identified as invitation flow for email', currentSession.session.user.email);
           }
           
           setAuthReady(true);
           setLoading(false);
-          return; // Exit early if we already have a session
-        }
-        
-        // Otherwise, try to extract auth data from URL
-        const hashString = window.location.hash.substring(1);
-        const hashParams = new URLSearchParams(hashString);
-        const code = searchParams.get('code');
-        const type = searchParams.get('type');
-        
-        debugLog("URL data", { 
-          hash: !!window.location.hash, 
-          search: !!window.location.search,
-          code,
-          type
-        });
-        
-        // Check for invitation type
-        if (type === 'invite' || type === 'signup') {
-          debugLog("Detected invitation link", { type });
-          setInvitationFlow(true);
-        }
-        
-        // 1. Check URL hash for tokens - usual flow from password reset emails
-        const accessToken = hashParams.get('access_token');
-        const refreshToken = hashParams.get('refresh_token');
-        
-        if (accessToken && refreshToken) {
-          debugLog("Found auth tokens in URL hash", { accessToken: !!accessToken, refreshToken: !!refreshToken });
+        } else {
+          // Try to extract auth data from URL
+          const hashString = window.location.hash.substring(1);
+          const hashParams = new URLSearchParams(hashString);
+          const code = searchParams.get('code');
+          const type = searchParams.get('type');
           
-          // Set the session with tokens
-          const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken
-          });
+          if (type === 'invite' || type === 'signup') {
+            setInvitationFlow(true);
+          }
           
-          if (sessionError) {
-            debugLog("Error setting session with tokens", sessionError);
-            setError(`Error al establecer sesión: ${sessionError.message}`);
-            // Still proceed with auth ready even if there's an error
-            setAuthReady(true);
-          } else {
-            debugLog("Session successfully established from URL tokens", { 
-              userId: sessionData?.session?.user?.id,
-              email: sessionData?.session?.user?.email
+          // Check for tokens in URL hash
+          const accessToken = hashParams.get('access_token');
+          const refreshToken = hashParams.get('refresh_token');
+          
+          if (accessToken && refreshToken) {
+            debugLog("Setting session from URL tokens");
+            await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken
             });
-            
-            // If there's an email in the session, store it for the invitation flow
-            if (sessionData?.session?.user?.email) {
-              setInviteEmail(sessionData.session.user.email);
-              setInvitationFlow(true);
-              debugLog('Identified as invitation flow for email', sessionData.session.user.email);
-            }
-            
             setAuthReady(true);
           }
-        }
-        // 2. Check for code in params - PKCE flow
-        else if (code) {
-          // Handle any type of code flow (recovery, signup invitation, etc)
-          debugLog("Found auth code in query parameters", { code, type });
-          
-          try {
-            // Exchange the code for a session
+          // Check for recovery code
+          else if (code) {
             debugLog("Exchanging code for session");
-            const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-            
-            if (exchangeError) {
-              debugLog("Error exchanging code for session", exchangeError);
-              setError(`Error al procesar el código: ${exchangeError.message}`);
-              // Still proceed with auth ready even if there's an error
-              setAuthReady(true);
-            } else if (data?.session) {
-              debugLog("Code successfully exchanged for session", { 
-                userId: data.session.user.id,
-                email: data.session.user.email
-              });
-              
-              // If there's an email in the session, it's likely an invitation
-              if (data.session.user.email) {
-                setInviteEmail(data.session.user.email);
-                setInvitationFlow(true);
-                debugLog('Identified as invitation flow for email', data.session.user.email);
-              }
-              
-              setAuthReady(true);
-            } else {
-              debugLog("No session returned from code exchange");
-              setError("No se pudo establecer la sesión con el código proporcionado.");
-              // Still proceed with auth ready even if there's no session
-              setAuthReady(true);
-            }
-          } catch (codeError) {
-            debugLog("Unexpected error exchanging code", codeError);
-            setError("Error inesperado al procesar el código de autenticación");
-            // Still proceed with auth ready even if there's an error
+            await supabase.auth.exchangeCodeForSession(code);
             setAuthReady(true);
           }
-        }
-        // 3. Fallback case - no auth data found
-        else {
-          debugLog("No tokens or code found in URL, and no existing session");
-          setError("No se encontró información de autenticación. El restablecimiento de contraseña podría fallar.");
-          setAuthReady(true);
+          else {
+            debugLog("No auth data found");
+            setError("No se encontró información de autenticación válida.");
+            setAuthReady(true);
+          }
         }
         
         setLoading(false);
       } catch (err) {
-        debugLog("Error extracting auth data", err);
+        debugLog("Error setting up auth", err);
         setError("Error al procesar la autenticación");
-        // Always ensure we set authReady to true even if there's an error
         setAuthReady(true);
         setLoading(false);
       }
     };
     
-    extractAuthData();
+    // Set up a timeout to ensure we don't get stuck
+    const fallbackTimer = setTimeout(() => {
+      debugLog('Fallback timeout triggered - forcing authReady state');
+      setAuthReady(true);
+      setLoading(false);
+    }, 5000);
+    
+    setupAuth();
+    
+    // Cleanup function
+    return () => {
+      clearTimeout(fallbackTimer);
+      if (authSubscription) {
+        authSubscription.data.subscription.unsubscribe();
+      }
+    };
   }, [searchParams]);
 
-  // SUPER DIRECT approach that avoids ANY asynchronous issues
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     debugLog("Password update form submitted");
@@ -361,10 +194,8 @@ function UpdatePasswordForm() {
     
     debugLog("Password validation passed, proceeding with update");
     setLoading(true);
-    setPasswordUpdateAttempted(true);
     
     try {
-      // Get current session and URL parameters
       const { data: sessionData } = await supabase.auth.getSession();
       const hashString = window.location.hash.substring(1);
       const hashParams = new URLSearchParams(hashString);
@@ -380,8 +211,7 @@ function UpdatePasswordForm() {
       // If we have an access token in the URL (password reset flow)
       if (accessToken) {
         debugLog("Using access token from URL for password update");
-        // Set the access token in the client
-        supabase.auth.setSession({ access_token: accessToken, refresh_token: '' });
+        await supabase.auth.setSession({ access_token: accessToken, refresh_token: '' });
         const { error } = await supabase.auth.updateUser({ password });
         updateError = error;
       } 
@@ -395,7 +225,6 @@ function UpdatePasswordForm() {
         debugLog("No valid auth context found for password update");
         setError("No se encontró una sesión válida para actualizar la contraseña.");
         setLoading(false);
-        setPasswordUpdateAttempted(false);
         return;
       }
       
@@ -403,33 +232,29 @@ function UpdatePasswordForm() {
         debugLog("Error updating password", updateError);
         setError(`Error al actualizar la contraseña: ${updateError.message}`);
         setLoading(false);
-        setPasswordUpdateAttempted(false);
         return;
       }
       
       debugLog("Password update API call completed successfully");
       
-      // Set up a fallback timer to show success in case the auth event doesn't fire
-      const fallbackSuccessTimer = setTimeout(() => {
-        debugLog("Fallback success timer triggered - forcing success state");
-        if (loading && passwordUpdateAttempted) {
+      // Set up a fallback timer in case the auth event doesn't fire
+      const fallbackTimer = setTimeout(() => {
+        debugLog("Fallback success timer triggered");
+        if (loading) {
           debugLog("Auth event wasn't detected, showing success manually");
           setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
           setPassword('');
           setConfirmPassword('');
           setLoading(false);
-          setPasswordUpdateAttempted(false);
           setCountdown(5);
         }
       }, 3000);
       
-      return () => clearTimeout(fallbackSuccessTimer);
-      
+      return () => clearTimeout(fallbackTimer);
     } catch (err) {
       debugLog("Error during password update process", err);
       setError("Ocurrió un error al actualizar la contraseña");
       setLoading(false);
-      setPasswordUpdateAttempted(false);
     }
   };
 
