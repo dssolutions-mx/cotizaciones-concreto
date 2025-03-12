@@ -62,7 +62,7 @@ export const QuotesService = {
         .select(`
           *,
           client:clients(business_name, client_code),
-          details:quote_details(*)
+          quote_details(*)
         `)
         .eq('created_by', '00000000-0000-4000-8000-000000000000')
         .order('created_at', { ascending: false });
@@ -73,8 +73,16 @@ export const QuotesService = {
         throw new Error(errorMessage);
       }
       
-      // Usar aserción de tipo para simplificar
-      return (data || []) as unknown as Quote[];
+      // Transform the data to match our interface structure
+      const transformedData = (data || []).map(quote => {
+        return {
+          ...quote,
+          client: quote.client ? quote.client[0] : undefined,
+          details: quote.quote_details
+        };
+      });
+      
+      return transformedData as Quote[];
     } catch (error) {
       console.error('Error al obtener cotizaciones:', error);
       throw error;
@@ -255,22 +263,43 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
       throw new Error('Usuario no autenticado. Debe iniciar sesión para crear cotizaciones.');
     }
     
-    const { data, error } = await supabase
+    // Extract the details array from quoteData
+    const { details, ...quoteMainData } = quoteData;
+    
+    // Begin by creating the quote
+    const { data: quote, error: quoteError } = await supabase
       .from('quotes')
       .insert([{
-        ...quoteData,
+        ...quoteMainData,
         created_by: authData.session.user.id
       }])
       .select()
       .single();
 
-    if (error) {
-      const errorMessage = handleError(error, 'createQuote');
+    if (quoteError) {
+      const errorMessage = handleError(quoteError, 'createQuote');
       console.error(errorMessage);
       throw new Error(errorMessage);
     }
     
-    return data;
+    // Now insert the details with the quote_id
+    const detailsWithQuoteId = details.map(detail => ({
+      ...detail,
+      quote_id: quote.id,
+      total_amount: detail.final_price * detail.volume
+    }));
+    
+    const { error: detailsError } = await supabase
+      .from('quote_details')
+      .insert(detailsWithQuoteId);
+      
+    if (detailsError) {
+      const errorMessage = handleError(detailsError, 'createQuoteDetails');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+    
+    return quote;
   } catch (error) {
     console.error('Error al crear cotización:', error);
     throw error;
