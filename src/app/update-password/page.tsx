@@ -215,59 +215,76 @@ function UpdatePasswordForm() {
     return () => clearTimeout(fallbackTimer);
   }, [searchParams]);
 
-  // Listen for auth state changes to detect when password is updated
+  // Set up auth state listener to detect password update events
   useEffect(() => {
-    if (!passwordUpdateAttempted) return;
+    if (loading || !authReady || passwordUpdateAttempted) return;
 
     console.log('Setting up auth listener for password update. please adhere to the @Supabase auth and @subaserules.mdc');
-    // Set up auth change listener to detect USER_UPDATED event
+
+    // Subscribe to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth event detected in password update:', event, session ? 'Session present' : 'No session');
-        
-        if (event === 'USER_UPDATED') {
+
+        // Check for successful password update
+        if (event === 'USER_UPDATED' && passwordUpdateAttempted) {
           console.log('Password update confirmed through auth event');
-          setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
-          setPassword('');
-          setConfirmPassword('');
+          
+          // Display success message
+          setMessage('¡Contraseña actualizada con éxito!');
           setLoading(false);
-          setCountdown(5);
-          setPasswordUpdateAttempted(false);
+          
+          // Start countdown for auto-redirect
+          let count = 5;
+          setCountdown(count);
+          
+          // Explicitly logout the user and redirect
+          const countdown = setInterval(async () => {
+            count -= 1;
+            setCountdown(count);
+            
+            if (count <= 0) {
+              clearInterval(countdown);
+              
+              // Explicitly sign out the user
+              try {
+                console.log('Signing out user after password update');
+                const { error } = await supabase.auth.signOut();
+                if (error) {
+                  console.error('Error signing out:', error);
+                }
+              } catch (err) {
+                console.error('Exception during sign out:', err);
+              }
+              
+              // Redirect to login page regardless of sign out result
+              try {
+                router.push('/login');
+              } catch (navError) {
+                console.error('Navigation error:', navError);
+                // Direct fallback
+                window.location.href = '/login';
+              }
+            }
+          }, 1000);
         }
       }
     );
-    
-    // Cleanup subscription on unmount
+
+    // Clean up subscription on unmount
     return () => {
       subscription.unsubscribe();
     };
-  }, [passwordUpdateAttempted]);
+  }, [loading, authReady, passwordUpdateAttempted, router]);
 
   // Effect to handle countdown and redirect
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    // Skip this effect as we're now handling countdown in the auth state change handler
+    if (countdown === null || !message) return;
     
-    if (countdown !== null) {
-      console.log(`Countdown: ${countdown}`);
-      
-      if (countdown <= 0) {
-        console.log('Countdown complete, redirecting to login');
-        // Sign out and redirect
-        supabase.auth.signOut().then(() => {
-          router.push('/login');
-        });
-        return;
-      }
-      
-      timer = setTimeout(() => {
-        setCountdown(prev => prev !== null ? prev - 1 : null);
-      }, 1000);
-    }
-    
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
-  }, [countdown, router]);
+    // Keep this effect only for fallback/compatibility with the rest of the code
+    // but don't trigger any redirects from here, as they're handled in the auth state change handler
+  }, [countdown, message, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

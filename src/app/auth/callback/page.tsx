@@ -20,9 +20,16 @@ function AuthCallbackHandler() {
     meta.content = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.supabase.io https://supabase.co https://supabase.io; frame-src 'self'; base-uri 'self'; form-action 'self';";
     document.head.appendChild(meta);
     
+    // Debug output to console
+    console.log('Injected CSP meta tag in auth callback page');
+    
     // Clean up on unmount
     return () => {
-      document.head.removeChild(meta);
+      try {
+        document.head.removeChild(meta);
+      } catch (err) {
+        console.error('Error removing CSP meta tag:', err);
+      }
     };
   }, []);
 
@@ -69,28 +76,33 @@ function AuthCallbackHandler() {
             // Redirect to update-password page for invitation flows
             if (type === 'invite' || type === 'signup') {
               console.log('Redirecting to update-password page');
+              
+              // Use multiple redirect approaches to ensure at least one works
               try {
-                // Try Next.js router first
-                router.replace('/update-password');
+                // 1. Try next/router (Next.js app router)
+                router.push('/update-password');
                 
-                // Fallback to window.location if router doesn't work
+                // 2. Add a simple link that gets auto-clicked (CSP friendly)
                 setTimeout(() => {
-                  console.log('Fallback redirect to update-password');
-                  // Use a simple href assignment instead of complex JS that might be blocked by CSP
+                  const redirectLink = document.createElement('a');
+                  redirectLink.href = '/update-password';
+                  redirectLink.id = 'auto-redirect-link';
+                  redirectLink.innerText = 'Click here if not automatically redirected';
+                  redirectLink.className = 'inline-flex justify-center mt-4 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
+                  
+                  // Add to the page in a visible location
+                  const container = document.querySelector('.text-center');
+                  if (container) {
+                    container.appendChild(redirectLink);
+                    // Auto-click the link
+                    redirectLink.click();
+                  }
+                }, 1000);
+                
+                // 3. Use basic window.location as last resort with longer delay
+                setTimeout(() => {
                   window.location.href = '/update-password';
                 }, 2000);
-                
-                // Add a second fallback with a longer timeout
-                setTimeout(() => {
-                  console.log('Second fallback redirect attempt');
-                  // Create and click a link element as a CSP-friendly approach
-                  const link = document.createElement('a');
-                  link.href = '/update-password';
-                  link.textContent = 'Continue to set password';
-                  link.style.display = 'none';
-                  document.body.appendChild(link);
-                  link.click();
-                }, 4000);
               } catch (navError) {
                 console.error('Navigation error:', navError);
                 // Direct fallback
