@@ -23,6 +23,7 @@ function UpdatePasswordForm() {
   const [invitationFlow, setInvitationFlow] = useState(false);
   const [inviteEmail, setInviteEmail] = useState<string | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [passwordUpdateAttempted, setPasswordUpdateAttempted] = useState(false);
 
   // Effect to handle countdown and redirect
   useEffect(() => {
@@ -56,6 +57,34 @@ function UpdatePasswordForm() {
     };
   }, [countdown]);
 
+  // Listen for auth state changes to detect when password is updated
+  useEffect(() => {
+    if (!passwordUpdateAttempted) return;
+
+    debugLog('Setting up auth listener for password update');
+    // Set up auth change listener to detect USER_UPDATED event
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event) => {
+        debugLog('Auth event detected in password update:', event);
+        
+        if (event === 'USER_UPDATED') {
+          debugLog('Password update confirmed through auth event');
+          setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
+          setPassword('');
+          setConfirmPassword('');
+          setLoading(false);
+          setCountdown(5);
+          setPasswordUpdateAttempted(false);
+        }
+      }
+    );
+    
+    // Cleanup subscription on unmount
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [passwordUpdateAttempted]);
+
   // Extract authentication data and set up auth listener on mount
   useEffect(() => {
     let authSubscription: { data: { subscription: { unsubscribe: () => void } } } | null = null;
@@ -72,15 +101,6 @@ function UpdatePasswordForm() {
             email: session?.user?.email,
             userId: session?.user?.id
           });
-          
-          if (event === 'USER_UPDATED') {
-            debugLog('Password update detected through auth event');
-            setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
-            setPassword('');
-            setConfirmPassword('');
-            setLoading(false);
-            setCountdown(5);
-          }
           
           // Set auth ready for these events
           if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'PASSWORD_RECOVERY' || event === 'INITIAL_SESSION') {
@@ -194,8 +214,7 @@ function UpdatePasswordForm() {
     
     debugLog("Password validation passed, proceeding with update");
     setLoading(true);
-    
-    let fallbackTimer: NodeJS.Timeout;
+    setPasswordUpdateAttempted(true);
     
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -210,8 +229,6 @@ function UpdatePasswordForm() {
         sessionEmail: sessionData?.session?.user?.email
       });
 
-      let userId = sessionData?.session?.user?.id;
-
       // If we have an access token in the URL (password reset flow)
       if (accessToken) {
         debugLog("Using access token from URL for password update");
@@ -224,53 +241,33 @@ function UpdatePasswordForm() {
           debugLog("Error setting session from access token", sessionResult.error);
           setError(`Error al establecer la sesión: ${sessionResult.error.message}`);
           setLoading(false);
+          setPasswordUpdateAttempted(false);
           return;
         }
-
-        userId = sessionResult.data.user?.id;
       }
 
-      if (!userId) {
-        debugLog("No user ID found for password update");
-        setError("No se pudo identificar el usuario para actualizar la contraseña.");
-        setLoading(false);
-        return;
-      }
-
-      // Call our API endpoint to update the password
-      const response = await fetch('/api/auth/update-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          password,
-          userId
-        })
+      // Update password directly using the authenticated session
+      debugLog('Attempting to update password...');
+      const { error: updateError } = await supabase.auth.updateUser({
+        password
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        debugLog("Error from password update API", result);
-        setError(result.error || 'Error al actualizar la contraseña');
+      if (updateError) {
+        debugLog('Error updating password:', updateError);
+        setError(`Error al actualizar la contraseña: ${updateError.message}`);
         setLoading(false);
+        setPasswordUpdateAttempted(false);
         return;
       }
-      
-      debugLog("Password update API call completed successfully", result);
-      
-      // Show success message and start countdown
-      setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
-      setPassword('');
-      setConfirmPassword('');
-      setLoading(false);
-      setCountdown(5);
+
+      // Success case is handled by the auth state change listener
+      debugLog('Password update API call completed successfully');
       
     } catch (err) {
       debugLog("Error during password update process", err);
       setError("Ocurrió un error al actualizar la contraseña");
       setLoading(false);
+      setPasswordUpdateAttempted(false);
     }
   };
 
