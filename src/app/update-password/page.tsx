@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { supabase } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Session, User } from '@supabase/supabase-js';
 
@@ -31,6 +31,7 @@ function UpdatePasswordForm() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [currentSessionData, setCurrentSessionData] = useState<SessionData | null>(null);
   const [sessionEstablished, setSessionEstablished] = useState(false);
+  const [supabase] = useState(() => createClient());
 
   // Process URL hash for auth tokens if present (for invitation flows)
   useEffect(() => {
@@ -189,7 +190,7 @@ function UpdatePasswordForm() {
     }, 5000);
     
     return () => clearTimeout(fallbackTimer);
-  }, [searchParams]);
+  }, [searchParams, supabase]);
 
   // Listen for auth state changes to detect when password is updated
   useEffect(() => {
@@ -217,7 +218,7 @@ function UpdatePasswordForm() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [passwordUpdateAttempted]);
+  }, [passwordUpdateAttempted, supabase]);
 
   // Effect to handle countdown and redirect
   useEffect(() => {
@@ -243,7 +244,7 @@ function UpdatePasswordForm() {
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [countdown, router]);
+  }, [countdown, router, supabase]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

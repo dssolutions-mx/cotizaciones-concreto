@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerComponent, createServiceClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 
 export async function GET(request: NextRequest) {
   try {
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
 
     // Use the more secure getUser method instead of getSession
     try {
-      const supabase = await createServerComponent();
+      const supabase = await createClient();
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
       if (userError) {

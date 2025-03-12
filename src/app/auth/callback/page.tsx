@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { supabase } from '@/lib/supabase/client';
+import { createClient } from '@/lib/supabase/client';
 
 // Component that uses useSearchParams
 function AuthCallbackHandler() {
@@ -16,6 +16,9 @@ function AuthCallbackHandler() {
       try {
         setLoading(true);
         console.log('Auth callback page loaded');
+        
+        // Create a fresh Supabase client for this component
+        const supabase = createClient();
         
         // Check for hash parameters (used in invitation flows)
         const hashParams = new URLSearchParams(

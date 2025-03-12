@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 import type { Database } from '@/types/supabase';
 
 // For use in Server Components and API Routes
-export async function createServerComponent() {
+export async function createClient() {
   const cookieStore = await cookies();
   
   return createServerClient<Database>(
