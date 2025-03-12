@@ -35,9 +35,15 @@ export async function middleware(request: NextRequest) {
   
   // Check if this is a force logout situation
   const isForceLogout = searchParams.get('force_logout') === 'true';
+  // Check for timestamp parameter - this indicates a hard redirect from password update
+  const hasTimestamp = !!searchParams.get('t');
+  const isForceLogoutWithTimestamp = isForceLogout && hasTimestamp;
   
   if (isForceLogout) {
     console.log('Detected force_logout in middleware - bypassing auth checks and clearing session cookies');
+    if (isForceLogoutWithTimestamp) {
+      console.log('Detected timestamp parameter - this is a hard redirect logout, being more aggressive');
+    }
     
     // Create a response that adds CSP headers and clears auth cookies
     const response = NextResponse.next({
@@ -52,15 +58,64 @@ export async function middleware(request: NextRequest) {
     
     // Attempt to clear auth cookies by setting them to expire
     try {
-      // Clear all Supabase auth cookies (these names are typical for Supabase)
+      // Clear all possible Supabase auth cookies (expanded and more comprehensive list)
       const cookieNames = [
+        // Standard Supabase cookie names
         'sb-access-token', 
         'sb-refresh-token',
         'supabase-auth-token',
         '__session',
-        'sb-auth-token'
+        'sb-auth-token',
+        
+        // Project-specific variations (using project ref patterns)
+        'sb:*:auth-token',
+        'sb-*-auth-token',
+        
+        // Legacy and alternative formats
+        'supabase.auth.token',
+        'sb-provider-token',
+        'sb-token-type',
+        'sb-expires-at',
+        
+        // Session-related cookies
+        'sb-session',
+        'sb-*-session',
+        '__supabase_session',
+        
+        // Generic auth cookies that might be used
+        'auth-token',
+        'auth-refresh-token',
+        'auth-session',
+        'auth',
+        'token',
+        'session'
       ];
       
+      // First get all current cookies to check for any auth-related ones
+      const allCookies = request.cookies.getAll();
+      
+      // Process all cookies that might be related to auth
+      allCookies.forEach(cookie => {
+        const name = cookie.name.toLowerCase();
+        if (name.includes('auth') || 
+            name.includes('token') || 
+            name.includes('session') || 
+            name.includes('supabase') || 
+            name.includes('sb-')) {
+          console.log(`Clearing detected auth cookie: ${cookie.name}`);
+          response.cookies.set({
+            name: cookie.name,
+            value: '',
+            expires: new Date(0),
+            path: '/',
+            sameSite: 'lax',
+            secure: process.env.NODE_ENV === 'production',
+            httpOnly: true
+          });
+        }
+      });
+      
+      // Also explicitly try all the known cookie names
       cookieNames.forEach(name => {
         response.cookies.set({
           name,
@@ -76,6 +131,12 @@ export async function middleware(request: NextRequest) {
       console.log('Cleared auth cookies in middleware for force_logout');
     } catch (clearError) {
       console.error('Error clearing cookies in middleware:', clearError);
+    }
+    
+    // For hard redirects with timestamp, add a special header to indicate to the client
+    // that this request has had cookies fully cleared
+    if (isForceLogoutWithTimestamp) {
+      response.headers.set('X-Auth-Cookies-Cleared', 'true');
     }
     
     return response;

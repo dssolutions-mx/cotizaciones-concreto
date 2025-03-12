@@ -51,8 +51,14 @@ function LoginForm() {
     
     // Check for force_logout parameter which indicates we need to ensure the user is logged out
     const forceLogout = searchParams.get('force_logout') === 'true';
+    const hasTimestamp = !!searchParams.get('t');
+    const isHardRedirectLogout = forceLogout && hasTimestamp;
+    
     if (forceLogout) {
       console.log('Detected force_logout parameter, ensuring user is completely logged out');
+      if (isHardRedirectLogout) {
+        console.log('Hard redirect detected from password update page');
+      }
       
       // Execute complete logout process
       const performForceLogout = async () => {
@@ -60,7 +66,10 @@ function LoginForm() {
           console.log('Executing force logout on login page');
           
           // First check for the special flag that indicates we need complete logout
-          const needsCompleteLogout = sessionStorage.getItem('force_complete_logout') === 'true';
+          const needsCompleteLogout = 
+            sessionStorage.getItem('force_complete_logout') === 'true' || 
+            isHardRedirectLogout; // Hard redirects always need complete logout
+          
           console.log('Complete logout required:', needsCompleteLogout);
           
           // Clear the flag so we don't repeat this unnecessarily
@@ -78,7 +87,10 @@ function LoginForm() {
                 'sb-access-token',
                 'sb-refresh-token',
                 'supabase.auth.expires_at',
-                'supabase.auth.expires_in'
+                'supabase.auth.expires_in',
+                'sb-provider-token',
+                'sb-token-type',
+                'sb-expires-at'
               ];
               
               // Directly clear known keys
@@ -119,23 +131,44 @@ function LoginForm() {
           
           // Execute signOut with multiple approaches
           try {
-            // Try global signOut first
-            await supabase.auth.signOut({ scope: 'global' });
-            
-            // Create a fresh client with persistSession: false
-            const { createClient } = await import('@supabase/supabase-js');
-            const freshClient = createClient(
-              process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-              process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-              { 
-                auth: { 
-                  persistSession: false
+            // Hard redirect requires more aggressive approach
+            if (isHardRedirectLogout) {
+              // Create a completely fresh client with no stored state
+              const { createClient } = await import('@supabase/supabase-js');
+              const freshClient = createClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+                { 
+                  auth: { 
+                    persistSession: false, // Critical: don't persist this session
+                    storageKey: `logout-${Date.now()}`, // Use a unique key to avoid conflicts
+                    autoRefreshToken: false // Don't refresh tokens automatically
+                  }
                 }
-              }
-            );
-            
-            // Try another signOut with this client
-            await freshClient.auth.signOut({ scope: 'global' });
+              );
+              
+              // Force global signOut with this fresh client
+              await freshClient.auth.signOut({ scope: 'global' });
+              console.log('Executed global signOut with fresh client');
+            } else {
+              // Try global signOut first with normal client
+              await supabase.auth.signOut({ scope: 'global' });
+              
+              // Create a fresh client with persistSession: false
+              const { createClient } = await import('@supabase/supabase-js');
+              const freshClient = createClient(
+                process.env.NEXT_PUBLIC_SUPABASE_URL || '',
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
+                { 
+                  auth: { 
+                    persistSession: false
+                  }
+                }
+              );
+              
+              // Try another signOut with this client
+              await freshClient.auth.signOut({ scope: 'global' });
+            }
           } catch (signOutErr) {
             console.error('Error during sign out:', signOutErr);
           }
@@ -143,17 +176,21 @@ function LoginForm() {
           // Clear all storage
           clearAllStorage();
           
-          // Check if we're still logged in after all this
-          const { data: checkSession } = await supabase.auth.getSession();
-          if (checkSession?.session) {
-            console.log('CRITICAL: Still logged in after all logout attempts. Trying page reload.');
-            
-            // If we're still logged in, something is very wrong - try reloading the page
-            if (needsCompleteLogout) {
-              window.location.reload();
+          // Hard redirects or needsCompleteLogout might require a page reload if still logged in
+          if (isHardRedirectLogout || needsCompleteLogout) {
+            // Check if we're still logged in after all this
+            const { data: checkSession } = await supabase.auth.getSession();
+            if (checkSession?.session) {
+              console.log('CRITICAL: Still logged in after all logout attempts. Forcing page reload.');
+              
+              // Add a special cache-busting parameter
+              const cacheBustUrl = new URL(window.location.href);
+              cacheBustUrl.searchParams.set('cb', Date.now().toString());
+              window.location.href = cacheBustUrl.toString();
+              return; // Exit early to prevent showing message before reload
+            } else {
+              console.log('Logout successful, user is signed out');
             }
-          } else {
-            console.log('Logout successful, user is signed out');
           }
           
           // Display a message indicating the logout was forced

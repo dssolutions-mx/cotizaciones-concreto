@@ -412,7 +412,18 @@ function UpdatePasswordForm() {
               // IMPORTANT: Use full page reload to /login with force_logout=true
               // rather than just a router.push which keeps the JS context
               console.log('Countdown complete, performing hard redirect to login');
-              window.location.href = '/login?force_logout=true&t=' + new Date().getTime();
+              
+              // Use more advanced approach for hard reload:
+              // 1. Add special flags to URL
+              // 2. Use a unique timestamp for cache busting
+              // 3. Force a complete page reload
+              const loginUrl = new URL('/login', window.location.origin);
+              loginUrl.searchParams.set('force_logout', 'true');
+              loginUrl.searchParams.set('t', Date.now().toString());
+              loginUrl.searchParams.set('reason', 'password_update');
+              
+              // Force a hard navigation through window.location instead of router
+              window.location.href = loginUrl.toString();
             }
           }, 1000);
         }
@@ -477,8 +488,14 @@ function UpdatePasswordForm() {
         console.error('Error in final storage clearing:', e);
       }
       
-      // Force a hard reload to the login page with cache-busting parameter
-      window.location.href = '/login?force_logout=true&t=' + new Date().getTime();
+      // Use more advanced approach for hard reload
+      const loginUrl = new URL('/login', window.location.origin);
+      loginUrl.searchParams.set('force_logout', 'true');
+      loginUrl.searchParams.set('t', Date.now().toString());
+      loginUrl.searchParams.set('reason', 'password_update');
+      
+      // Force a hard navigation through window.location
+      window.location.href = loginUrl.toString();
     }
   }, [message, countdown, router]);
 
