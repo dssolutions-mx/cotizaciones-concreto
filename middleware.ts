@@ -15,8 +15,16 @@ export async function middleware(request: NextRequest) {
   // For invitation links, we want to bypass normal auth checks
   if (isInvitationLink) {
     console.log('Detected invitation link in middleware, bypassing auth checks');
-    // Just pass through without auth checks for invitation links
-    return NextResponse.next();
+    // Create a response that bypasses auth checks and adds necessary CSP headers
+    const response = NextResponse.next();
+    
+    // Add Content-Security-Policy header that allows 'unsafe-eval' for Supabase auth to work
+    response.headers.set(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co https://*.supabase.io"
+    );
+    
+    return response;
   }
   
   // Normal auth flow for non-invitation links

@@ -12,6 +12,20 @@ function AuthCallbackHandler() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Add a useEffect to inject CSP meta tag
+  useEffect(() => {
+    // Inject CSP meta tag to allow unsafe-eval for Supabase auth
+    const meta = document.createElement('meta');
+    meta.httpEquiv = 'Content-Security-Policy';
+    meta.content = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://*.supabase.io";
+    document.head.appendChild(meta);
+    
+    // Clean up on unmount
+    return () => {
+      document.head.removeChild(meta);
+    };
+  }, []);
+
   useEffect(() => {
     const handleCallback = async () => {
       try {
@@ -62,8 +76,21 @@ function AuthCallbackHandler() {
                 // Fallback to window.location if router doesn't work
                 setTimeout(() => {
                   console.log('Fallback redirect to update-password');
+                  // Use a simple href assignment instead of complex JS that might be blocked by CSP
                   window.location.href = '/update-password';
                 }, 2000);
+                
+                // Add a second fallback with a longer timeout
+                setTimeout(() => {
+                  console.log('Second fallback redirect attempt');
+                  // Create and click a link element as a CSP-friendly approach
+                  const link = document.createElement('a');
+                  link.href = '/update-password';
+                  link.textContent = 'Continue to set password';
+                  link.style.display = 'none';
+                  document.body.appendChild(link);
+                  link.click();
+                }, 4000);
               } catch (navError) {
                 console.error('Navigation error:', navError);
                 // Direct fallback
