@@ -2,36 +2,66 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import type { Database } from '@/types/supabase';
+import crypto from 'crypto';
+
+// Generate a random nonce for CSP
+function generateNonce() {
+  return crypto.randomBytes(16).toString('base64');
+}
+
+// Define a comprehensive CSP policy that allows Supabase to function
+function getCSPHeader(nonce: string) {
+  return `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.supabase.io https://supabase.co https://supabase.io; frame-src 'self'; base-uri 'self'; form-action 'self';`;
+}
 
 export async function middleware(request: NextRequest) {
-  // Check for invitation links (they have a hash with access_token)
-  // Note: We can't access the hash directly in middleware, but we can check for the presence of '#' in the URL
-  const hasHash = request.url.includes('#');
-  const isInvitationLink = hasHash && 
-    (request.url.includes('/update-password') || 
-     request.url.includes('/auth/callback') || 
-     request.url.includes('/auth-check'));
+  // Generate a nonce for CSP
+  const nonce = generateNonce();
   
-  // For invitation links, we want to bypass normal auth checks
-  if (isInvitationLink) {
-    console.log('Detected invitation link in middleware, bypassing auth checks');
-    // Create a response that bypasses auth checks and adds necessary CSP headers
-    const response = NextResponse.next();
-    
-    // Add Content-Security-Policy header that allows 'unsafe-eval' for Supabase auth to work
-    response.headers.set(
-      'Content-Security-Policy',
-      "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*.supabase.co https://*.supabase.io"
-    );
-    
-    return response;
-  }
-  
-  // Normal auth flow for non-invitation links
+  // Initialize the response variable
   let supabaseResponse = NextResponse.next({
     request,
   });
 
+  // Check for invitation links (they have a hash with access_token)
+  // Note: We can't access the hash directly in middleware, but we can check for the presence of '#' in the URL
+  const hasHash = request.url.includes('#');
+  
+  // Check if this is an auth-related route
+  const isAuthRoute = 
+    request.url.includes('/update-password') || 
+    request.url.includes('/auth/callback') || 
+    request.url.includes('/auth-check') ||
+    request.url.includes('/login') ||
+    request.url.includes('/register') ||
+    request.url.includes('/reset-password');
+  
+  const isInvitationLink = hasHash && isAuthRoute;
+  
+  // For auth routes, we want to add CSP headers
+  if (isAuthRoute) {
+    console.log('Detected auth route, adding CSP headers');
+    // Create a response that adds necessary CSP headers
+    const response = NextResponse.next();
+    
+    // Add Content-Security-Policy header that allows 'unsafe-eval' for Supabase auth to work
+    response.headers.set('Content-Security-Policy', getCSPHeader(nonce));
+    
+    // Add the nonce to the request headers so it can be accessed by the page
+    response.headers.set('X-CSP-Nonce', nonce);
+    
+    // For invitation links, we bypass auth checks
+    if (isInvitationLink) {
+      console.log('Detected invitation link in middleware, bypassing auth checks');
+      return response;
+    }
+    
+    // For other auth routes, we continue with the response that has CSP headers
+    // but still perform auth checks below
+    supabaseResponse = response;
+  }
+  
+  // Normal auth flow for non-invitation links
   const supabase = createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
