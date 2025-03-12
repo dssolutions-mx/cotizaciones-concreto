@@ -2,7 +2,8 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createClient } from '@/lib/supabase/client';
+// Import the singleton instance instead of the createClient function
+import { supabase } from '@/lib/supabase/client';
 
 // Component that uses useSearchParams
 function AuthCallbackHandler() {
@@ -17,8 +18,8 @@ function AuthCallbackHandler() {
         setLoading(true);
         console.log('Auth callback page loaded');
         
-        // Create a fresh Supabase client for this component
-        const supabase = createClient();
+        // Use the singleton instance instead of creating a new one
+        // const supabase = createClient();
         
         // Check for hash parameters (used in invitation flows)
         const hashParams = new URLSearchParams(
