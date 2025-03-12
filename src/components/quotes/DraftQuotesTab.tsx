@@ -28,6 +28,7 @@ interface SupabaseQuoteDetail {
   volume: number;
   base_price: number;
   final_price: number;
+  profit_margin: number;
   pump_service: boolean;
   pump_price: number | null;
   recipe_id: string;
@@ -38,6 +39,10 @@ interface SupabaseQuoteDetail {
     max_aggregate_size: number;
     slump: number;
     age_days: number;
+    recipe_versions: {
+      notes: string;
+      is_current: boolean;
+    }[];
   }[];
 }
 
@@ -55,6 +60,7 @@ interface Quote {
     volume: number;
     base_price: number;
     final_price: number;
+    profit_margin: number;
     pump_service: boolean;
     pump_price: number | null;
     recipe: {
@@ -64,6 +70,7 @@ interface Quote {
       max_aggregate_size: number;
       slump: number;
       age_days: number;
+      notes: string;
     } | null;
   }>;
 }
@@ -71,9 +78,9 @@ interface Quote {
 export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
   const [totalQuotes, setTotalQuotes] = useState(0);
-  const quotesPerPage = 25;
+  const quotesPerPage = 10;
 
   // Modal state
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
@@ -94,12 +101,17 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
       max_aggregate_size: number;
       slump: number;
       age_days: number;
+      notes: string;
     } | null;
   }>>([]);
 
   const fetchDraftQuotes = useCallback(async () => {
     try {
       setIsLoading(true);
+      
+      // Calculate the correct range based on page (1-indexed)
+      const from = (page - 1) * quotesPerPage;
+      const to = from + quotesPerPage - 1;
       
       const { data, error } = await supabase
         .from('quotes')
@@ -118,6 +130,7 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
             volume,
             base_price,
             final_price,
+            profit_margin,
             pump_service,
             pump_price,
             recipe_id,
@@ -127,22 +140,28 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
               placement_type,
               max_aggregate_size,
               slump,
-              age_days
+              age_days,
+              recipe_versions(
+                notes,
+                is_current
+              )
             )
           )
         `)
         .eq('status', 'DRAFT')
         .order('created_at', { ascending: false })
-        .range(page * quotesPerPage, (page + 1) * quotesPerPage - 1);
+        .range(from, to);
       
       if (error) {
         throw error;
       }
       
-      // Transform the data to match our Quote interface
+      // Transform the data to match our Quote interface, following ApprovedQuotesTab pattern
       const transformedQuotes: Quote[] = (data || []).map(quote => {
-        // Access the first client in the array if it exists
-        const clientData = quote.clients && quote.clients.length > 0 ? quote.clients[0] : null;
+        // Access the client data properly
+        const clientData = Array.isArray(quote.clients) 
+          ? quote.clients[0] 
+          : quote.clients;
         
         return {
           id: quote.id,
@@ -153,22 +172,31 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
             business_name: clientData.business_name,
             client_code: clientData.client_code
           } : null,
-          quote_details: quote.quote_details.map(detail => ({
-            id: detail.id,
-            volume: detail.volume,
-            base_price: detail.base_price,
-            final_price: detail.final_price,
-            pump_service: detail.pump_service,
-            pump_price: detail.pump_price,
-            recipe: detail.recipes && detail.recipes.length > 0 ? {
-              recipe_code: detail.recipes[0].recipe_code,
-              strength_fc: detail.recipes[0].strength_fc,
-              placement_type: detail.recipes[0].placement_type,
-              max_aggregate_size: detail.recipes[0].max_aggregate_size,
-              slump: detail.recipes[0].slump,
-              age_days: detail.recipes[0].age_days
-            } : null
-          }))
+          quote_details: quote.quote_details.map(detail => {
+            // Handle recipe data properly like in ApprovedQuotesTab
+            const recipeData = Array.isArray(detail.recipes) 
+              ? detail.recipes[0] 
+              : detail.recipes;
+              
+            return {
+              id: detail.id,
+              volume: detail.volume,
+              base_price: detail.base_price,
+              final_price: detail.final_price,
+              profit_margin: detail.profit_margin,
+              pump_service: detail.pump_service,
+              pump_price: detail.pump_price,
+              recipe: recipeData ? {
+                recipe_code: recipeData.recipe_code,
+                strength_fc: recipeData.strength_fc,
+                placement_type: recipeData.placement_type,
+                max_aggregate_size: recipeData.max_aggregate_size,
+                slump: recipeData.slump,
+                age_days: recipeData.age_days,
+                notes: recipeData.recipe_versions?.find(version => version.is_current)?.notes
+              } : null
+            };
+          })
         };
       });
       
@@ -318,8 +346,17 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
   const openQuoteDetails = (quote: Quote) => {
     // Create a deep copy of quote details for editing
     const editableDetails = quote.quote_details.map(detail => ({
-      ...detail,
-      margin: detail.final_price / detail.base_price - 1
+      id: detail.id,
+      volume: detail.volume,
+      base_price: detail.base_price,
+      final_price: detail.final_price,
+      // Calculate margin from final_price/base_price or use profit_margin if available
+      margin: detail.profit_margin !== undefined ? 
+        detail.profit_margin / 100 : 
+        (detail.final_price / detail.base_price - 1),
+      pump_service: detail.pump_service || false,
+      pump_price: detail.pump_price || 0,
+      recipe: detail.recipe
     }));
     
     setSelectedQuote(quote);
@@ -335,9 +372,11 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
           .from('quote_details')
           .update({
             final_price: detail.final_price,
-            margin: detail.margin * 100, // Convert to percentage
+            profit_margin: detail.margin * 100, // Convert to percentage
             pump_service: detail.pump_service,
-            pump_price: detail.pump_service ? detail.pump_price : null
+            // Only include pump_price if pump_service is true
+            pump_price: detail.pump_service ? detail.pump_price : null,
+            total_amount: detail.final_price * detail.volume
           })
           .eq('id', detail.id);
 
@@ -368,11 +407,19 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
 
   // Function to update pump service for the entire quote
   const updateQuotePumpService = (pumpService: boolean, pumpPrice: number | null = null) => {
-    const updatedDetails = [...editingQuoteDetails].map(detail => ({
-      ...detail,
-      pump_service: pumpService,
-      pump_price: pumpService ? (pumpPrice !== null ? pumpPrice : detail.pump_price) : null
-    }));
+    const updatedDetails = [...editingQuoteDetails].map(detail => {
+      // Keep the original pump_price if it's being enabled and no new price is provided
+      const newPumpPrice = pumpService 
+        ? (pumpPrice !== null ? pumpPrice : (detail.pump_price || 0)) 
+        : null;
+        
+      return {
+        ...detail,
+        pump_service: pumpService,
+        pump_price: newPumpPrice
+      };
+    });
+    
     setEditingQuoteDetails(updatedDetails);
   };
 
@@ -425,7 +472,7 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
           {/* Pagination */}
           <div className="flex justify-between items-center mt-4">
             <span className="text-sm text-gray-700">
-              Mostrando {(page - 1) * quotesPerPage + 1} - {Math.min(page * quotesPerPage, totalQuotes)} de {totalQuotes} cotizaciones
+              Mostrando {quotes.length > 0 ? (page - 1) * quotesPerPage + 1 : 0} - {Math.min(page * quotesPerPage, totalQuotes)} de {totalQuotes} cotizaciones
             </span>
             <div className="flex space-x-2">
               <button 

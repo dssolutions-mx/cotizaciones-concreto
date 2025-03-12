@@ -286,6 +286,8 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     const detailsWithQuoteId = details.map(detail => ({
       ...detail,
       quote_id: quote.id,
+      // Ensure pump_price is only included when pump_service is true
+      pump_price: detail.pump_service ? detail.pump_price : null,
       total_amount: detail.final_price * detail.volume
     }));
     
