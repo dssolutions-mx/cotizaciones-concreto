@@ -65,6 +65,33 @@ function UpdatePasswordForm() {
         setLoading(true);
         console.log('Initializing auth state for password update...');
         
+        // FIRST CHECK: Get current session - this is the most reliable approach
+        const { data: sessionData } = await supabase.auth.getSession();
+        
+        if (sessionData?.session) {
+          console.log('Found existing session on update-password page load', {
+            email: sessionData.session.user.email,
+            created_at: sessionData.session.user.created_at,
+            last_sign_in_at: sessionData.session.user.last_sign_in_at
+          });
+          
+          if (sessionData.session.user.email) {
+            setInviteEmail(sessionData.session.user.email);
+          }
+          
+          setCurrentSessionData({
+            session: sessionData.session,
+            user: sessionData.session.user
+          });
+          setSessionEstablished(true);
+          setInvitationFlow(true); // Assume this is invitation flow if we have a session
+          setAuthReady(true);
+          setLoading(false);
+          return; // We have a valid session, no need to check URL parameters
+        }
+        
+        // SECOND CHECK: If no active session, check URL parameters
+        
         // Check for recovery token in URL
         const code = searchParams.get('code');
         const type = searchParams.get('type');
@@ -89,11 +116,11 @@ function UpdatePasswordForm() {
         
         // Determine if this is an invitation flow
         if (type === 'invite' || type === 'signup' || tokenType === 'invite') {
-          console.log('Detected invitation flow');
+          console.log('Detected invitation flow from URL parameters');
           setInvitationFlow(true);
         }
         
-        // First check if we have tokens in the URL hash (invitation flow)
+        // Process tokens if present in URL hash (invitation flow)
         if (accessToken && refreshToken) {
           console.log('Found tokens in URL hash, setting session');
           try {
@@ -110,7 +137,7 @@ function UpdatePasswordForm() {
               console.error('Error setting session from tokens:', sessionError);
               setError(`Error al establecer la sesión: ${sessionError.message}`);
             } else if (sessionData.user) {
-              console.log('Session set successfully from tokens', sessionData);
+              console.log('Session set successfully from URL tokens', sessionData);
               setInviteEmail(sessionData.user.email || null);
               setCurrentSessionData({
                 session: sessionData.session,
@@ -120,74 +147,80 @@ function UpdatePasswordForm() {
             }
             
             setAuthReady(true);
+            setLoading(false);
           } catch (err) {
             console.error('Exception setting session from tokens:', err);
             setError('Error al procesar la invitación');
             setAuthReady(true);
+            setLoading(false);
           }
+          return; // Processed tokens, no need to continue
         }
-        // Check current session if no tokens in URL
-        else {
-          // Check current session first
-          const { data: sessionData } = await supabase.auth.getSession();
-          
-          if (sessionData?.session) {
-            console.log('Found existing session', {
-              email: sessionData.session.user.email,
-            });
+        
+        // Process recovery code if present
+        if (code) {
+          console.log('Exchanging recovery code for session');
+          try {
+            const { error } = await supabase.auth.exchangeCodeForSession(code);
             
-            if (sessionData.session.user.email) {
-              setInviteEmail(sessionData.session.user.email);
-            }
-            
-            setCurrentSessionData({
-              session: sessionData.session,
-              user: sessionData.session.user
-            });
-            setSessionEstablished(true);
-            setAuthReady(true);
-          } 
-          // If no session but we have a recovery code, exchange it
-          else if (code) {
-            console.log('Exchanging recovery code for session');
-            try {
-              const { error } = await supabase.auth.exchangeCodeForSession(code);
+            if (error) {
+              console.error('Error exchanging code:', error.message);
+              setError(`Error al procesar el código de recuperación: ${error.message}`);
+            } else {
+              // Get the session after exchange
+              const { data: newSession } = await supabase.auth.getSession();
               
-              if (error) {
-                console.error('Error exchanging code:', error.message);
-                setError(`Error al procesar el código de recuperación: ${error.message}`);
-              } else {
-                // Get the session after exchange
-                const { data: newSession } = await supabase.auth.getSession();
-                
-                if (newSession?.session?.user?.email) {
-                  setInviteEmail(newSession.session.user.email);
-                }
-                
-                setCurrentSessionData({
-                  session: newSession.session,
-                  user: newSession.session?.user || null
-                });
-                setSessionEstablished(!!newSession.session);
-                console.log('Successfully exchanged code for session', newSession);
+              if (newSession?.session?.user?.email) {
+                setInviteEmail(newSession.session.user.email);
               }
-            } catch (exchangeError) {
-              console.error('Exception during code exchange:', exchangeError);
-              setError('Error al procesar el código de recuperación');
+              
+              setCurrentSessionData({
+                session: newSession.session,
+                user: newSession.session?.user || null
+              });
+              setSessionEstablished(!!newSession.session);
+              console.log('Successfully exchanged code for session', newSession);
             }
-            
-            setAuthReady(true);
-          } else {
-            console.log('No auth data found');
-            setError('No se encontró información de autenticación válida');
-            setAuthReady(true);
+          } catch (exchangeError) {
+            console.error('Exception during code exchange:', exchangeError);
+            setError('Error al procesar el código de recuperación');
           }
+          
+          setAuthReady(true);
+          setLoading(false);
+          return; // Processed code, no need to continue
         }
+        
+        // If we reach here, we have no session and no URL parameters
+        // Do one final session check just to be sure
+        const { data: finalSessionCheck } = await supabase.auth.getSession();
+        
+        if (finalSessionCheck?.session) {
+          console.log('Session found in final check:', finalSessionCheck.session.user.email);
+          if (finalSessionCheck.session.user.email) {
+            setInviteEmail(finalSessionCheck.session.user.email);
+          }
+          setCurrentSessionData({
+            session: finalSessionCheck.session,
+            user: finalSessionCheck.session.user
+          });
+          setSessionEstablished(true);
+          setInvitationFlow(true);
+        } else {
+          // We truly have no session
+          console.log('No auth data found after all checks');
+          setError(
+            'No se encontró información de autenticación válida. ' +
+            'Por favor, utiliza el enlace de invitación que recibiste por correo electrónico o contacta al administrador.'
+          );
+        }
+        
+        setAuthReady(true);
+        setLoading(false);
       } catch (err) {
         console.error('Error initializing auth:', err);
         setError('Error al inicializar la autenticación');
         setAuthReady(true);
-      } finally {
         setLoading(false);
       }
     };
@@ -206,6 +239,7 @@ function UpdatePasswordForm() {
           console.log('Session found in fallback check', data.session.user.email);
           setSessionEstablished(true);
           setInviteEmail(data.session.user.email || null);
+          setInvitationFlow(true);
         } else {
           console.log('No session found in fallback check');
         }

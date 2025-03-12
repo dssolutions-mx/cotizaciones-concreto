@@ -11,48 +11,59 @@ function generateNonce() {
 
 // Define a comprehensive CSP policy that allows Supabase to function
 function getCSPHeader(nonce: string) {
-  return `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.supabase.io https://supabase.co https://supabase.io; frame-src 'self'; base-uri 'self'; form-action 'self';`;
+  const policy = `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.supabase.io https://supabase.co https://supabase.io; frame-src 'self'; base-uri 'self'; form-action 'self';`;
+  console.log(`Generated CSP policy: ${policy.substring(0, 100)}...`);
+  return policy;
 }
 
 export async function middleware(request: NextRequest) {
   // Generate a nonce for CSP
   const nonce = generateNonce();
+  console.log(`Generated nonce for CSP: ${nonce.substring(0, 10)}...`);
   
   // Initialize the response variable
   let supabaseResponse = NextResponse.next({
     request,
   });
 
+  // Extract pathname for clearer debugging
+  const url = request.nextUrl.clone();
+  const { pathname } = url;
+  
   // Check for invitation links (they have a hash with access_token)
   // Note: We can't access the hash directly in middleware, but we can check for the presence of '#' in the URL
   const hasHash = request.url.includes('#');
   
-  // Check if this is an auth-related route
+  // Check if this is an auth-related route - be very inclusive to catch all auth scenarios
   const isAuthRoute = 
-    request.url.includes('/update-password') || 
-    request.url.includes('/auth/callback') || 
-    request.url.includes('/auth-check') ||
-    request.url.includes('/login') ||
-    request.url.includes('/register') ||
-    request.url.includes('/reset-password');
+    pathname.includes('/update-password') || 
+    pathname.includes('/auth/callback') || 
+    pathname.includes('/auth-check') ||
+    pathname.includes('/login') || 
+    pathname.includes('/register') || 
+    pathname.includes('/reset-password') ||
+    hasHash; // Consider any URL with a hash as potentially an auth route
   
-  const isInvitationLink = hasHash && isAuthRoute;
+  const isInvitationLink = hasHash;
   
   // For auth routes, we want to add CSP headers
   if (isAuthRoute) {
-    console.log('Detected auth route, adding CSP headers');
+    console.log(`Detected auth route: ${pathname}, adding CSP headers`);
     // Create a response that adds necessary CSP headers
-    const response = NextResponse.next();
+    const response = NextResponse.next({
+      request,
+    });
     
     // Add Content-Security-Policy header that allows 'unsafe-eval' for Supabase auth to work
-    response.headers.set('Content-Security-Policy', getCSPHeader(nonce));
+    const cspHeader = getCSPHeader(nonce);
+    response.headers.set('Content-Security-Policy', cspHeader);
     
     // Add the nonce to the request headers so it can be accessed by the page
     response.headers.set('X-CSP-Nonce', nonce);
     
     // For invitation links, we bypass auth checks
     if (isInvitationLink) {
-      console.log('Detected invitation link in middleware, bypassing auth checks');
+      console.log(`Detected invitation link in middleware, bypassing auth checks for: ${pathname}`);
       return response;
     }
     
@@ -96,10 +107,6 @@ export async function middleware(request: NextRequest) {
     console.error("Middleware auth error:", error.message);
   }
 
-  // URL information
-  const url = request.nextUrl.clone();
-  const { pathname } = url;
-  
   // Log request details for debugging
   console.log(`Middleware processing: ${pathname}`, {
     authenticated: !!user,
@@ -149,8 +156,9 @@ export async function middleware(request: NextRequest) {
     }
     
     // For other routes, redirect to login
-    url.pathname = '/login';
-    const redirectResponse = NextResponse.redirect(url);
+    const loginUrl = url.clone();
+    loginUrl.pathname = '/login';
+    const redirectResponse = NextResponse.redirect(loginUrl);
     
     // Copy cookies from supabaseResponse to redirectResponse
     supabaseResponse.cookies.getAll().forEach(cookie => {
@@ -162,8 +170,9 @@ export async function middleware(request: NextRequest) {
 
   // If authenticated and trying to access login/register pages
   if (user && (pathname === '/login' || pathname === '/register')) {
-    url.pathname = '/dashboard';
-    const redirectResponse = NextResponse.redirect(url);
+    const dashboardUrl = url.clone();
+    dashboardUrl.pathname = '/dashboard';
+    const redirectResponse = NextResponse.redirect(dashboardUrl);
     
     // Copy cookies from supabaseResponse to redirectResponse
     supabaseResponse.cookies.getAll().forEach(cookie => {
