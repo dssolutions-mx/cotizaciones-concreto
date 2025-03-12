@@ -256,161 +256,82 @@ function UpdatePasswordForm() {
     setPasswordUpdateAttempted(true);
 
     try {
-      // Special handling for invitation flow
-      if (invitationFlow && inviteEmail) {
-        debugLog(`Using invitation flow for email: ${inviteEmail}`);
+      // ------ SIMPLIFIED APPROACH ------
+      debugLog("Using simplified direct password update approach");
+      
+      // 1. Get the current session
+      const { data: sessionData } = await supabase.auth.getSession();
+      
+      debugLog("Current session", { 
+        exists: !!sessionData?.session,
+        email: sessionData?.session?.user?.email,
+        userId: sessionData?.session?.user?.id
+      });
+      
+      if (!sessionData?.session) {
+        debugLog("No active session, cannot update password");
+        setError("No hay una sesión activa. Por favor, intenta de nuevo o solicita un nuevo correo de invitación.");
+        setLoading(false);
+        setPasswordUpdateAttempted(false);
+        return;
+      }
+      
+      // 2. Update the password directly
+      debugLog("Updating password for user");
+      
+      try {
+        const { error: updateError } = await supabase.auth.updateUser({ 
+          password 
+        });
         
-        try {
-          // For invitations, we'll try a more direct approach
-          debugLog("Using direct reset password approach for invitation flow");
-          
-          // First, try to update the password directly on the current session
-          const { data: updateData, error: updateError } = await supabase.auth.updateUser({ 
-            password 
-          });
-          
-          if (updateError) {
-            debugLog("Error updating password directly", updateError);
-            
-            // If direct update fails, try resetting password for the invited email
-            debugLog("Trying password reset approach for invited email");
-            const { data: resetData, error: resetError } = await supabase.auth.resetPasswordForEmail(
-              inviteEmail, 
-              {
-                redirectTo: window.location.origin + '/login'
-              }
-            );
-            
-            if (resetError) {
-              debugLog("Error in both approaches", resetError);
-              setError(`Error al configurar la contraseña: ${resetError.message}`);
-              setLoading(false);
-              setPasswordUpdateAttempted(false);
-              return;
-            }
-            
-            debugLog("Password reset email sent as fallback");
-            // We'll treat this as a success case and log the user out
-            setMessage("Se ha enviado un correo para restablecer tu contraseña. Por favor, revisa tu bandeja de entrada.");
-            setLoading(false);
-            setShowSuccessScreen(true);
-            setTimeout(() => {
-              window.location.href = `/login?reset=true&t=${Date.now()}`;
-            }, 3000);
-            return;
-          }
-          
-          // Log detailed API response to verify update success
-          debugLog("Password update API call completed successfully in invitation flow", {
-            userUpdated: !!updateData?.user,
-            userId: updateData?.user?.id,
-            email: updateData?.user?.email,
-            updatedAt: updateData?.user?.updated_at
-          });
-          
-          // Before redirecting to success, verify we can actually log in with these credentials
-          debugLog("Attempting to verify login with new credentials");
-          
-          // Sign out first to ensure clean state
-          await supabase.auth.signOut();
-          
-          // Try to log in with the new credentials
-          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-            email: inviteEmail,
-            password: password
-          });
-          
-          if (signInError) {
-            debugLog("Failed to verify login - password likely not set correctly", signInError);
-            setError("La contraseña se actualizó pero no pudimos verificar el inicio de sesión. Por favor, intenta iniciar sesión manualmente.");
-            setLoading(false);
-            
-            // Still redirect to login page after delay
-            setTimeout(() => {
-              window.location.href = `/login?t=${Date.now()}`;
-            }, 3000);
-            return;
-          }
-          
-          debugLog("Login verification successful!", { user: signInData?.user?.id });
-          
-          // If we got here, the password was successfully set AND verified
-          debugLog("Password update CONFIRMED via login verification");
-          
-          // Handle success case
-          handleSuccessAndRedirect();
-          return;
-        } catch (err) {
-          debugLog("Unexpected error in invitation flow", err);
-          setError("Ocurrió un error inesperado. Por favor, intenta de nuevo más tarde.");
+        if (updateError) {
+          debugLog("Error updating password", updateError);
+          setError(`Error al actualizar la contraseña: ${updateError.message}`);
           setLoading(false);
           setPasswordUpdateAttempted(false);
           return;
         }
-      }
-      
-      // Standard password reset flow (not invitation)
-      // 1. Check if we have valid tokens or session
-      const { data: sessionData } = await supabase.auth.getSession();
-      debugLog("Session before update", { 
-        exists: !!sessionData?.session,
-        userId: sessionData?.session?.user?.id,
-        email: sessionData?.session?.user?.email
-      });
-      
-      if (!sessionData?.session) {
-        debugLog("No active session found, cannot update password");
-        setError("No hay una sesión activa. Por favor, inténtalo de nuevo.");
+        
+        // 3. Show success immediately without trying to verify login
+        debugLog("Password update API call completed successfully - not waiting for verification");
+        
+        // Show success screen
+        setMessage("Tu contraseña ha sido actualizada con éxito");
         setLoading(false);
-        setPasswordUpdateAttempted(false);
-        return;
-      }
-      
-      // 2. Try updating the password
-      debugLog("Calling updateUser with new password");
-      const { data, error: updateError } = await supabase.auth.updateUser({ password });
-      
-      if (updateError) {
-        debugLog("Error updating password", updateError);
-        setError(`Error al actualizar la contraseña: ${updateError.message}`);
-        setLoading(false);
-        setPasswordUpdateAttempted(false);
-        return;
-      }
-      
-      // Log detailed API response to verify password update
-      debugLog("Password update API call completed successfully", {
-        userUpdated: !!data?.user,
-        userId: data?.user?.id,
-        email: data?.user?.email,
-        updatedAt: data?.user?.updated_at
-      });
-      
-      // 3. Verify the update was successful by checking the user data
-      if (!data?.user) {
-        debugLog("Password update API returned success but no user data");
-        setError("La actualización de contraseña no pudo ser verificada. Por favor, intenta de nuevo.");
-        setLoading(false);
-        setPasswordUpdateAttempted(false);
-        return;
-      }
-      
-      // If we got here, the password was successfully updated at the API level
-      debugLog("Password update CONFIRMED via API response");
-      
-      // Set a fallback timer in case the USER_UPDATED event is not triggered
-      const fallbackTimer = setTimeout(() => {
-        debugLog("Fallback timer triggered - no USER_UPDATED event detected");
-        if (loading) {
-          // Force success state if we're still loading after 3 seconds
-          debugLog("Forcing success state via fallback timer");
-          handleSuccessAndRedirect();
+        setShowSuccessScreen(true);
+        
+        // Clear local storage to prevent cookie/storage conflicts
+        for (const key of Object.keys(localStorage)) {
+          if (key.startsWith('supabase.auth.')) {
+            localStorage.removeItem(key);
+          }
         }
-      }, 3000); // Wait 3 seconds for the event before falling back
-      
-      // Clean up the fallback timer if component unmounts
-      return () => clearTimeout(fallbackTimer);
-      
+        
+        // Clear cookies
+        document.cookie.split(";").forEach(function(c) {
+          document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+        });
+        
+        // Explicit sign out and redirect after a delay
+        try {
+          await supabase.auth.signOut({ scope: 'global' });
+        } catch (signOutError) {
+          debugLog("Error during sign out (non-critical)", signOutError);
+        }
+        
+        setTimeout(() => {
+          debugLog("Redirecting to login page");
+          window.location.href = `/login?updated=true&t=${Date.now()}`;
+        }, 3000);
+        
+        return;
+      } catch (updateError) {
+        debugLog("Unexpected error during password update", updateError);
+        setError("Ocurrió un error inesperado al actualizar la contraseña. Por favor, intenta de nuevo.");
+        setLoading(false);
+        setPasswordUpdateAttempted(false);
+        return;
+      }
     } catch (err) {
       debugLog("Error during password update process", err);
       setError("Ocurrió un error al actualizar la contraseña");
