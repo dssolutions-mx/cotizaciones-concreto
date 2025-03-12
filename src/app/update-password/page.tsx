@@ -364,25 +364,40 @@ function UpdatePasswordForm() {
     setPasswordUpdateAttempted(true);
     
     try {
-      debugLog("Using ultra-simplified password update approach");
-      
-      // Get current session synchronously
+      // Get current session and URL parameters
       const { data: sessionData } = await supabase.auth.getSession();
+      const hashString = window.location.hash.substring(1);
+      const hashParams = new URLSearchParams(hashString);
+      const accessToken = hashParams.get('access_token');
       
-      if (!sessionData?.session) {
-        debugLog("No active session, cannot update password");
-        setError("No hay una sesión activa. Por favor, intenta de nuevo o solicita un nuevo correo de invitación.");
+      debugLog("Attempting password update", {
+        hasSession: !!sessionData?.session,
+        hasAccessToken: !!accessToken
+      });
+
+      let updateError;
+
+      // If we have an access token in the URL (password reset flow)
+      if (accessToken) {
+        debugLog("Using access token from URL for password update");
+        // Set the access token in the client
+        supabase.auth.setSession({ access_token: accessToken, refresh_token: '' });
+        const { error } = await supabase.auth.updateUser({ password });
+        updateError = error;
+      } 
+      // If we have a session (invitation or normal flow)
+      else if (sessionData?.session) {
+        debugLog("Using current session for password update");
+        const { error } = await supabase.auth.updateUser({ password });
+        updateError = error;
+      }
+      else {
+        debugLog("No valid auth context found for password update");
+        setError("No se encontró una sesión válida para actualizar la contraseña.");
         setLoading(false);
         setPasswordUpdateAttempted(false);
         return;
       }
-      
-      debugLog("Found active session, proceeding with password update");
-      
-      // Update password synchronously
-      const { error: updateError, data } = await supabase.auth.updateUser({ 
-        password 
-      });
       
       if (updateError) {
         debugLog("Error updating password", updateError);
@@ -392,14 +407,13 @@ function UpdatePasswordForm() {
         return;
       }
       
-      debugLog("Password update API call completed successfully", data);
+      debugLog("Password update API call completed successfully");
       
       // Set up a fallback timer to show success in case the auth event doesn't fire
       const fallbackSuccessTimer = setTimeout(() => {
         debugLog("Fallback success timer triggered - forcing success state");
-        // Only proceed if we're still loading and haven't received the USER_UPDATED event
         if (loading && passwordUpdateAttempted) {
-          debugLog("USER_UPDATED event wasn't detected, showing success manually");
+          debugLog("Auth event wasn't detected, showing success manually");
           setMessage("La contraseña se ha actualizado correctamente. Serás redirigido a la página de inicio de sesión.");
           setPassword('');
           setConfirmPassword('');
@@ -407,12 +421,8 @@ function UpdatePasswordForm() {
           setPasswordUpdateAttempted(false);
           setCountdown(5);
         }
-      }, 3000); // Wait 3 seconds for the USER_UPDATED event before forcing success
+      }, 3000);
       
-      // The main success case should still be handled by the auth state change listener
-      debugLog("Password update API call completed, waiting for auth event");
-      
-      // Cleanup the fallback timer if component unmounts
       return () => clearTimeout(fallbackSuccessTimer);
       
     } catch (err) {
