@@ -1,11 +1,13 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 import { RecipeReferenceMaterial } from '../../types/recipes';
 
-// Initialize Supabase client (ensure to use environment variables)
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!, 
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// Create a Supabase client using the recommended pattern
+function getClient() {
+  return createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+}
 
 /**
  * Saves reference materials for a given recipe
@@ -18,6 +20,8 @@ export async function saveRecipeReferenceMaterials(
     sssWater?: number;
   }
 ): Promise<RecipeReferenceMaterial[]> {
+  const supabase = getClient();
+
   // Prepare reference materials to insert
   const referenceMaterials: Omit<RecipeReferenceMaterial, 'id' | 'created_at'>[] = [];
 
@@ -53,6 +57,8 @@ export async function saveRecipeReferenceMaterials(
 export async function getRecipeReferenceMaterials(
   recipeVersionId: string
 ): Promise<RecipeReferenceMaterial[]> {
+  const supabase = getClient();
+  
   const { data, error } = await supabase
     .from('recipe_reference_materials')
     .select('*')
