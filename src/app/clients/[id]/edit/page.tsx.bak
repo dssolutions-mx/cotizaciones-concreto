@@ -1,0 +1,13 @@
+import { Suspense } from 'react';
+import EditClientForm from './EditClientForm';
+
+export default async function Page({ params }: { params: { id: string } }) {
+  // Access the id from params
+  const id = params.id;
+  
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <EditClientForm id={id} />
+    </Suspense>
+  );
+}

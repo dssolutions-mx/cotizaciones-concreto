@@ -24,7 +24,7 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
   useEffect(() => {
     const fetchRecipes = async () => {
       try {
-        const { data: fetchedRecipes } = await recipeService.getRecipes();
+        const { data: fetchedRecipes } = await recipeService.getRecipes(100);
         setRecipes(fetchedRecipes);
       } catch (err) {
         setError('Error al cargar las recetas');

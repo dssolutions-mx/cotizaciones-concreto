@@ -15,6 +15,7 @@ import {
   Search,
   ChevronRight
 } from 'lucide-react';
+import Link from 'next/link';
 
 export default function LandingPage() {
   // Verificar si estamos en el cliente para evitar errores de hidratación
@@ -265,23 +266,23 @@ export default function LandingPage() {
               <div>
                 <h4 className="font-bold mb-3 text-gray-300">Enlaces Rápidos</h4>
                 <ul className="space-y-2 text-gray-400">
-                  <li><a href="/login" className="hover:text-white transition-colors">Iniciar Sesión</a></li>
-                  <li><a href="/quotes" className="hover:text-white transition-colors">Cotizaciones</a></li>
-                  <li><a href="/clients" className="hover:text-white transition-colors">Clientes</a></li>
+                  <li><Link href="/login" className="hover:text-white transition-colors">Iniciar Sesión</Link></li>
+                  <li><Link href="/quotes" className="hover:text-white transition-colors">Cotizaciones</Link></li>
+                  <li><Link href="/clients" className="hover:text-white transition-colors">Clientes</Link></li>
                 </ul>
               </div>
               <div>
                 <h4 className="font-bold mb-3 text-gray-300">Recursos</h4>
                 <ul className="space-y-2 text-gray-400">
-                  <li><a href="/help" className="hover:text-white transition-colors">Centro de Ayuda</a></li>
-                  <li><a href="/contact" className="hover:text-white transition-colors">Contacto</a></li>
+                  <li><Link href="/help" className="hover:text-white transition-colors">Centro de Ayuda</Link></li>
+                  <li><Link href="/contact" className="hover:text-white transition-colors">Contacto</Link></li>
                 </ul>
               </div>
               <div>
                 <h4 className="font-bold mb-3 text-gray-300">Legal</h4>
                 <ul className="space-y-2 text-gray-400">
-                  <li><a href="/terms" className="hover:text-white transition-colors">Términos de Uso</a></li>
-                  <li><a href="/privacy" className="hover:text-white transition-colors">Privacidad</a></li>
+                  <li><Link href="/terms" className="hover:text-white transition-colors">Términos de Uso</Link></li>
+                  <li><Link href="/privacy" className="hover:text-white transition-colors">Privacidad</Link></li>
                 </ul>
               </div>
             </div>

@@ -57,11 +57,14 @@ export const UploadExcel = () => {
 
         // Get the current version for this recipe
         const { data: recipeWithVersions } = await recipeService.getRecipeById(savedRecipe.id!);
-        const currentVersion = recipeWithVersions.recipe_versions[0];
+        
+        if (recipeWithVersions && recipeWithVersions.recipe_versions && recipeWithVersions.recipe_versions.length > 0) {
+          const currentVersion = recipeWithVersions.recipe_versions[0];
 
-        // If recipe has reference data, save it to the specific version
-        if (currentVersion.id && recipe.referenceData) {
-          await saveRecipeReferenceMaterials(currentVersion.id, recipe.referenceData);
+          // If recipe has reference data, save it to the specific version
+          if (currentVersion.id && recipe.referenceData) {
+            await saveRecipeReferenceMaterials(currentVersion.id, recipe.referenceData);
+          }
         }
       }
       setProcessedRecipes([]);

@@ -127,29 +127,28 @@ function UpdatePasswordForm() {
             // Wait a moment to ensure Supabase client has initialized
             await new Promise(resolve => setTimeout(resolve, 500));
             
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+            const { data: _sessionData, error: _sessionError } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken
             });
             
-            if (sessionError) {
-              console.error('Error setting session from tokens:', sessionError);
-              setError(`Error al establecer la sesión: ${sessionError.message}`);
-            } else if (sessionData.user) {
-              console.log('Session set successfully from URL tokens', sessionData);
-              setInviteEmail(sessionData.user.email || null);
+            if (_sessionError) {
+              console.error('Error setting session from tokens:', _sessionError);
+              setError(`Error al establecer la sesión: ${_sessionError.message}`);
+            } else if (_sessionData.user) {
+              console.log('Session set successfully from URL tokens', _sessionData);
+              setInviteEmail(_sessionData.user.email || null);
               setCurrentSessionData({
-                session: sessionData.session,
-                user: sessionData.user
+                session: _sessionData.session,
+                user: _sessionData.user
               });
               setSessionEstablished(true);
             }
             
             setAuthReady(true);
             setLoading(false);
-          } catch (err) {
-            console.error('Exception setting session from tokens:', err);
+          } catch (_error) {
+            console.error('Exception setting session from tokens:', _error);
             setError('Error al procesar la invitación');
             setAuthReady(true);
             setLoading(false);
@@ -444,13 +443,10 @@ function UpdatePasswordForm() {
     if (message && countdown === 0) {
       console.log('Auto-redirecting to login page after password update');
       
-      // Instead of async function with try/catch, use a direct hard redirect
-      // This is more reliable for completely breaking the session
-      
       // Set the special flag to ensure login page knows this is a complete logout
       try {
         sessionStorage.setItem('force_complete_logout', 'true');
-      } catch (_) {
+      } catch (_error) {
         console.error('Failed to set session storage flag');
       }
       
@@ -466,7 +462,7 @@ function UpdatePasswordForm() {
         ];
         
         keysToTry.forEach(key => {
-          try { localStorage.removeItem(key); } catch (_) {}
+          try { localStorage.removeItem(key); } catch (_storageError) {}
         });
         
         Object.keys(localStorage).forEach(key => {
@@ -484,8 +480,8 @@ function UpdatePasswordForm() {
           document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
           document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
         });
-      } catch (e) {
-        console.error('Error in final storage clearing:', e);
+      } catch (_clearError) {
+        console.error('Error in final storage clearing:', _clearError);
       }
       
       // Use more advanced approach for hard reload
@@ -541,15 +537,14 @@ function UpdatePasswordForm() {
           
           if (accessToken && refreshToken) {
             try {
-              // eslint-disable-next-line @typescript-eslint/no-unused-vars
-              const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+              const { data: _sessionData, error: _sessionError } = await supabase.auth.setSession({
                 access_token: accessToken,
                 refresh_token: refreshToken
               });
               
-              if (sessionError) {
-                console.error('Error recovering session from hash:', sessionError);
-                setError(`Error al recuperar la sesión: ${sessionError.message}`);
+              if (_sessionError) {
+                console.error('Error recovering session from hash:', _sessionError);
+                setError(`Error al recuperar la sesión: ${_sessionError.message}`);
                 setLoading(false);
                 setPasswordUpdateAttempted(false);
                 return;
@@ -557,8 +552,8 @@ function UpdatePasswordForm() {
               
               console.log('Session recovered successfully for password update');
               // Continue with password update
-            } catch (err) {
-              console.error('Exception recovering session:', err);
+            } catch (_error) {
+              console.error('Exception recovering session:', _error);
               setError('Error al recuperar la sesión para actualizar la contraseña');
               setLoading(false);
               setPasswordUpdateAttempted(false);

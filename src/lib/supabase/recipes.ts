@@ -172,40 +172,55 @@ export const recipeService = {
     versions: RecipeVersion[], 
     materials: MaterialQuantity[]
   }> {
-    // Obtener detalles de la receta
-    const { data: recipe, error: recipeError } = await supabase
-      .from('recipes')
-      .select('*')
-      .eq('id', recipeId)
-      .single();
+    try {
+      // Obtener detalles de la receta
+      const { data: recipe, error: recipeError } = await supabase
+        .from('recipes')
+        .select('*')
+        .eq('id', recipeId)
+        .single();
 
-    if (recipeError) throw recipeError;
+      if (recipeError) {
+        console.error('Error fetching recipe:', recipeError);
+        throw recipeError;
+      }
 
-    // Obtener versiones de la receta
-    const { data: versions, error: versionsError } = await supabase
-      .from('recipe_versions')
-      .select('id, recipe_id, version_number, effective_date, is_current, notes, loaded_to_k2, created_at')
-      .eq('recipe_id', recipeId)
-      .order('version_number', { ascending: false });
+      // Obtener versiones de la receta
+      const { data: versions, error: versionsError } = await supabase
+        .from('recipe_versions')
+        .select('id, recipe_id, version_number, effective_date, is_current, notes, loaded_to_k2, created_at')
+        .eq('recipe_id', recipeId)
+        .order('version_number', { ascending: false });
 
-    if (versionsError) throw versionsError;
+      if (versionsError) {
+        console.error('Error fetching recipe versions:', versionsError);
+        throw versionsError;
+      }
 
-    // Obtener cantidades de materiales de la versión actual
-    const currentVersion = versions.find(v => v.is_current);
-    
-    if (!currentVersion) throw new Error('No current version found');
+      // Obtener cantidades de materiales de la versión actual
+      const currentVersion = versions.find(v => v.is_current);
+      
+      if (!currentVersion) throw new Error('No current version found');
 
-    const { data: materials, error: materialsError } = await supabase
-      .from('material_quantities')
-      .select('*')
-      .eq('recipe_version_id', currentVersion.id);
+      const { data: materials, error: materialsError } = await supabase
+        .from('material_quantities')
+        .select('*')
+        .eq('recipe_version_id', currentVersion.id);
 
-    if (materialsError) throw materialsError;
+      if (materialsError) {
+        console.error('Error fetching material quantities:', materialsError);
+        throw materialsError;
+      }
 
-    return { recipe, versions, materials };
+      return { recipe, versions, materials };
+    } catch (error) {
+      const errorMessage = handleError(error, 'getRecipeDetails');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
   },
 
-  async getRecipes(limit = 50) {
+  async getRecipes(limit = 100) {
     try {
       const { data, error } = await supabase
         .from('recipes')
@@ -251,40 +266,49 @@ export const recipeService = {
   },
 
   async getRecipeById(id: string) {
-    const { data: recipe, error } = await supabase
-      .from('recipes')
-      .select(`
-        id,
-        recipe_code,
-        strength_fc,
-        age_days,
-        placement_type,
-        max_aggregate_size,
-        slump,
-        recipe_versions!inner(
+    try {
+      const { data: recipe, error } = await supabase
+        .from('recipes')
+        .select(`
           id,
-          version_number,
-          is_current,
-          notes,
-          materials:material_quantities(
-            material_type,
-            quantity,
-            unit
+          recipe_code,
+          strength_fc,
+          age_days,
+          placement_type,
+          max_aggregate_size,
+          slump,
+          recipe_versions!inner(
+            id,
+            version_number,
+            is_current,
+            notes,
+            materials:material_quantities(
+              material_type,
+              quantity,
+              unit
+            )
           )
-        )
-      `)
-      .eq('id', id)
-      .eq('recipe_versions.is_current', true)
-      .single();
+        `)
+        .eq('id', id)
+        .eq('recipe_versions.is_current', true)
+        .single();
 
-    if (error) throw error;
+      if (error) {
+        console.error('Error fetching recipe by ID:', error);
+        throw error;
+      }
 
-    // Enrich recipe with recipe type
-    const enrichedRecipe = {
-      ...recipe,
-      recipe_type: recipe.recipe_versions[0]?.notes || null
-    };
+      // Enrich recipe with recipe type
+      const enrichedRecipe = {
+        ...recipe,
+        recipe_type: recipe.recipe_versions[0]?.notes || null
+      };
 
-    return { data: enrichedRecipe, error: null };
+      return { data: enrichedRecipe, error: null };
+    } catch (error) {
+      const errorMessage = handleError(error, 'getRecipeById');
+      console.error(errorMessage);
+      return { data: null, error: errorMessage };
+    }
   }
 }; 

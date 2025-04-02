@@ -45,9 +45,10 @@ export function createClient() {
         storageKey: 'supabase-auth-token'
       },
       global: {
-        // Add custom headers to help with CSP issues
+        // Add custom headers to help with CSP issues and 406 errors
         headers: {
-          'X-Client-Info': 'supabase-js-v2'
+          'X-Client-Info': 'supabase-js-v2',
+          'Accept': 'application/json'
         }
       }
     }

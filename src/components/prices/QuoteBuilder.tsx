@@ -6,6 +6,7 @@ import { priceService } from '@/lib/supabase/prices';
 import { calculateBasePrice } from '@/lib/utils/priceCalculator';
 import { createQuote, QuotesService } from '@/services/quotes';
 import { supabase } from '@/lib/supabase';
+import ConstructionSiteSelect from '@/components/ui/ConstructionSiteSelect';
 
 interface Client {
   id: string;
@@ -52,6 +53,7 @@ export default function QuoteBuilder() {
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [quoteProducts, setQuoteProducts] = useState<QuoteProduct[]>([]);
   const [clientHistory, setClientHistory] = useState<any[]>([]);
+  const [selectedSite, setSelectedSite] = useState<string>('');
   const [constructionSite, setConstructionSite] = useState('');
   const [location, setLocation] = useState('');
   const [validityDate, setValidityDate] = useState('');
@@ -452,17 +454,18 @@ export default function QuoteBuilder() {
           ))}
         </select>
 
-        <div className="mb-4">
-          <label className="block mb-2">Obra</label>
-          <input 
-            type="text"
-            value={constructionSite}
-            onChange={(e) => setConstructionSite(e.target.value)}
-            className="w-full p-2 border rounded"
-            placeholder="Nombre del sitio"
-            disabled={isLoading}
+        {selectedClient && (
+          <ConstructionSiteSelect
+            clientId={selectedClient}
+            value={selectedSite}
+            onChange={(site) => {
+              setSelectedSite(site?.id || '');
+              setConstructionSite(site?.name || '');
+            }}
+            onLocationChange={setLocation}
+            className="mb-4"
           />
-        </div>
+        )}
 
         <div className="mb-4">
           <label className="block mb-2">Ubicación</label>

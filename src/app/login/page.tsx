@@ -75,7 +75,7 @@ function LoginForm() {
           // Clear the flag so we don't repeat this unnecessarily
           try {
             sessionStorage.removeItem('force_complete_logout');
-          } catch (_) {}
+          } catch {}
           
           // Define a thorough storage clearing function
           const clearAllStorage = () => {
@@ -95,7 +95,7 @@ function LoginForm() {
               
               // Directly clear known keys
               keysToTry.forEach(key => {
-                try { localStorage.removeItem(key); } catch (_) {}
+                try { localStorage.removeItem(key); } catch {}
               });
               
               // Find and clear anything that looks like an auth token
@@ -126,7 +126,7 @@ function LoginForm() {
             // Clear sessionStorage
             try {
               sessionStorage.clear();
-            } catch (_) {}
+            } catch {}
           };
           
           // Execute signOut with multiple approaches

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import { clientService } from '@/lib/supabase/clients';
+import { useRouter } from 'next/navigation';
 
 interface Client {
   id: string;
@@ -12,27 +13,50 @@ interface Client {
 }
 
 export default function ClientsPage() {
+  const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const loadClients = async () => {
+    try {
+      setLoading(true);
+      const data = await clientService.getAllClients();
+      setClients(data);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Error al cargar los clientes';
+      setError(errorMessage);
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadClients = async () => {
-      try {
-        setLoading(true);
-        const data = await clientService.getAllClients();
-        setClients(data);
-      } catch (err: unknown) {
-        const errorMessage = err instanceof Error ? err.message : 'Error al cargar los clientes';
-        setError(errorMessage);
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     loadClients();
   }, []);
+
+  const handleDeleteClient = async (clientId: string, businessName: string) => {
+    if (!confirm(`¿Estás seguro de eliminar el cliente "${businessName}"?`)) {
+      return;
+    }
+    
+    try {
+      setIsDeleting(true);
+      await clientService.deleteClient(clientId);
+      // Recargar la lista después de eliminar
+      await loadClients();
+      // Mostrar mensaje de éxito
+      alert('Cliente eliminado correctamente');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error al eliminar el cliente';
+      alert(`Error: ${errorMessage}`);
+      console.error(err);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="container mx-auto p-4">
@@ -41,9 +65,7 @@ export default function ClientsPage() {
         
         <RoleProtectedButton
           allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE']}
-          onClick={() => {
-            alert('Formulario de creación de cliente próximamente');
-          }}
+          onClick={() => router.push('/clients/new')}
           className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
           showDisabled={true}
         >
@@ -51,12 +73,14 @@ export default function ClientsPage() {
         </RoleProtectedButton>
       </div>
       
-      {loading ? (
+      {loading || isDeleting ? (
         <div className="bg-white shadow-md rounded-lg p-6 text-center">
           <div className="animate-spin inline-block w-6 h-6 border-[3px] border-current border-t-transparent text-gray-400 rounded-full" role="status">
             <span className="sr-only">Cargando...</span>
           </div>
-          <p className="mt-2 text-gray-600">Cargando clientes...</p>
+          <p className="mt-2 text-gray-600">
+            {isDeleting ? 'Eliminando cliente...' : 'Cargando clientes...'}
+          </p>
         </div>
       ) : error ? (
         <div className="bg-white shadow-md rounded-lg p-6 text-center">
@@ -97,7 +121,7 @@ export default function ClientsPage() {
                         <button 
                           className="text-indigo-600 hover:text-indigo-900"
                           onClick={() => {
-                            alert(`Ver detalles de ${client.business_name}`);
+                            router.push(`/clients/${client.id}`);
                           }}
                         >
                           Ver
@@ -106,7 +130,7 @@ export default function ClientsPage() {
                         <RoleProtectedButton
                           allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE']}
                           onClick={() => {
-                            alert(`Editar ${client.business_name} próximamente`);
+                            router.push(`/clients/${client.id}/edit`);
                           }}
                           className="text-blue-600 hover:text-blue-900"
                         >
@@ -115,10 +139,9 @@ export default function ClientsPage() {
                         
                         <RoleProtectedButton
                           allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
-                          onClick={() => {
-                            alert(`Eliminar ${client.business_name} próximamente`);
-                          }}
+                          onClick={() => handleDeleteClient(client.id, client.business_name)}
                           className="text-red-600 hover:text-red-900"
+                          disabled={isDeleting}
                         >
                           Eliminar
                         </RoleProtectedButton>
