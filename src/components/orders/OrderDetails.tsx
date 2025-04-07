@@ -293,10 +293,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             <h3 className="text-lg font-semibold">Información del Cliente</h3>
           </div>
           <div className="p-6">
-            <p className="font-medium text-lg">{order.client.business_name}</p>
-            <p className="text-sm text-gray-600">Código: {order.client.client_code}</p>
-            <p className="text-sm">Email: {order.client.email}</p>
-            <p className="text-sm">Teléfono: {order.client.phone}</p>
+            <p className="font-medium text-lg">{order.client?.business_name}</p>
+            <p className="text-sm text-gray-600">Código: {order.client?.client_code}</p>
+            <p className="text-sm">Email: {order.client?.email}</p>
+            <p className="text-sm">Teléfono: {order.client?.phone}</p>
           </div>
         </div>
 
