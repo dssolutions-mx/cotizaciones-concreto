@@ -45,4 +45,44 @@ After implementing these changes, you should test:
 1. Creating and approving quotes with construction site information
 2. Verifying that prices are correctly associated with the construction site
 3. Retrieving prices filtered by construction site
-4. Ensuring that the same client can have different prices for the same product at different construction sites 
+4. Ensuring that the same client can have different prices for the same product at different construction sites
+
+## Implementación del Sistema de Gestión de Pedidos (2024-06-04)
+
+Se ha implementado un sistema completo de gestión de pedidos con las siguientes características:
+
+### Nuevas Tablas
+
+- `orders`: Tabla principal para almacenar pedidos de clientes
+- `order_items`: Detalle de productos en cada pedido
+- `order_notifications`: Registro de notificaciones enviadas relacionadas con pedidos
+
+### Nuevas Funciones SQL
+
+- `generate_order_number()`: Genera números de pedido únicos con formato año-número secuencial
+- `create_order_from_quote()`: Crea un pedido a partir de una cotización aprobada
+- `create_order_with_details()`: Crea un pedido con opciones adicionales como vacío de olla
+- `approve_order_credit()`: Función para aprobar el crédito de un pedido
+- `reject_order_credit()`: Función para rechazar el crédito de un pedido
+- `notify_on_new_order()`: Trigger que notifica sobre nuevos pedidos
+
+### Edge Functions de Supabase
+
+- `credit-validation-notification`: Envía correos para validación de crédito usando SendGrid
+- `daily-schedule-report`: Envía reporte diario de entregas programadas
+
+### Políticas de Seguridad (RLS)
+
+Se han implementado políticas de Row Level Security (RLS) para:
+
+- Permitir lectura de pedidos a todos los usuarios autenticados
+- Restringir la creación de pedidos a roles específicos
+- Restringir la validación de crédito a ejecutivos y gerentes de planta
+
+Archivos relacionados:
+- `migrations/orders_tables.sql`: Definición de tablas y funciones
+- `migrations/supabase/functions/credit-validation-notification`: Edge function para notificaciones de validación
+- `migrations/supabase/functions/daily-schedule-report`: Edge function para reporte diario
+- `src/lib/supabase/orders.ts`: Cliente Supabase para gestión de pedidos
+- `src/types/orders.ts`: Tipos TypeScript para pedidos
+- `migrations/supabase/DEPLOYMENT.md`: Instrucciones de despliegue 

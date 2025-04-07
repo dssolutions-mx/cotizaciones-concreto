@@ -15,7 +15,8 @@ import {
   Menu,
   X,
   Plus,
-  UserCog
+  UserCog,
+  Package
 } from 'lucide-react';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -28,7 +29,8 @@ const NAV_ITEMS = [
   { href: '/prices', label: 'Precios', icon: DollarSign },
   { href: '/price-history', label: 'Historial', icon: BarChart2 },
   { href: '/clients', label: 'Clientes', icon: Users },
-  { href: '/quotes', label: 'Cotizaciones', icon: ClipboardList }
+  { href: '/quotes', label: 'Cotizaciones', icon: ClipboardList },
+  { href: '/orders', label: 'Pedidos', icon: Package }
 ];
 
 // Componente interno para navegación con soporte de roles

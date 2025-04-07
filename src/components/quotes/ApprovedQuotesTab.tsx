@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import QuotePDF from './QuotePDF';
+import { useRouter } from 'next/navigation';
 
 interface ApprovedQuotesTabProps {
   onDataSaved?: () => void;
@@ -50,6 +51,7 @@ export interface ApprovedQuote {
   id: string;
   quote_number: string;
   client: {
+    id: string;
     business_name: string;
     client_code: string;
   } | null;
@@ -86,6 +88,7 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
   const [totalQuotes, setTotalQuotes] = useState(0);
   const [vatToggles, setVatToggles] = useState<Record<string, boolean>>({});
   const quotesPerPage = 10;
+  const router = useRouter();
 
   const fetchApprovedQuotes = useCallback(async () => {
     try {
@@ -100,6 +103,7 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
           approval_date,
           approved_by,
           clients (
+            id,
             business_name, 
             client_code
           ),
@@ -168,6 +172,7 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
         return {
           ...quote,
           client: clientData ? {
+            id: clientData.id,
             business_name: clientData.business_name,
             client_code: clientData.client_code
           } : null,
@@ -218,11 +223,21 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
     });
   };
 
+  const createOrder = (quote: ApprovedQuote) => {
+    // Navigate to orders page with quote information
+    const clientId = quote.client?.id || '';
+    router.push(`/orders?quoteId=${quote.id}&clientId=${clientId}&totalAmount=${quote.total_amount}`);
+  };
+
   return (
     <div className="p-4">
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
+        </div>
+      ) : quotes.length === 0 ? (
+        <div className="flex justify-center items-center h-64">
+          <p>No hay cotizaciones aprobadas</p>
         </div>
       ) : (
         <>
@@ -263,6 +278,12 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
                           className="text-blue-500 hover:text-blue-700 mr-2"
                         >
                           Ver Detalles
+                        </button>
+                        <button
+                          onClick={() => createOrder(quote)}
+                          className="text-green-500 hover:text-green-700"
+                        >
+                          Crear Orden
                         </button>
                         <div className="flex flex-col items-center">
                           <PDFDownloadLink

@@ -127,14 +127,14 @@ function UpdatePasswordForm() {
             // Wait a moment to ensure Supabase client has initialized
             await new Promise(resolve => setTimeout(resolve, 500));
             
-            const { data: _sessionData, error: _sessionError } = await supabase.auth.setSession({
+            const { data: _sessionData, error: sessionError } = await supabase.auth.setSession({
               access_token: accessToken,
               refresh_token: refreshToken
             });
             
-            if (_sessionError) {
-              console.error('Error setting session from tokens:', _sessionError);
-              setError(`Error al establecer la sesión: ${_sessionError.message}`);
+            if (sessionError) {
+              console.error('Error setting session from tokens:', sessionError);
+              setError(`Error al establecer la sesión: ${sessionError.message}`);
             } else if (_sessionData.user) {
               console.log('Session set successfully from URL tokens', _sessionData);
               setInviteEmail(_sessionData.user.email || null);
@@ -147,8 +147,8 @@ function UpdatePasswordForm() {
             
             setAuthReady(true);
             setLoading(false);
-          } catch (_error) {
-            console.error('Exception setting session from tokens:', _error);
+          } catch (error) {
+            console.error('Exception setting session from tokens:', error);
             setError('Error al procesar la invitación');
             setAuthReady(true);
             setLoading(false);
@@ -318,8 +318,8 @@ function UpdatePasswordForm() {
                     localStorage.removeItem(key);
                   }
                 });
-              } catch (storageErr) {
-                console.error('Error clearing localStorage:', storageErr);
+              } catch (error) {
+                console.error('Error clearing localStorage:', error);
               }
               
               // Clear all cookies 
