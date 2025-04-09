@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 import { saveRecipeReferenceMaterials } from './recipeReferenceMaterials';
 import { recipeService } from '../supabase/recipes';
 import { ExcelRecipeData } from '@/types/recipes';

@@ -7,7 +7,7 @@ import {
   MaterialQuantity, 
   ExcelRecipeData 
 } from '@/types/recipes';
-import * as XLSX from 'xlsx';
+import * as XLSX from 'xlsx-js-style';
 
 export const recipeService = {
   async processExcelFile(file: File): Promise<ExcelRecipeData[]> {

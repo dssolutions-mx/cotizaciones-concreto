@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import type { Database } from '@/types/supabase';
-import crypto from 'crypto';
 
-// Generate a random nonce for CSP
+// Generate a random nonce for CSP using Web Crypto API
 function generateNonce() {
-  return crypto.randomBytes(16).toString('base64');
+  const randomBytes = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode.apply(null, Array.from(randomBytes)));
 }
 
 // Define a comprehensive CSP policy that allows Supabase to function
