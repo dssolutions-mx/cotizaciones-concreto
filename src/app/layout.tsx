@@ -16,22 +16,20 @@ import {
   X,
   Plus,
   UserCog,
-  Package
+  Package,
+  Home
 } from 'lucide-react';
-import { AuthProvider } from '@/contexts/AuthContext';
+import { AuthProvider, UserRole } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
 import ProfileMenu from '@/components/auth/ProfileMenu';
 import AuthStatusIndicator from '@/components/auth/AuthStatusIndicator';
+import { Inter } from 'next/font/google';
+import { OrderPreferencesProvider } from '@/contexts/OrderPreferencesContext';
 
-// Estructura simple de navegación
-const NAV_ITEMS = [
-  { href: '/recipes', label: 'Recetas', icon: FileText },
-  { href: '/prices', label: 'Precios', icon: DollarSign },
-  { href: '/price-history', label: 'Historial', icon: BarChart2 },
-  { href: '/clients', label: 'Clientes', icon: Users },
-  { href: '/quotes', label: 'Cotizaciones', icon: ClipboardList },
-  { href: '/orders', label: 'Pedidos', icon: Package }
-];
+// Define navigation items for different roles
+// const NAV_ITEMS = { ... }; // Removed as it's unused
+
+const inter = Inter({ subsets: ['latin'] });
 
 // Componente interno para navegación con soporte de roles
 function Navigation({ children }: { children: React.ReactNode }) {
@@ -41,11 +39,63 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const isLandingRoute = pathname?.includes('/landing');
 
   // Determinar los elementos de navegación basados en el rol
-  const navItems = [...NAV_ITEMS];
-  
-  // Solo mostrar "Gestión de Usuarios" a los administradores
-  if (userProfile?.role === 'EXECUTIVE') {
-    navItems.push({ href: '/admin/users', label: 'Usuarios', icon: UserCog });
+  const navItems = [];
+
+  // Añadir elementos de menú basados en el rol
+  if (userProfile) {
+    const role = userProfile.role;
+    
+    // Elementos comunes para todos los roles
+    navItems.push({ href: '/dashboard', label: 'Dashboard', icon: Home });
+    
+    // Específicos por rol
+    switch (role) {
+      case 'DOSIFICADOR':
+        // Dosificador solo puede ver pedidos, no editarlos
+        navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
+        break;
+        
+      case 'CREDIT_VALIDATOR':
+        // Validador de crédito puede ver clientes y pedidos
+        navItems.push({ href: '/clients', label: 'Clientes', icon: Users });
+        navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
+        break;
+        
+      case 'SALES_AGENT':
+        // Navegación existente para SALES_AGENT
+        navItems.push({ href: '/recipes', label: 'Recetas', icon: FileText });
+        navItems.push({ href: '/prices', label: 'Precios', icon: DollarSign });
+        navItems.push({ href: '/clients', label: 'Clientes', icon: Users });
+        navItems.push({ href: '/quotes', label: 'Cotizaciones', icon: ClipboardList });
+        navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
+        break;
+        
+      case 'PLANT_MANAGER':
+      case 'EXECUTIVE':
+        // Navegación para roles administrativos
+        navItems.push({ href: '/recipes', label: 'Recetas', icon: FileText });
+        navItems.push({ href: '/prices', label: 'Precios', icon: DollarSign });
+        navItems.push({ href: '/price-history', label: 'Historial', icon: BarChart2 });
+        navItems.push({ href: '/clients', label: 'Clientes', icon: Users });
+        navItems.push({ href: '/quotes', label: 'Cotizaciones', icon: ClipboardList });
+        navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
+        break;
+        
+      case 'QUALITY_TEAM':
+        // Navegación para equipo de calidad
+        navItems.push({ href: '/recipes', label: 'Recetas', icon: FileText });
+        navItems.push({ href: '/prices', label: 'Precios', icon: DollarSign });
+        break;
+        
+      default:
+        // Navegación predeterminada
+        break;
+    }
+    
+    // EXECUTIVE puede gestionar usuarios
+    if (role === 'EXECUTIVE') {
+      navItems.push({ href: '/admin/users', label: 'Usuarios', icon: UserCog });
+    }
   }
 
   if (isLandingRoute) {
@@ -291,26 +341,28 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const isLandingRoute = pathname?.includes('/landing');
 
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <head>
         <title>DC Concretos - Sistema de Cotizaciones</title>
-        <meta name="description" content="Sistema de gestión de cotizaciones para DC Concretos" />
+        <meta name="description" content="Sistema de cotizaciones para DC Concretos" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <link rel="icon" href="/images/dcconcretos/favicon.svg" />
       </head>
-      <body className={isLandingRoute ? 'bg-white' : 'bg-gray-100'} suppressHydrationWarning>
+      <body className={isLandingRoute ? 'bg-white' : 'bg-gray-100'}>
         <AuthProvider>
-          <ErrorBoundary>
-            <Toaster position="top-right" />
-            
-            {isLandingRoute ? (
-              <>{children}</>
-            ) : (
-              <Navigation>
-                {children}
-              </Navigation>
-            )}
-          </ErrorBoundary>
+          <OrderPreferencesProvider>
+            <ErrorBoundary>
+              <Toaster position="top-right" />
+              
+              {isLandingRoute ? (
+                <>{children}</>
+              ) : (
+                <Navigation>
+                  {children}
+                </Navigation>
+              )}
+            </ErrorBoundary>
+          </OrderPreferencesProvider>
         </AuthProvider>
       </body>
     </html>

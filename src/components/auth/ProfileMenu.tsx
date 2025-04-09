@@ -31,6 +31,10 @@ export default function ProfileMenu() {
         return 'Jefe de Planta';
       case 'EXECUTIVE':
         return 'Directivo';
+      case 'CREDIT_VALIDATOR':
+        return 'Validador de Crédito';
+      case 'DOSIFICADOR':
+        return 'Dosificador';
       default:
         return userProfile.role;
     }

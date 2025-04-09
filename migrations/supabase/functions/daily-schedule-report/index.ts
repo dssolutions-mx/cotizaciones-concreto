@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'https://pkjqznogflgbnwzkzmpg.supabase.co'
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 const SENDGRID_API_KEY = Deno.env.get('SENDGRID_API_KEY')
 
@@ -18,7 +18,7 @@ serve(async (req) => {
   // Create a Supabase client
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
   
-  // Get tomorrow's orders
+  // Get tomorrow's orders with creator information
   const { data: orders, error: ordersError } = await supabase
     .from('orders')
     .select(`
@@ -28,6 +28,7 @@ serve(async (req) => {
       delivery_time,
       construction_site,
       special_requirements,
+      created_by,
       clients (business_name, contact_name, phone),
       order_items (
         product_type,
@@ -98,16 +99,36 @@ serve(async (req) => {
     `;
   }).join('');
   
-  // Get email recipients
-  const { data: recipients, error: recipientsError } = await supabase
+  // Get email recipients (PLANT_MANAGER, EXECUTIVE, and creators)
+  const { data: managerRecipients, error: recipientsError } = await supabase
     .from('user_profiles')
     .select('email, first_name, last_name, role')
-    .in('role', ['EXECUTIVE', 'PLANT_MANAGER', 'SALES_AGENT'])
+    .in('role', ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'])
   
   if (recipientsError) {
-    console.error('Error fetching recipients:', recipientsError)
+    console.error('Error fetching manager recipients:', recipientsError)
     return new Response(JSON.stringify({ error: recipientsError.message }), { status: 400 })
   }
+  
+  // Get creator emails for orders
+  let creatorEmails = [];
+  for (const order of orders) {
+    const { data: creator, error: creatorError } = await supabase
+      .from('user_profiles')
+      .select('email')
+      .eq('id', order.created_by)
+      .single();
+      
+    if (creator && !creatorError) {
+      creatorEmails.push(creator.email);
+    }
+  }
+  
+  // Combine recipient lists and remove duplicates
+  const allEmails = [...new Set([
+    ...managerRecipients.map(r => r.email),
+    ...creatorEmails
+  ])];
   
   // Prepare email content
   const emailContent = `
@@ -120,6 +141,16 @@ serve(async (req) => {
     `}
   `;
   
+  // Skip sending if no orders or recipients
+  if (orders.length === 0 || allEmails.length === 0) {
+    return new Response(JSON.stringify({ 
+      success: true, 
+      message: "No hay pedidos o destinatarios para enviar notificaciones."
+    }), { 
+      headers: { "Content-Type": "application/json" } 
+    });
+  }
+  
   // Send email using SendGrid API
   const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
     method: 'POST',
@@ -129,7 +160,7 @@ serve(async (req) => {
     },
     body: JSON.stringify({
       personalizations: [{
-        to: recipients.map(recipient => ({ email: recipient.email }))
+        to: allEmails.map(email => ({ email }))
       }],
       from: { email: "juan.aguirre@dssolutions-mx.com" },
       subject: `Programación de Entregas - ${formattedDate}`,
@@ -147,11 +178,11 @@ serve(async (req) => {
   
   // Record notifications in database
   if (orders.length > 0) {
-    const notificationRecords = recipients.flatMap(recipient => 
+    const notificationRecords = allEmails.flatMap(email => 
       orders.map(order => ({
         order_id: order.id,
         notification_type: 'DAILY_SCHEDULE',
-        recipient: recipient.email,
+        recipient: email,
         delivery_status: response.ok ? 'SENT' : 'FAILED'
       }))
     );

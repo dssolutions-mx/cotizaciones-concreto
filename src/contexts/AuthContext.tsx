@@ -19,7 +19,7 @@ import {
 } from '@/lib/cache/userDataCache';
 
 // Type definitions
-export type UserRole = 'QUALITY_TEAM' | 'PLANT_MANAGER' | 'SALES_AGENT' | 'EXECUTIVE';
+export type UserRole = 'QUALITY_TEAM' | 'PLANT_MANAGER' | 'SALES_AGENT' | 'EXECUTIVE' | 'CREDIT_VALIDATOR' | 'DOSIFICADOR';
 
 export interface UserProfile {
   id: string;

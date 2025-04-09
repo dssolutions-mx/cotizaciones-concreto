@@ -40,6 +40,7 @@ export interface Order {
   created_by: string;
   created_at: string;
   updated_at?: string | null;
+  rejection_reason?: string | null;
 }
 
 export interface OrderWithClient extends Order {
@@ -60,4 +61,4 @@ export interface OrderWithDetails extends Order {
 }
 
 export type OrderStatus = 'created' | 'validated' | 'scheduled' | 'completed' | 'cancelled';
-export type CreditStatus = 'pending' | 'approved' | 'rejected'; 
+export type CreditStatus = 'pending' | 'approved' | 'rejected' | 'rejected_by_validator'; 

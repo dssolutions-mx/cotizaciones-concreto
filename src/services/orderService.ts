@@ -1,10 +1,10 @@
 // Remove createClientComponentClient import since we use the singleton client
 // import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { 
-  Order, 
+  // Removed unused Order
   OrderWithClient, 
   OrderWithDetails, 
-  OrderItem, 
+  // Removed unused OrderItem
   EmptyTruckDetails 
 } from '@/types/orders';
 // Import the singleton Supabase client
@@ -102,7 +102,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       if (quoteDetailsError) throw quoteDetailsError;
       
       // Insert order items
-      const orderItems = orderData.order_items.map(item => {
+      const orderItems = orderData.order_items.map((item: any) => {
         const quoteDetail = quoteDetails.find(qd => qd.id === item.quote_detail_id);
         // Use optional chaining and provide a fallback for recipe_code
         const recipeCode = quoteDetail?.recipes ? 
@@ -162,7 +162,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
   }
 }
 
-export async function getOrders(filterStatus?: string, maxItems?: number, dateRange?: { startDate?: string, endDate?: string }) {
+export async function getOrders(filterStatus?: string, maxItems?: number, dateRange?: { startDate?: string, endDate?: string }, creditStatusFilter?: string) {
   // Use singleton supabase client
   // const supabase = createClientComponentClient<Database>();
   
@@ -175,6 +175,14 @@ export async function getOrders(filterStatus?: string, maxItems?: number, dateRa
   
   if (filterStatus) {
     query = query.eq('order_status', filterStatus);
+  } else {
+    // Si no hay un filtro específico de estado, excluir los pedidos rechazados
+    // Usamos un enfoque más simple: filtrar manualmente los resultados
+    // No filtramos en la consulta, sino en el código
+  }
+  
+  if (creditStatusFilter) {
+    query = query.eq('credit_status', creditStatusFilter);
   }
   
   if (dateRange?.startDate) {
@@ -194,7 +202,17 @@ export async function getOrders(filterStatus?: string, maxItems?: number, dateRa
   const { data, error } = await query;
   
   if (error) throw error;
-  return data as unknown as OrderWithClient[];
+  
+  // Filtrar manualmente los pedidos rechazados
+  let filteredData = data;
+  if (!filterStatus) {
+    filteredData = data.filter(order => 
+      order.credit_status !== 'rejected' && 
+      order.credit_status !== 'rejected_by_validator'
+    );
+  }
+  
+  return filteredData as unknown as OrderWithClient[];
 }
 
 export async function getOrderById(id: string) {
@@ -212,6 +230,18 @@ export async function getOrderById(id: string) {
     .single();
   
   if (error) throw error;
+  
+  // Transform data to match the OrderWithDetails type
+  if (data) {
+    // Rename clients to client for consistency with OrderWithDetails
+    const { clients, ...orderData } = data;
+    return {
+      ...orderData,
+      client: clients,
+      products: data.products || []
+    } as unknown as OrderWithDetails;
+  }
+  
   return data as unknown as OrderWithDetails;
 }
 
@@ -233,35 +263,34 @@ export async function getOrdersForCreditValidation() {
 }
 
 export async function approveCreditForOrder(id: string) {
-  // Use singleton supabase client
-  // const supabase = createClientComponentClient<Database>();
-  
-  const { data, error } = await supabase
-    .from('orders')
-    .update({ 
-      credit_status: 'approved',
-      order_status: 'validated'
-    })
-    .eq('id', id)
-    .select()
-    .single();
-  
-  if (error) throw error;
-  return data;
+  try {
+    const { data, error } = await supabase
+      .rpc('approve_order_credit', {
+        order_id: id
+      });
+    
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error approving credit for order:', error);
+    throw error;
+  }
 }
 
 export async function rejectCreditForOrder(id: string, rejectionReason: string) {
-  // Use singleton supabase client
-  // const supabase = createClientComponentClient<Database>();
-  
-  const { data, error } = await supabase
-    .rpc('reject_order_credit', {
-      order_id: id,
-      rejection_reason: rejectionReason
-    });
-  
-  if (error) throw error;
-  return data;
+  try {
+    const { data, error } = await supabase
+      .rpc('reject_order_credit', {
+        order_id: id,
+        p_rejection_reason: rejectionReason
+      });
+    
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error rejecting credit for order:', error);
+    throw error;
+  }
 }
 
 export async function updateOrderStatus(id: string, status: string) {
@@ -322,6 +351,103 @@ export async function updateOrderItem(id: string, itemData: {
   }
 }
 
+export async function rejectCreditByValidator(id: string, rejectionReason: string) {
+  try {
+    const { data, error } = await supabase
+      .rpc('reject_credit_by_validator', {
+        order_id: id,
+        p_rejection_reason: rejectionReason
+      });
+    
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error en rejectCreditByValidator:', error);
+    throw error;
+  }
+}
+
+// Add function to get orders for manager validation
+export async function getOrdersForManagerValidation() {
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        clients:clients(business_name, client_code)
+      `)
+      .in('credit_status', ['pending', 'rejected_by_validator'])
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data as unknown as OrderWithClient[];
+  } catch (error) {
+    console.error('Error fetching orders for manager validation:', error);
+    throw error;
+  }
+}
+
+// Add function to get rejected orders
+export async function getRejectedOrders() {
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        *,
+        clients:clients(business_name, client_code)
+      `)
+      .in('credit_status', ['rejected', 'rejected_by_validator'])
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    return data as unknown as OrderWithClient[];
+  } catch (error) {
+    console.error('Error fetching rejected orders:', error);
+    throw error;
+  }
+}
+
+// Add function to check if user can approve an order
+export async function canUserApproveOrder(orderId: string) {
+  try {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+    
+    if (!userId) return false;
+    
+    // Obtener el rol del usuario y el estado de la orden
+    const { data: userProfile } = await supabase
+      .from('user_profiles')
+      .select('role')
+      .eq('id', userId)
+      .single();
+      
+    const { data: order } = await supabase
+      .from('orders')
+      .select('credit_status')
+      .eq('id', orderId)
+      .single();
+      
+    if (!userProfile || !order) return false;
+    
+    // CREDIT_VALIDATOR solo puede aprobar si está pendiente
+    if (userProfile.role === 'CREDIT_VALIDATOR' && order.credit_status === 'pending') {
+      return true;
+    }
+    
+    // EXECUTIVE/PLANT_MANAGER pueden aprobar si fue rechazado por el validador o está pendiente
+    if (['EXECUTIVE', 'PLANT_MANAGER'].includes(userProfile.role) && 
+        (order.credit_status === 'rejected_by_validator' || order.credit_status === 'pending')) {
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Error checking permissions:', error);
+    return false;
+  }
+}
+
 const orderService = {
   createOrder,
   getOrders,
@@ -331,7 +457,11 @@ const orderService = {
   rejectCreditForOrder,
   updateOrderStatus,
   updateOrder,
-  updateOrderItem
+  updateOrderItem,
+  rejectCreditByValidator,
+  getOrdersForManagerValidation,
+  getRejectedOrders,
+  canUserApproveOrder
 };
 
 export default orderService; 

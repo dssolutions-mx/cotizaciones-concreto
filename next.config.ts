@@ -20,6 +20,9 @@ const nextConfig: NextConfig = {
   
   // External packages configuration (moved from experimental)
   serverExternalPackages: [],
+  
+  // Explicitly disable the pages directory
+  useFileSystemPublicRoutes: false,
 };
 
 export default nextConfig;

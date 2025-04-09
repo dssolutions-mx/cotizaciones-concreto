@@ -1,6 +1,9 @@
 import { supabase } from './client';
 import { handleError } from '@/utils/errorHandler';
-import type { OrderItem, Order, OrderWithDetails } from '@/types/orders';
+import {
+  OrderWithClient,
+  // Removed unused OrderItem, Order, OrderWithDetails
+} from '@/types/orders';
 
 /**
  * Service for managing order-related operations
@@ -360,4 +363,83 @@ export const orderService = {
       return { data: [], error: errorMessage };
     }
   }
-}; 
+};
+
+// Define the type for an order item - Assuming basic structure
+interface OrderItemBasic {
+  id: string;
+  product_type: string;
+  volume: number;
+  unit_price: number;
+  total_price: number;
+  has_pump_service?: boolean;
+  pump_price?: number | null;
+  pump_volume?: number | null;
+}
+
+// Define a simplified Order type for the context of this file
+interface OrderBasic {
+  id: string;
+  order_number: string;
+  delivery_date: string;
+  delivery_time: string;
+  client_id: string;
+  order_status: string;
+  total_amount?: number;
+}
+
+// Simplified OrderWithDetails
+interface OrderWithDetailsBasic extends OrderBasic {
+  clients: { business_name: string; client_code: string };
+  order_items: OrderItemBasic[];
+}
+
+export async function getOrdersForDosificador() {
+  // Fetch orders relevant for DOSIFICADOR role (read-only access)
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        id, 
+        order_number, 
+        delivery_date, 
+        delivery_time,
+        order_status,
+        clients:clients(business_name)
+      `)
+      // Add any specific filters for Dosificador if needed, e.g., status
+      .in('order_status', ['scheduled', 'validated']) // Example: Show only scheduled or validated
+      .order('delivery_date', { ascending: true });
+    
+    if (error) throw error;
+    return data as unknown as OrderWithClient[]; // Return type remains the same
+  } catch (err) {
+    console.error('Error fetching orders for dosificador:', err);
+    throw new Error('Error al obtener los pedidos.');
+  }
+}
+
+export async function getOrderDetailsForDosificador(orderId: string) {
+  // Fetch specific order details for DOSIFICADOR role
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        id, 
+        order_number, 
+        delivery_date, 
+        delivery_time, 
+        order_status, 
+        clients:clients(business_name, client_code),
+        order_items(*)
+      `)
+      .eq('id', orderId)
+      .single();
+      
+    if (error) throw error;
+    return data as unknown as OrderWithDetailsBasic; // Use simplified type
+  } catch (err) {
+    console.error('Error fetching order details for dosificador:', err);
+    throw new Error('Error al obtener los detalles del pedido.');
+  }
+} 

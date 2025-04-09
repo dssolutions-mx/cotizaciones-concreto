@@ -201,7 +201,7 @@ export default function ScheduleOrderForm({
           id: quote.id,
           quoteNumber: quote.quote_number,
           totalAmount: 0, // Will be calculated below
-          products: quote.quote_details.map(detail => {
+          products: quote.quote_details.map((detail: any) => {
             // Use type assertion to handle nested recipe data
             const recipeData = detail.recipes as {
               recipe_code?: string;
@@ -234,8 +234,8 @@ export default function ScheduleOrderForm({
         
         setAvailableQuotes(quotes);
         
-        // If preSelectedQuoteId is provided, select its products automatically
-        if (preSelectedQuoteId) {
+        // Si hay un ID de cotización preseleccionada, seleccionar sus productos automáticamente
+        if (preSelectedQuoteId && preSelectedQuoteId !== '') {
           const selectedQuote = quotes.find(q => q.id === preSelectedQuoteId);
           if (selectedQuote) {
             setSelectedProducts(selectedQuote.products.map(p => ({
@@ -245,6 +245,8 @@ export default function ScheduleOrderForm({
             })));
           }
         }
+        // Si no hay cotización preseleccionada pero hay cotizaciones disponibles, no hacer nada especial,
+        // el usuario podrá seleccionar los productos manualmente
       } catch (err) {
         console.error('Error loading quotes:', err);
         setError('No se pudieron cargar las cotizaciones aprobadas. Por favor, intente nuevamente.');
@@ -604,7 +606,7 @@ export default function ScheduleOrderForm({
                 </thead>
                 <tbody>
                   {availableQuotes.flatMap(quote => 
-                    quote.products.map((product, index) => {
+                    quote.products.map((product) => {
                       const isSelected = selectedProducts.some(p => p.quoteDetailId === product.quoteDetailId);
                       const selectedProduct = selectedProducts.find(p => p.quoteDetailId === product.quoteDetailId);
                       

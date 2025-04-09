@@ -64,7 +64,6 @@ Se ha implementado un sistema completo de gestión de pedidos con las siguientes
 - `create_order_with_details()`: Crea un pedido con opciones adicionales como vacío de olla
 - `approve_order_credit()`: Función para aprobar el crédito de un pedido
 - `reject_order_credit()`: Función para rechazar el crédito de un pedido
-- `notify_on_new_order()`: Trigger que notifica sobre nuevos pedidos
 
 ### Edge Functions de Supabase
 
@@ -85,4 +84,33 @@ Archivos relacionados:
 - `migrations/supabase/functions/daily-schedule-report`: Edge function para reporte diario
 - `src/lib/supabase/orders.ts`: Cliente Supabase para gestión de pedidos
 - `src/types/orders.ts`: Tipos TypeScript para pedidos
-- `migrations/supabase/DEPLOYMENT.md`: Instrucciones de despliegue 
+- `migrations/supabase/DEPLOYMENT.md`: Instrucciones de despliegue
+
+## Changes in this directory
+
+This directory contains migration scripts for the database.
+
+### Orders table update
+
+Added tables and functions for order management:
+
+- `orders` - Orders table
+- `order_items` - Order items table
+- `order_notifications` - Order notifications table
+
+Added functions:
+- `generate_order_number` - Generates a unique order number
+- `create_order_from_quote` - Creates an order from a quote
+- `create_order_with_details` - Creates an order with details
+- `approve_order_credit` - Approves credit for an order
+- `reject_order_credit` - Rejects credit for an order
+
+### New Roles and Credit Validation Flow Update (Apr 2024)
+
+- Added new roles: `CREDIT_VALIDATOR` and `DOSIFICADOR`
+- Added new credit status: `rejected_by_validator`
+- Added new policies for the new roles
+- Updated credit validation workflow to include validation by credit validators
+- Updated notification system to notify appropriate users based on credit status changes
+
+The changes are included in the `new_roles_and_credit_validation.sql` script. 

@@ -15,7 +15,8 @@ export enum OrderStatus {
 export enum CreditStatus {
   PENDING = 'pending',
   APPROVED = 'approved',
-  REJECTED = 'rejected'
+  REJECTED = 'rejected',
+  REJECTED_BY_VALIDATOR = 'rejected_by_validator'
 }
 
 /**

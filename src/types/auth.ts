@@ -1,1 +1,1 @@
-export type UserRole = 'SALES_AGENT' | 'EXECUTIVE' | 'PLANT_MANAGER' | 'ADMIN'; 
+export type UserRole = 'QUALITY_TEAM' | 'PLANT_MANAGER' | 'SALES_AGENT' | 'EXECUTIVE' | 'CREDIT_VALIDATOR' | 'DOSIFICADOR'; 
