@@ -20,6 +20,7 @@ export interface OrderProduct {
   empty_truck_volume?: number | null;
   empty_truck_price?: number | null;
   quote_detail_id?: string | null;
+  recipe_id?: string | null;
 }
 
 export interface Order {

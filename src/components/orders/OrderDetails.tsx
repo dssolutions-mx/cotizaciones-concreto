@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import orderService from '@/services/orderService';
@@ -8,6 +8,8 @@ import { OrderWithDetails, OrderStatus, CreditStatus } from '@/types/order';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { UserRole } from '@/types/auth';
+import RegistroRemision from '@/components/remisiones/RegistroRemision';
+import RemisionesList from '@/components/remisiones/RemisionesList';
 
 // Define una interfaz para editar la orden
 interface EditableOrderData {
@@ -40,6 +42,17 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [isRejectReasonModalOpen, setIsRejectReasonModalOpen] = useState<boolean>(false);
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<'details' | 'remisiones'>('details');
+  
+  // Calculate allowed recipe IDs
+  const allowedRecipeIds = useMemo(() => {
+    if (!order?.products) return [];
+    // Now recipe_id should be directly available on products
+    const ids = order.products
+      .map(p => p.recipe_id) // Access recipe_id directly
+      .filter((id): id is string => !!id);
+    return [...new Set(ids)]; 
+  }, [order]);
   
   // Check if user has the Dosificador role - moved up before canEditOrder
   const isDosificador = userProfile?.role === 'DOSIFICADOR' as UserRole;
@@ -342,352 +355,395 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   }
 
   return (
-    <div className="relative bg-white rounded-lg shadow-sm overflow-hidden p-4 md:p-6">
-      {/* Header con botón de regreso */}
-      <div className="mb-6 flex items-center">
-        <button
-          onClick={handleGoBack}
-          className="mr-3 p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
-          aria-label="Volver"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clipRule="evenodd" />
-          </svg>
-        </button>
-        <h1 className="text-xl md:text-2xl font-bold text-gray-800 flex-1">
-          Detalles de Orden {order?.order_number && <span className="text-gray-500 ml-2">#{order.order_number}</span>}
-        </h1>
-        {canEditOrder && (
-          <button 
-            onClick={handleEditClick}
-            className="btn-edit ml-auto bg-green-50 text-green-700 hover:bg-green-100 px-3 py-1 text-sm font-medium rounded-md flex items-center"
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-6 flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-semibold text-gray-900">
+            Orden #{order?.order_number || orderId.substring(0, 8)}
+          </h1>
+          <p className="mt-1 text-sm text-gray-600">Cliente: {order?.client?.business_name}</p>
+        </div>
+        <div>
+          <button
+            onClick={handleGoBack}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-            </svg>
-            Editar Orden
+            Volver
           </button>
-        )}
+        </div>
       </div>
 
-      <div className="space-y-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center">
-          <div>
-            <div className="flex flex-wrap gap-2">
-              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getOrderStatusColor(order.order_status)}`}>
-                {translateOrderStatus(order.order_status)}
-              </span>
-              <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getCreditStatusColor(order.credit_status)}`}>
-                Crédito: {translateCreditStatus(order.credit_status)}
-              </span>
-            </div>
-          </div>
-          
-          <div className="mt-4 md:mt-0 flex flex-wrap gap-2">
-            {canManageCredit && (
-              <div className="flex space-x-2">
-                <button 
-                  onClick={handleApproveCredit}
-                  className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-green-600 hover:bg-green-700 text-white"
-                >
-                  Aprobar Crédito
-                </button>
-                
-                {isCreditValidator && (
-                  <button 
-                    onClick={openRejectReasonModal}
-                    className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
-                  >
-                    Rechazar Crédito
-                  </button>
-                )}
-                
-                {isManager && (
-                  <button 
-                    onClick={openConfirmModal}
-                    className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
-                  >
-                    Rechazar Crédito
-                  </button>
-                )}
-              </div>
-            )}
-            
-            {isEditing && (
-              <div className="flex space-x-2">
-                <button
-                  onClick={handleSaveChanges}
-                  disabled={isSaving}
-                  className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {isSaving ? 'Guardando...' : 'Guardar Cambios'}
-                </button>
-                <button
-                  onClick={handleCancelEdit}
-                  className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent hover:text-accent-foreground"
-                >
-                  Cancelar
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="flex flex-col md:flex-row justify-between gap-4">
-          <div className="border rounded-lg shadow-sm bg-white flex-1">
-            <div className="p-6 border-b">
-              <h3 className="text-lg font-semibold">Información del Cliente</h3>
-            </div>
-            <div className="p-6">
-              <p className="font-medium text-lg">{order.client?.business_name}</p>
-              <p className="text-sm text-gray-600">Código: {order.client?.client_code}</p>
-              <p className="text-sm">Email: {order.client?.email}</p>
-              <p className="text-sm">Teléfono: {order.client?.phone}</p>
-            </div>
-          </div>
-
-          <div className="border rounded-lg shadow-sm bg-white flex-1">
-            <div className="p-6 border-b">
-              <h3 className="text-lg font-semibold">Detalles de la Orden</h3>
-            </div>
-            <div className="p-6">
-              <div className="flex justify-between mb-2">
-                <p className="text-sm font-medium">Estado:</p>
-                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getOrderStatusColor(order.order_status as OrderStatus)}`}>
-                  {translateOrderStatus(order.order_status as OrderStatus)}
-                </span>
-              </div>
-              <div className="flex justify-between mb-2">
-                <p className="text-sm font-medium">Crédito:</p>
-                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getCreditStatusColor(order.credit_status as CreditStatus)}`}>
-                  {translateCreditStatus(order.credit_status as CreditStatus)}
-                </span>
-              </div>
-              
-              {isEditing ? (
-                <>
-                  <div className="mb-2">
-                    <label className="block text-sm font-medium mb-1">Fecha de entrega:</label>
-                    <input 
-                      type="date"
-                      name="delivery_date"
-                      value={editedOrder?.delivery_date || ''}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border rounded"
-                    />
-                  </div>
-                  <div className="mb-2">
-                    <label className="block text-sm font-medium mb-1">Hora de entrega:</label>
-                    <input 
-                      type="time"
-                      name="delivery_time"
-                      value={editedOrder?.delivery_time?.substring(0, 5) || ''}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 border rounded"
-                    />
-                  </div>
-                  <div className="mb-2">
-                    <label className="flex items-center text-sm font-medium">
-                      <input 
-                        type="checkbox"
-                        name="requires_invoice"
-                        checked={editedOrder?.requires_invoice || false}
-                        onChange={(e) => setEditedOrder({
-                          ...editedOrder,
-                          requires_invoice: e.target.checked
-                        })}
-                        className="mr-2"
-                      />
-                      Requiere factura
-                    </label>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm">Entrega: {formatDate(order.delivery_date)} a las {formatTime(order.delivery_time)}</p>
-                  <p className="text-sm">Requiere factura: {order.requires_invoice ? 'Sí' : 'No'}</p>
-                </>
-              )}
-              
-              {order.total_amount && (
-                <p className="text-lg font-bold mt-2">
-                  Total: ${order.total_amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {(order.special_requirements || isEditing) && (
-          <div className="border rounded-lg shadow-sm bg-white">
-            <div className="p-6 border-b">
-              <h3 className="text-lg font-semibold">Requisitos Especiales</h3>
-            </div>
-            <div className="p-6">
-              {isEditing ? (
-                <textarea 
-                  name="special_requirements"
-                  value={editedOrder?.special_requirements || ''}
-                  onChange={handleInputChange}
-                  placeholder="Ingrese requisitos especiales"
-                  className="w-full px-3 py-2 border rounded min-h-[100px]"
+      {error && (
+        <div className="mb-6 rounded-md bg-red-50 p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              {/* Exclamation circle icon */}
+              <svg
+                className="h-5 w-5 text-red-400"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                  clipRule="evenodd"
                 />
-              ) : (
-                <p>{order.special_requirements}</p>
-              )}
+              </svg>
+            </div>
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-red-800">Error</h3>
+              <div className="mt-2 text-sm text-red-700">
+                <p>{error}</p>
+              </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Mostrar razón de rechazo si existe */}
-        {(order.credit_status === 'rejected' || order.credit_status === 'rejected_by_validator') && order.rejection_reason && (
-          <div className="border rounded-lg shadow-sm bg-white">
-            <div className="p-6 border-b bg-red-50">
-              <h3 className="text-lg font-semibold text-red-700">Razón de Rechazo</h3>
+      {loading ? (
+        <div className="flex justify-center items-center h-60">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
+        </div>
+      ) : order ? (
+        <>
+          <div className="mb-6">
+            <div className="border-b">
+              <nav className="-mb-px flex space-x-6">
+                <button
+                  onClick={() => setActiveTab('details')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'details'
+                      ? 'border-green-500 text-green-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Detalles de Orden
+                </button>
+                <button
+                  onClick={() => setActiveTab('remisiones')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'remisiones'
+                      ? 'border-green-500 text-green-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Remisiones
+                </button>
+              </nav>
             </div>
-            <div className="p-6">
-              <p className="text-red-700">{order.rejection_reason}</p>
-            </div>
-          </div>
-        )}
+                  
+            {activeTab === 'details' ? (
+              <div className="mt-6 bg-white shadow overflow-hidden sm:rounded-lg">
+                <div className="px-4 py-5 sm:px-6 bg-gray-50">
+                  <h3 className="text-lg leading-6 font-medium text-gray-900">Estado de la Orden</h3>
+                  <div className="mt-4 flex flex-col sm:flex-row sm:justify-between">
+                    <div className="mb-2 sm:mb-0">
+                      <span className="text-sm text-gray-500">Estado de Orden:</span>
+                      <span className={`ml-2 px-2 py-1 text-xs rounded-full ${getOrderStatusColor(order.order_status)}`}>
+                        {translateOrderStatus(order.order_status)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-sm text-gray-500">Estado de Crédito:</span>
+                      <span className={`ml-2 px-2 py-1 text-xs rounded-full ${getCreditStatusColor(order.credit_status)}`}>
+                        {translateCreditStatus(order.credit_status)}
+                      </span>
+                    </div>
+                  </div>
+                  {canManageCredit && order.credit_status === 'pending' && (
+                    <div className="mt-4 flex space-x-2">
+                      <button
+                        onClick={handleApproveCredit}
+                        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                      >
+                        Aprobar Crédito
+                      </button>
+                      
+                      {isCreditValidator ? (
+                        <button
+                          onClick={openRejectReasonModal}
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                        >
+                          Rechazar Crédito
+                        </button>
+                      ) : (
+                        <button
+                          onClick={openConfirmModal}
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                        >
+                          Rechazar Crédito
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
 
-        <div className="border rounded-lg shadow-sm bg-white">
-          <div className="p-6 border-b">
-            <h3 className="text-lg font-semibold">Productos</h3>
-          </div>
-          <div className="p-6">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="px-4 py-2 text-left font-medium">Producto</th>
-                    <th className="px-4 py-2 text-left font-medium">Descripción</th>
-                    <th className="px-4 py-2 text-right font-medium">Cantidad</th>
-                    <th className="px-4 py-2 text-right font-medium">Precio Unitario</th>
-                    <th className="px-4 py-2 text-right font-medium">Subtotal</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {order.products && order.products.map((product) => (
-                    <React.Fragment key={product.id}>
-                      <tr className="border-b">
-                        <td className="px-4 py-2 font-medium">{product.product_type || 'N/A'}</td>
-                        <td className="px-4 py-2">{product.description || 'Sin descripción'}</td>
-                        <td className="px-4 py-2 text-right">
-                          {isEditing ? (
-                            <input
-                              type="number"
-                              min="1"
-                              value={editedOrder?.products?.find(p => p.id === product.id)?.volume || product.volume}
-                              onChange={(e) => handleProductVolumeChange(product.id, Number(e.target.value))}
-                              className="w-20 px-2 py-1 border rounded text-right"
-                            />
-                          ) : (
-                            product.volume
-                          )}
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          ${product.unit_price && product.unit_price.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-4 py-2 text-right">
-                          {isEditing ? (
-                            `$${((editedOrder?.products?.find(p => p.id === product.id)?.volume || product.volume) * product.unit_price).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
-                          ) : (
-                            `$${product.total_price && product.total_price.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
-                          )}
-                        </td>
+                <div className="px-4 py-5 sm:px-6">
+                  <h3 className="text-lg leading-6 font-medium text-gray-900">Información de Entrega</h3>
+                </div>
+                <div className="border-t border-gray-200 px-4 py-5 sm:px-6">
+                  <dl className="grid grid-cols-1 gap-x-4 gap-y-8 sm:grid-cols-2">
+                    <div className="sm:col-span-1">
+                      <dt className="text-sm font-medium text-gray-500">Fecha de Entrega</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {order.delivery_date ? formatDate(order.delivery_date) : 'No especificada'}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-1">
+                      <dt className="text-sm font-medium text-gray-500">Hora de Entrega</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {order.delivery_time ? formatTime(order.delivery_time) : 'No especificada'}
+                      </dd>
+                    </div>
+                    <div className="sm:col-span-1">
+                      <dt className="text-sm font-medium text-gray-500">Requiere Factura</dt>
+                      <dd className="mt-1 text-sm text-gray-900">{order.requires_invoice ? 'Sí' : 'No'}</dd>
+                    </div>
+                    <div className="sm:col-span-1">
+                      <dt className="text-sm font-medium text-gray-500">Obra</dt>
+                      <dd className="mt-1 text-sm text-gray-900">{order.construction_site || 'No especificada'}</dd>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <dt className="text-sm font-medium text-gray-500">Requerimientos Especiales</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {order.special_requirements || 'Ninguno'}
+                      </dd>
+                    </div>
+                  </dl>
+                  {canEditOrder && !isEditing && (
+                    <div className="mt-6">
+                      <button
+                        onClick={handleEditClick}
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                      >
+                        Editar Orden
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="px-4 py-5 sm:px-6 bg-gray-50">
+                  <h3 className="text-lg leading-6 font-medium text-gray-900">Productos</h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th
+                          scope="col"
+                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Producto
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Tipo
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Volumen (m³)
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Precio Unitario
+                        </th>
+                        <th
+                          scope="col"
+                          className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
+                        >
+                          Total
+                        </th>
                       </tr>
-                      {product.has_pump_service && product.pump_price && (
-                        <tr className="border-b bg-gray-50">
-                          <td className="px-4 py-2 font-medium pl-8">Servicio de Bombeo</td>
-                          <td className="px-4 py-2">Bombeo para {product.product_type}</td>
-                          <td className="px-4 py-2 text-right">
-                            {isEditing && product.pump_volume !== null ? (
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {order.products?.map((product) => (
+                        <tr key={product.id}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                            {product.description}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {product.has_pump_service ? 'Concreto + Bombeo' : 'Concreto'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                            {isEditing && editedOrder?.products ? (
                               <input
                                 type="number"
-                                min="1"
-                                value={editedOrder?.products?.find(p => p.id === product.id)?.pump_volume || product.pump_volume || 0}
-                                onChange={(e) => handlePumpVolumeChange(product.id, Number(e.target.value))}
-                                className="w-20 px-2 py-1 border rounded text-right"
+                                value={
+                                  editedOrder.products.find(p => p.id === product.id)?.volume || 0
+                                }
+                                onChange={(e) =>
+                                  handleProductVolumeChange(
+                                    product.id,
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
+                                className="block w-20 ml-auto text-right shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md"
+                                min="0"
+                                step="0.01"
                               />
                             ) : (
-                              product.pump_volume
+                              product.volume.toFixed(2)
                             )}
                           </td>
-                          <td className="px-4 py-2 text-right">
-                            ${product.pump_price.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                            ${product.unit_price.toFixed(2)}
                           </td>
-                          <td className="px-4 py-2 text-right">
-                            {isEditing && product.pump_volume !== null ? (
-                              `$${((editedOrder?.products?.find(p => p.id === product.id)?.pump_volume || product.pump_volume || 0) * product.pump_price).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                            ${product.total_price.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                      {order.products?.some(p => p.has_pump_service) && (
+                        <tr className="bg-gray-50">
+                          <td
+                            colSpan={2}
+                            className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900"
+                          >
+                            Bombeo
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                            {isEditing && editedOrder?.products ? (
+                              <input
+                                type="number"
+                                value={
+                                  (editedOrder.products.find(p => p.pump_volume !== undefined)?.pump_volume || 0)
+                                }
+                                onChange={(e) =>
+                                  handlePumpVolumeChange(
+                                    order.products.find(p => p.has_pump_service)?.id || '',
+                                    parseFloat(e.target.value) || 0
+                                  )
+                                }
+                                className="block w-20 ml-auto text-right shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md"
+                                min="0"
+                                step="0.01"
+                              />
                             ) : (
-                              `$${(product.pump_price * (product.pump_volume || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                              (order.products.find(p => p.has_pump_service)?.pump_volume || 0).toFixed(2)
                             )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
+                            ${order.products.find(p => p.has_pump_service)?.pump_price?.toFixed(2) || '0.00'}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                            ${((order.products.find(p => p.has_pump_service)?.pump_price || 0) * 
+                                (order.products.find(p => p.has_pump_service)?.pump_volume || 0)).toFixed(2)}
                           </td>
                         </tr>
                       )}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
+                      <tr className="bg-gray-100">
+                        <td
+                          colSpan={4}
+                          className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right"
+                        >
+                          Total de la Orden:
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 text-right">
+                          ${order.total_amount?.toFixed(2)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                {isEditing && (
+                  <div className="px-4 py-3 bg-gray-50 text-right sm:px-6">
+                    <button
+                      onClick={handleCancelEdit}
+                      className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 mr-3"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleSaveChanges}
+                      disabled={isSaving}
+                      className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                    >
+                      {isSaving ? 'Guardando...' : 'Guardar Cambios'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-6 space-y-6">
+                <RegistroRemision 
+                  orderId={order.id} 
+                  onRemisionCreated={loadOrderDetails} 
+                  allowedRecipeIds={allowedRecipeIds}
+                />
+                
+                <RemisionesList orderId={order.id} />
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-12">
+          <p className="text-lg text-gray-600">Orden no encontrada</p>
+        </div>
+      )}
+
+      {isRejectReasonModalOpen && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4">Razón del rechazo</h3>
+            <p className="mb-4">Por favor, indique la razón por la que se rechaza el crédito:</p>
+            <textarea
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded-md mb-4"
+              rows={3}
+              placeholder="Ejemplo: Cliente con pagos pendientes"
+            />
+            <div className="flex justify-end space-x-2">
+              <button 
+                onClick={() => setIsRejectReasonModalOpen(false)}
+                className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleValidatorReject}
+                disabled={!rejectionReason.trim()}
+                className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
+              >
+                Confirmar Rechazo
+              </button>
             </div>
           </div>
         </div>
+      )}
 
-        {isRejectReasonModalOpen && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
-            <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-              <h3 className="text-lg font-semibold mb-4">Razón del rechazo</h3>
-              <p className="mb-4">Por favor, indique la razón por la que se rechaza el crédito:</p>
-              <textarea
-                value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-md mb-4"
-                rows={3}
-                placeholder="Ejemplo: Cliente con pagos pendientes"
-              />
-              <div className="flex justify-end space-x-2">
-                <button 
-                  onClick={() => setIsRejectReasonModalOpen(false)}
-                  className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={handleValidatorReject}
-                  disabled={!rejectionReason.trim()}
-                  className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
-                >
-                  Confirmar Rechazo
-                </button>
-              </div>
+      {isConfirmModalOpen && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
+            <h3 className="text-lg font-semibold mb-4">Confirmar rechazo definitivo</h3>
+            <p className="mb-4">¿Está seguro de rechazar definitivamente el crédito para esta orden? Esta acción cancelará la orden y no se puede deshacer.</p>
+            <div className="flex justify-end space-x-2">
+              <button 
+                onClick={() => setIsConfirmModalOpen(false)}
+                className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleManagerReject}
+                className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
+              >
+                Rechazar Definitivamente
+              </button>
             </div>
           </div>
-        )}
-
-        {isConfirmModalOpen && (
-          <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
-            <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-              <h3 className="text-lg font-semibold mb-4">Confirmar rechazo definitivo</h3>
-              <p className="mb-4">¿Está seguro de rechazar definitivamente el crédito para esta orden? Esta acción cancelará la orden y no se puede deshacer.</p>
-              <div className="flex justify-end space-x-2">
-                <button 
-                  onClick={() => setIsConfirmModalOpen(false)}
-                  className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={handleManagerReject}
-                  className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
-                >
-                  Rechazar Definitivamente
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 } 

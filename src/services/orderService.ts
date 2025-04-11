@@ -224,21 +224,32 @@ export async function getOrderById(id: string) {
     .select(`
       *,
       clients:clients(business_name, client_code, email, phone),
-      products:order_items(*)
+      products:order_items(*, quote_details(recipe_id)) 
     `)
     .eq('id', id)
     .single();
   
   if (error) throw error;
   
-  // Transform data to match the OrderWithDetails type
+  // Transform data to match the OrderWithDetails type and structure products
   if (data) {
     // Rename clients to client for consistency with OrderWithDetails
-    const { clients, ...orderData } = data;
+    const { clients, products, ...orderData } = data;
+    
+    // Map products to include recipe_id directly
+    const structuredProducts = (products || []).map((p: { quote_details: { recipe_id: string } | null; [key: string]: any }) => {
+      const recipeId = p.quote_details?.recipe_id || null;
+      const { quote_details, ...productData } = p;
+      return {
+        ...productData,
+        recipe_id: recipeId
+      };
+    });
+
     return {
       ...orderData,
       client: clients,
-      products: data.products || []
+      products: structuredProducts // Use the transformed products
     } as unknown as OrderWithDetails;
   }
   
