@@ -21,12 +21,12 @@ export default function RegistroRemision({
 }: RegistroRemisionProps) {
   const [extractedData, setExtractedData] = useState(null);
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   
   // Solo permitir a dosificadores y roles superiores
-  const canCreateRemisiones = userProfile?.role === 'DOSIFICADOR' || 
-                             userProfile?.role === 'PLANT_MANAGER' || 
-                             userProfile?.role === 'EXECUTIVE';
+  const canCreateRemisiones = profile?.role === 'DOSIFICADOR' || 
+                             profile?.role === 'PLANT_MANAGER' || 
+                             profile?.role === 'EXECUTIVE';
   
   if (!canCreateRemisiones) {
     return (

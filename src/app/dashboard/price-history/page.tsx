@@ -23,7 +23,7 @@ import { useRouter } from 'next/navigation';
 import { QualityTeamAccessDenied } from '@/components/QualityTeamAccessDenied';
 
 export default function PriceHistoryPage() {
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [groupBy, setGroupBy] = useState<'client' | 'recipe'>('client');
@@ -33,10 +33,10 @@ export default function PriceHistoryPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (userProfile?.role === 'QUALITY_TEAM') {
+    if (profile?.role === 'QUALITY_TEAM') {
       router.push('/dashboard');
     }
-  }, [userProfile, router]);
+  }, [profile, router]);
 
   const loadData = useCallback(async () => {
     try {
@@ -82,7 +82,7 @@ export default function PriceHistoryPage() {
     }));
   };
 
-  if (userProfile?.role === 'QUALITY_TEAM') {
+  if (profile?.role === 'QUALITY_TEAM') {
     return <QualityTeamAccessDenied />;
   }
 

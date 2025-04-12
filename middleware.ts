@@ -16,6 +16,10 @@ function getCSPHeader(nonce: string) {
   return policy;
 }
 
+// Track session refresh timestamps to prevent excessive refreshes
+const sessionRefreshes = new Map<string, number>();
+const MIN_REFRESH_INTERVAL = 60000; // 1 minute minimum between refreshes
+
 export async function middleware(request: NextRequest) {
   // Generate a nonce for CSP
   const nonce = generateNonce();
@@ -29,6 +33,18 @@ export async function middleware(request: NextRequest) {
   // Extract pathname for clearer debugging
   const url = request.nextUrl.clone();
   const { pathname } = url;
+  const clientIP = request.headers.get('x-forwarded-for') || 'unknown';
+  
+  // Only log key path transitions, not every request
+  const isSignificantPath = 
+    pathname === '/' || 
+    pathname === '/dashboard' || 
+    pathname === '/login' || 
+    pathname.startsWith('/auth/');
+    
+  if (isSignificantPath) {
+    console.log(`Middleware processing: ${pathname} from ${clientIP}`);
+  }
   
   // Extract query params for better control over auth flow
   const searchParams = url.searchParams;
@@ -38,6 +54,13 @@ export async function middleware(request: NextRequest) {
   // Check for timestamp parameter - this indicates a hard redirect from password update
   const hasTimestamp = !!searchParams.get('t');
   const isForceLogoutWithTimestamp = isForceLogout && hasTimestamp;
+  
+  // Check for session refresh parameter - this is a special case to force token refresh
+  const isForceRefresh = searchParams.get('refresh_session') === 'true';
+  
+  if (isForceRefresh) {
+    console.log('Detected force_refresh parameter, will attempt to refresh session tokens');
+  }
   
   if (isForceLogout) {
     console.log('Detected force_logout in middleware - bypassing auth checks and clearing session cookies');
@@ -210,22 +233,106 @@ export async function middleware(request: NextRequest) {
   // supabase.auth.getUser(). A simple mistake could make it very hard to debug
   // issues with users being randomly logged out.
 
+  // Implement rate limiting for session refresh
+  const canRefreshSession = () => {
+    const requestId = clientIP;
+    const now = Date.now();
+    const lastRefresh = sessionRefreshes.get(requestId) || 0;
+    const timeSinceLastRefresh = now - lastRefresh;
+    
+    // Allow refresh if it's a force refresh or enough time has passed
+    if (isForceRefresh || timeSinceLastRefresh > MIN_REFRESH_INTERVAL) {
+      sessionRefreshes.set(requestId, now);
+      
+      // Clean up old entries from the map to prevent memory leaks
+      const oldEntryThreshold = now - 3600000; // Entries older than 1 hour
+      sessionRefreshes.forEach((timestamp, key) => {
+        if (timestamp < oldEntryThreshold) {
+          sessionRefreshes.delete(key);
+        }
+      });
+      
+      return true;
+    }
+    
+    return false;
+  };
+
+  // If force refresh is requested and rate limiting allows, try to refresh the session
+  if (isForceRefresh && canRefreshSession()) {
+    try {
+      // Try to refresh the session before checking the user
+      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+      
+      if (refreshError) {
+        console.error("Session refresh error:", refreshError.message);
+      } else if (refreshData.session) {
+        console.log("Session refreshed successfully in middleware");
+      }
+    } catch (refreshException) {
+      console.error("Exception during session refresh in middleware:", refreshException);
+    }
+  }
+
+  // Now get the user - this will use the refreshed session if it was refreshed above
   const {
     data: { user },
     error,
   } = await supabase.auth.getUser();
 
   if (error) {
-    console.error("Middleware auth error:", error.message);
+    // Only log the error if it's not a common 401 that we're about to attempt to fix
+    if (error.status !== 401 || isForceRefresh) {
+      console.error("Middleware auth error:", error.message);
+    }
+    
+    // If we get a 401 Unauthorized error, attempt to refresh the session
+    // But only if we haven't just tried to refresh already and rate limiting allows
+    if (error.status === 401 && !isForceRefresh && canRefreshSession()) {
+      console.log("Attempting to recover from 401 by refreshing session...");
+      
+      try {
+        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+        
+        if (refreshError) {
+          console.error("Session refresh failed after 401:", refreshError.message);
+        } else if (refreshData.session) {
+          console.log("Successfully refreshed session after 401");
+          
+          // Re-get the user with the refreshed session
+          const { data: { user: refreshedUser } } = await supabase.auth.getUser();
+          
+          if (refreshedUser) {
+            console.log("Successfully recovered user after session refresh");
+            
+            // Continue with the recovered user
+            // This bypasses standard error handling since we've recovered
+            const originalUrl = request.nextUrl.clone();
+            originalUrl.searchParams.set('recovered', 'true');
+            
+            const redirectResponse = NextResponse.redirect(originalUrl);
+            
+            // Copy cookies from supabaseResponse to redirectResponse
+            supabaseResponse.cookies.getAll().forEach(cookie => {
+              redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
+            });
+            
+            return redirectResponse;
+          }
+        }
+      } catch (refreshException) {
+        console.error("Exception during recovery session refresh:", refreshException);
+      }
+    }
   }
 
-  // Log request details for debugging
-  console.log(`Middleware processing: ${pathname}`, {
-    authenticated: !!user,
-    userEmail: user?.email || 'none',
-    hasHash: hasHash,
-    isInvitationLink: isInvitationLink
-  });
+  // Only log authentication status for significant paths
+  if (isSignificantPath) {
+    console.log(`Auth status for ${pathname}:`, {
+      authenticated: !!user,
+      userEmail: user?.email || 'none',
+    });
+  }
 
   // Define public routes that don't require authentication
   // Rutas que son accesibles sin autenticación
@@ -244,7 +351,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/images') || 
     pathname.startsWith('/api/public') ||
     pathname.startsWith('/api/auth') ||
-    isForceLogout; // Consider any URL with force_logout=true as public
+    isForceLogout;
     
   // If not authenticated and trying to access a protected route (including API routes)
   if (!user && !isPublicRoute) {

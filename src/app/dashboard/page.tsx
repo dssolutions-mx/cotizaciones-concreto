@@ -1,6 +1,6 @@
 'use client';
 
-import React, { ReactNode } from 'react';
+import React, { ReactNode, Suspense } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
@@ -536,7 +536,8 @@ const PendingQuotesList = ({ isLoading }: ChartProps) => {
   );
 };
 
-const DashboardPage = () => {
+// Create a DashboardContent component to be wrapped in Suspense
+function DashboardContent() {
   // Use the main dashboard hook for summary metrics
   const { dashboardData, isLoading, isError } = useDashboardData();
   
@@ -723,6 +724,15 @@ const DashboardPage = () => {
       </div>
     </div>
   );
-};
+}
 
-export default DashboardPage; 
+// Main dashboard page with Suspense boundary
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="p-8 flex justify-center items-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
+    </div>}>
+      <DashboardContent />
+    </Suspense>
+  );
+} 

@@ -19,7 +19,7 @@ import {
   Package,
   Home
 } from 'lucide-react';
-import { AuthProvider, UserRole } from '@/contexts/AuthContext';
+import { AuthContextProvider, UserRole } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
 import ProfileMenu from '@/components/auth/ProfileMenu';
 import AuthStatusIndicator from '@/components/auth/AuthStatusIndicator';
@@ -33,7 +33,7 @@ const inter = Inter({ subsets: ['latin'] });
 
 // Componente interno para navegación con soporte de roles
 function Navigation({ children }: { children: React.ReactNode }) {
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isLandingRoute = pathname?.includes('/landing');
@@ -42,8 +42,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const navItems = [];
 
   // Añadir elementos de menú basados en el rol
-  if (userProfile) {
-    const role = userProfile.role;
+  if (profile) {
+    const role = profile.role;
     
     // Elementos comunes para todos los roles
     navItems.push({ href: '/dashboard', label: 'Dashboard', icon: Home });
@@ -348,8 +348,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <link rel="icon" href="/images/dcconcretos/favicon.svg" />
       </head>
-      <body className={isLandingRoute ? 'bg-white' : 'bg-gray-100'}>
-        <AuthProvider>
+      <body className={isLandingRoute ? 'bg-white' : 'bg-gray-100'} suppressHydrationWarning>
+        <AuthContextProvider>
           <OrderPreferencesProvider>
             <ErrorBoundary>
               <Toaster position="top-right" />
@@ -363,7 +363,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               )}
             </ErrorBoundary>
           </OrderPreferencesProvider>
-        </AuthProvider>
+        </AuthContextProvider>
       </body>
     </html>
   );

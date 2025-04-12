@@ -23,7 +23,7 @@ interface TabDefinition {
 }
 
 export default function QuotesPage() {
-  const { userProfile, hasRole } = useAuth();
+  const { profile, hasRole } = useAuth();
   const [activeTab, setActiveTab] = useState<TabId>('draft');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
@@ -65,7 +65,7 @@ export default function QuotesPage() {
     if (TABS.length > 0 && !TABS.some(tab => tab.id === activeTab)) {
       setActiveTab(TABS[0].id);
     }
-  }, [userProfile, TABS, activeTab]);
+  }, [profile, TABS, activeTab]);
 
   const handleDataSaved = () => {
     setRefreshTrigger(prev => prev + 1);

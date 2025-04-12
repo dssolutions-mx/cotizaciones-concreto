@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 
 export default function ChangePasswordPage() {
-  const { isAuthenticated, loading: authLoading, signOut } = useAuth();
+  const { session, isLoading: authLoading, signOut } = useAuth();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -153,7 +153,7 @@ export default function ChangePasswordPage() {
   }
 
   // Redirect unauthenticated users
-  if (!isAuthenticated && !authLoading) {
+  if (!session && !authLoading) {
     // This should automatically redirect via the AuthProvider, but just in case:
     return (
       <div className="text-center py-12">

@@ -1,82 +1,86 @@
 'use client';
 
-import { ReactNode, useEffect, useMemo, useCallback } from 'react';
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { ReactNode, useEffect, useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { UserRole } from '@/contexts/AuthContext';
 
 interface RoleGuardProps {
   children: ReactNode;
   allowedRoles: UserRole | UserRole[];
-  fallback?: ReactNode;
   redirectTo?: string;
+  showMessage?: boolean;
 }
 
-export default function RoleGuard({
-  children,
-  allowedRoles,
-  fallback,
+export default function RoleGuard({ 
+  children, 
+  allowedRoles, 
   redirectTo = '/access-denied',
+  showMessage = false
 }: RoleGuardProps) {
-  const { loading, userProfile, isAuthenticated } = useAuth();
+  const { isLoading, profile, session } = useAuth();
   const router = useRouter();
-
-  // Memoize the role check to prevent unnecessary re-renders
-  const hasAccess = useMemo(() => {
-    if (!userProfile) return false;
+  const [isClient, setIsClient] = useState(false);
+  
+  // Set isClient to true on mount
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+  
+  // Check if the user has the required role
+  const hasRequiredRole = useCallback(() => {
+    if (!profile) return false;
     
     if (Array.isArray(allowedRoles)) {
-      return allowedRoles.includes(userProfile.role);
+      return allowedRoles.includes(profile.role);
     }
     
-    return userProfile.role === allowedRoles;
-  }, [userProfile, allowedRoles]);
-
-  // Memoize the redirect logic
-  const handleRedirect = useCallback(() => {
-    // Only redirect if not already on the redirect page
-    if (redirectTo && !window.location.pathname.includes(redirectTo)) {
-      router.push(redirectTo);
-    }
-  }, [redirectTo, router]);
-
-  // Handle access and redirection
+    return profile.role === allowedRoles;
+  }, [profile, allowedRoles]);
+  
+  // Effect to redirect if not authorized
   useEffect(() => {
-    // Only proceed if authentication check is complete
-    if (loading) return;
-
-    // If not authenticated or no access, redirect
-    if (!isAuthenticated || !hasAccess) {
-      handleRedirect();
+    // Skip this check during SSR
+    if (!isClient) return;
+    
+    // Only check after loading is complete
+    if (!isLoading) {
+      // If not authenticated or doesn't have required role, redirect
+      if (!session || !hasRequiredRole()) {
+        router.push(redirectTo);
+      }
     }
-  }, [loading, isAuthenticated, hasAccess, handleRedirect]);
-
-  // If still loading, show loading indicator
-  if (loading) {
+  }, [isLoading, session, hasRequiredRole, router, redirectTo, isClient]);
+  
+  // Don't render anything during SSR to prevent hydration mismatch
+  if (!isClient) {
+    return null;
+  }
+  
+  // Render loading state
+  if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[200px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-green-500"></div>
       </div>
     );
   }
-
-  // If user doesn't have required role
-  if (!hasAccess) {
-    // Show fallback component if provided
-    if (fallback) {
-      return <>{fallback}</>;
-    }
-
-    // Default fallback
+  
+  // Render children only if authenticated and has required role
+  if (session && hasRequiredRole()) {
+    return <>{children}</>;
+  }
+  
+  // Render access denied message if set to show
+  if (showMessage) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 text-center">
-        <h2 className="text-xl font-semibold mb-2">Acceso Restringido</h2>
-        <p className="text-gray-600">
-          No tienes permisos para acceder a esta sección.
-        </p>
+      <div className="text-center py-8">
+        <h2 className="text-2xl font-bold text-red-600 mb-2">Acceso Denegado</h2>
+        <p className="text-gray-600">No tienes los permisos necesarios para acceder a esta página.</p>
       </div>
     );
   }
-
-  // User has the required role, render children
-  return <>{children}</>;
+  
+  // Default: render nothing while redirect happens
+  return null;
 } 

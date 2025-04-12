@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ROLE_TEST_CASES, validateRoleChecks, ROLE_DESCRIPTIONS } from '@/lib/auth/roleUtils';
 
 export default function RoleValidator() {
-  const { userProfile, hasRole } = useAuth();
+  const { profile, hasRole } = useAuth();
   const [showResults, setShowResults] = useState(false);
   const [testResults, setTestResults] = useState<ReturnType<typeof validateRoleChecks> | null>(null);
   
@@ -21,12 +21,12 @@ export default function RoleValidator() {
       
       <div className="mb-6 p-4 bg-gray-50 rounded-lg">
         <h3 className="text-lg font-medium mb-2">Tu Rol Actual</h3>
-        {userProfile ? (
+        {profile ? (
           <div className="flex items-center space-x-2">
             <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-              {ROLE_DESCRIPTIONS[userProfile.role]}
+              {ROLE_DESCRIPTIONS[profile.role]}
             </span>
-            <span className="text-gray-600">({userProfile.role})</span>
+            <span className="text-gray-600">({profile.role})</span>
           </div>
         ) : (
           <p className="text-red-600">No has iniciado sesión o no se ha cargado tu perfil.</p>
@@ -81,8 +81,8 @@ export default function RoleValidator() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {userProfile && ROLE_TEST_CASES
-                  .filter(test => test.role === userProfile.role)
+                {profile && ROLE_TEST_CASES
+                  .filter(test => test.role === profile.role)
                   .map((test, index) => {
                     const actualResult = hasRole(test.allowedRoles);
                     const isCorrect = actualResult === test.expected;

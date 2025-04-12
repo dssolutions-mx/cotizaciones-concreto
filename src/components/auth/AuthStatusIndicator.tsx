@@ -1,20 +1,41 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function AuthStatusIndicator() {
-  const { 
-    authStatus,
-    sessionExpiresAt,
-    timeToExpiration,
-    isSessionLoading,
-    lastSessionRefresh,
-    refreshSession
-  } = useAuth();
-  
+  const { session, isLoading, refreshSession } = useAuth();
   const [showDetails, setShowDetails] = useState(false);
   const [countdown, setCountdown] = useState<string>('');
+  const [isClient, setIsClient] = useState(false);
+  
+  // Set isClient to true on mount
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+  
+  // Calculate session expiry from session
+  const sessionExpiresAt = useMemo(() => {
+    if (!session?.expires_at) return null;
+    return new Date(session.expires_at * 1000);
+  }, [session]);
+
+  // Calculate time to expiration
+  const timeToExpiration = useMemo(() => {
+    if (!sessionExpiresAt) return null;
+    const now = new Date();
+    return Math.max(0, sessionExpiresAt.getTime() - now.getTime());
+  }, [sessionExpiresAt]);
+
+  // Track last refresh time
+  const [lastSessionRefresh, setLastSessionRefresh] = useState<Date | null>(null);
+
+  // Update last refresh time when session changes
+  useEffect(() => {
+    if (session) {
+      setLastSessionRefresh(new Date());
+    }
+  }, [session]);
   
   // Format timeToExpiration as a countdown
   useEffect(() => {
@@ -51,8 +72,11 @@ export default function AuthStatusIndicator() {
     return () => clearInterval(interval);
   }, [sessionExpiresAt, timeToExpiration]);
   
+  // Don't render anything during SSR or before hydration is complete
+  if (!isClient) return null;
+  
   // Early exit if not authenticated
-  if (authStatus !== 'authenticated') return null;
+  if (!session) return null;
   
   // Determine indicator color based on time remaining
   let indicatorColor = 'bg-green-500';
@@ -89,8 +113,7 @@ export default function AuthStatusIndicator() {
             <div className="flex justify-between">
               <span className="text-gray-500">Estado:</span>
               <span className="font-medium">
-                {authStatus === 'authenticated' ? 'Autenticado' : 
-                 authStatus === 'unauthenticated' ? 'No autenticado' : 'Cargando'}
+                {session ? 'Autenticado' : 'No autenticado'}
               </span>
             </div>
             
@@ -119,10 +142,10 @@ export default function AuthStatusIndicator() {
                 e.stopPropagation();
                 refreshSession();
               }}
-              disabled={isSessionLoading}
+              disabled={isLoading}
               className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded disabled:opacity-50"
             >
-              {isSessionLoading ? 'Actualizando...' : 'Actualizar sesión'}
+              {isLoading ? 'Actualizando...' : 'Actualizar sesión'}
             </button>
           </div>
         </div>

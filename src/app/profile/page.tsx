@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { authService } from '@/lib/supabase/auth';
 
 export default function ProfilePage() {
-  const { userProfile, loading, refreshSession } = useAuth();
+  const { profile, isLoading, refreshSession } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -14,13 +14,13 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  // Use useEffect to update the state when userProfile changes
+  // Use useEffect to update the state when profile changes
   useEffect(() => {
-    if (userProfile) {
-      setFirstName(userProfile.first_name || '');
-      setLastName(userProfile.last_name || '');
+    if (profile) {
+      setFirstName(profile.first_name || '');
+      setLastName(profile.last_name || '');
     }
-  }, [userProfile]);
+  }, [profile]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,11 +30,11 @@ export default function ProfilePage() {
 
     try {
       // Use the enhanced profile update method with retry logic
-      if (!userProfile?.id) {
+      if (!profile?.id) {
         throw new Error('ID de usuario no disponible');
       }
       
-      await authService.updateUserProfile(userProfile.id, {
+      await authService.updateUserProfile(profile.id, {
         first_name: firstName,
         last_name: lastName,
       });
@@ -75,7 +75,7 @@ export default function ProfilePage() {
     }
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-[50vh]">
         <div className="animate-pulse text-center">
@@ -86,7 +86,7 @@ export default function ProfilePage() {
     );
   }
 
-  if (!userProfile) {
+  if (!profile) {
     return (
       <div className="text-center py-12">
         <h1 className="text-2xl font-bold text-red-600 mb-2">
@@ -124,12 +124,12 @@ export default function ProfilePage() {
       <div className="bg-gray-50 p-4 rounded-md mb-6">
         <div className="mb-2">
           <span className="text-sm font-medium text-gray-500">Email:</span>
-          <span className="ml-2 text-gray-800">{userProfile.email}</span>
+          <span className="ml-2 text-gray-800">{profile.email}</span>
         </div>
         <div className="mb-2">
           <span className="text-sm font-medium text-gray-500">Rol:</span>
           <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
-            {getRoleDisplay(userProfile.role)}
+            {getRoleDisplay(profile.role)}
           </span>
         </div>
       </div>

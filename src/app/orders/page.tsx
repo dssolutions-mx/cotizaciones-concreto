@@ -16,7 +16,7 @@ import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
 
 // Separate component to use searchParams
 function OrdersContent() {
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
   const { preferences, updatePreferences } = useOrderPreferences();

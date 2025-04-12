@@ -18,11 +18,11 @@ export default function CreditValidationTab() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const router = useRouter();
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   
   // Determine if user is a credit validator (fix type issue)
-  const isCreditValidator = userProfile?.role === 'CREDIT_VALIDATOR' as UserRole;
-  const isManager = userProfile?.role === 'EXECUTIVE' as UserRole || userProfile?.role === 'PLANT_MANAGER' as UserRole;
+  const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
+  const isManager = profile?.role === 'EXECUTIVE' as UserRole || profile?.role === 'PLANT_MANAGER' as UserRole;
 
   const loadOrders = useCallback(async () => {
     try {

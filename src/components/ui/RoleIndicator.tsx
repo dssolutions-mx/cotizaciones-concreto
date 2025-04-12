@@ -27,7 +27,7 @@ export default function RoleIndicator({
   showIcon = true,
   className = '',
 }: RoleIndicatorProps) {
-  const { hasRole, userProfile } = useAuth();
+  const { hasRole, profile } = useAuth();
   
   // Check if user has any of the allowed roles
   const hasPermission = hasRole(allowedRoles);
@@ -52,13 +52,13 @@ export default function RoleIndicator({
   const generateTooltip = (): string => {
     if (tooltipText) return tooltipText;
     
-    if (!userProfile) return 'Inicia sesión para ver permisos';
+    if (!profile) return 'Inicia sesión para ver permisos';
     
     const rolesArray = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
     const formattedRoles = rolesArray.map(formatRoleName).join(', ');
     
     return hasPermission
-      ? `Tienes permiso para esta acción como ${formatRoleName(userProfile.role)}`
+      ? `Tienes permiso para esta acción como ${formatRoleName(profile.role)}`
       : `Esta acción requiere uno de los siguientes roles: ${formattedRoles}`;
   };
   

@@ -32,7 +32,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = searchParams.get('returnTo');
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   const [order, setOrder] = useState<OrderWithDetails | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,11 +51,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     const ids = order.products
       .map(p => p.recipe_id) // Access recipe_id directly
       .filter((id): id is string => !!id);
-    return [...new Set(ids)]; 
+    return Array.from(new Set(ids)); 
   }, [order]);
   
   // Check if user has the Dosificador role - moved up before canEditOrder
-  const isDosificador = userProfile?.role === 'DOSIFICADOR' as UserRole;
+  const isDosificador = profile?.role === 'DOSIFICADOR' as UserRole;
   
   // Determine if the order can be edited
   const canEditOrder = order && 
@@ -63,8 +63,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     !isDosificador; // Dosificador cannot edit orders
   
   // Check if user is a credit validator or manager
-  const isCreditValidator = userProfile?.role === 'CREDIT_VALIDATOR' as UserRole;
-  const isManager = userProfile?.role === 'EXECUTIVE' as UserRole || userProfile?.role === 'PLANT_MANAGER' as UserRole;
+  const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
+  const isManager = profile?.role === 'EXECUTIVE' as UserRole || profile?.role === 'PLANT_MANAGER' as UserRole;
   
   // Check if the user can approve/reject credit
   const canManageCredit = (isCreditValidator || isManager) && order?.credit_status !== 'approved' && order?.credit_status !== 'rejected';

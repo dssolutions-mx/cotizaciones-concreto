@@ -34,7 +34,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   
   useEffect(() => {
     const savedData = {

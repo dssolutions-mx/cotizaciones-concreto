@@ -7,22 +7,28 @@ import { UserCircle, LogOut, Settings, UserCog } from 'lucide-react';
 import Link from 'next/link';
 
 export default function ProfileMenu() {
-  const { userProfile, signOut, loading, isAuthenticated } = useAuth();
+  const { profile, signOut, isLoading, session } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const [isClient, setIsClient] = useState(false);
+
+  // Set isClient to true on mount
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   // Memoize display name to prevent unnecessary re-renders
   const displayName = useMemo(() => {
-    if (!userProfile) return '';
-    if (userProfile.first_name) return userProfile.first_name;
-    return userProfile.email.split('@')[0];
-  }, [userProfile]);
+    if (!profile) return '';
+    if (profile.first_name) return profile.first_name;
+    return profile.email.split('@')[0];
+  }, [profile]);
 
   // Memoize role display to prevent unnecessary re-renders
   const roleDisplay = useMemo(() => {
-    if (!userProfile) return '';
-    switch (userProfile.role) {
+    if (!profile) return '';
+    switch (profile.role) {
       case 'SALES_AGENT':
         return 'Vendedor';
       case 'QUALITY_TEAM':
@@ -36,9 +42,9 @@ export default function ProfileMenu() {
       case 'DOSIFICADOR':
         return 'Dosificador';
       default:
-        return userProfile.role;
+        return profile.role;
     }
-  }, [userProfile]);
+  }, [profile]);
 
   // Cerrar el menú cuando se hace clic fuera
   useEffect(() => {
@@ -67,7 +73,15 @@ export default function ProfileMenu() {
     }
   }, [signOut, router]);
 
-  if (loading) {
+  // Render a placeholder during server-side rendering
+  // and before hydration is complete to prevent mismatch
+  if (!isClient) {
+    return <div className="flex items-center" aria-hidden="true">
+      <div className="w-8 h-8 rounded-full bg-gray-200"></div>
+    </div>;
+  }
+
+  if (isLoading) {
     return (
       <div className="flex items-center">
         <div className="animate-pulse w-8 h-8 rounded-full bg-gray-200"></div>
@@ -75,7 +89,7 @@ export default function ProfileMenu() {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!session) {
     return (
       <Link 
         href="/login" 
@@ -103,11 +117,11 @@ export default function ProfileMenu() {
         </span>
       </button>
 
-      {menuOpen && userProfile && (
+      {menuOpen && profile && (
         <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg z-50 overflow-hidden">
           <div className="p-4 border-b border-gray-100">
-            <div className="font-medium text-gray-800">{userProfile.first_name} {userProfile.last_name}</div>
-            <div className="text-sm text-gray-500 truncate">{userProfile.email}</div>
+            <div className="font-medium text-gray-800">{profile.first_name} {profile.last_name}</div>
+            <div className="text-sm text-gray-500 truncate">{profile.email}</div>
             <div className="text-xs font-medium text-indigo-600 mt-1">
               {roleDisplay}
             </div>
@@ -123,7 +137,7 @@ export default function ProfileMenu() {
               Mi Perfil
             </Link>
             
-            {userProfile.role === 'EXECUTIVE' && (
+            {profile.role === 'EXECUTIVE' && (
               <Link 
                 href="/admin/users" 
                 className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"

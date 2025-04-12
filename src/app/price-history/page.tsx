@@ -22,7 +22,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { QualityTeamAccessDenied } from '@/components/QualityTeamAccessDenied';
 
 export default function PriceHistoryPage() {
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [groupBy, setGroupBy] = useState<'client' | 'recipe'>('client');
   const [filters, setFilters] = useState<PriceHistoryFilters>({});
@@ -59,7 +59,7 @@ export default function PriceHistoryPage() {
   }, [filters, groupBy]);
 
   useEffect(() => {
-    if (userProfile?.role === 'QUALITY_TEAM') {
+    if (profile?.role === 'QUALITY_TEAM') {
       return;
     }
 
@@ -79,10 +79,10 @@ export default function PriceHistoryPage() {
         clearTimeout(debounceTimer.current);
       }
     };
-  }, [filters, groupBy, userProfile?.role, loadData]);
+  }, [filters, groupBy, profile?.role, loadData]);
 
   // Render access denied if user is from quality team
-  if (userProfile?.role === 'QUALITY_TEAM') {
+  if (profile?.role === 'QUALITY_TEAM') {
     return <QualityTeamAccessDenied />;
   }
 

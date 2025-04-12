@@ -115,7 +115,7 @@ const calculateAveragePrice = (data: ClientPriceData[] | RecipePriceData[], reci
 };
 
 export const PriceHistoryTable: React.FC<PriceHistoryTableProps> = ({ data, groupBy }) => {
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [expandedSites, setExpandedSites] = useState<Set<string>>(new Set());
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());

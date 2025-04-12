@@ -60,20 +60,28 @@ const permissionsByRole: Record<UserRole, Permission[]> = {
     'MANAGE_USERS',
     'VIEW_REPORTS',
   ],
+
+  CREDIT_VALIDATOR: [
+    'VIEW_REPORTS',
+  ],
+
+  DOSIFICADOR: [
+    'VIEW_REPORTS',
+  ]
 };
 
 export function usePermissions() {
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   
   /**
    * Check if the current user has the specified permission
    */
   const hasPermission = (permission: Permission): boolean => {
     // If no user is logged in, they have no permissions
-    if (!userProfile) return false;
+    if (!profile) return false;
     
     // Get the permissions for the user's role
-    const rolePermissions = permissionsByRole[userProfile.role];
+    const rolePermissions = permissionsByRole[profile.role];
     
     // Check if the permission is in the list
     return rolePermissions.includes(permission);

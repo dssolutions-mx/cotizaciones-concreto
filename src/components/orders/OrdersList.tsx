@@ -186,10 +186,10 @@ export default function OrdersList({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   
   // Check if user is a dosificador
-  const isDosificador = userProfile?.role === 'DOSIFICADOR';
+  const isDosificador = profile?.role === 'DOSIFICADOR';
 
   const loadOrders = useCallback(async () => {
     setLoading(true);

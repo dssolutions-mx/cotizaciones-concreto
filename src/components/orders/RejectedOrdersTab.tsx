@@ -18,7 +18,7 @@ export default function RejectedOrdersTab() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { userProfile } = useAuth();
+  const { profile } = useAuth();
   
   useEffect(() => {
     loadRejectedOrders();
