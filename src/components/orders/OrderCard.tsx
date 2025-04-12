@@ -111,7 +111,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, onClick }) => {
   return (
     <Card 
       onClick={onClick} 
-      className="cursor-pointer hover:bg-gray-50 transition-colors duration-200 border-l-4 hover:shadow-md"
+      className="cursor-pointer hover:bg-gray-50 transition-colors duration-200 border-l-4 hover:shadow-md @container"
       style={{ borderLeftColor: bg.includes('yellow') ? '#fbbf24' : 
                               bg.includes('green') ? '#10b981' : 
                               bg.includes('purple') ? '#8b5cf6' : 
@@ -121,7 +121,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, onClick }) => {
       <CardContent className="p-4">
         <div className="flex justify-between items-start">
           <div className="flex flex-col">
-            <h3 className="font-medium text-gray-900">
+            <h3 className="font-medium text-gray-900 @lg:text-lg">
               {clientName}
             </h3>
             <span className="text-sm text-gray-500 mt-1 flex items-center">
@@ -131,7 +131,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, onClick }) => {
               {order.construction_site || "Obra sin nombre"}
             </span>
           </div>
-          <Badge className={`${bg} ${text} border-0 px-2 py-1 flex items-center`}>
+          <Badge className={`${bg} ${text} border-0 px-2 py-1 flex items-center shadow-sm`}>
             {icon}
             <span className="capitalize">{order.order_status || "Sin estado"}</span>
           </Badge>
@@ -139,14 +139,14 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, onClick }) => {
         
         <div className="grid grid-cols-2 gap-3 mt-4">
           <div className="flex items-center">
-            <div className="rounded-full bg-gray-100 p-1.5 mr-2">
+            <div className="rounded-full bg-gray-100 p-1.5 mr-2 shadow-md shadow-gray-200/50">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-600" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
               </svg>
             </div>
             <div>
               <p className="text-xs text-gray-500">Entrega</p>
-              <p className="font-medium text-sm">
+              <p className="font-medium text-sm @lg:text-base">
                 {order.delivery_date ? (
                   <>
                     {formatDate(order.delivery_date)}
@@ -158,14 +158,14 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, onClick }) => {
             </div>
           </div>
           <div className="flex items-center">
-            <div className="rounded-full bg-gray-100 p-1.5 mr-2">
+            <div className="rounded-full bg-gray-100 p-1.5 mr-2 shadow-md shadow-gray-200/50">
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-gray-600" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
               </svg>
             </div>
             <div>
               <p className="text-xs text-gray-500">Total</p>
-              <p className="font-medium text-sm">{formatCurrency(order.total_amount || 0)}</p>
+              <p className="font-medium text-sm @lg:text-base text-shadow-sm">{formatCurrency(order.total_amount || 0)}</p>
             </div>
           </div>
         </div>
@@ -191,7 +191,7 @@ export const OrderCard: React.FC<OrderCardProps> = ({ order, onClick }) => {
               </svg>
               Notas
             </p>
-            <p className="text-xs text-gray-700 line-clamp-2 mt-1">{order.special_requirements}</p>
+            <p className="text-xs text-gray-700 line-clamp-2 mt-1 @lg:text-sm">{order.special_requirements}</p>
           </div>
         )}
       </CardContent>

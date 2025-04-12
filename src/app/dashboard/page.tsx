@@ -106,15 +106,15 @@ const MetricsCard = ({ title, value, growth, icon, isLoading }: MetricsCardProps
 
   return (
     <motion.div 
-      className="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500"
+      className="bg-white rounded-lg shadow-lg shadow-green-500/10 p-6 border-l-4 border-green-500 hover:shadow-xl hover:shadow-green-500/15 transition-all @container"
       variants={itemVariants}
     >
       <div className="flex justify-between items-start">
         <div>
-          <p className="text-gray-500 text-sm">{title}</p>
-          <h3 className="text-2xl font-bold text-gray-800 mt-1">{value}</h3>
+          <p className="text-gray-500 text-sm @lg:text-base">{title}</p>
+          <h3 className="text-2xl font-bold text-gray-800 mt-1 text-shadow-sm @lg:text-3xl">{value}</h3>
           {growth !== undefined && (
-            <p className={`${growth >= 0 ? 'text-green-500' : 'text-red-500'} text-sm font-medium mt-2`}>
+            <p className={`${growth >= 0 ? 'text-green-500' : 'text-red-500'} text-sm font-medium mt-2 @lg:text-base`}>
               <span>
                 {growth >= 0 ? '↑' : '↓'} {Math.abs(growth)}%
               </span> 
@@ -122,7 +122,7 @@ const MetricsCard = ({ title, value, growth, icon, isLoading }: MetricsCardProps
             </p>
           )}
         </div>
-        <div className="bg-green-100 p-3 rounded-full">
+        <div className="bg-green-100 p-3 rounded-full shadow-md shadow-green-200/50">
           {icon}
         </div>
       </div>
