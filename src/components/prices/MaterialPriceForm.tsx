@@ -76,7 +76,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
   const selectedMaterial = MATERIAL_TYPES.find(m => m.id === formData.materialType);
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow">
+    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm">
       <h3 className="text-lg font-semibold mb-4">Registrar Nuevo Precio de Material</h3>
       
       {error && (
@@ -97,7 +97,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
           <select
             value={formData.materialType}
             onChange={(e) => setFormData({...formData, materialType: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           >
             <option value="">Seleccionar material</option>
@@ -119,7 +119,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
             min="0"
             value={formData.pricePerUnit}
             onChange={(e) => setFormData({...formData, pricePerUnit: parseFloat(e.target.value)})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>
@@ -130,7 +130,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
             type="date"
             value={formData.effectiveDate}
             onChange={(e) => setFormData({...formData, effectiveDate: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>

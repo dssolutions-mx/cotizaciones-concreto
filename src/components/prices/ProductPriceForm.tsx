@@ -177,7 +177,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow">
+    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm">
       <h3 className="text-lg font-semibold mb-4">Registrar Precio de Producto</h3>
       
       {error && (
@@ -199,7 +199,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
             type="text"
             value={formData.code}
             onChange={(e) => setFormData({...formData, code: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>
@@ -209,7 +209,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
           <select
             value={formData.type}
             onChange={(e) => setFormData({...formData, type: e.target.value as 'FC' | 'MR'})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           >
             <option value="FC">FC</option>
@@ -223,7 +223,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
             type="text"
             value={formData.description}
             onChange={(e) => setFormData({...formData, description: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>
@@ -236,7 +236,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
             type="number"
             value={formData.fc_mr_value}
             onChange={(e) => setFormData({...formData, fc_mr_value: parseInt(e.target.value)})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>
@@ -247,7 +247,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
             type="number"
             value={formData.age_days}
             onChange={(e) => setFormData({...formData, age_days: parseInt(e.target.value)})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>
@@ -257,7 +257,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
           <select
             value={formData.recipe_id}
             onChange={(e) => handleRecipeChange(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           >
             <option value="">Seleccionar receta</option>
@@ -274,7 +274,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
           <select
             value={formData.placement_type}
             onChange={(e) => setFormData({...formData, placement_type: e.target.value as 'D' | 'B'})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           >
             <option value="D">Directo</option>
@@ -290,7 +290,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
             min="0"
             value={formData.max_aggregate_size}
             onChange={(e) => setFormData({...formData, max_aggregate_size: parseFloat(e.target.value)})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>
@@ -303,7 +303,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
             min="0"
             value={formData.slump}
             onChange={(e) => setFormData({...formData, slump: parseInt(e.target.value)})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>
@@ -317,7 +317,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
               min="0"
               value={formData.base_price}
               onChange={(e) => setFormData({...formData, base_price: parseFloat(e.target.value)})}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
               disabled={isSubmitting || isCalculating}
             />
             {isCalculating && (
@@ -337,7 +337,7 @@ export const ProductPriceForm = ({ onProductSaved }: ProductPriceFormProps) => {
             type="date"
             value={formData.effective_date}
             onChange={(e) => setFormData({...formData, effective_date: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>

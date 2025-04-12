@@ -26,7 +26,7 @@ export default function CreateOrderForm({ quoteId, clientId, totalAmount, onSucc
   // Si no hay una cotización seleccionada, mostrar un mensaje
   if (!quoteId || !clientId) {
     return (
-      <div className="bg-white rounded-lg border shadow-sm p-6 text-center">
+      <div className="bg-white rounded-lg border shadow-xs p-6 text-center">
         <h2 className="text-xl font-semibold mb-4">Crear Orden</h2>
         <div className="py-8">
           <p className="text-gray-600 mb-4">
@@ -34,7 +34,7 @@ export default function CreateOrderForm({ quoteId, clientId, totalAmount, onSucc
           </p>
           <button
             onClick={() => router.push('/quotes')}
-            className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700"
+            className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-xs text-sm font-medium text-white bg-green-600 hover:bg-green-700"
           >
             Ir a Cotizaciones
           </button>
@@ -79,7 +79,7 @@ export default function CreateOrderForm({ quoteId, clientId, totalAmount, onSucc
   }
 
   return (
-    <div className="bg-white rounded-lg border shadow-sm p-6">
+    <div className="bg-white rounded-lg border shadow-xs p-6">
       <h2 className="text-xl font-semibold mb-4">Crear Orden</h2>
       
       {error && (

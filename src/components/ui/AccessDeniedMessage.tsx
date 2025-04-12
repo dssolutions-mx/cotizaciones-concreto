@@ -38,7 +38,7 @@ export default function AccessDeniedMessage({
   const formattedRoles = requiredRoles.map(formatRoleName);
   
   return (
-    <div className={`p-6 bg-gray-50 rounded-lg text-center shadow-sm ${className}`}>
+    <div className={`p-6 bg-gray-50 rounded-lg text-center shadow-xs ${className}`}>
       <svg 
         className="w-12 h-12 text-gray-400 mx-auto mb-4" 
         fill="none" 

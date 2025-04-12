@@ -142,7 +142,7 @@ export default function UserManagementPage() {
           <input
             type="text"
             placeholder="Buscar usuarios..."
-            className="pl-10 pr-4 py-2 border border-gray-300 rounded-md w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="pl-10 pr-4 py-2 border border-gray-300 rounded-md w-full sm:w-72 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -212,7 +212,7 @@ export default function UserManagementPage() {
                               role: e.target.value as UserRole
                             })}
                             className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
-                                   focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                   focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                           >
                             <option value="SALES_AGENT">Vendedor</option>
                             <option value="QUALITY_TEAM">Equipo de Calidad</option>

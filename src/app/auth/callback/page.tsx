@@ -24,7 +24,7 @@ function AuthCallbackHandler() {
       const link = document.createElement('a');
       link.href = '/update-password';
       link.innerText = 'Click here to set your password';
-      link.className = 'inline-flex justify-center mt-4 py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
+      link.className = 'inline-flex justify-center mt-4 py-2 px-4 border border-transparent shadow-xs text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500';
       container.appendChild(link);
     }
     
@@ -348,7 +348,7 @@ function AuthCallbackHandler() {
               <p className="text-sm text-gray-600 mb-2">Intenta acceder manualmente a la página de configuración de contraseña:</p>
               <a 
                 href="/update-password"
-                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                className="inline-flex justify-center py-2 px-4 border border-transparent shadow-xs text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
                 Ir a Configurar Contraseña
               </a>
@@ -363,7 +363,7 @@ function AuthCallbackHandler() {
             </p>
             <a
               href="/update-password"
-              className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              className="inline-flex justify-center py-2 px-4 border border-transparent shadow-xs text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
             >
               Continuar a Configurar Contraseña
             </a>

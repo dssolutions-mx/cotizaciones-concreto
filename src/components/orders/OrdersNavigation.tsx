@@ -85,7 +85,7 @@ export default function OrdersNavigation() {
                 currentTab === tab.id
                   ? 'border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
                   : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-200',
-                'group inline-flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors duration-150 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2'
+                'group inline-flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors duration-150 ease-in-out focus:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2'
               )}
               aria-current={currentTab === tab.id ? 'page' : undefined}
             >

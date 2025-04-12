@@ -77,7 +77,7 @@ export const PriceForm = ({ onPriceSaved }: PriceFormProps) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow">
+    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm">
       <h3 className="text-lg font-semibold mb-4">Registrar Nuevo Precio</h3>
       
       {error && (
@@ -105,7 +105,7 @@ export const PriceForm = ({ onPriceSaved }: PriceFormProps) => {
                 unit: material?.unit || ''
               });
             }}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           >
             <option value="">Seleccionar material</option>
@@ -127,7 +127,7 @@ export const PriceForm = ({ onPriceSaved }: PriceFormProps) => {
             min="0"
             value={formData.pricePerUnit}
             onChange={(e) => setFormData({...formData, pricePerUnit: parseFloat(e.target.value)})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>
@@ -138,7 +138,7 @@ export const PriceForm = ({ onPriceSaved }: PriceFormProps) => {
             type="date"
             value={formData.effectiveDate}
             onChange={(e) => setFormData({...formData, effectiveDate: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>

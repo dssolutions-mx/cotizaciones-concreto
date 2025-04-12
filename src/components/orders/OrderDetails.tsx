@@ -366,7 +366,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         <div>
           <button
             onClick={handleGoBack}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-xs text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
           >
             Volver
           </button>
@@ -376,7 +376,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       {error && (
         <div className="mb-6 rounded-md bg-red-50 p-4">
           <div className="flex">
-            <div className="flex-shrink-0">
+            <div className="shrink-0">
               {/* Exclamation circle icon */}
               <svg
                 className="h-5 w-5 text-red-400"
@@ -435,7 +435,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             </div>
                   
             {activeTab === 'details' ? (
-              <div className="mt-6 bg-white shadow overflow-hidden sm:rounded-lg">
+              <div className="mt-6 bg-white shadow-sm overflow-hidden sm:rounded-lg">
                 <div className="px-4 py-5 sm:px-6 bg-gray-50">
                   <h3 className="text-lg leading-6 font-medium text-gray-900">Estado de la Orden</h3>
                   <div className="mt-4 flex flex-col sm:flex-row sm:justify-between">
@@ -456,7 +456,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                     <div className="mt-4 flex space-x-2">
                       <button
                         onClick={handleApproveCredit}
-                        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-xs text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                       >
                         Aprobar Crédito
                       </button>
@@ -464,14 +464,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       {isCreditValidator ? (
                         <button
                           onClick={openRejectReasonModal}
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-xs text-white bg-red-600 hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                         >
                           Rechazar Crédito
                         </button>
                       ) : (
                         <button
                           onClick={openConfirmModal}
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-xs text-white bg-red-600 hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
                         >
                           Rechazar Crédito
                         </button>
@@ -516,7 +516,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                     <div className="mt-6">
                       <button
                         onClick={handleEditClick}
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-xs text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                       >
                         Editar Orden
                       </button>
@@ -585,7 +585,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                     parseFloat(e.target.value) || 0
                                   )
                                 }
-                                className="block w-20 ml-auto text-right shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md"
+                                className="block w-20 ml-auto text-right shadow-xs focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md"
                                 min="0"
                                 step="0.01"
                               />
@@ -622,7 +622,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                     parseFloat(e.target.value) || 0
                                   )
                                 }
-                                className="block w-20 ml-auto text-right shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md"
+                                className="block w-20 ml-auto text-right shadow-xs focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md"
                                 min="0"
                                 step="0.01"
                               />
@@ -658,14 +658,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   <div className="px-4 py-3 bg-gray-50 text-right sm:px-6">
                     <button
                       onClick={handleCancelEdit}
-                      className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 mr-3"
+                      className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-xs text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500 mr-3"
                     >
                       Cancelar
                     </button>
                     <button
                       onClick={handleSaveChanges}
                       disabled={isSaving}
-                      className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                      className="inline-flex justify-center py-2 px-4 border border-transparent shadow-xs text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                     >
                       {isSaving ? 'Guardando...' : 'Guardar Cambios'}
                     </button>

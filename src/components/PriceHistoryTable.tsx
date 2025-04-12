@@ -278,7 +278,7 @@ export const PriceHistoryTable: React.FC<PriceHistoryTableProps> = ({ data, grou
             {groupedSubItems.map((siteGroup, siteIndex) => (
               <div 
                 key={`${mainId}-site-${siteIndex}`} 
-                className="bg-gray-50 rounded-lg p-3 shadow-sm"
+                className="bg-gray-50 rounded-lg p-3 shadow-xs"
               >
                 {/* Construction Site Header */}
                 <div className="flex justify-between items-center mb-3 border-b pb-2">
@@ -324,7 +324,7 @@ export const PriceHistoryTable: React.FC<PriceHistoryTableProps> = ({ data, grou
                     return (
                       <div 
                         key={`${mainId}-${siteGroup.constructionSite}-${subId}`} 
-                        className="bg-white rounded-lg p-3 shadow-sm"
+                        className="bg-white rounded-lg p-3 shadow-xs"
                       >
                         <div className="flex justify-between items-center mb-2">
                           <h5 className="font-medium text-sm">{subName}</h5>

@@ -163,7 +163,7 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
           </p>
           <button 
             onClick={onClick} 
-            className="inline-flex items-center justify-center rounded-md border border-input px-3 h-9 text-sm font-medium bg-background hover:bg-accent hover:text-accent-foreground shadow-sm hover:shadow transition-all"
+            className="inline-flex items-center justify-center rounded-md border border-input px-3 h-9 text-sm font-medium bg-background hover:bg-accent hover:text-accent-foreground shadow-xs hover:shadow-sm transition-all"
           >
             Ver detalles
           </button>
@@ -350,7 +350,7 @@ export default function OrdersList({
           {!isDosificador && onCreateOrder && (
             <button
               onClick={handleCreateOrderClick}
-              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
@@ -369,7 +369,7 @@ export default function OrdersList({
         <div className="flex justify-end mb-4">
           <button
             onClick={handleCreateOrderClick}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
@@ -417,7 +417,7 @@ export default function OrdersList({
           }
           
           return (
-            <div key={groupKey} className="bg-white rounded-lg shadow overflow-hidden mb-4">
+            <div key={groupKey} className="bg-white rounded-lg shadow-sm overflow-hidden mb-4">
               <div className={`p-4 border-b ${headerStyle}`}>
                 <h3 className={`text-lg font-medium ${headerTextStyle}`}>
                   {groupedOrders[groupKey].formattedDate}

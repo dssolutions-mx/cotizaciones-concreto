@@ -122,7 +122,7 @@ export default function RejectedOrdersTab() {
           </h2>
           <div className="space-y-4">
             {ordersByDate[date].map((order) => (
-              <div key={order.id} className="border rounded-lg shadow-sm hover:shadow-md transition-shadow bg-white">
+              <div key={order.id} className="border rounded-lg shadow-xs hover:shadow-md transition-shadow bg-white">
                 <div className="p-4">
                   <div className="flex flex-col md:flex-row justify-between">
                     <div className="flex-1">

@@ -155,7 +155,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-2 rounded-full bg-gray-100 hover:bg-gray-200 active:bg-gray-300 
-                         focus:outline-none focus:ring-2 focus:ring-green-500 transition-all
+                         focus:outline-hidden focus:ring-2 focus:ring-green-500 transition-all
                          transform active:scale-95"
               aria-label={mobileMenuOpen ? "Cerrar menú" : "Abrir menú"}
               aria-expanded={mobileMenuOpen}
@@ -197,7 +197,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
                 onClick={() => setMobileMenuOpen(false)}
                 className="absolute top-4 right-4 p-2 rounded-full bg-gray-100 
                           hover:bg-gray-200 active:bg-gray-300 
-                          focus:outline-none focus:ring-2 focus:ring-green-500
+                          focus:outline-hidden focus:ring-2 focus:ring-green-500
                           transition-all transform active:scale-95"
                 aria-label="Cerrar menú"
               >
@@ -272,7 +272,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
             <button 
               className="bg-green-500 hover:bg-green-600 active:bg-green-700 
                         text-white rounded-full p-3 shadow-lg transform 
-                        transition-transform active:scale-95 focus:outline-none 
+                        transition-transform active:scale-95 focus:outline-hidden 
                         focus:ring-2 focus:ring-green-400"
               aria-label="Crear nueva cotización"
             >

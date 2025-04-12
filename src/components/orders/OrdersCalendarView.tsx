@@ -309,7 +309,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
 
   if (loading && calendarDays.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow overflow-hidden h-96 flex items-center justify-center">
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden h-96 flex items-center justify-center">
         <div className="flex flex-col items-center">
           <div className="w-10 h-10 border-t-2 border-b-2 border-green-500 rounded-full animate-spin mb-3"></div>
           <p className="text-gray-600">Cargando calendario de órdenes...</p>
@@ -320,7 +320,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
 
   if (error) {
     return (
-      <div className="bg-white rounded-lg shadow overflow-hidden p-6">
+      <div className="bg-white rounded-lg shadow-sm overflow-hidden p-6">
         <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-md flex items-center">
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -364,7 +364,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                     <div
                       key={order.id}
                       onClick={() => handleOrderClick(order.id)}
-                      className={`p-3 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-sm`}
+                      className={`p-3 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs`}
                     >
                       <div className="font-medium">{order.clients.business_name}</div>
                       <div className="flex items-center mt-1 text-sm">
@@ -437,7 +437,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                     <div
                       key={order.id}
                       onClick={() => handleOrderClick(order.id)}
-                      className={`p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-sm text-sm`}
+                      className={`p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-sm`}
                     >
                       <div className="font-medium truncate">{order.clients.business_name}</div>
                       <div className="flex items-center mt-1 text-xs">
@@ -507,7 +507,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                   <div
                     key={order.id}
                     onClick={() => handleOrderClick(order.id)}
-                    className={`p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-sm text-xs`}
+                    className={`p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-xs`}
                   >
                     <div className="font-medium truncate">{order.clients.business_name}</div>
                     <div className="text-xs mt-1 flex items-center">
@@ -527,15 +527,15 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   );
 
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden mb-16" ref={calendarRef} tabIndex={0}>
-      <div className="sticky top-0 z-20 bg-white border-b shadow-sm">
+    <div className="bg-white rounded-lg shadow-sm overflow-hidden mb-16" ref={calendarRef} tabIndex={0}>
+      <div className="sticky top-0 z-20 bg-white border-b shadow-xs">
         <div className="flex flex-col md:flex-row md:items-center justify-between p-4 gap-3">
           <h2 className="text-xl font-semibold text-gray-800">
             {getViewTitle()}
           </h2>
           
           <div className="flex flex-wrap gap-3">
-            <div className="flex bg-gray-100 rounded-md overflow-hidden shadow-sm">
+            <div className="flex bg-gray-100 rounded-md overflow-hidden shadow-xs">
               <button
                 onClick={() => handleViewTypeChange('day')}
                 className={`px-3 py-1.5 text-sm font-medium flex items-center ${viewType === 'day' ? 'bg-green-600 text-white shadow-inner' : 'hover:bg-gray-200 text-gray-700'} transition-colors duration-150`}
@@ -568,7 +568,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
               </button>
             </div>
             
-            <div className="flex shadow-sm">
+            <div className="flex shadow-xs">
               <button
                 onClick={handlePrevious}
                 className="p-2 rounded-l-md bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors duration-150 flex items-center"

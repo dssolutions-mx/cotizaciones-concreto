@@ -80,7 +80,7 @@ export const AdminCostForm = ({ onCostSaved }: AdminCostFormProps) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow">
+    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm">
       <h3 className="text-lg font-semibold mb-4">Registrar Gasto Administrativo</h3>
       
       {error && (
@@ -101,7 +101,7 @@ export const AdminCostForm = ({ onCostSaved }: AdminCostFormProps) => {
           <select
             value={formData.costType}
             onChange={(e) => setFormData({...formData, costType: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           >
             <option value="">Seleccionar tipo</option>
@@ -118,7 +118,7 @@ export const AdminCostForm = ({ onCostSaved }: AdminCostFormProps) => {
           <textarea
             value={formData.description}
             onChange={(e) => setFormData({...formData, description: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             rows={3}
             disabled={isSubmitting}
           />
@@ -132,7 +132,7 @@ export const AdminCostForm = ({ onCostSaved }: AdminCostFormProps) => {
             min="0"
             value={formData.amount}
             onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value)})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>
@@ -143,7 +143,7 @@ export const AdminCostForm = ({ onCostSaved }: AdminCostFormProps) => {
             type="date"
             value={formData.effectiveDate}
             onChange={(e) => setFormData({...formData, effectiveDate: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-green-500 focus:ring-green-500"
+            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
             disabled={isSubmitting}
           />
         </div>

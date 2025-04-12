@@ -30,7 +30,7 @@ export default function LandingPage() {
       <section className="relative h-screen flex items-center">
         {/* Background Image */}
         <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-gray-900/80 to-gray-900/60 z-10" />
+          <div className="absolute inset-0 bg-linear-to-r from-gray-900/80 to-gray-900/60 z-10" />
           <Image 
             src="/images/dcconcretos/hero1.jpg?v=1"
             alt="DC Concretos - Obra de construcción con concreto" 
@@ -62,7 +62,7 @@ export default function LandingPage() {
             <h1 className="text-5xl font-bold mb-4 drop-shadow-lg">
               Cotizaciones precisas de concreto en minutos, no en días
             </h1>
-            <p className="text-xl mb-8 drop-shadow text-gray-100">
+            <p className="text-xl mb-8 drop-shadow-sm text-gray-100">
               Simplifica tus procesos de cotización con nuestro sistema especializado para la industria del concreto
             </p>
             <a href="/login">
@@ -226,7 +226,7 @@ export default function LandingPage() {
                   type="text"
                   name="search"
                   placeholder="Buscar clientes, cotizaciones o recetas..."
-                  className="flex-1 py-3 px-5 outline-none text-gray-700"
+                  className="flex-1 py-3 px-5 outline-hidden text-gray-700"
                 />
                 <button 
                   type="submit"
@@ -238,9 +238,9 @@ export default function LandingPage() {
               </motion.div>
             </form>
             <div className="mt-5 text-sm text-gray-200 flex flex-wrap justify-center gap-3">
-              <span className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">Cliente ABC</span>
-              <span className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">Cotización #123</span>
-              <span className="bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full">Receta Concreto 300</span>
+              <span className="bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full">Cliente ABC</span>
+              <span className="bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full">Cotización #123</span>
+              <span className="bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full">Receta Concreto 300</span>
             </div>
           </div>
         </div>

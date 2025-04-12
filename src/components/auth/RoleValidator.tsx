@@ -16,7 +16,7 @@ export default function RoleValidator() {
   };
   
   return (
-    <div className="bg-white rounded-lg shadow p-6 max-w-4xl mx-auto my-8">
+    <div className="bg-white rounded-lg shadow-sm p-6 max-w-4xl mx-auto my-8">
       <h2 className="text-2xl font-bold mb-4">Validador de Permisos de Rol</h2>
       
       <div className="mb-6 p-4 bg-gray-50 rounded-lg">
@@ -36,7 +36,7 @@ export default function RoleValidator() {
       <div className="flex justify-center mb-6">
         <button
           onClick={runTests}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
         >
           Probar Permisos de Roles
         </button>

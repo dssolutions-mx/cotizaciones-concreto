@@ -167,7 +167,7 @@ export default function AuthCheckPage() {
               type="password"
               value={testPassword}
               onChange={(e) => setTestPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-xs focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500"
               placeholder="Enter test password"
               disabled={loading}
             />

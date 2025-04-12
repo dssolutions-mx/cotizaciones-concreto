@@ -144,7 +144,7 @@ export default function ProfilePage() {
             type="text"
             value={firstName}
             onChange={(e) => setFirstName(e.target.value)}
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-hidden focus:shadow-outline"
           />
         </div>
 
@@ -157,7 +157,7 @@ export default function ProfilePage() {
             type="text"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
-            className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+            className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-hidden focus:shadow-outline"
           />
         </div>
 
@@ -165,7 +165,7 @@ export default function ProfilePage() {
           <button
             type="button"
             onClick={() => router.push('/profile/change-password')}
-            className="bg-gray-100 text-gray-800 hover:bg-gray-200 font-medium py-2 px-4 rounded focus:outline-none focus:shadow-outline"
+            className="bg-gray-100 text-gray-800 hover:bg-gray-200 font-medium py-2 px-4 rounded focus:outline-hidden focus:shadow-outline"
           >
             Cambiar Contraseña
           </button>
@@ -173,7 +173,7 @@ export default function ProfilePage() {
           <button
             type="submit"
             disabled={saving}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-hidden focus:shadow-outline disabled:opacity-50"
           >
             {saving ? 'Guardando...' : 'Guardar Cambios'}
           </button>

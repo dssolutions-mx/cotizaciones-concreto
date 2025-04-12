@@ -11,7 +11,7 @@ export default function RoleCheckPage() {
       
       <RoleValidator />
       
-      <div className="mt-12 bg-white rounded-lg shadow p-6 max-w-4xl mx-auto">
+      <div className="mt-12 bg-white rounded-lg shadow-sm p-6 max-w-4xl mx-auto">
         <h2 className="text-2xl font-bold mb-4">Matriz de Permisos del Sistema</h2>
         <div className="overflow-x-auto">
           <table className="min-w-full bg-white border border-gray-200">

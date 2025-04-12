@@ -471,7 +471,7 @@ export default function ScheduleOrderForm({
   
   // Render client selection step
   const renderClientSelection = () => (
-    <div className="bg-white rounded-lg border shadow-sm p-6">
+    <div className="bg-white rounded-lg border shadow-xs p-6">
       <h2 className="text-xl font-semibold mb-4">Seleccionar Cliente</h2>
       
       {isLoading ? (
@@ -497,7 +497,7 @@ export default function ScheduleOrderForm({
   
   // Render construction site selection step
   const renderSiteSelection = () => (
-    <div className="bg-white rounded-lg border shadow-sm p-6">
+    <div className="bg-white rounded-lg border shadow-xs p-6">
       <h2 className="text-xl font-semibold mb-4">Seleccionar Obra</h2>
       
       <div className="mb-4">
@@ -517,7 +517,7 @@ export default function ScheduleOrderForm({
           </p>
           <button
             onClick={() => setCurrentStep(1)}
-            className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 rounded-md shadow-xs text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
           >
             Seleccionar otro cliente
           </button>
@@ -540,7 +540,7 @@ export default function ScheduleOrderForm({
       <div className="mt-6">
         <button
           onClick={() => setCurrentStep(1)}
-          className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+          className="px-4 py-2 border border-gray-300 rounded-md shadow-xs text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
         >
           Atrás
         </button>
@@ -550,7 +550,7 @@ export default function ScheduleOrderForm({
   
   // Render product selection and order details step
   const renderOrderDetails = () => (
-    <div className="bg-white rounded-lg border shadow-sm p-6">
+    <div className="bg-white rounded-lg border shadow-xs p-6">
       <h2 className="text-xl font-semibold mb-4">Crear Orden</h2>
       
       {error && (
@@ -579,7 +579,7 @@ export default function ScheduleOrderForm({
           </p>
           <button
             onClick={() => setCurrentStep(2)}
-            className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 rounded-md shadow-xs text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
           >
             Seleccionar otra obra
           </button>
@@ -789,7 +789,7 @@ export default function ScheduleOrderForm({
             <button
               type="button"
               onClick={() => setCurrentStep(2)}
-              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-300 rounded-md shadow-xs text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
             >
               Atrás
             </button>

@@ -325,7 +325,7 @@ export default function QuoteBuilder() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-min">
       {/* Left Panel: Product Catalog */}
-      <div className="lg:col-span-2 bg-white rounded-lg shadow p-6 h-full">
+      <div className="lg:col-span-2 bg-white rounded-lg shadow-sm p-6 h-full">
         <h2 className="text-xl font-bold mb-4">Catálogo de Productos</h2>
         <div className="space-y-6">
           {Object.entries(groupedRecipes)
@@ -438,7 +438,7 @@ export default function QuoteBuilder() {
       </div>
 
       {/* Right Panel: Client Selection and History */}
-      <div className="bg-white rounded-lg shadow p-6 flex flex-col h-full">
+      <div className="bg-white rounded-lg shadow-sm p-6 flex flex-col h-full">
         <h2 className="text-xl font-bold mb-4">Seleccionar Cliente</h2>
         <select 
           value={selectedClient}
@@ -577,7 +577,7 @@ export default function QuoteBuilder() {
 
       {/* Bottom Panel: Quote Products */}
       {quoteProducts.length > 0 && (
-        <div className="lg:col-span-3 bg-white rounded-lg shadow p-6">
+        <div className="lg:col-span-3 bg-white rounded-lg shadow-sm p-6">
           <h2 className="text-xl font-bold mb-4">Productos de la Cotización</h2>
           {quoteProducts.map((product, index) => (
             <div key={index} className="grid grid-cols-6 gap-4 items-center mb-4 pb-4 border-b">

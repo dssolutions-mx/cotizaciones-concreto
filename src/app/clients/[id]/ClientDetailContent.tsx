@@ -295,7 +295,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
         <div className="text-red-500">{error}</div>
       ) : client ? (
         <div>
-          <div className="bg-white shadow rounded-lg p-6 mb-6">
+          <div className="bg-white shadow-sm rounded-lg p-6 mb-6">
             <h2 className="text-2xl font-bold mb-4">{client.business_name}</h2>
             <div className="space-y-4">
               <div>
@@ -329,7 +329,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
             </div>
           </div>
 
-          <div className="bg-white shadow rounded-lg p-6 mb-6">
+          <div className="bg-white shadow-sm rounded-lg p-6 mb-6">
             <h2 className="text-xl font-semibold mb-4">Información de Contacto</h2>
             <div className="space-y-4">
               <div>
@@ -375,7 +375,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 {sites.map((site) => (
                   <div key={site.id} className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-colors duration-200">
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="flex-grow">
+                      <div className="grow">
                         <div className="flex items-center gap-3 mb-2">
                           <h3 className="text-lg font-medium text-gray-900">{site.name}</h3>
                           <span className={`px-3 py-1 text-xs font-medium rounded-full flex items-center ${

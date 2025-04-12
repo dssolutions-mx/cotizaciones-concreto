@@ -119,7 +119,7 @@ export const UploadExcel = () => {
 
       {/* Mostrar recetas procesadas */}
       {processedRecipes.length > 0 && (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
           <div className="p-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold">Recetas Procesadas</h3>
           </div>

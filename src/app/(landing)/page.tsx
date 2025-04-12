@@ -217,7 +217,7 @@ export default function LandingPage() {
                 className="bg-white p-6 rounded-lg shadow-md h-full"
               >
                 <div className="flex flex-col h-full">
-                  <div className="flex-grow">
+                  <div className="grow">
                     <p className="text-gray-700 mb-4 text-sm md:text-base">&ldquo;{testimonial.testimonial}&rdquo;</p>
                   </div>
                   <div>

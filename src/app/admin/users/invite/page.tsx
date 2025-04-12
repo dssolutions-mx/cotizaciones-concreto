@@ -70,7 +70,7 @@ export default function InviteUserPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-hidden focus:shadow-outline"
               />
             </div>
 
@@ -83,7 +83,7 @@ export default function InviteUserPage() {
                 value={role}
                 onChange={(e) => setRole(e.target.value as UserRole)}
                 required
-                className="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-hidden focus:shadow-outline"
               >
                 <option value="SALES_AGENT">Vendedor</option>
                 <option value="QUALITY_TEAM">Equipo de Calidad</option>
@@ -96,7 +96,7 @@ export default function InviteUserPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline disabled:opacity-50"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-hidden focus:shadow-outline disabled:opacity-50"
               >
                 {loading ? 'Enviando...' : 'Enviar Invitación'}
               </button>

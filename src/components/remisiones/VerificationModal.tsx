@@ -498,7 +498,7 @@ export default function VerificationModal({
                   <tr key={index}>
                     <td className="px-3 py-2">
                       <select
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                         value={material.tipo}
                         onChange={(e) => handleMaterialChange(index, 'tipo', e.target.value)}
                       >
