@@ -76,23 +76,23 @@ export default function UserProfile() {
     <div className="bg-white rounded-lg shadow-md overflow-hidden">
       <div className="p-6">
         <div className="flex items-center justify-center mb-4">
-          <div className="h-24 w-24 mask mask-hexagon bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-400/20">
+          <div className="h-24 w-24 mask mask-hexagon bg-gray-100 flex items-center justify-center shadow-sm">
             {profile?.first_name ? (
-              <span className="text-4xl font-bold text-white">{profile.first_name.charAt(0)}{profile.last_name?.charAt(0)}</span>
+              <span className="text-4xl font-bold text-gray-600">{profile.first_name.charAt(0)}{profile.last_name?.charAt(0)}</span>
             ) : (
-              <UserCircle className="h-16 w-16 text-white" />
+              <UserCircle className="h-16 w-16 text-gray-600" />
             )}
           </div>
         </div>
         
-        <h2 className="text-xl font-semibold text-center text-gray-800 text-shadow-xs @lg:text-2xl">
+        <h2 className="text-xl font-semibold text-center text-gray-800 @lg:text-2xl">
           {profile?.first_name} {profile?.last_name}
         </h2>
         <p className="text-sm text-center text-gray-500 mt-1 @lg:text-base">
           {profile?.email}
         </p>
         <div className="mt-2 flex justify-center">
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 shadow-sm">
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
             {roleDisplay}
           </span>
         </div>

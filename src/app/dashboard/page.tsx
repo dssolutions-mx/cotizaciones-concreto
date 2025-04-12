@@ -106,13 +106,13 @@ const MetricsCard = ({ title, value, growth, icon, isLoading }: MetricsCardProps
 
   return (
     <motion.div 
-      className="bg-white rounded-lg shadow-lg shadow-green-500/10 p-6 border-l-4 border-green-500 hover:shadow-xl hover:shadow-green-500/15 transition-all @container"
+      className="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500 @container"
       variants={itemVariants}
     >
       <div className="flex justify-between items-start">
         <div>
           <p className="text-gray-500 text-sm @lg:text-base">{title}</p>
-          <h3 className="text-2xl font-bold text-gray-800 mt-1 text-shadow-sm @lg:text-3xl">{value}</h3>
+          <h3 className="text-2xl font-bold text-gray-800 mt-1 @lg:text-3xl">{value}</h3>
           {growth !== undefined && (
             <p className={`${growth >= 0 ? 'text-green-500' : 'text-red-500'} text-sm font-medium mt-2 @lg:text-base`}>
               <span>
@@ -122,7 +122,7 @@ const MetricsCard = ({ title, value, growth, icon, isLoading }: MetricsCardProps
             </p>
           )}
         </div>
-        <div className="bg-green-100 p-3 rounded-full shadow-md shadow-green-200/50">
+        <div className="bg-gray-100 p-3 rounded-full">
           {icon}
         </div>
       </div>
@@ -634,23 +634,23 @@ function DashboardContent() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Gráfica de ventas mensuales */}
         <motion.div 
-          className="bg-white rounded-lg shadow-lg shadow-primary-500/5 hover:shadow-xl hover:shadow-primary-500/10 transition-all p-6 @container"
+          className="bg-white rounded-lg shadow-md p-6 @container"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <h2 className="text-lg font-semibold text-gray-800 mb-4 text-shadow-xs @lg:text-xl">Ventas Mensuales de Concreto (m³)</h2>
+          <h2 className="text-lg font-semibold text-gray-800 mb-4 @lg:text-xl">Ventas Mensuales de Concreto (m³)</h2>
           <SalesChart isLoading={isLoading} />
         </motion.div>
 
         {/* Gráfica de estado de cotizaciones */}
         <motion.div 
-          className="bg-white rounded-lg shadow-lg shadow-primary-500/5 hover:shadow-xl hover:shadow-primary-500/10 transition-all p-6 @container"
+          className="bg-white rounded-lg shadow-md p-6 @container"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
         >
-          <h2 className="text-lg font-semibold text-gray-800 mb-4 text-shadow-xs @lg:text-xl">Estado de Cotizaciones</h2>
+          <h2 className="text-lg font-semibold text-gray-800 mb-4 @lg:text-xl">Estado de Cotizaciones</h2>
           <QuotesChart isLoading={isLoading} />
         </motion.div>
       </div>
@@ -658,25 +658,25 @@ function DashboardContent() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Gráfica de tipo de concreto */}
         <motion.div 
-          className="bg-white rounded-lg shadow-lg shadow-primary-500/5 hover:shadow-xl hover:shadow-primary-500/10 transition-all p-6 @container"
+          className="bg-white rounded-lg shadow-md p-6 @container"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
         >
-          <h2 className="text-lg font-semibold text-gray-800 mb-4 text-shadow-xs @lg:text-xl">Distribución por Tipo de Concreto</h2>
+          <h2 className="text-lg font-semibold text-gray-800 mb-4 @lg:text-xl">Distribución por Tipo de Concreto</h2>
           <RecipeChart isLoading={isLoading} />
         </motion.div>
 
         {/* Actividad reciente */}
         <motion.div 
-          className="bg-white rounded-lg shadow-lg shadow-primary-500/5 hover:shadow-xl hover:shadow-primary-500/10 transition-all p-6 @container"
+          className="bg-white rounded-lg shadow-md p-6 @container"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.25 }}
         >
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-800 text-shadow-xs @lg:text-xl">Actividad Reciente</h2>
-            <Link href="/activity" className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center hover:shadow-sm transition-all">
+            <h2 className="text-lg font-semibold text-gray-800 @lg:text-xl">Actividad Reciente</h2>
+            <Link href="/activity" className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center">
               Ver Todo <ExternalLink className="h-4 w-4 ml-1" />
             </Link>
           </div>
@@ -687,35 +687,35 @@ function DashboardContent() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Notificaciones */}
         <motion.div 
-          className="bg-white rounded-lg shadow-lg shadow-primary-500/5 hover:shadow-xl hover:shadow-primary-500/10 transition-all p-6 @container"
+          className="bg-white rounded-lg shadow-md p-6 @container"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
         >
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-800 text-shadow-xs @lg:text-xl">Notificaciones</h2>
+            <h2 className="text-lg font-semibold text-gray-800 @lg:text-xl">Notificaciones</h2>
             {!isLoading && (
-              <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full text-shadow-xs shadow-sm">
+              <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
                 {dashboardData?.newNotificationsCount || 0} nuevas
               </span>
             )}
           </div>
           <NotificationList isLoading={isLoading} />
-          <button className="mt-4 w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors hover:shadow-md shadow-sm">
+          <button className="mt-4 w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors">
             Ver todas las notificaciones
           </button>
         </motion.div>
 
         {/* Cotizaciones pendientes */}
         <motion.div 
-          className="bg-white rounded-lg shadow-lg shadow-primary-500/5 hover:shadow-xl hover:shadow-primary-500/10 transition-all p-6 lg:col-span-2 @container"
+          className="bg-white rounded-lg shadow-md p-6 lg:col-span-2 @container"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.35 }}
         >
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-gray-800 text-shadow-xs @lg:text-xl">Cotizaciones Pendientes</h2>
-            <Link href="/quotes" className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center hover:shadow-sm transition-all">
+            <h2 className="text-lg font-semibold text-gray-800 @lg:text-xl">Cotizaciones Pendientes</h2>
+            <Link href="/quotes" className="text-green-600 hover:text-green-800 text-sm font-medium flex items-center">
               Ver Todas <ExternalLink className="h-4 w-4 ml-1" />
             </Link>
           </div>

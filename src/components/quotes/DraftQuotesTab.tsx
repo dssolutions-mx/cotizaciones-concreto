@@ -4,6 +4,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { QuotesService } from '@/services/quotes';
+import * as Checkbox from '@radix-ui/react-checkbox';
+import * as Dialog from '@radix-ui/react-dialog';
+import { CheckIcon, Cross2Icon } from '@radix-ui/react-icons';
 
 interface DraftQuotesTabProps {
   onDataSaved?: () => void;
@@ -81,6 +84,10 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
   const [page, setPage] = useState(1);
   const [totalQuotes, setTotalQuotes] = useState(0);
   const quotesPerPage = 10;
+  // Add state for search
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('DRAFT'); // Default to DRAFT
+  const [showSearch, setShowSearch] = useState(false);
 
   // Modal state
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
@@ -113,7 +120,8 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
       const from = (page - 1) * quotesPerPage;
       const to = from + quotesPerPage - 1;
       
-      const { data, error } = await supabase
+      // Start building the query
+      let query = supabase
         .from('quotes')
         .select(`
           id,
@@ -147,13 +155,33 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
               )
             )
           )
-        `)
-        .eq('status', 'DRAFT')
+        `, { count: 'exact' });
+      
+      // Apply status filter
+      query = query.eq('status', filterStatus);
+      
+      // Apply search filter if present
+      if (searchTerm.trim()) {
+        query = query.or(`
+          clients.business_name.ilike.%${searchTerm}%,
+          clients.client_code.ilike.%${searchTerm}%,
+          quote_number.ilike.%${searchTerm}%,
+          construction_site.ilike.%${searchTerm}%
+        `);
+      }
+      
+      // Add sorting and pagination
+      const { data, error, count } = await query
         .order('created_at', { ascending: false })
         .range(from, to);
       
       if (error) {
         throw error;
+      }
+      
+      // Set the total quotes count for pagination
+      if (count !== null) {
+        setTotalQuotes(count);
       }
       
       // Transform the data to match our Quote interface, following ApprovedQuotesTab pattern
@@ -201,28 +229,56 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
       });
       
       setQuotes(transformedQuotes);
-      
-      // Count total quotes for pagination
-      const { count, error: countError } = await supabase
-        .from('quotes')
-        .select('id', { count: 'exact' })
-        .eq('status', 'DRAFT');
-      
-      if (countError) {
-        console.error('Error counting quotes:', countError);
-      } else {
-        setTotalQuotes(count || 0);
-      }
-    } catch (err) {
-      console.error('Error loading draft quotes:', err);
+    } catch (error) {
+      console.error('Error fetching draft quotes:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [page, quotesPerPage]);
+  }, [page, quotesPerPage, searchTerm, filterStatus]); // Include searchTerm and filterStatus in dependencies
 
+  // Call our fetchDraftQuotes when component mounts or dependencies change
   useEffect(() => {
     fetchDraftQuotes();
   }, [fetchDraftQuotes]);
+
+  // Count total quotes for pagination - this is now handled in the fetchDraftQuotes function
+  useEffect(() => {
+    async function countDraftQuotes() {
+      try {
+        let query = supabase
+          .from('quotes')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', filterStatus);
+          
+        // Apply search if present
+        if (searchTerm.trim()) {
+          query = query.or(`
+            clients.business_name.ilike.%${searchTerm}%,
+            clients.client_code.ilike.%${searchTerm}%,
+            quote_number.ilike.%${searchTerm}%,
+            construction_site.ilike.%${searchTerm}%
+          `);
+        }
+        
+        const { count, error } = await query;
+        
+        if (error) {
+          throw error;
+        }
+        
+        if (count !== null) {
+          setTotalQuotes(count);
+        }
+      } catch (error) {
+        console.error('Error counting quotes:', error);
+      }
+    }
+    
+    // Only run this if we don't already have the count from the main query
+    if (totalQuotes === 0) {
+      countDraftQuotes();
+    }
+  }, [filterStatus, searchTerm, totalQuotes]);
 
   const sendToApproval = async (quoteId: string) => {
     console.log(`Starting to send quote ${quoteId} to approval`);
@@ -424,221 +480,436 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
   };
 
   return (
-    <div className="p-4">
+    <div className="p-6">
+      {/* Search and Filter Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="flex items-center">
+          <h2 className="text-xl font-semibold text-gray-800">Cotizaciones Borrador</h2>
+          <span className="ml-3 rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+            {totalQuotes}
+          </span>
+        </div>
+        
+        <div className="flex flex-1 sm:flex-none gap-2">
+          {showSearch ? (
+            <div className="relative w-full sm:w-64">
+              <input 
+                type="text"
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  setPage(1); // Reset to first page on search
+                }}
+                placeholder="Buscar cotizaciones..."
+                className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+              />
+              <svg
+                className="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              <button
+                onClick={() => {
+                  setSearchTerm('');
+                  setShowSearch(false);
+                }}
+                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowSearch(true)}
+              className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 bg-white rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+            >
+              <svg
+                className="h-4 w-4 mr-2 text-gray-500"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+              Buscar
+            </button>
+          )}
+
+          {/* Add status filter if needed 
+          <select
+            value={filterStatus}
+            onChange={(e) => {
+              setFilterStatus(e.target.value);
+              setPage(1); // Reset to first page on filter change
+            }}
+            className="px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+          >
+            <option value="DRAFT">Borrador</option>
+            <option value="PENDING">Pendiente</option>
+            <option value="APPROVED">Aprobada</option>
+            <option value="REJECTED">Rechazada</option>
+          </select>
+          */}
+        </div>
+      </div>
+
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
-          <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-700"></div>
+          <p className="ml-3 text-gray-700">Cargando cotizaciones...</p>
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-500">
-              <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3">Número de Cotización</th>
-                  <th className="px-4 py-3">Cliente</th>
-                  <th className="px-4 py-3">Sitio de Construcción</th>
-                  <th className="px-4 py-3">Total de Productos</th>
-                  <th className="px-4 py-3">Fecha de Creación</th>
-                  <th className="px-4 py-3">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {quotes.map((quote) => (
-                  <tr key={quote.id} className="border-b hover:bg-gray-100">
-                    <td className="px-4 py-3">{quote.quote_number}</td>
-                    <td className="px-4 py-3">
-                      {quote.client?.business_name || 'Sin cliente'}
-                    </td>
-                    <td className="px-4 py-3">{quote.construction_site}</td>
-                    <td className="px-4 py-3">{quote.quote_details.length}</td>
-                    <td className="px-4 py-3">
-                      {new Date(quote.created_at).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button 
-                        onClick={() => openQuoteDetails(quote)}
-                        className="text-blue-600 hover:text-blue-800 mr-2"
-                      >
-                        Ver Detalles
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Pagination */}
-          <div className="flex justify-between items-center mt-4">
-            <span className="text-sm text-gray-700">
-              Mostrando {quotes.length > 0 ? (page - 1) * quotesPerPage + 1 : 0} - {Math.min(page * quotesPerPage, totalQuotes)} de {totalQuotes} cotizaciones
-            </span>
-            <div className="flex space-x-2">
-              <button 
-                onClick={() => setPage(prev => Math.max(1, prev - 1))}
-                disabled={page === 1}
-                className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
-              >
-                Anterior
-              </button>
-              <button 
-                onClick={() => setPage(prev => (prev * quotesPerPage < totalQuotes ? prev + 1 : prev))}
-                disabled={page * quotesPerPage >= totalQuotes}
-                className="px-4 py-2 bg-gray-200 rounded disabled:opacity-50"
-              >
-                Siguiente
-              </button>
+          {quotes.length === 0 ? (
+            <div className="bg-white p-8 rounded-lg border border-gray-200 text-center">
+              <svg className="h-12 w-12 text-gray-400 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <h3 className="mt-4 text-lg font-medium text-gray-900">No se encontraron cotizaciones</h3>
+              <p className="mt-1 text-gray-500">
+                {searchTerm ? 'No hay resultados para tu búsqueda.' : 'Aún no hay cotizaciones borrador.'}
+              </p>
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="mt-4 text-sm text-green-600 hover:text-green-800"
+                >
+                  Limpiar búsqueda
+                </button>
+              )}
             </div>
-          </div>
+          ) : (
+            <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
+              <ul className="divide-y divide-gray-200">
+                {quotes.map(quote => (
+                  <li key={quote.id} className="hover:bg-gray-50 transition-colors">
+                    <div className="px-4 py-5 sm:px-6 @container">
+                      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
+                        <div className="col-span-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-2">
+                            <div className="flex items-center">
+                              <h3 className="text-lg font-medium text-gray-900">
+                                {quote.client?.business_name || 'Cliente sin nombre'}
+                              </h3>
+                              <span className="ml-2 text-sm text-gray-500">#{quote.quote_number}</span>
+                            </div>
+                            
+                            <div className="text-sm text-gray-500 mt-1 sm:mt-0">
+                              {new Date(quote.created_at).toLocaleDateString()} 
+                            </div>
+                          </div>
+                          
+                          <div className="mt-2 flex flex-col sm:flex-row sm:gap-x-6 text-sm">
+                            <div>
+                              <span className="font-medium text-gray-500">Obra:</span> {quote.construction_site}
+                            </div>
+                            <div>
+                              <span className="font-medium text-gray-500">Código:</span> {quote.client?.client_code || 'Sin código'}
+                            </div>
+                          </div>
+                          
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {quote.quote_details.slice(0, 3).map((detail) => (
+                              <span key={detail.id} className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+                                {detail.recipe?.recipe_code || 'Sin código'} - {detail.volume}m³
+                              </span>
+                            ))}
+                            {quote.quote_details.length > 3 && (
+                              <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+                                +{quote.quote_details.length - 3} más
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        
+                        <div className="flex flex-col sm:items-end sm:justify-center gap-3">
+                          <div className="text-right">
+                            <p className="text-lg font-bold text-gray-900">
+                              ${quote.quote_details.reduce((total, detail) => total + (detail.final_price * detail.volume), 0).toLocaleString('es-MX', { 
+                                minimumFractionDigits: 2, 
+                                maximumFractionDigits: 2 
+                              })}
+                            </p>
+                          </div>
+                          
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <button
+                              onClick={() => openQuoteDetails(quote)}
+                              className="inline-flex items-center justify-center px-3 py-1.5 border border-gray-300 bg-white rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            >
+                              <svg className="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                              </svg>
+                              Ver
+                            </button>
+                            <button
+                              onClick={() => sendToApproval(quote.id)}
+                              className="inline-flex items-center justify-center px-3 py-1.5 border border-transparent bg-green-600 rounded-md text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            >
+                              <svg className="h-4 w-4 mr-1.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                              </svg>
+                              Aprobar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Pagination - Improved version */}
+          {quotes.length > 0 && (
+            <div className="mt-6 flex items-center justify-between">
+              <div className="text-sm text-gray-700">
+                Mostrando <span className="font-medium">{((page - 1) * quotesPerPage) + 1}</span> a <span className="font-medium">{Math.min(page * quotesPerPage, totalQuotes)}</span> de <span className="font-medium">{totalQuotes}</span> cotizaciones
+              </div>
+              
+              <nav className="flex items-center space-x-1" aria-label="Pagination">
+                <button
+                  onClick={() => setPage(prev => Math.max(prev - 1, 1))}
+                  disabled={page === 1}
+                  className="relative inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span className="sr-only">Anterior</span>
+                </button>
+                
+                {/* Page number buttons */}
+                {Array.from({ length: Math.min(5, Math.ceil(totalQuotes / quotesPerPage)) }, (_, i) => {
+                  // Calculate the page number to display (show current page in middle when possible)
+                  const pageCount = Math.ceil(totalQuotes / quotesPerPage);
+                  let pageNum = 0;
+                  
+                  if (pageCount <= 5) {
+                    // If 5 or fewer pages, just display all pages
+                    pageNum = i + 1;
+                  } else if (page <= 3) {
+                    // At start, show first 5 pages
+                    pageNum = i + 1;
+                  } else if (page >= pageCount - 2) {
+                    // At end, show last 5 pages
+                    pageNum = pageCount - 4 + i;
+                  } else {
+                    // In middle, show current page and 2 on each side
+                    pageNum = page - 2 + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => setPage(pageNum)}
+                      className={`relative inline-flex items-center px-4 py-2 text-sm font-medium ${
+                        page === pageNum
+                          ? 'z-10 bg-green-50 border-green-500 text-green-600'
+                          : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                      } border rounded-md`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                
+                <button
+                  onClick={() => setPage(prev => (prev * quotesPerPage < totalQuotes ? prev + 1 : prev))}
+                  disabled={page * quotesPerPage >= totalQuotes}
+                  className="relative inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  <span className="sr-only">Siguiente</span>
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </nav>
+            </div>
+          )}
         </>
       )}
 
       {/* Quote Details Modal */}
       {selectedQuote && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Detalles de Cotización</h2>
-                <button 
-                  onClick={closeQuoteDetails}
-                  className="text-gray-600 hover:text-gray-900"
-                >
-                  ✕
-                </button>
-              </div>
+        <Dialog.Root open={!!selectedQuote} onOpenChange={(open) => !open && closeQuoteDetails()}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40" />
+            <Dialog.Content className="fixed inset-0 flex justify-center items-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in duration-200">
+                <Dialog.Title className="p-6 border-b border-gray-200 flex justify-between items-center">
+                  <h2 className="text-xl font-bold text-gray-800">Detalles de Cotización</h2>
+                  <Dialog.Close className="text-gray-500 hover:text-gray-700 focus:outline-none" aria-label="Cerrar">
+                    <Cross2Icon className="h-5 w-5" />
+                  </Dialog.Close>
+                </Dialog.Title>
 
-              {/* Client Information */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div>
-                  <p className="font-semibold">Cliente</p>
-                  <p>{selectedQuote.client?.business_name || 'Sin cliente'}</p>
-                  <p>{selectedQuote.client?.client_code || 'Sin código de cliente'}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Sitio de Construcción</p>
-                  <p>{selectedQuote.construction_site}</p>
-                </div>
-              </div>
-
-              {/* Pump Service Control */}
-              <div className="mb-4 p-4 border rounded bg-gray-50">
-                <div className="flex items-center mb-2">
-                  <input
-                    type="checkbox"
-                    id="pumpService"
-                    checked={editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service}
-                    onChange={(e) => updateQuotePumpService(e.target.checked, 
-                      editingQuoteDetails.length > 0 ? editingQuoteDetails[0].pump_price : null)}
-                    className="mr-2 h-4 w-4"
-                  />
-                  <label htmlFor="pumpService" className="font-medium">
-                    Incluir Servicio de Bombeo para toda la cotización
-                  </label>
-                </div>
-                
-                {editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service && (
-                  <div className="mt-2 flex items-center">
-                    <label className="mr-2">Precio del Servicio:</label>
-                    <input
-                      type="number"
-                      value={editingQuoteDetails[0].pump_price || ''}
-                      onChange={(e) => {
-                        const price = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                        updateQuotePumpService(true, price);
-                      }}
-                      placeholder="0.00"
-                      min="0"
-                      step="1"
-                      className="w-32 p-1 border rounded"
-                    />
-                    <span className="ml-2">MXN</span>
+                <div className="p-6 overflow-y-auto flex-grow">
+                  {/* Client Information */}
+                  <div className="grid grid-cols-1 @md:grid-cols-2 gap-6 mb-6 bg-gray-50 p-4 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-500 text-sm mb-1">Cliente</p>
+                      <p className="font-semibold text-gray-900">{selectedQuote.client?.business_name || 'Sin cliente'}</p>
+                      <p className="text-gray-700">{selectedQuote.client?.client_code || 'Sin código de cliente'}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-500 text-sm mb-1">Sitio de Construcción</p>
+                      <p className="font-semibold text-gray-900">{selectedQuote.construction_site}</p>
+                    </div>
                   </div>
-                )}
-              </div>
 
-              {/* Quote Details Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-gray-500">
-                  <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3">Código de Receta</th>
-                      <th className="px-4 py-3">Tipo de Colocación</th>
-                      <th className="px-4 py-3">Resistencia</th>
-                      <th className="px-4 py-3">Volumen</th>
-                      <th className="px-4 py-3">Precio Base</th>
-                      <th className="px-4 py-3">Margen (%)</th>
-                      <th className="px-4 py-3">Precio Final</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {editingQuoteDetails.map((detail, index) => (
-                      <tr key={detail.id} className="border-b hover:bg-gray-100">
-                        <td className="px-4 py-3">{detail.recipe?.recipe_code || 'Sin código'}</td>
-                        <td className="px-4 py-3">{detail.recipe?.placement_type || 'Sin tipo'}</td>
-                        <td className="px-4 py-3">{detail.recipe?.strength_fc || 'N/A'} fc</td>
-                        <td className="px-4 py-3">{detail.volume} m³</td>
-                        <td className="px-4 py-3">${detail.base_price.toFixed(2)}</td>
-                        <td className="px-4 py-3">
-                          <input 
-                            type="number" 
-                            value={detail.margin * 100 || ''}
+                  {/* Pump Service Control */}
+                  <div className="mb-6 p-4 border rounded-lg bg-gray-50 @container">
+                    <div className="flex items-center mb-2">
+                      <Checkbox.Root
+                        id="pumpService"
+                        checked={editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service}
+                        onCheckedChange={(checked: boolean | 'indeterminate') => {
+                          const isChecked = checked === true;
+                          updateQuotePumpService(isChecked, 
+                            editingQuoteDetails.length > 0 ? editingQuoteDetails[0].pump_price : null);
+                        }}
+                        className="h-4 w-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
+                      >
+                        <Checkbox.Indicator>
+                          <CheckIcon className="h-3 w-3 text-white" />
+                        </Checkbox.Indicator>
+                      </Checkbox.Root>
+                      <label htmlFor="pumpService" className="ms-2 font-medium text-gray-700">
+                        Incluir Servicio de Bombeo para toda la cotización
+                      </label>
+                    </div>
+                    
+                    {editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service && (
+                      <div className="mt-3 flex flex-col @md:flex-row @md:items-center gap-2">
+                        <label className="text-sm text-gray-700 font-medium">Precio del Servicio:</label>
+                        <div className="flex items-center">
+                          <span className="text-gray-500 pe-2">$</span>
+                          <input
+                            type="number"
+                            value={editingQuoteDetails[0].pump_price || ''}
                             onChange={(e) => {
-                              if (e.target.value === '') {
-                                updateQuoteDetailMargin(index, 0);
-                                return;
-                              }
-                              const value = parseFloat(e.target.value);
-                              if (!isNaN(value)) updateQuoteDetailMargin(index, value);
+                              const price = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                              updateQuotePumpService(true, price);
                             }}
-                            onBlur={(e) => {
-                              if (e.target.value === '') {
-                                updateQuoteDetailMargin(index, 4);
-                                return;
-                              }
-                              const value = parseFloat(e.target.value);
-                              updateQuoteDetailMargin(index, Math.max(4, value));
-                            }}
-                            placeholder="4%"
-                            step="0.1"
-                            className="w-20 p-1 border rounded"
+                            placeholder="0.00"
+                            min="0"
+                            step="1"
+                            className="w-32 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                           />
-                        </td>
-                        <td className="px-4 py-3">${detail.final_price.toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                          <span className="text-gray-500 ps-2">MXN</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
-              {/* Modal Actions */}
-              <div className="flex justify-end space-x-4 mt-6">
-                <button 
-                  onClick={closeQuoteDetails}
-                  className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  onClick={saveQuoteModifications}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Guardar Cambios
-                </button>
-                <button 
-                  onClick={() => {
-                    sendToApproval(selectedQuote.id);
-                    closeQuoteDetails();
-                  }}
-                  className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-                >
-                  Enviar a Aprobación
-                </button>
+                  {/* Quote Details Table */}
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
+                    <table className="w-full text-sm text-left text-gray-600">
+                      <thead className="text-xs uppercase bg-gray-50 text-gray-700">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Código de Receta</th>
+                          <th className="px-4 py-3 font-medium">Tipo de Colocación</th>
+                          <th className="px-4 py-3 font-medium">Resistencia</th>
+                          <th className="px-4 py-3 font-medium">Volumen</th>
+                          <th className="px-4 py-3 font-medium">Precio Base</th>
+                          <th className="px-4 py-3 font-medium">Margen (%)</th>
+                          <th className="px-4 py-3 font-medium">Precio Final</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {editingQuoteDetails.map((detail, index) => (
+                          <tr key={detail.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3">{detail.recipe?.recipe_code || 'Sin código'}</td>
+                            <td className="px-4 py-3">{detail.recipe?.placement_type || 'Sin tipo'}</td>
+                            <td className="px-4 py-3">{detail.recipe?.strength_fc || 'N/A'} fc</td>
+                            <td className="px-4 py-3">{detail.volume} m³</td>
+                            <td className="px-4 py-3">${detail.base_price.toFixed(2)}</td>
+                            <td className="px-4 py-3">
+                              <input 
+                                type="number" 
+                                value={detail.margin * 100 || ''}
+                                onChange={(e) => {
+                                  if (e.target.value === '') {
+                                    updateQuoteDetailMargin(index, 0);
+                                    return;
+                                  }
+                                  const value = parseFloat(e.target.value);
+                                  if (!isNaN(value)) updateQuoteDetailMargin(index, value);
+                                }}
+                                onBlur={(e) => {
+                                  if (e.target.value === '') {
+                                    updateQuoteDetailMargin(index, 4);
+                                    return;
+                                  }
+                                  const value = parseFloat(e.target.value);
+                                  updateQuoteDetailMargin(index, Math.max(4, value));
+                                }}
+                                placeholder="4%"
+                                step="0.1"
+                                className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                              />
+                            </td>
+                            <td className="px-4 py-3 font-medium">${detail.final_price.toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Modal Actions */}
+                <div className="p-6 border-t border-gray-200 bg-gray-50 flex flex-col @sm:flex-row @sm:justify-end gap-3">
+                  <Dialog.Close 
+                    className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  >
+                    Cancelar
+                  </Dialog.Close>
+                  <button 
+                    onClick={saveQuoteModifications}
+                    className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    <svg className="h-4 w-4 me-1.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 11v6" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 14h6" />
+                    </svg>
+                    Guardar Cambios
+                  </button>
+                  <button 
+                    onClick={() => {
+                      sendToApproval(selectedQuote.id);
+                      closeQuoteDetails();
+                    }}
+                    className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                  >
+                    <svg className="h-4 w-4 me-1.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                    </svg>
+                    Enviar a Aprobación
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       )}
     </div>
   );

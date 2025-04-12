@@ -16,13 +16,13 @@
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
 
-  --color-gray-50: oklch(0.97 0.01 0);
-  --color-gray-100: oklch(0.94 0.01 0);
-  --color-gray-200: oklch(0.91 0.01 0);
-  --color-gray-300: oklch(0.84 0.01 0);
-  --color-gray-500: oklch(0.68 0.01 0);
-  --color-gray-700: oklch(0.48 0.01 0);
-  --color-gray-900: oklch(0.27 0.01 0);
+  --color-gray-50: hsl(0, 0%, 98%);
+  --color-gray-100: hsl(0, 0%, 96%);
+  --color-gray-200: hsl(0, 0%, 90%);
+  --color-gray-300: hsl(0, 0%, 83%);
+  --color-gray-500: hsl(0, 0%, 65%);
+  --color-gray-700: hsl(0, 0%, 45%);
+  --color-gray-900: hsl(0, 0%, 25%);
 
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));

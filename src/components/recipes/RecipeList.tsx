@@ -130,7 +130,7 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
             <div key={type} className="border rounded-lg overflow-hidden">
               <div 
                 onClick={() => toggleTypeExpansion(type)}
-                className="w-full p-4 bg-gray-50 hover:bg-gray-100 flex justify-between items-center cursor-pointer"
+                className="w-full p-4 bg-white hover:bg-gray-50 flex justify-between items-center cursor-pointer border-b"
               >
                 <h3 className="text-lg font-semibold">Tipo: {type}</h3>
                 <div className="flex items-center">
@@ -191,45 +191,51 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
                                 <span className="text-gray-600">{recipesInGroup.length} Recetas</span>
                               </div>
                               
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 pl-10 bg-gray-50">
+                              <div className={`grid gap-4 p-4 pl-8 pr-8 bg-white ${
+                                recipesInGroup.length > 1 
+                                  ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4' 
+                                  : 'grid-cols-1'
+                              }`}>
                                 {recipesInGroup.map((recipe) => (
                                   <div 
                                     key={recipe.id} 
-                                    className="bg-white shadow-md rounded-lg p-4 hover:shadow-lg transition-shadow"
+                                    className="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden"
                                   >
-                                    <div className="flex justify-between items-center mb-2">
-                                      <h3 className="text-lg font-semibold">{recipe.recipe_code}</h3>
+                                    <div className="flex justify-between items-center p-3 border-b border-gray-100 bg-gray-50">
+                                      <h3 className="text-lg font-semibold text-gray-800">{recipe.recipe_code}</h3>
                                       <span className="text-sm text-gray-500">
                                         {recipe.recipe_versions[0]?.notes || 'N/A'}
                                       </span>
                                     </div>
                                     
-                                    <div className="grid grid-cols-2 gap-2 text-sm">
-                                      <div>
-                                        <span className="text-gray-600">Edad:</span>
-                                        <span className="ml-2">{recipe.age_days} días</span>
+                                    <div className="p-4">
+                                      <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+                                        <div className="flex flex-col">
+                                          <span className="text-gray-600 mb-1">Edad:</span>
+                                          <span className="font-medium">{recipe.age_days} días</span>
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span className="text-gray-600 mb-1">Colocación:</span>
+                                          <span className="font-medium">{recipe.placement_type}</span>
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span className="text-gray-600 mb-1">T.M.N.:</span>
+                                          <span className="font-medium">{recipe.max_aggregate_size} mm</span>
+                                        </div>
+                                        <div className="flex flex-col">
+                                          <span className="text-gray-600 mb-1">Revenimiento:</span>
+                                          <span className="font-medium">{recipe.slump} cm</span>
+                                        </div>
                                       </div>
-                                      <div>
-                                        <span className="text-gray-600">Colocación:</span>
-                                        <span className="ml-2">{recipe.placement_type}</span>
+                                      
+                                      <div className="flex justify-end border-t border-gray-100 pt-3">
+                                        <button 
+                                          onClick={() => recipe.id && handleViewDetails(recipe.id)}
+                                          className="bg-blue-500 text-white px-4 py-1.5 rounded hover:bg-blue-600 text-sm font-medium"
+                                        >
+                                          Ver Detalles
+                                        </button>
                                       </div>
-                                      <div>
-                                        <span className="text-gray-600">T.M.N.:</span>
-                                        <span className="ml-2">{recipe.max_aggregate_size} mm</span>
-                                      </div>
-                                      <div>
-                                        <span className="text-gray-600">Revenimiento:</span>
-                                        <span className="ml-2">{recipe.slump} cm</span>
-                                      </div>
-                                    </div>
-                                    
-                                    <div className="mt-4 flex justify-end">
-                                      <button 
-                                        onClick={() => recipe.id && handleViewDetails(recipe.id)}
-                                        className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600 text-sm"
-                                      >
-                                        Ver Detalles
-                                      </button>
                                     </div>
                                   </div>
                                 ))}
