@@ -109,7 +109,7 @@ export default function ProfileMenu() {
         aria-expanded={menuOpen}
         aria-haspopup="true"
       >
-        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 text-indigo-600">
+        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gradient-to-br from-indigo-100 to-indigo-200 text-indigo-600 mask mask-circle shadow-md shadow-indigo-100/50">
           <UserCircle className="w-5 h-5" />
         </div>
         <span className="text-sm font-medium text-gray-700 hidden md:block">
@@ -120,9 +120,16 @@ export default function ProfileMenu() {
       {menuOpen && profile && (
         <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg z-50 overflow-hidden">
           <div className="p-4 border-b border-gray-100">
-            <div className="font-medium text-gray-800">{profile.first_name} {profile.last_name}</div>
-            <div className="text-sm text-gray-500 truncate">{profile.email}</div>
-            <div className="text-xs font-medium text-indigo-600 mt-1">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 mask mask-squircle bg-gradient-to-br from-indigo-400 to-indigo-600 text-white shadow-md shadow-indigo-400/20">
+                <span className="text-lg font-semibold">{displayName.charAt(0).toUpperCase()}</span>
+              </div>
+              <div>
+                <div className="font-medium text-gray-800 text-shadow-xs">{profile.first_name} {profile.last_name}</div>
+                <div className="text-sm text-gray-500 truncate">{profile.email}</div>
+              </div>
+            </div>
+            <div className="text-xs font-medium text-indigo-600 mt-2 flex justify-end">
               {roleDisplay}
             </div>
           </div>

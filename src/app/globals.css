@@ -8,21 +8,21 @@
 @custom-variant ltr ([dir="ltr"] &);
 
 @theme {
-  --color-primary-50: #f0fdf4;
-  --color-primary-100: #dcfce7;
-  --color-primary-500: #22c55e;
-  --color-primary-600: #16a34a;
-  --color-primary-700: #15803d;
+  --color-primary-50: oklch(0.97 0.02 148.75);
+  --color-primary-100: oklch(0.94 0.05 148.75);
+  --color-primary-500: oklch(0.70 0.17 148.75);
+  --color-primary-600: oklch(0.62 0.18 148.75);
+  --color-primary-700: oklch(0.55 0.16 148.75);
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
 
-  --color-gray-50: #f9fafb;
-  --color-gray-100: #f3f4f6;
-  --color-gray-200: #e5e7eb;
-  --color-gray-300: #d1d5db;
-  --color-gray-500: #6b7280;
-  --color-gray-700: #374151;
-  --color-gray-900: #111827;
+  --color-gray-50: oklch(0.97 0.01 0);
+  --color-gray-100: oklch(0.94 0.01 0);
+  --color-gray-200: oklch(0.91 0.01 0);
+  --color-gray-300: oklch(0.84 0.01 0);
+  --color-gray-500: oklch(0.68 0.01 0);
+  --color-gray-700: oklch(0.48 0.01 0);
+  --color-gray-900: oklch(0.27 0.01 0);
 
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -73,6 +73,7 @@
   --mask-circle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%23000'/%3E%3C/svg%3E");
   --mask-triangle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cpolygon points='50,0 100,100 0,100' fill='%23000'/%3E%3C/svg%3E");
   --mask-hexagon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cpolygon points='50,0 100,25 100,75 50,100 0,75 0,25' fill='%23000'/%3E%3C/svg%3E");
+  --mask-squircle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cpath d='M50,0 C77.6,0 100,22.4 100,50 C100,77.6 77.6,100 50,100 C22.4,100 0,77.6 0,50 C0,22.4 22.4,0 50,0 Z' fill='%23000'/%3E%3C/svg%3E");
 }
 
 /*

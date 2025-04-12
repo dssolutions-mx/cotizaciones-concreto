@@ -42,13 +42,15 @@ export default function LandingPage() {
 
         {/* Logo */}
         <div className="absolute top-6 left-6 z-20">
-          <Image 
-            src="/images/dcconcretos/logo.svg" 
-            alt="DC Concretos Logo" 
-            width={180} 
-            height={60} 
-            className="drop-shadow-lg"
-          />
+          <div className="mask mask-squircle bg-white/90 p-3 shadow-lg backdrop-blur-sm">
+            <Image 
+              src="/images/dcconcretos/logo.svg" 
+              alt="DC Concretos Logo" 
+              width={160} 
+              height={50} 
+              className="drop-shadow-md"
+            />
+          </div>
         </div>
 
         {/* Hero Content */}
@@ -251,13 +253,15 @@ export default function LandingPage() {
         <div className="container mx-auto px-6">
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="mb-8 md:mb-0">
-              <Image 
-                src="/images/dcconcretos/logo.svg" 
-                alt="DC Concretos Logo" 
-                width={140} 
-                height={45} 
-                className="brightness-125"
-              />
+              <div className="mask mask-hexagon inline-block bg-white/10 p-4 shadow-lg shadow-green-500/5">
+                <Image 
+                  src="/images/dcconcretos/logo.svg" 
+                  alt="DC Concretos Logo" 
+                  width={120} 
+                  height={40} 
+                  className="brightness-150"
+                />
+              </div>
               <p className="mt-3 text-gray-400 text-sm">
                 Soluciones precisas para la industria del concreto
               </p>
