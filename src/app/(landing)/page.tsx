@@ -23,13 +23,13 @@ export default function LandingPage() {
         </div>
 
         {/* Logo */}
-        <div className="absolute top-4 md:top-6 left-4 md:left-6 z-20">
+        <div className="absolute top-6 left-6 z-20">
           <Image 
-            src="/images/dc-concretos-logo.png" 
+            src="/images/dcconcretos/logo.svg" 
             alt="DC Concretos Logo" 
-            width={120} 
-            height={40} 
-            className="w-auto h-8 md:h-10"
+            width={180} 
+            height={60} 
+            style={{ objectFit: 'contain' }}
           />
         </div>
 
@@ -254,11 +254,11 @@ export default function LandingPage() {
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="mb-4 md:mb-0">
               <Image 
-                src="/images/dc-concretos-logo.png" 
+                src="/images/dcconcretos/logo.svg" 
                 alt="DC Concretos Logo" 
-                width={120} 
-                height={40}
-                className="w-auto h-8 md:h-10" 
+                width={160} 
+                height={50}
+                style={{ objectFit: 'contain' }}
               />
             </div>
             <div className="text-center md:text-right text-sm md:text-base">

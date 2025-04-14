@@ -42,7 +42,7 @@ export default function LandingPage() {
 
         {/* Logo */}
         <div className="absolute top-6 left-6 z-20">
-          <div className="mask mask-squircle bg-white/90 p-3 shadow-lg backdrop-blur-sm">
+          <div className="">
             <Image 
               src="/images/dcconcretos/logo.svg" 
               alt="DC Concretos Logo" 
@@ -253,7 +253,7 @@ export default function LandingPage() {
         <div className="container mx-auto px-6">
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="mb-8 md:mb-0">
-              <div className="mask mask-hexagon inline-block bg-white/10 p-4 shadow-lg shadow-green-500/5">
+              <div className="">
                 <Image 
                   src="/images/dcconcretos/logo.svg" 
                   alt="DC Concretos Logo" 
