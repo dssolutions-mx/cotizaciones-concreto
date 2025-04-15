@@ -77,7 +77,10 @@ export interface Order {
   delivery_date: string;
   delivery_time: string;
   special_requirements?: string;
-  total_amount: number;
+  preliminary_amount: number | null;
+  final_amount: number | null;
+  invoice_amount: number | null;
+  previous_client_balance: number | null;
   credit_status: CreditStatus;
   credit_validated_by?: string;
   credit_validation_date?: string;

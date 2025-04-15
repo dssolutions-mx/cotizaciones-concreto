@@ -178,8 +178,32 @@ export default function CreditValidationTab() {
                   Entrega: {formatDate(order.delivery_date)} a las {formatTime(order.delivery_time)}
                 </p>
                 <p className="text-sm font-medium mt-1">
-                  Total: ${order.total_amount?.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  Monto Preliminar: ${order.preliminary_amount?.toLocaleString('es-MX', { minimumFractionDigits: 2 }) || 'N/A'}
                 </p>
+                <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-sm font-medium text-gray-700 mb-1">Balance Cliente</p>
+                  
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-600">Balance Actual (Previo):</span>
+                    <span className={`font-medium ${order.previous_client_balance ?? 0 > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      ${order.previous_client_balance?.toLocaleString('es-MX', {minimumFractionDigits: 2}) ?? 'N/A'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex justify-between text-xs mt-1">
+                    <span className="text-gray-600">Monto Orden (con IVA si aplica):</span>
+                    <span className="font-medium">
+                      ${order.invoice_amount?.toLocaleString('es-MX', {minimumFractionDigits: 2}) ?? 'N/A'}
+                    </span>
+                  </div>
+                  
+                  <div className="flex justify-between text-xs mt-1 pt-1 border-t">
+                    <span className="text-gray-600">Balance Proyectado:</span>
+                    <span className={`font-medium ${( (order.previous_client_balance ?? 0) + (order.invoice_amount ?? 0) ) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      ${( (order.previous_client_balance ?? 0) + (order.invoice_amount ?? 0) ).toLocaleString('es-MX', {minimumFractionDigits: 2}) ?? 'N/A'}
+                    </span>
+                  </div>
+                </div>
                 {order.special_requirements && (
                   <p className="text-sm mt-1 text-gray-700">
                     <span className="font-medium">Notas:</span> {order.special_requirements.substring(0, 100)}

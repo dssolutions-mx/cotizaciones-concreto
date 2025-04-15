@@ -13,12 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
+import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 
 // Define Recipe type inline if import is problematic
 interface Recipe {
   id: string;
   recipe_code: string;
-  description: string;
+  // description: string; // Removed as it doesn't exist in the table
 }
 
 interface RemisionManualFormProps {
@@ -53,8 +55,8 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
     fecha: new Date().toISOString().split('T')[0],
     volumen: '',
     conductor: '',
-    unidad: '', // Changed from matricula
-    recipeId: '', // Changed from designacionEHE
+    unidad: '',
+    recipeId: '',
   });
   const [manualMaterials, setManualMaterials] = useState<ManualMaterial[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -72,7 +74,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       try {
         const { data, error } = await supabase
           .from('recipes')
-          .select('id, recipe_code') 
+          .select('id, recipe_code')
           .in('id', allowedRecipeIds) // Filter by allowed IDs
           .order('recipe_code');
 
@@ -175,7 +177,6 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
     try {
       setLoading(true);
       
-      // Get the parsed volume for calculations
       const volumen = parseFloat(formData.volumen) || 0;
       
       // 1. Insert the main remision record
@@ -221,7 +222,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       
       showSuccess('Remisión registrada correctamente');
       
-      // Resetear formulario
+      // Resetear formulario (Restored)
       setFormData({
         remisionNumber: '',
         fecha: new Date().toISOString().split('T')[0],
@@ -446,7 +447,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         </div>
       )}
       
-      {/* Submit Button */}
+      {/* Submit Button - Restored original */}
       <div className="flex justify-end pt-4 border-t mt-4">
         <Button
           type="submit"

@@ -14,6 +14,9 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
+import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 
 interface RemisionesListProps {
   orderId: string;
@@ -23,6 +26,7 @@ export default function RemisionesList({ orderId }: RemisionesListProps) {
   const [remisiones, setRemisiones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [expandedRemisionId, setExpandedRemisionId] = useState<string | null>(null);
   
   const fetchRemisiones = useCallback(async () => {
     try {
@@ -61,6 +65,15 @@ export default function RemisionesList({ orderId }: RemisionesListProps) {
   // Calcular totales
   const totalConcreteVolume = concreteRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
   const totalPumpVolume = pumpRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
+  
+  const toggleExpand = (remisionId: string) => {
+    setExpandedRemisionId(prevId => (prevId === remisionId ? null : remisionId));
+  };
+  
+  const handleAdditionalProductUpdate = () => {
+    console.log("Additional product updated, potentially refresh needed");
+    fetchRemisiones();
+  };
   
   if (loading) {
     return (
@@ -117,7 +130,7 @@ export default function RemisionesList({ orderId }: RemisionesListProps) {
           {concreteRemisiones.length > 0 && (
             <div className="mb-6">
               <h3 className="text-base font-medium mb-3">Remisiones de Concreto</h3>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto border rounded-md">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -131,16 +144,40 @@ export default function RemisionesList({ orderId }: RemisionesListProps) {
                   </TableHeader>
                   <TableBody>
                     {concreteRemisiones.map((remision) => (
-                      <TableRow key={remision.id}>
-                        <TableCell className="font-medium">{remision.remision_number}</TableCell>
-                        <TableCell>
-                          {remision.fecha ? format(new Date(remision.fecha), 'dd/MM/yyyy', { locale: es }) : '-'}
-                        </TableCell>
-                        <TableCell>{remision.conductor || '-'}</TableCell>
-                        <TableCell>{remision.unidad || '-'}</TableCell>
-                        <TableCell>{remision.recipe?.recipe_code || 'N/A'}</TableCell>
-                        <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
-                      </TableRow>
+                      <React.Fragment key={remision.id}>
+                        <TableRow onClick={() => toggleExpand(remision.id)} className="cursor-pointer hover:bg-gray-50">
+                          <TableCell>
+                            <button className="flex items-center text-blue-600 hover:text-blue-800">
+                              {expandedRemisionId === remision.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                              <span className="ml-1 font-medium">{remision.remision_number}</span>
+                            </button>
+                          </TableCell>
+                          <TableCell>
+                            {remision.fecha ? format(new Date(remision.fecha), 'dd/MM/yyyy', { locale: es }) : '-'}
+                          </TableCell>
+                          <TableCell>{remision.conductor || '-'}</TableCell>
+                          <TableCell>{remision.unidad || '-'}</TableCell>
+                          <TableCell>{remision.recipe?.recipe_code || 'N/A'}</TableCell>
+                          <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                        </TableRow>
+                        {expandedRemisionId === remision.id && (
+                          <TableRow>
+                            <TableCell colSpan={6} className="p-0">
+                              <div className="p-4 bg-gray-50 border-t">
+                                <h4 className="text-sm font-semibold mb-3">Detalles y Productos Adicionales</h4>
+                                <RemisionProductosAdicionalesList 
+                                  remisionId={remision.id} 
+                                  onProductDelete={handleAdditionalProductUpdate} 
+                                />
+                                <RemisionProductoAdicionalForm 
+                                  remisionId={remision.id} 
+                                  onSuccess={handleAdditionalProductUpdate} 
+                                />
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
                     ))}
                   </TableBody>
                 </Table>

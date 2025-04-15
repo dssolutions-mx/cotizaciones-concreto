@@ -6,10 +6,14 @@ import { es } from 'date-fns/locale';
 import orderService from '@/services/orderService';
 import { OrderWithDetails, OrderStatus, CreditStatus } from '@/types/order';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { UserRole } from '@/types/auth';
+import { useAuth, UserRole } from '@/contexts/AuthContext';
 import RegistroRemision from '@/components/remisiones/RegistroRemision';
 import RemisionesList from '@/components/remisiones/RemisionesList';
+import OrderDetailsBalance from './OrderDetailsBalance';
+import PaymentForm from '../clients/PaymentForm';
+import ClientBalanceSummary from '../clients/ClientBalanceSummary';
+import { Button } from '@/components/ui/button';
+import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 
 // Define una interfaz para editar la orden
 interface EditableOrderData {
@@ -32,7 +36,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = searchParams.get('returnTo');
-  const { profile } = useAuth();
+  const { profile, hasRole } = useAuth();
   const [order, setOrder] = useState<OrderWithDetails | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +47,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'details' | 'remisiones'>('details');
+  const [showPaymentForm, setShowPaymentForm] = useState<boolean>(false);
   
   // Calculate allowed recipe IDs
   const allowedRecipeIds = useMemo(() => {
@@ -342,6 +347,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     }
   }
 
+  const refreshData = useCallback(() => {
+    loadOrderDetails();
+    // Potentially add other refresh logic if needed
+  }, [loadOrderDetails]);
+
   if (loading) {
     return <div className="flex justify-center p-4">Cargando detalles de la orden...</div>;
   }
@@ -351,11 +361,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   }
 
   if (!order) {
-    return <div className="text-center p-4">No se encontró la orden especificada.</div>;
+    return <div className="text-center p-4">Orden no encontrada.</div>;
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="container mx-auto p-4">
       <div className="mb-6 flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">
@@ -438,6 +448,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               <div className="mt-6 bg-white shadow-sm overflow-hidden sm:rounded-lg">
                 <div className="px-4 py-5 sm:px-6 bg-gray-50">
                   <h3 className="text-lg leading-6 font-medium text-gray-900">Estado de la Orden</h3>
+                  {order.credit_status === 'pending' && (
+                    <div className="mt-4 border-t pt-4">
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">Balance Actual del Cliente</h4>
+                      <ClientBalanceSummary clientId={order.client_id} />
+                    </div>
+                  )}
                   <div className="mt-4 flex flex-col sm:flex-row sm:justify-between">
                     <div className="mb-2 sm:mb-0">
                       <span className="text-sm text-gray-500">Estado de Orden:</span>
@@ -570,7 +586,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                             {product.description}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {product.has_pump_service ? 'Concreto + Bombeo' : 'Concreto'}
+                            {product.product_type === 'VACÍO DE OLLA' 
+                              ? 'Vacío de Olla' 
+                              : product.has_pump_service 
+                                ? 'Concreto + Bombeo' 
+                                : 'Concreto'}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
                             {isEditing && editedOrder?.products ? (
@@ -681,6 +701,36 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 />
                 
                 <RemisionesList orderId={order.id} />
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 border-t pt-6">
+            <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
+            
+            <OrderDetailsBalance
+              orderId={orderId}
+              clientId={order.client_id}
+              constructionSite={order.construction_site}
+            />
+            
+            <RoleProtectedButton
+              allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
+              onClick={() => setShowPaymentForm(prev => !prev)}
+              className="mt-4 w-full"
+            >
+              {showPaymentForm ? 'Ocultar Formulario de Pago' : 'Registrar Pago para esta Orden'}
+            </RoleProtectedButton>
+
+            {showPaymentForm && (
+              <div className="mt-6">
+                <PaymentForm 
+                  clientId={order.client_id}
+                  onSuccess={() => {
+                    refreshData();
+                    setShowPaymentForm(false);
+                  }}
+                />
               </div>
             )}
           </div>

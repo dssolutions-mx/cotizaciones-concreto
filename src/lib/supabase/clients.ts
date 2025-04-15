@@ -322,5 +322,88 @@ export const clientService = {
       console.error(errorMessage);
       throw new Error(errorMessage);
     }
-  }
+  },
+
+  /**
+   * Obtiene los pagos realizados por un cliente
+   * @param clientId ID del cliente
+   * @returns Lista de pagos realizados por el cliente
+   */
+  async getClientPayments(clientId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('client_payments')
+        .select('*')
+        .eq('client_id', clientId)
+        .order('payment_date', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      const errorMessage = handleError(error, `getClientPayments:${clientId}`);
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  /**
+   * Obtiene los balances financieros de un cliente
+   * @param clientId ID del cliente
+   * @returns Lista de balances del cliente (general y por obra)
+   */
+  async getClientBalances(clientId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('client_balances')
+        .select('*')
+        .eq('client_id', clientId);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      const errorMessage = handleError(error, `getClientBalances:${clientId}`);
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  /**
+   * Registra un nuevo pago realizado por un cliente
+   * @param clientId ID del cliente
+   * @param paymentData Datos del pago
+   * @returns El pago registrado
+   */
+  async createPayment(clientId: string, paymentData: {
+    amount: number;
+    payment_method: string;
+    payment_date: string;
+    reference_number?: string;
+    notes?: string;
+    construction_site?: string | null;
+  }) {
+    try {
+      const dataToInsert = {
+        client_id: clientId,
+        amount: paymentData.amount,
+        payment_method: paymentData.payment_method,
+        payment_date: paymentData.payment_date,
+        reference_number: paymentData.reference_number || null,
+        notes: paymentData.notes || null,
+        construction_site: paymentData.construction_site || null
+      };
+      
+      const { data, error } = await supabase
+        .from('client_payments')
+        .insert([dataToInsert])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      const errorMessage = handleError(error, `createPayment:${clientId}`);
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
 }; 
