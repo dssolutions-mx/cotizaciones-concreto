@@ -4,7 +4,9 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import orderService from '@/services/orderService';
+import { clientService } from '@/lib/supabase/clients';
 import { OrderWithDetails, OrderStatus, CreditStatus } from '@/types/order';
+import { ConstructionSite, ClientBalance } from '@/types/client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, UserRole } from '@/contexts/AuthContext';
 import RegistroRemision from '@/components/remisiones/RegistroRemision';
@@ -14,6 +16,20 @@ import PaymentForm from '../clients/PaymentForm';
 import ClientBalanceSummary from '../clients/ClientBalanceSummary';
 import { Button } from '@/components/ui/button';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import { // Shadcn Dialog components
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose, 
+} from "@/components/ui/dialog";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
 // Define una interfaz para editar la orden
 interface EditableOrderData {
@@ -47,7 +63,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'details' | 'remisiones'>('details');
-  const [showPaymentForm, setShowPaymentForm] = useState<boolean>(false);
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [clientSites, setClientSites] = useState<ConstructionSite[]>([]);
+  const [loadingSites, setLoadingSites] = useState(false);
+  const [clientBalances, setClientBalances] = useState<ClientBalance[]>([]);
   
   // Calculate allowed recipe IDs
   const allowedRecipeIds = useMemo(() => {
@@ -79,9 +98,21 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       setLoading(true);
       setError(null);
       const data = await orderService.getOrderById(orderId);
-      // Use a type assertion to fix the type mismatch
       setOrder(data as unknown as OrderWithDetails);
       setEditedOrder(null);
+      
+      // Fetch client balances if client_id exists
+      if (data?.client_id) {
+        try {
+          const balances = await clientService.getClientBalances(data.client_id);
+          setClientBalances(balances);
+        } catch (balanceError) {
+          console.error("Error loading client balances:", balanceError);
+          // Decide if this error should block rendering or just be logged
+        }
+      } else {
+        setClientBalances([]); // Reset if no client ID
+      }
     } catch (err) {
       console.error('Error loading order details:', err);
       setError('Error al cargar los detalles de la orden. Por favor, intente nuevamente.');
@@ -93,6 +124,42 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   useEffect(() => {
     loadOrderDetails();
   }, [loadOrderDetails]);
+
+  // Function to load client sites when payment dialog is opened
+  const loadClientSitesForPayment = useCallback(async () => {
+    if (!order?.client_id) return;
+    
+    setLoadingSites(true);
+    try {
+      const sites = await clientService.getClientSites(order.client_id);
+      const activeSites = sites.filter(site => site.is_active);
+      setClientSites(activeSites);
+    } catch (error) {
+      console.error("Error loading client sites for payment:", error);
+    } finally {
+      setLoadingSites(false);
+    }
+  }, [order?.client_id]);
+
+  // Handler for successful payment
+  const handlePaymentSuccess = () => {
+    setIsPaymentDialogOpen(false);
+    loadOrderDetails(); // Reload order data
+  };
+
+  // Find the current client balance from balances
+  const currentClientBalance = useMemo(() => {
+    if (clientBalances.length === 0) return 0;
+    // Find general balance (not tied to specific site)
+    const generalBalance = clientBalances.find(b => b.construction_site === null);
+    return generalBalance?.current_balance || 0;
+  }, [clientBalances]);
+
+  useEffect(() => {
+    if (isPaymentDialogOpen) {
+      loadClientSitesForPayment();
+    }
+  }, [isPaymentDialogOpen, loadClientSitesForPayment]);
 
   function formatDate(dateString: string) {
     // Convertir formato YYYY-MM-DD a un objeto Date
@@ -364,8 +431,59 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     return <div className="text-center p-4">Orden no encontrada.</div>;
   }
 
+  // Find the specific construction site object for this order (if available)
+  const orderConstructionSite = order.construction_site;
+
+  // Calculate total balance from fetched balances
+  const totalClientBalance = clientBalances.find(b => b.construction_site === null)?.current_balance;
+
+  // Render the action buttons section with Payment Dialog
+  const renderOrderActions = () => {
+    return (
+      <div className="flex flex-wrap gap-2 items-center justify-end mt-4">
+        {/* ... existing buttons ... */}
+        
+        {/* Payment Button with Dialog */}
+        {order?.client_id && (
+          <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+            <DialogTrigger asChild>
+              <RoleProtectedButton
+                allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
+                className="bg-green-600 hover:bg-green-700"
+                onClick={() => setIsPaymentDialogOpen(true)}
+              >
+                Registrar Pago
+              </RoleProtectedButton>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Registrar Pago</DialogTitle>
+                <DialogDescription>
+                  Registre un pago para este cliente
+                </DialogDescription>
+              </DialogHeader>
+              
+              {loadingSites ? (
+                <div className="py-4 text-center">Cargando información...</div>
+              ) : (
+                <PaymentForm
+                  clientId={order.client_id}
+                  sites={clientSites}
+                  onSuccess={handlePaymentSuccess}
+                  onCancel={() => setIsPaymentDialogOpen(false)}
+                  defaultConstructionSite={order.construction_site}
+                  currentBalance={currentClientBalance}
+                />
+              )}
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="container mx-auto p-4">
+    <div className="container mx-auto px-4 py-8">
       <div className="mb-6 flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">
@@ -714,25 +832,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               constructionSite={order.construction_site}
             />
             
-            <RoleProtectedButton
-              allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
-              onClick={() => setShowPaymentForm(prev => !prev)}
-              className="mt-4 w-full"
-            >
-              {showPaymentForm ? 'Ocultar Formulario de Pago' : 'Registrar Pago para esta Orden'}
-            </RoleProtectedButton>
-
-            {showPaymentForm && (
-              <div className="mt-6">
-                <PaymentForm 
-                  clientId={order.client_id}
-                  onSuccess={() => {
-                    refreshData();
-                    setShowPaymentForm(false);
-                  }}
-                />
-              </div>
-            )}
+            {renderOrderActions()}
           </div>
         </>
       ) : (

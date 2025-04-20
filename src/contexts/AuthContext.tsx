@@ -6,14 +6,10 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { User, Session } from '@supabase/supabase-js';
 import type { Database } from '@/types/supabase';
 import { checkPermission } from '@/lib/auth/roleUtils';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase/client';
 import { 
   cacheUserProfile, 
   getCachedUserProfile,
-  cacheSessionExpiry,
-  getCachedSessionExpiry,
-  cacheLastRefresh,
-  getCachedLastRefresh,
   clearUserCache,
   isUserCacheValid
 } from '@/lib/cache/userDataCache';
@@ -32,6 +28,7 @@ export interface UserProfile {
 
 // Auth context type
 type AuthContextType = {
+  supabase: typeof supabase;
   session: Session | null;
   profile: UserProfile | null;
   isLoading: boolean;
@@ -42,25 +39,12 @@ type AuthContextType = {
     message?: string;
   }>;
   signOut: () => Promise<{ success: boolean; error?: string }>;
-  refreshSession: () => Promise<void>;
   hasRole: (allowedRoles: UserRole | UserRole[]) => boolean;
+  triggerAuthCheck: (source?: string) => Promise<void>;
 };
 
 // Create auth context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Utility for calculating session expiration time
-const calculateExpiryTime = (session: Session | null): Date | null => {
-  if (!session?.expires_at) return null;
-  return new Date(session.expires_at * 1000);
-};
-
-// Utility for calculating time to expiration
-const calculateTimeToExpiry = (expiryDate: Date | null): number | null => {
-  if (!expiryDate) return null;
-  const now = new Date();
-  return Math.max(0, expiryDate.getTime() - now.getTime());
-};
 
 // Auth provider component
 export const AuthContextProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -76,100 +60,99 @@ const AuthContextContent: React.FC<{ children: React.ReactNode }> = ({ children 
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [lastActivity, setLastActivity] = useState<number>(Date.now());
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [activityCheckInterval, setActivityCheckInterval] = useState<NodeJS.Timeout | null>(null);
   const searchParams = useSearchParams();
   const router = useRouter();
-
-  // Constants for activity tracking
-  const ACTIVITY_CHECK_INTERVAL = 15 * 1000; // Check every 15 seconds
-  const ACTIVITY_THRESHOLD = 10 * 60 * 1000; // 10 minutes
-  const SESSION_EXPIRATION = 55 * 60 * 1000; // 55 minutes
-
-  // Record user activity
-  const recordActivity = useCallback(() => {
-    setLastActivity(Date.now());
-  }, []);
 
   // Check if user has a specific role
   const hasRole = useCallback((allowedRoles: UserRole | UserRole[]): boolean => {
     return checkPermission(profile?.role, allowedRoles);
   }, [profile]);
 
-  // Refresh the session
-  const refreshSession = useCallback(async () => {
-    if (isRefreshing) return;
-    
+  // Function to manually trigger a re-check of the session and profile
+  const triggerAuthCheck = useCallback(async (source: string = 'unknown') => {
+    console.log(`%cAuthContext: Triggering manual auth check from [${source}]...`, 'color: blue; font-weight: bold;');
+    setIsLoading(true);
+    let sessionFound = false;
+    let profileFound = false;
     try {
-      setIsRefreshing(true);
-      const { data, error } = await supabase.auth.refreshSession();
-      
-      if (error) {
-        console.error('Error refreshing session:', error.message);
-        
-        // If unauthorized, sign out and redirect to login
-        if (error.status === 401) {
-          await supabase.auth.signOut();
-          router.push('/login');
-        }
-        return;
-      }
+      const { data: { session: currentSession }, error: sessionError } = await supabase.auth.getSession();
 
-      setSession(data.session);
+      if (sessionError) {
+        console.error(`AuthContext [${source}]: Error during session fetch:`, sessionError.message);
+      } else {
+        console.log(`AuthContext [${source}]: getSession result:`, currentSession ? `Session for ${currentSession.user.email}` : 'No Session');
+        sessionFound = !!currentSession;
+      }
       
-      // Fetch user profile if we have a session
-      if (data.session?.user) {
-        const { data: profileData } = await supabase
+      setSession(currentSession); 
+
+      if (currentSession?.user) {
+        console.log(`AuthContext [${source}]: Session found, fetching profile for user ${currentSession.user.id}...`);
+        const { data: profileData, error: profileError } = await supabase
           .from('user_profiles')
           .select('*')
-          .eq('id', data.session.user.id)
+          .eq('id', currentSession.user.id)
           .single();
-        
-        if (profileData) {
+          
+        if (profileError) {
+          console.error(`AuthContext [${source}]: Error fetching profile:`, profileError.message);
+          setProfile(null);
+          clearUserCache();
+        } else if (profileData) {
+          console.log(`AuthContext [${source}]: Profile found:`, profileData);
+          profileFound = true;
           setProfile(profileData);
+          cacheUserProfile(profileData);
+        } else {
+           console.warn(`AuthContext [${source}]: User session found, but no profile data in DB.`);
+           setProfile(null);
+           clearUserCache();
         }
+      } else {
+        console.log(`AuthContext [${source}]: No session found, clearing profile.`);
+        setProfile(null);
+        clearUserCache();
       }
-    } catch (err) {
-      console.error('Session refresh error:', err);
+    } catch (error: any) {
+      console.error(`AuthContext [${source}]: Exception during auth check:`, error.message);
+      setSession(null);
+      setProfile(null);
+      clearUserCache();
     } finally {
-      setIsRefreshing(false);
+      console.log(`AuthContext [${source}]: Check complete. Session found: ${sessionFound}, Profile found: ${profileFound}`);
+      setIsLoading(false);
     }
-  }, [isRefreshing, router]);
+  }, [supabase]);
 
   // Sign in function
   const signIn = async (email: string, password: string) => {
+    console.log('AuthContext: Attempting sign in...');
+    setIsLoading(true);
     try {
-      setIsLoading(true);
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
+        console.error('AuthContext: Sign in error:', error.message);
         return { success: false, error: error.message };
       }
+      console.log('AuthContext: Sign in successful via Supabase.', data.session ? 'Session received.' : 'No session received.');
 
-      setSession(data.session);
-      
-      // Fetch user profile
-      if (data.session?.user) {
-        const { data: profileData } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', data.session.user.id)
-          .single();
-        
-        if (profileData) {
-          setProfile(profileData);
-        }
+      // Session state handled by onAuthStateChange + SessionManager trigger
+      // Trigger check immediately for faster UI update after direct action
+      if (data.session) {
+         await triggerAuthCheck('signIn'); 
+      } else {
+         setProfile(null);
+         clearUserCache(); 
       }
-
-      recordActivity();
+      
       return { success: true };
-    } catch (error) {
-      console.error('Sign in error:', error);
-      return { success: false, error: 'An unexpected error occurred' };
+    } catch (error: any) {
+      console.error('AuthContext: Sign in exception:', error);
+      return { success: false, error: error.message || 'An unexpected error occurred' };
     } finally {
       setIsLoading(false);
     }
@@ -185,10 +168,10 @@ const AuthContextContent: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       if (error) {
+        console.error('Sign up error:', error.message);
         return { success: false, error: error.message };
       }
 
-      // Create user profile
       if (data.user) {
         const { error: profileError } = await supabase.from('user_profiles').insert({
           id: data.user.id,
@@ -198,7 +181,11 @@ const AuthContextContent: React.FC<{ children: React.ReactNode }> = ({ children 
         });
 
         if (profileError) {
-          return { success: false, error: profileError.message };
+          console.error('Error creating profile after sign up:', profileError.message);
+          return { 
+            success: false, 
+            error: `Sign up successful, but profile creation failed: ${profileError.message}` 
+          };
         }
       }
 
@@ -206,9 +193,9 @@ const AuthContextContent: React.FC<{ children: React.ReactNode }> = ({ children 
         success: true, 
         message: 'Registration successful! Please check your email to confirm your account.' 
       };
-    } catch (error) {
-      console.error('Sign up error:', error);
-      return { success: false, error: 'An unexpected error occurred' };
+    } catch (error: any) {
+      console.error('Sign up exception:', error);
+      return { success: false, error: error.message || 'An unexpected error occurred' };
     } finally {
       setIsLoading(false);
     }
@@ -216,158 +203,82 @@ const AuthContextContent: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Sign out function
   const signOut = useCallback(async () => {
+    console.log('AuthContext: Attempting sign out...');
+    setIsLoading(true);
     try {
-      setIsLoading(true);
       const { error } = await supabase.auth.signOut();
 
       if (error) {
+        console.error('AuthContext: Sign out error:', error.message);
         return { success: false, error: error.message };
       }
 
+      console.log('AuthContext: Sign out successful via Supabase. Clearing local state.');
       setSession(null);
       setProfile(null);
-      router.push('/login');
+      clearUserCache();
+      
+      // Optional: Explicit redirect if needed
+      // router.push('/login');
       return { success: true };
-    } catch (error) {
-      console.error('Sign out error:', error);
-      return { success: false, error: 'An unexpected error occurred' };
+    } catch (error: any) {
+      console.error('AuthContext: Sign out exception:', error);
+      return { success: false, error: error.message || 'An unexpected error occurred' };
     } finally {
       setIsLoading(false);
     }
-  }, [router]);
-
-  // Check for inactivity and refresh token if needed
-  useEffect(() => {
-    if (!session) return;
-
-    const checkActivity = () => {
-      const now = Date.now();
-      const timeSinceLastActivity = now - lastActivity;
-
-      // If user has been inactive for longer than SESSION_EXPIRATION, sign out
-      if (timeSinceLastActivity > SESSION_EXPIRATION) {
-        signOut();
-        return;
-      }
-
-      // If user has been inactive for longer than ACTIVITY_THRESHOLD, refresh token
-      if (timeSinceLastActivity > ACTIVITY_THRESHOLD) {
-        refreshSession();
-      }
-    };
-
-    // Set up interval to check activity
-    const interval = setInterval(checkActivity, ACTIVITY_CHECK_INTERVAL);
-    setActivityCheckInterval(interval);
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [lastActivity, refreshSession, session, ACTIVITY_CHECK_INTERVAL, ACTIVITY_THRESHOLD, SESSION_EXPIRATION, signOut]);
-
-  // Add event listeners for user activity
-  useEffect(() => {
-    const activityEvents = ['mousedown', 'keydown', 'touchstart', 'click'];
-    
-    const handleActivity = () => {
-      recordActivity();
-    };
-
-    activityEvents.forEach(event => {
-      window.addEventListener(event, handleActivity);
-    });
-
-    return () => {
-      activityEvents.forEach(event => {
-        window.removeEventListener(event, handleActivity);
-      });
-    };
-  }, [recordActivity, activityCheckInterval]);
+  }, [supabase, router]);
 
   // Initial session check and setup auth subscription
   useEffect(() => {
-    const checkSession = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Get current session
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
-        setSession(currentSession);
-        
-        // Fetch user profile if we have a session
-        if (currentSession?.user) {
-          const { data: profileData } = await supabase
-            .from('user_profiles')
-            .select('*')
-            .eq('id', currentSession.user.id)
-            .single();
-          
-          if (profileData) {
-            setProfile(profileData);
-          }
-        }
-        
-        // Check if we need to redirect to redirect_url from login
-        const redirectTo = searchParams.get('redirect');
-        if (currentSession && redirectTo) {
-          router.push(decodeURIComponent(redirectTo));
-        }
-      } catch (error) {
-        console.error('Session check error:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+    let mounted = true;
+
+    const cachedProfile = getCachedUserProfile();
+    if (cachedProfile) {
+      console.log('AuthContext: Initial load from cached profile:', cachedProfile);
+      setProfile(cachedProfile);
+    }
+
+    // Perform initial check when component mounts
+    triggerAuthCheck('initialMount'); 
 
     // Set up auth change subscription
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, updatedSession) => {
-      setSession(updatedSession);
-      recordActivity();
+      if (!mounted) return;
+      // Minimal logging here, SessionManager/triggerAuthCheck provide more detail
+      console.log(`%cAuth State Change Event [Context Listener]: ${event}`, 'color: green;'); 
       
-      if (event === 'SIGNED_IN' && updatedSession) {
-        // Fetch user profile when signed in
-        const { data } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('id', updatedSession.user.id)
-          .single();
-        
-        setProfile(data);
-      } else if (event === 'SIGNED_OUT') {
-        setSession(null);
-        setProfile(null);
-      } else if (event === 'TOKEN_REFRESHED') {
-        setSession(updatedSession);
+      // Instantly clear profile on SIGNED_OUT
+      if (event === 'SIGNED_OUT') {
+         console.log('AuthContext Listener: Reacting to SIGNED_OUT, clearing profile.');
+         setProfile(null);
+         clearUserCache();
       }
+      
+      // Update session object in state immediately
+      setSession(updatedSession);
     });
 
-    // Initial session check
-    checkSession();
-
     return () => {
-      subscription.unsubscribe();
-      if (activityCheckInterval) {
-        clearInterval(activityCheckInterval);
-      }
+      mounted = false;
+      subscription?.unsubscribe();
     };
-  }, [router, searchParams]);
+  }, [triggerAuthCheck, supabase]);
 
   // Auth context value
   const value = useMemo(() => {
     return {
+      supabase,
       session,
       profile,
-      isAuthenticated: !!session,
       isLoading,
       hasRole,
-      refreshSession,
       signIn,
       signUp,
       signOut,
-      // Calculate time until session expiration
-      sessionExpiresIn: session ? calculateExpiryTime(session) : null,
+      triggerAuthCheck,
     };
-  }, [session, profile, isLoading, hasRole, refreshSession, signOut]);
+  }, [session, profile, isLoading, hasRole, signIn, signUp, signOut, triggerAuthCheck, supabase]);
 
   return (
     <AuthContext.Provider value={value}>
@@ -397,32 +308,35 @@ export const useSignIn = () => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const signInWithCallback = async (
     values: z.infer<typeof formSchema>,
     callbackUrl: string | null = null
   ) => {
     setIsLoading(true);
+    setError(null);
     
     try {
       const result = await signIn(values.email, values.password);
       
       if (!result.success) {
-        return { error: result.error };
+        setError(result.error || 'Sign in failed');
+        return { success: false, error: result.error };
       }
       
-      // Get the callback URL from searchParams or use the default
-      // Handle null searchParams for SSR safety
-      const callbackFromParams = searchParams ? searchParams.get("callbackUrl") : null;
+      const callbackFromParams = searchParams?.get("redirect");
       const redirectTo = callbackUrl || callbackFromParams || "/dashboard";
       
-      router.refresh();
+      console.log(`Sign in successful, redirecting to: ${redirectTo}`);
       router.push(redirectTo);
       
       return { success: true };
-    } catch (error) {
-      console.error("Error with login", error);
-      return { error };
+    } catch (err: any) {
+      console.error("Exception during sign in with callback", err);
+      const errorMessage = err.message || 'An unexpected error occurred during sign in.';
+      setError(errorMessage);
+      return { success: false, error: errorMessage };
     } finally {
       setIsLoading(false);
     }
@@ -430,6 +344,7 @@ export const useSignIn = () => {
   
   return {
     signInWithCallback,
-    isLoading
+    isLoading,
+    error
   };
 }; 

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import './globals.css';
-import { Toaster } from 'react-hot-toast';
+import { Toaster } from '@/components/ui/toaster';
 import { 
   FileText, 
   DollarSign, 
@@ -19,16 +19,19 @@ import {
   Package,
   Home
 } from 'lucide-react';
-import { AuthContextProvider, UserRole } from '@/contexts/AuthContext';
+import { AuthContextProvider } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
 import ProfileMenu from '@/components/auth/ProfileMenu';
 import AuthStatusIndicator from '@/components/auth/AuthStatusIndicator';
 import { Inter } from 'next/font/google';
 import { OrderPreferencesProvider } from '@/contexts/OrderPreferencesContext';
+import { Toaster as SonnerToaster } from 'sonner';
+import SessionManager from '@/components/session-manager';
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
 
+// Define Inter font
 const inter = Inter({ subsets: ['latin'] });
 
 // Componente interno para navegación con soporte de roles
@@ -59,6 +62,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         // Validador de crédito puede ver clientes y pedidos
         navItems.push({ href: '/clients', label: 'Clientes', icon: Users });
         navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
+        navItems.push({ href: '/finanzas', label: 'Finanzas', icon: DollarSign });
         break;
         
       case 'SALES_AGENT':
@@ -79,6 +83,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/clients', label: 'Clientes', icon: Users });
         navItems.push({ href: '/quotes', label: 'Cotizaciones', icon: ClipboardList });
         navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
+        navItems.push({ href: '/finanzas', label: 'Finanzas', icon: DollarSign });
         break;
         
       case 'QUALITY_TEAM':
@@ -340,6 +345,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   const isLandingRoute = pathname?.includes('/landing');
 
+  // Use Inter font
+  const fontClassName = inter.className;
+
   return (
     <html lang="es" suppressHydrationWarning>
       <head>
@@ -352,16 +360,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthContextProvider>
           <OrderPreferencesProvider>
             <ErrorBoundary>
-              <Toaster position="top-right" />
-              
-              {isLandingRoute ? (
-                <>{children}</>
-              ) : (
-                <Navigation>
-                  {children}
-                </Navigation>
-              )}
+              <Navigation>
+                {children}
+              </Navigation>
             </ErrorBoundary>
+            <Toaster />
+            <SonnerToaster position="top-right" />
           </OrderPreferencesProvider>
         </AuthContextProvider>
       </body>

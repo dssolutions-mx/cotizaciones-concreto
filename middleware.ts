@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+// Use createMiddlewareClient from the auth-helpers package
+import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
 import type { Database } from '@/types/supabase';
 
 // Generate a random nonce for CSP using Web Crypto API
@@ -12,30 +13,38 @@ function generateNonce() {
 // Define a comprehensive CSP policy that allows Supabase to function
 function getCSPHeader(nonce: string) {
   const policy = `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://*.supabase.co https://*.supabase.io https://supabase.co https://supabase.io; frame-src 'self'; base-uri 'self'; form-action 'self';`;
-  console.log(`Generated CSP policy: ${policy.substring(0, 100)}...`);
+  // console.log(`Generated CSP policy: ${policy.substring(0, 100)}...`); // Keep logging minimal unless debugging
   return policy;
 }
 
-// Track session refresh timestamps to prevent excessive refreshes
-const sessionRefreshes = new Map<string, number>();
-const MIN_REFRESH_INTERVAL = 60000; // 1 minute minimum between refreshes
+// Removed sessionRefreshes map and MIN_REFRESH_INTERVAL as helper handles refresh
 
 export async function middleware(request: NextRequest) {
   // Generate a nonce for CSP
   const nonce = generateNonce();
-  console.log(`Generated nonce for CSP: ${nonce.substring(0, 10)}...`);
-  
-  // Initialize the response variable
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
+  // console.log(`Generated nonce for CSP: ${nonce.substring(0, 10)}...`);
 
-  // Extract pathname for clearer debugging
+  // Initialize response using NextResponse.next()
+  const response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
+  
+  // Set CSP headers early
+  const cspHeader = getCSPHeader(nonce);
+  response.headers.set('Content-Security-Policy', cspHeader);
+  response.headers.set('X-CSP-Nonce', nonce); // Make nonce available if needed client-side
+
+  // Create Supabase client configured for middleware
+  const supabase = createMiddlewareClient<Database>({ req: request, res: response });
+
+  // Extract pathname for logic
   const url = request.nextUrl.clone();
   const { pathname } = url;
   const clientIP = request.headers.get('x-forwarded-for') || 'unknown';
-  
-  // Only log key path transitions, not every request
+
+  // Logging for significant paths
   const isSignificantPath = 
     pathname === '/' || 
     pathname === '/dashboard' || 
@@ -46,369 +55,103 @@ export async function middleware(request: NextRequest) {
     console.log(`Middleware processing: ${pathname} from ${clientIP}`);
   }
   
-  // Extract query params for better control over auth flow
-  const searchParams = url.searchParams;
-  
-  // Check if this is a force logout situation
-  const isForceLogout = searchParams.get('force_logout') === 'true';
-  // Check for timestamp parameter - this indicates a hard redirect from password update
-  const hasTimestamp = !!searchParams.get('t');
-  const isForceLogoutWithTimestamp = isForceLogout && hasTimestamp;
-  
-  // Check for session refresh parameter - this is a special case to force token refresh
-  const isForceRefresh = searchParams.get('refresh_session') === 'true';
-  
-  if (isForceRefresh) {
-    console.log('Detected force_refresh parameter, will attempt to refresh session tokens');
-  }
-  
-  if (isForceLogout) {
-    console.log('Detected force_logout in middleware - bypassing auth checks and clearing session cookies');
-    if (isForceLogoutWithTimestamp) {
-      console.log('Detected timestamp parameter - this is a hard redirect logout, being more aggressive');
-    }
-    
-    // Create a response that adds CSP headers and clears auth cookies
-    const response = NextResponse.next({
-      request,
-    });
-    
-    // Add CSP headers
-    const nonce = generateNonce();
-    const cspHeader = getCSPHeader(nonce);
-    response.headers.set('Content-Security-Policy', cspHeader);
-    response.headers.set('X-CSP-Nonce', nonce);
-    
-    // Attempt to clear auth cookies by setting them to expire
-    try {
-      // Clear all possible Supabase auth cookies (expanded and more comprehensive list)
-      const cookieNames = [
-        // Standard Supabase cookie names
-        'sb-access-token', 
-        'sb-refresh-token',
-        'supabase-auth-token',
-        '__session',
-        'sb-auth-token',
-        
-        // Project-specific variations (using project ref patterns)
-        'sb:*:auth-token',
-        'sb-*-auth-token',
-        
-        // Legacy and alternative formats
-        'supabase.auth.token',
-        'sb-provider-token',
-        'sb-token-type',
-        'sb-expires-at',
-        
-        // Session-related cookies
-        'sb-session',
-        'sb-*-session',
-        '__supabase_session',
-        
-        // Generic auth cookies that might be used
-        'auth-token',
-        'auth-refresh-token',
-        'auth-session',
-        'auth',
-        'token',
-        'session'
-      ];
-      
-      // First get all current cookies to check for any auth-related ones
-      const allCookies = request.cookies.getAll();
-      
-      // Process all cookies that might be related to auth
-      allCookies.forEach(cookie => {
-        const name = cookie.name.toLowerCase();
-        if (name.includes('auth') || 
-            name.includes('token') || 
-            name.includes('session') || 
-            name.includes('supabase') || 
-            name.includes('sb-')) {
-          console.log(`Clearing detected auth cookie: ${cookie.name}`);
-          response.cookies.set({
-            name: cookie.name,
-            value: '',
-            expires: new Date(0),
-            path: '/',
-            sameSite: 'lax',
-            secure: process.env.NODE_ENV === 'production',
-            httpOnly: true
-          });
-        }
-      });
-      
-      // Also explicitly try all the known cookie names
-      cookieNames.forEach(name => {
-        response.cookies.set({
-          name,
-          value: '',
-          expires: new Date(0),
-          path: '/',
-          sameSite: 'lax',
-          secure: process.env.NODE_ENV === 'production',
-          httpOnly: true
-        });
-      });
-      
-      console.log('Cleared auth cookies in middleware for force_logout');
-    } catch (clearError) {
-      console.error('Error clearing cookies in middleware:', clearError);
-    }
-    
-    // For hard redirects with timestamp, add a special header to indicate to the client
-    // that this request has had cookies fully cleared
-    if (isForceLogoutWithTimestamp) {
-      response.headers.set('X-Auth-Cookies-Cleared', 'true');
-    }
-    
-    return response;
-  }
-  
+  // Removed force_logout and force_refresh logic as it complicates standard auth flow
+  // Handle logout via standard Supabase signOut on client-side
+
   // Check for invitation links (they have a hash with access_token)
   // Note: We can't access the hash directly in middleware, but we can check for the presence of '#' in the URL
-  const hasHash = request.url.includes('#');
-  
-  // Check if this is an auth-related route - be very inclusive to catch all auth scenarios
+  // Let Supabase client handle hash detection via detectSessionInUrl: true
+  // const hasHash = request.url.includes('#');
+
+  // Auth routes might still need specific handling (like CSP), but let Supabase manage session
   const isAuthRoute = 
     pathname.includes('/update-password') || 
     pathname.includes('/auth/callback') || 
     pathname.includes('/auth-check') ||
     pathname.includes('/login') || 
     pathname.includes('/register') || 
-    pathname.includes('/reset-password') ||
-    hasHash; // Consider any URL with a hash as potentially an auth route
-  
-  const isInvitationLink = hasHash;
-  
-  // For auth routes, we want to add CSP headers
+    pathname.includes('/reset-password');
+    // Removed hasHash check here, rely on Supabase client
+
   if (isAuthRoute) {
-    console.log(`Detected auth route: ${pathname}, adding CSP headers`);
-    // Create a response that adds necessary CSP headers
-    const response = NextResponse.next({
-      request,
-    });
-    
-    // Add Content-Security-Policy header that allows 'unsafe-eval' for Supabase auth to work
-    const cspHeader = getCSPHeader(nonce);
-    response.headers.set('Content-Security-Policy', cspHeader);
-    
-    // Add the nonce to the request headers so it can be accessed by the page
-    response.headers.set('X-CSP-Nonce', nonce);
-    
-    // For invitation links, we bypass auth checks
-    if (isInvitationLink) {
-      console.log(`Detected invitation link in middleware, bypassing auth checks for: ${pathname}`);
-      return response;
-    }
-    
-    // For other auth routes, we continue with the response that has CSP headers
-    // but still perform auth checks below
-    supabaseResponse = response;
-  }
-  
-  // Normal auth flow for non-invitation links
-  const supabase = createServerClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value));
-          supabaseResponse = NextResponse.next({
-            request,
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  // IMPORTANT: Do not run code between createServerClient and
-  // supabase.auth.getUser(). A simple mistake could make it very hard to debug
-  // issues with users being randomly logged out.
-
-  // Implement rate limiting for session refresh
-  const canRefreshSession = () => {
-    const requestId = clientIP;
-    const now = Date.now();
-    const lastRefresh = sessionRefreshes.get(requestId) || 0;
-    const timeSinceLastRefresh = now - lastRefresh;
-    
-    // Allow refresh if it's a force refresh or enough time has passed
-    if (isForceRefresh || timeSinceLastRefresh > MIN_REFRESH_INTERVAL) {
-      sessionRefreshes.set(requestId, now);
-      
-      // Clean up old entries from the map to prevent memory leaks
-      const oldEntryThreshold = now - 3600000; // Entries older than 1 hour
-      sessionRefreshes.forEach((timestamp, key) => {
-        if (timestamp < oldEntryThreshold) {
-          sessionRefreshes.delete(key);
-        }
-      });
-      
-      return true;
-    }
-    
-    return false;
-  };
-
-  // If force refresh is requested and rate limiting allows, try to refresh the session
-  if (isForceRefresh && canRefreshSession()) {
-    try {
-      // Try to refresh the session before checking the user
-      const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-      
-      if (refreshError) {
-        console.error("Session refresh error:", refreshError.message);
-      } else if (refreshData.session) {
-        console.log("Session refreshed successfully in middleware");
-      }
-    } catch (refreshException) {
-      console.error("Exception during session refresh in middleware:", refreshException);
-    }
+    console.log(`Detected auth route: ${pathname}, CSP headers already set.`);
+    // Allow auth routes to proceed, Supabase client will handle session logic
+    // Return the response with CSP headers
+    return response; 
   }
 
-  // Now get the user - this will use the refreshed session if it was refreshed above
+  // Refresh session if expired - handled automatically by auth-helpers
+  // The getUser call below effectively refreshes the session and updates cookies in the response
   const {
     data: { user },
     error,
   } = await supabase.auth.getUser();
 
-  if (error) {
-    // Only log the error if it's not a common 401 that we're about to attempt to fix
-    if (error.status !== 401 || isForceRefresh) {
-      console.error("Middleware auth error:", error.message);
-    }
-    
-    // If we get a 401 Unauthorized error, attempt to refresh the session
-    // But only if we haven't just tried to refresh already and rate limiting allows
-    if (error.status === 401 && !isForceRefresh && canRefreshSession()) {
-      console.log("Attempting to recover from 401 by refreshing session...");
-      
-      try {
-        const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
-        
-        if (refreshError) {
-          console.error("Session refresh failed after 401:", refreshError.message);
-        } else if (refreshData.session) {
-          console.log("Successfully refreshed session after 401");
-          
-          // Re-get the user with the refreshed session
-          const { data: { user: refreshedUser } } = await supabase.auth.getUser();
-          
-          if (refreshedUser) {
-            console.log("Successfully recovered user after session refresh");
-            
-            // Continue with the recovered user
-            // This bypasses standard error handling since we've recovered
-            const originalUrl = request.nextUrl.clone();
-            originalUrl.searchParams.set('recovered', 'true');
-            
-            const redirectResponse = NextResponse.redirect(originalUrl);
-            
-            // Copy cookies from supabaseResponse to redirectResponse
-            supabaseResponse.cookies.getAll().forEach(cookie => {
-              redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
-            });
-            
-            return redirectResponse;
-          }
-        }
-      } catch (refreshException) {
-        console.error("Exception during recovery session refresh:", refreshException);
-      }
-    }
-  }
-
-  // Only log authentication status for significant paths
+  // Log auth status for significant paths
   if (isSignificantPath) {
     console.log(`Auth status for ${pathname}:`, {
       authenticated: !!user,
       userEmail: user?.email || 'none',
+      error: error?.message || 'none',
     });
   }
+  
+  if (error && error.status !== 401) {
+    // Log unexpected errors
+    console.error("Middleware auth error:", error.message);
+  }
 
-  // Define public routes that don't require authentication
-  // Rutas que son accesibles sin autenticación
+  // Define public routes - simplified based on guide
+  const publicRoutes = [
+    '/', 
+    '/landing', // Assuming landing is public
+    '/login', 
+    '/register', 
+    '/reset-password',
+    '/update-password',
+    '/auth-check', // Keep if used for specific checks
+  ];
+  
   const isPublicRoute = 
-    pathname === '/' || 
-    pathname === '/landing' ||
-    pathname.startsWith('/(landing)') ||
+    publicRoutes.includes(pathname) ||
+    pathname.startsWith('/(landing)') || // Keep specific landing checks if needed
     pathname.includes('/landing/') ||
-    pathname === '/login' || 
-    pathname === '/register' || 
-    pathname === '/reset-password' ||
-    pathname === '/update-password' ||
-    pathname === '/auth-check' ||  // Add auth-check route as public for testing
     pathname.startsWith('/_next') || 
-    pathname.includes('.') || 
+    pathname.includes('.') || // Assume files with extensions are static assets
     pathname.startsWith('/images') || 
+    pathname.startsWith('/fonts') || // Added fonts
     pathname.startsWith('/api/public') ||
-    pathname.startsWith('/api/auth') ||
-    isForceLogout;
-    
-  // If not authenticated and trying to access a protected route (including API routes)
+    pathname.startsWith('/api/auth'); // Allow auth API routes
+
+  // If not authenticated and trying to access a protected route
   if (!user && !isPublicRoute) {
-    console.log(`Unauthenticated access attempt to ${pathname}`);
+    console.log(`Unauthenticated access attempt to protected route: ${pathname}`);
     
-    // Check if this is an API route
-    const isApiRoute = pathname.startsWith('/api') && !pathname.startsWith('/api/public') && !pathname.startsWith('/api/auth');
+    const isApiRoute = pathname.startsWith('/api');
     
-    // For API routes, return 401 Unauthorized
     if (isApiRoute) {
-      const apiResponse = NextResponse.json(
-        { error: 'Unauthorized - No user found' },
-        { status: 401 }
-      );
-      
-      // Copy cookies from supabaseResponse to apiResponse
-      supabaseResponse.cookies.getAll().forEach(cookie => {
-        apiResponse.cookies.set(cookie.name, cookie.value, cookie);
-      });
-      
-      return apiResponse;
+      // Return 401 for protected API routes
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
     
-    // For other routes, redirect to login
-    const loginUrl = url.clone();
-    loginUrl.pathname = '/login';
-    const redirectResponse = NextResponse.redirect(loginUrl);
-    
-    // Copy cookies from supabaseResponse to redirectResponse
-    supabaseResponse.cookies.getAll().forEach(cookie => {
-      redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
-    });
-    
-    return redirectResponse;
+    // Redirect non-API routes to login, preserving the intended destination
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = '/login';
+    redirectUrl.searchParams.set('redirect', pathname); // Add redirect param
+    console.log(`Redirecting to login: ${redirectUrl.toString()}`);
+    return NextResponse.redirect(redirectUrl);
   }
 
-  // If authenticated and trying to access login/register pages
+  // If authenticated and trying to access login/register pages, redirect to dashboard
   if (user && (pathname === '/login' || pathname === '/register')) {
-    // Skip the redirect if this is a force logout request
-    if (isForceLogout) {
-      console.log('Detected force_logout, allowing access to login page even though user is authenticated');
-      return supabaseResponse;
-    }
-    
-    const dashboardUrl = url.clone();
+    console.log(`Authenticated user accessing ${pathname}, redirecting to dashboard.`);
+    const dashboardUrl = request.nextUrl.clone();
     dashboardUrl.pathname = '/dashboard';
-    const redirectResponse = NextResponse.redirect(dashboardUrl);
-    
-    // Copy cookies from supabaseResponse to redirectResponse
-    supabaseResponse.cookies.getAll().forEach(cookie => {
-      redirectResponse.cookies.set(cookie.name, cookie.value, cookie);
-    });
-    
-    return redirectResponse;
+    return NextResponse.redirect(dashboardUrl);
   }
 
-  return supabaseResponse;
+  // Return the original response (with updated cookies/headers from Supabase client)
+  return response;
 }
 
 // Specify which routes this middleware should run on
@@ -416,7 +159,7 @@ export const config = {
   matcher: [
     /*
      * Match all routes including API routes, but exclude:
-     * - Static files
+     * - Static files typically served directly
      * - _next system paths
      */
     '/((?!_next/static|_next/image|images|fonts|favicon.ico).*)',

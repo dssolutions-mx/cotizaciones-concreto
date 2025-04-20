@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { createBrowserClient } from '@supabase/ssr';
 // Import the package.json as JSON
 import ssrPackage from '@supabase/ssr/package.json';
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     } = { success: false, error: null, user: null };
     
     try {
-      const supabase = await createClient();
+      const supabase = createServerSupabaseClient();
       
       // Try both getUser (secure) and getSession
       const { data: { user }, error: userError } = await supabase.auth.getUser();

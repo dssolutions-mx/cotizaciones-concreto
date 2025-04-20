@@ -928,3 +928,414 @@ Los cambios principales para solucionar el error fueron:
 
 Con estos cambios, la distribución de pagos ahora funciona correctamente, asignando los montos a las obras en el orden adecuado según su antigüedad.
 
+## Implementación del Financial Hub Dashboard y Mejoras en UX de Pagos
+
+Se implementará un nuevo sistema centralizado para la gestión financiera, mejorando la experiencia de usuario para roles como Credit Validators, Plant Managers y Executives.
+
+### Nueva Estructura del Dashboard
+
+```tsx
+// Financial Hub Dashboard Layout (app/finanzas/page.tsx)
+export default function FinancesPage() {
+  // Obtener datos financieros clave...
+  
+  return (
+    <div className="container mx-auto p-4">
+      <h1 className="text-3xl font-bold mb-6">Financial Hub</h1>
+      
+      {/* Sección KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <KPICard title="Total Adeudado" value={totalOutstanding} />
+        <KPICard title="Clientes con Saldo Vencido" value={clientsWithOverdueBalance} />
+        <KPICard title="Pagos Recibidos (Mes)" value={paymentsThisMonth} />
+        <KPICard title="Pedidos por Validar" value={pendingCreditApprovals} />
+      </div>
+      
+      {/* Tabla de Balances de Clientes */}
+      <ClientBalanceTable clients={clientsWithBalances} />
+    </div>
+  );
+}
+```
+
+### Componentes Nuevos Necesarios
+
+#### 1. KPICard
+
+```tsx
+// components/finances/KPICard.tsx
+interface KPICardProps {
+  title: string;
+  value: string | number;
+  trend?: number; // Opcional: cambio porcentual respecto al periodo anterior
+  icon?: React.ReactNode;
+}
+
+function KPICard({ title, value, trend, icon }: KPICardProps) {
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between pb-2">
+        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+        {icon && <div>{icon}</div>}
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">
+          {typeof value === 'number' && value.toLocaleString('es-MX', { maximumFractionDigits: 2 })}
+          {typeof value === 'string' && value}
+        </div>
+        {trend !== undefined && (
+          <p className={`text-xs ${trend >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+            {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}% vs. mes anterior
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+#### 2. ClientBalanceTable
+
+```tsx
+// components/finances/ClientBalanceTable.tsx
+interface ClientBalanceRowData {
+  id: string;
+  name: string;
+  balance: number;
+  lastPaymentDate: string | null;
+  creditStatus: string;
+}
+
+function ClientBalanceTable({ clients }: { clients: ClientBalanceRowData[] }) {
+  // Estados para ordenamiento, filtros, etc.
+  const [sortField, setSortField] = useState<keyof ClientBalanceRowData>('balance');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // Función de ordenamiento...
+  // Función de filtrado...
+  
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Balances de Clientes</CardTitle>
+        <CardDescription>Resumen de balances por cliente</CardDescription>
+        <Input
+          placeholder="Buscar por nombre de cliente..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="max-w-sm"
+        />
+      </CardHeader>
+      <CardContent>
+        <Table>
+          {/* Encabezados con ordenamiento */}
+          <TableHeader>
+            <TableRow>
+              <TableHead onClick={() => handleSort('name')}>
+                Cliente {sortField === 'name' && (sortDirection === 'asc' ? '↑' : '↓')}
+              </TableHead>
+              <TableHead onClick={() => handleSort('balance')} className="text-right">
+                Balance {sortField === 'balance' && (sortDirection === 'asc' ? '↑' : '↓')}
+              </TableHead>
+              <TableHead onClick={() => handleSort('lastPaymentDate')}>
+                Último Pago {sortField === 'lastPaymentDate' && (sortDirection === 'asc' ? '↑' : '↓')}
+              </TableHead>
+              <TableHead onClick={() => handleSort('creditStatus')}>
+                Estado de Crédito {sortField === 'creditStatus' && (sortDirection === 'asc' ? '↑' : '↓')}
+              </TableHead>
+              <TableHead>Acciones</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filteredAndSortedClients.map((client) => (
+              <TableRow key={client.id}>
+                <TableCell>
+                  <Link href={`/clients/${client.id}`} className="font-medium hover:underline">
+                    {client.name}
+                  </Link>
+                </TableCell>
+                <TableCell className={`text-right font-medium ${client.balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  ${client.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                </TableCell>
+                <TableCell>
+                  {client.lastPaymentDate ? format(new Date(client.lastPaymentDate), 'dd/MM/yyyy') : 'Sin pagos'}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={getCreditStatusVariant(client.creditStatus)}>
+                    {getCreditStatusLabel(client.creditStatus)}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem asChild>
+                        <Link href={`/clients/${client.id}`}>Ver Detalles</Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => openPaymentModal(client.id)}>
+                        Registrar Pago
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Modificaciones a Componentes Existentes
+
+#### 1. Cambios en PaymentForm como Modal/Drawer
+
+```tsx
+// components/ui/payment-dialog.tsx
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import PaymentForm from "../clients/PaymentForm";
+
+interface PaymentDialogProps {
+  clientId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
+  defaultConstructionSite?: string;
+  currentBalance?: number;
+}
+
+function PaymentDialog({
+  clientId,
+  open,
+  onOpenChange,
+  onSuccess,
+  defaultConstructionSite,
+  currentBalance
+}: PaymentDialogProps) {
+  const handleSuccess = () => {
+    if (onSuccess) onSuccess();
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[600px]">
+        <DialogHeader>
+          <DialogTitle>Registrar Pago</DialogTitle>
+        </DialogHeader>
+        <PaymentForm
+          clientId={clientId}
+          onSuccess={handleSuccess}
+          defaultConstructionSite={defaultConstructionSite}
+          currentBalance={currentBalance}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default PaymentDialog;
+```
+
+#### 2. Implementación de Confirmación en PaymentForm
+
+```tsx
+// En PaymentForm.tsx, añadir estados para la confirmación
+const [isConfirming, setIsConfirming] = useState(false);
+
+// Modificar handleSubmit para incluir paso de confirmación
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  if (!canCreatePayments) {
+    alert('No tienes permisos para registrar pagos');
+    return;
+  }
+
+  if (!formData.amount || isNaN(parseFloat(formData.amount)) || parseFloat(formData.amount) <= 0) {
+    alert('Por favor, ingresa un monto válido');
+    return;
+  }
+
+  // Si no estamos en modo confirmación, mostrar pantalla de confirmación
+  if (!isConfirming) {
+    setIsConfirming(true);
+    return;
+  }
+
+  // A partir de aquí, procedemos con el registro del pago...
+  try {
+    setSubmitting(true);
+    // Código existente para registrar el pago...
+  } catch (error: any) {
+    console.error('Error registrando pago:', error);
+    alert(`Error al registrar pago: ${error.message}`);
+  } finally {
+    setSubmitting(false);
+    setIsConfirming(false); // Volver al formulario en caso de error
+  }
+};
+
+// Añadir vista de confirmación en el render
+return (
+  <Card className="w-full">
+    <CardHeader>
+      <CardTitle>
+        {isConfirming ? 'Confirmar Pago' : 'Registrar Nuevo Pago'}
+      </CardTitle>
+    </CardHeader>
+    <CardContent>
+      {!isConfirming ? (
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Formulario existente... */}
+        </form>
+      ) : (
+        <div className="space-y-6">
+          {/* Pantalla de confirmación */}
+          <div className="bg-gray-50 p-4 rounded-md">
+            <h3 className="font-medium text-gray-700 mb-2">Resumen del Pago</h3>
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Monto:</span>
+                <span className="font-medium">${parseFloat(formData.amount).toLocaleString('es-MX', {minimumFractionDigits: 2})}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Método:</span>
+                <span className="font-medium">{formData.paymentMethod}</span>
+              </div>
+              {formData.referenceNumber && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Referencia:</span>
+                  <span className="font-medium">{formData.referenceNumber}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-gray-600">Obra:</span>
+                <span className="font-medium">{formData.constructionSite || 'General (Distribución automática)'}</span>
+              </div>
+              {formData.notes && (
+                <div className="pt-2 border-t mt-2">
+                  <span className="text-gray-600 block mb-1">Notas:</span>
+                  <p className="text-sm text-gray-700">{formData.notes}</p>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex justify-end space-x-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsConfirming(false)}
+            >
+              Editar
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {submitting ? (
+                <>
+                  <span className="animate-spin h-4 w-4 mr-2 border-t-2 border-r-2 border-white rounded-full"></span>
+                  Procesando...
+                </>
+              ) : (
+                'Confirmar Pago'
+              )}
+            </Button>
+          </div>
+        </div>
+      )}
+    </CardContent>
+  </Card>
+);
+```
+
+### Plan de Implementación Paso a Paso
+
+La implementación del Financial Hub y las mejoras de UX en pagos se realizará en las siguientes fases:
+
+#### Fase 1: Fundamentos UI y Mejoras Básicas
+
+1. **Convertir Payment Form a Modal/Drawer**:
+   - Crear componente `PaymentDialog` utilizando Shadcn Dialog
+   - Modificar `ClientDetailContent.tsx` y `OrderDetails.tsx` para usar este componente
+   - Actualizar `PaymentForm.tsx` para recibir y usar `defaultConstructionSite` y `currentBalance`
+
+2. **Mejorar Vista de Información Financiera en Detalles del Cliente**:
+   - Añadir filtros y capacidades de búsqueda a `PaymentHistoryList.tsx`
+   - Refinamiento visual de `ClientBalanceSummary.tsx` para mayor claridad
+
+#### Fase 2: Formularios Inteligentes y Vistas Avanzadas
+
+3. **Implementar Mejoras al Formulario de Pagos**:
+   - Añadir sugerencia de pago del saldo total
+   - Implementar paso de confirmación antes de registro final
+   - Optimizar experiencia en dispositivos móviles
+
+4. **Desarrollar Dashboard Financial Hub**:
+   - Crear nuevos componentes: `KPICard`, `ClientBalanceTable`
+   - Desarrollar página `app/finanzas/page.tsx`
+   - Implementar función Supabase RPC para obtener datos de finanzas consolidados
+   - Establecer protección de roles apropiada
+
+### Acciones de Base de Datos Requeridas
+
+Para soportar el Financial Hub se necesitarán las siguientes funciones en la base de datos:
+
+```sql
+-- Función para obtener resumen de datos financieros (para KPIs)
+CREATE OR REPLACE FUNCTION get_financial_summary()
+RETURNS json AS $$
+DECLARE
+    result json;
+BEGIN
+    SELECT json_build_object(
+        'total_outstanding', COALESCE((SELECT SUM(current_balance) FROM client_balances WHERE construction_site IS NULL), 0),
+        'clients_with_balance', (SELECT COUNT(DISTINCT client_id) FROM client_balances WHERE current_balance > 0 AND construction_site IS NULL),
+        'payments_this_month', (SELECT COALESCE(SUM(amount), 0) FROM client_payments WHERE payment_date >= date_trunc('month', current_date)),
+        'pending_credit_approvals', (SELECT COUNT(*) FROM orders WHERE credit_status = 'pending')
+    ) INTO result;
+    
+    RETURN result;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Función para obtener balances de cliente con fecha de último pago
+CREATE OR REPLACE FUNCTION get_client_balances_with_last_payment()
+RETURNS TABLE (
+    client_id uuid,
+    business_name text,
+    current_balance numeric,
+    last_payment_date timestamp with time zone,
+    credit_status text
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        c.id as client_id,
+        c.business_name,
+        COALESCE(cb.current_balance, 0) as current_balance,
+        (
+            SELECT MAX(payment_date)
+            FROM client_payments cp
+            WHERE cp.client_id = c.id
+        ) as last_payment_date,
+        c.credit_status
+    FROM clients c
+    LEFT JOIN client_balances cb ON c.id = cb.client_id AND cb.construction_site IS NULL
+    ORDER BY COALESCE(cb.current_balance, 0) DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+```
+
+Estas mejoras permitirán un flujo de trabajo optimizado para la gestión financiera, proporcionando a los usuarios autorizados una visión consolidada de los balances de clientes y facilitando el registro eficiente de pagos en el contexto adecuado.
+

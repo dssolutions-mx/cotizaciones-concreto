@@ -16,9 +16,7 @@ export interface CachedUserProfile {
  */
 export const CACHE_KEYS = {
   USER_PROFILE: 'user_profile',
-  USER_PERMISSIONS: 'user_permissions',
-  SESSION_EXPIRY: 'session_expiry',
-  LAST_REFRESH: 'last_session_refresh'
+  // Removed USER_PERMISSIONS, SESSION_EXPIRY, LAST_REFRESH keys
 };
 
 /**
@@ -26,14 +24,19 @@ export const CACHE_KEYS = {
  */
 export const CACHE_EXPIRY = {
   USER_PROFILE: 60 * 60 * 1000, // 1 hour
-  PERMISSIONS: 30 * 60 * 1000, // 30 minutes
-  SESSION: 15 * 60 * 1000 // 15 minutes
+  // Removed PERMISSIONS and SESSION expiry times
 };
 
 /**
  * Saves data to localStorage with an expiry time
  */
 export function setWithExpiry<T>(key: string, value: T, expiryTime: number) {
+  // Check if localStorage is available (for SSR or environments without it)
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+    console.warn('localStorage is not available, caching disabled.');
+    return false;
+  }
+  
   const item = {
     value,
     expiry: Date.now() + expiryTime,
@@ -45,6 +48,11 @@ export function setWithExpiry<T>(key: string, value: T, expiryTime: number) {
     return true;
   } catch (error) {
     console.error(`Error caching ${key}:`, error);
+    // Handle potential quota exceeded errors
+    if (error instanceof DOMException && (error.name === 'QuotaExceededError' || error.code === 22)) {
+      console.error('LocalStorage quota exceeded. Consider clearing some data.');
+      // Optional: implement cache eviction strategy here
+    }
     return false;
   }
 }
@@ -53,6 +61,11 @@ export function setWithExpiry<T>(key: string, value: T, expiryTime: number) {
  * Gets data from localStorage and checks if it's expired
  */
 export function getWithExpiry<T>(key: string, defaultValue: T | null = null): T | null {
+  // Check if localStorage is available
+  if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
+    return defaultValue;
+  }
+  
   try {
     const itemStr = localStorage.getItem(key);
     
@@ -60,17 +73,32 @@ export function getWithExpiry<T>(key: string, defaultValue: T | null = null): T 
     if (!itemStr) return defaultValue;
     
     const item = JSON.parse(itemStr);
-    const isExpired = Date.now() > item.expiry;
     
-    // Return default value if expired
-    if (isExpired) {
+    // Basic check for item structure
+    if (!item || typeof item !== 'object' || !item.hasOwnProperty('value') || !item.hasOwnProperty('expiry')) {
+      console.warn(`Invalid cache item format for key: ${key}. Removing.`);
       localStorage.removeItem(key);
       return defaultValue;
     }
     
-    return item.value;
+    const isExpired = Date.now() > item.expiry;
+    
+    // Return default value if expired
+    if (isExpired) {
+      console.log(`Cache expired for key: ${key}. Removing.`);
+      localStorage.removeItem(key);
+      return defaultValue;
+    }
+    
+    return item.value as T; // Added type assertion
   } catch (error) {
     console.error(`Error retrieving ${key} from cache:`, error);
+    // Attempt to remove potentially corrupted item
+    try {
+      localStorage.removeItem(key);
+    } catch (removeError) {
+      console.error(`Failed to remove potentially corrupted cache item for key: ${key}`, removeError);
+    }
     return defaultValue;
   }
 }
@@ -80,7 +108,10 @@ export function getWithExpiry<T>(key: string, defaultValue: T | null = null): T 
  */
 export function cacheUserProfile(profile: CachedUserProfile | null) {
   if (!profile) {
-    localStorage.removeItem(CACHE_KEYS.USER_PROFILE);
+    // Check localStorage availability before removing
+    if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+      localStorage.removeItem(CACHE_KEYS.USER_PROFILE);
+    }
     return false;
   }
   
@@ -94,67 +125,24 @@ export function getCachedUserProfile(): CachedUserProfile | null {
   return getWithExpiry<CachedUserProfile>(CACHE_KEYS.USER_PROFILE);
 }
 
-/**
- * Caches the session expiry time
- */
-export function cacheSessionExpiry(expiresAt: Date | null) {
-  if (!expiresAt) {
-    localStorage.removeItem(CACHE_KEYS.SESSION_EXPIRY);
-    return false;
-  }
-  
-  return setWithExpiry(
-    CACHE_KEYS.SESSION_EXPIRY, 
-    expiresAt.getTime(),
-    // Cache until expiry
-    expiresAt.getTime() - Date.now()
-  );
-}
+// Removed cacheSessionExpiry function
+// Removed getCachedSessionExpiry function
+// Removed cacheLastRefresh function
+// Removed getCachedLastRefresh function
 
 /**
- * Gets the cached session expiry time
- */
-export function getCachedSessionExpiry(): Date | null {
-  const timestamp = getWithExpiry<number>(CACHE_KEYS.SESSION_EXPIRY);
-  return timestamp ? new Date(timestamp) : null;
-}
-
-/**
- * Caches the last session refresh time
- */
-export function cacheLastRefresh(refreshTime: Date | null) {
-  if (!refreshTime) {
-    localStorage.removeItem(CACHE_KEYS.LAST_REFRESH);
-    return false;
-  }
-  
-  return setWithExpiry(
-    CACHE_KEYS.LAST_REFRESH,
-    refreshTime.getTime(),
-    CACHE_EXPIRY.SESSION
-  );
-}
-
-/**
- * Gets the cached last refresh time
- */
-export function getCachedLastRefresh(): Date | null {
-  const timestamp = getWithExpiry<number>(CACHE_KEYS.LAST_REFRESH);
-  return timestamp ? new Date(timestamp) : null;
-}
-
-/**
- * Clears all user-related cache data
+ * Clears all user-related cache data (now just the profile)
  */
 export function clearUserCache() {
-  localStorage.removeItem(CACHE_KEYS.USER_PROFILE);
-  localStorage.removeItem(CACHE_KEYS.USER_PERMISSIONS);
-  localStorage.removeItem(CACHE_KEYS.SESSION_EXPIRY);
-  localStorage.removeItem(CACHE_KEYS.LAST_REFRESH);
+  // Check localStorage availability before removing
+  if (typeof window !== 'undefined' && typeof localStorage !== 'undefined') {
+    localStorage.removeItem(CACHE_KEYS.USER_PROFILE);
+    // Removed USER_PERMISSIONS, SESSION_EXPIRY, LAST_REFRESH removals
+  }
 }
 
 /**
- * Checks if user cache is still valid
+ * Checks if user cache is still valid (checks if profile exists and is not expired)
  */
 export function isUserCacheValid(): boolean {
   const profile = getCachedUserProfile();

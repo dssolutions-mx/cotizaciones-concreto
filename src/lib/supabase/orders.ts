@@ -1,5 +1,7 @@
-import { supabase } from './client';
+import { supabase as browserClient } from './client';
 import { handleError } from '@/utils/errorHandler';
+import { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/supabase';
 import {
   OrderWithClient,
   // Removed unused OrderItem, Order, OrderWithDetails
@@ -17,6 +19,7 @@ export const orderService = {
    * @param requiresInvoice - Whether invoice is required
    * @param specialRequirements - Any special requirements
    * @param emptyTruckDetails - Optional empty truck charge details
+   * @param client - Optional Supabase client instance (server or browser)
    */
   async createOrder(
     quoteId: string, 
@@ -28,8 +31,10 @@ export const orderService = {
       hasEmptyTruckCharge: boolean,
       emptyTruckVolume: number,
       emptyTruckPrice: number
-    }
+    },
+    client?: SupabaseClient<Database>
   ) {
+    const supabase = client || browserClient;
     try {
       let response;
       
@@ -75,6 +80,7 @@ export const orderService = {
   /**
    * Gets all orders with basic filtering
    * @param filters - Optional filters for status, etc.
+   * @param client - Optional Supabase client instance (server or browser)
    */
   async getOrders(filters?: { 
     creditStatus?: string, 
@@ -83,7 +89,8 @@ export const orderService = {
     startDate?: string, 
     endDate?: string, 
     limit?: number 
-  }) {
+  }, client?: SupabaseClient<Database>) {
+    const supabase = client || browserClient;
     try {
       let query = supabase
         .from('orders')
@@ -104,11 +111,6 @@ export const orderService = {
             business_name,
             contact_name,
             phone
-          ),
-          created_by (
-            first_name,
-            last_name,
-            email
           )
         `);
       
@@ -155,8 +157,10 @@ export const orderService = {
   /**
    * Gets an order by ID with all details including items
    * @param orderId - ID of the order
+   * @param client - Optional Supabase client instance (server or browser)
    */
-  async getOrderById(orderId: string) {
+  async getOrderById(orderId: string, client?: SupabaseClient<Database>) {
+    const supabase = client || browserClient;
     try {
       // Get the order with all details
       const { data: order, error: orderError } = await supabase
@@ -226,8 +230,10 @@ export const orderService = {
   /**
    * Approves credit for an order
    * @param orderId - ID of the order
+   * @param client - Optional Supabase client instance (server or browser)
    */
-  async approveCreditForOrder(orderId: string) {
+  async approveCreditForOrder(orderId: string, client?: SupabaseClient<Database>) {
+    const supabase = client || browserClient;
     try {
       const { data, error } = await supabase
         .rpc('approve_order_credit', {
@@ -247,8 +253,10 @@ export const orderService = {
    * Rejects credit for an order
    * @param orderId - ID of the order
    * @param rejectionReason - Reason for rejection
+   * @param client - Optional Supabase client instance (server or browser)
    */
-  async rejectCreditForOrder(orderId: string, rejectionReason: string) {
+  async rejectCreditForOrder(orderId: string, rejectionReason: string, client?: SupabaseClient<Database>) {
+    const supabase = client || browserClient;
     try {
       const { data, error } = await supabase
         .rpc('reject_order_credit', {
@@ -266,9 +274,11 @@ export const orderService = {
   },
 
   /**
-   * Gets orders that need credit validation
+   * Gets all orders pending credit validation
+   * @param client - Optional Supabase client instance (server or browser)
    */
-  async getOrdersPendingCreditValidation() {
+  async getOrdersPendingCreditValidation(client?: SupabaseClient<Database>) {
+    const supabase = client || browserClient;
     try {
       const { data, error } = await supabase
         .from('orders')
@@ -278,8 +288,8 @@ export const orderService = {
           requires_invoice,
           delivery_date,
           delivery_time,
-          construction_site,
           total_amount,
+          credit_status,
           created_at,
           clients (
             id,
@@ -287,15 +297,9 @@ export const orderService = {
             contact_name,
             phone,
             credit_status
-          ),
-          created_by (
-            first_name,
-            last_name,
-            email
           )
         `)
-        .eq('credit_status', 'pending')
-        .eq('order_status', 'created')
+        .eq('credit_status', 'PENDING')
         .order('created_at', { ascending: false });
       
       if (error) throw error;
@@ -308,52 +312,37 @@ export const orderService = {
   },
 
   /**
-   * Gets scheduled orders for delivery
-   * @param date - Optional date to filter by
+   * Gets all scheduled orders for a specific date
+   * @param date - Optional date to filter orders (defaults to today)
+   * @param client - Optional Supabase client instance (server or browser)
    */
-  async getScheduledOrders(date?: string) {
+  async getScheduledOrders(date?: string, client?: SupabaseClient<Database>) {
+    const supabase = client || browserClient;
     try {
-      let query = supabase
+      const targetDate = date || new Date().toISOString().split('T')[0];
+      
+      const { data, error } = await supabase
         .from('orders')
         .select(`
           id,
           order_number,
-          requires_invoice,
           delivery_date,
           delivery_time,
           construction_site,
           special_requirements,
           total_amount,
+          credit_status,
+          order_status,
           clients (
             id,
             business_name,
             contact_name,
             phone
-          ),
-          order_items (
-            id,
-            product_type,
-            volume,
-            unit_price,
-            has_pump_service,
-            pump_price,
-            has_empty_truck_charge,
-            empty_truck_volume,
-            empty_truck_price
           )
         `)
-        .eq('credit_status', 'approved')
-        .eq('order_status', 'validated');
-      
-      // If date is provided, filter by it
-      if (date) {
-        query = query.eq('delivery_date', date);
-      }
-      
-      // Sort by delivery time
-      query = query.order('delivery_time');
-      
-      const { data, error } = await query;
+        .eq('delivery_date', targetDate)
+        .not('order_status', 'eq', 'CANCELLED')
+        .order('delivery_time', { ascending: true });
       
       if (error) throw error;
       return { data: data || [], error: null };
@@ -397,7 +386,7 @@ interface OrderWithDetailsBasic extends OrderBasic {
 export async function getOrdersForDosificador() {
   // Fetch orders relevant for DOSIFICADOR role (read-only access)
   try {
-    const { data, error } = await supabase
+    const { data, error } = await browserClient
       .from('orders')
       .select(`
         id, 
@@ -422,7 +411,7 @@ export async function getOrdersForDosificador() {
 export async function getOrderDetailsForDosificador(orderId: string) {
   // Fetch specific order details for DOSIFICADOR role
   try {
-    const { data, error } = await supabase
+    const { data, error } = await browserClient
       .from('orders')
       .select(`
         id, 
