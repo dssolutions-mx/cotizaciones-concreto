@@ -10,10 +10,18 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { orderService } from '@/lib/supabase/orders';
 import type { OrderWithClient } from '@/types/orders';
 import { CreditOrdersSection } from '@/components/finanzas/CreditOrdersSection';
+import { PendingCreditOrdersTable } from '@/components/finanzas/PendingCreditOrdersTable';
 // Import the server-side client
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Database } from '@/types/supabase';
+// Import skeleton components
+import { FinancialDashboardSkeleton } from '@/components/finanzas/FinancialDashboardSkeleton';
+import { ClientBalanceTableSkeleton, CreditApprovalSkeleton } from '@/components/finanzas/FinancialMetricsSkeleton';
+import { Skeleton } from '@/components/ui/skeleton';
+
+// Enable ISR with 5-minute revalidation interval
+export const revalidate = 300; // 5 minutes in seconds
 
 // Define the type for the client balance data
 type ClientBalanceData = {
@@ -28,9 +36,106 @@ type ClientBalanceData = {
 // Financial Hub Dashboard - Redesigned with Tabs
 export default async function FinancialHubPage() {
   // Create a server-side Supabase client
-  const supabase = createServerSupabaseClient();
-  console.log('Created server-side Supabase client for FinancialHubPage');
+  const supabase = await createServerSupabaseClient();
   
+  // Create a service client with full privileges to bypass caching
+  const serviceClient = createServiceClient();
+  
+  console.log('Created server-side Supabase clients for FinancialHubPage');
+  
+  return (
+    <Suspense fallback={<FinancialDashboardSkeleton />}>
+      <div className="container mx-auto p-6">
+        <h1 className="text-3xl font-bold tracking-tight mb-8">Centro Financiero</h1>
+        
+        <RoleProtectedSection
+          allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
+          action="ver información financiera"
+        >
+          <div className="space-y-8">
+            {/* Financial metrics summary cards with separate suspense boundary */}
+            <Suspense fallback={<FinancialMetricsLoader />}>
+              <FinancialMetrics />
+            </Suspense>
+            
+            {/* Tabbed interface for balances and credit approval */}
+            <Tabs defaultValue="balances" className="space-y-4">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="balances">Balances de Clientes</TabsTrigger>
+                <TabsTrigger value="credit">Aprobación de Crédito</TabsTrigger>
+              </TabsList>
+              
+              {/* Client Balances Tab */}
+              <TabsContent value="balances" className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Balances de Clientes</CardTitle>
+                    <CardDescription>
+                      Visualiza los saldos pendientes de todos los clientes
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Suspense fallback={<ClientBalanceTableSkeleton />}>
+                      <ClientBalancesSection supabaseClient={supabase} />
+                    </Suspense>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              {/* Credit Approval Tab */}
+              <TabsContent value="credit" className="space-y-4">
+                <RoleProtectedSection
+                  allowedRoles={['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER']}
+                  action="ver y gestionar aprobaciones de crédito"
+                >
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Órdenes Pendientes de Aprobación de Crédito</CardTitle>
+                      <CardDescription>
+                        Gestiona las órdenes que requieren aprobación de crédito antes de ser procesadas
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <Suspense fallback={<CreditApprovalSkeleton />}>
+                        <CreditApprovalSection supabaseClient={supabase} />
+                      </Suspense>
+                    </CardContent>
+                  </Card>
+                </RoleProtectedSection>
+              </TabsContent>
+            </Tabs>
+          </div>
+        </RoleProtectedSection>
+      </div>
+    </Suspense>
+  );
+}
+
+// Financial Metrics Section - separated for parallel loading
+async function FinancialMetricsLoader() {
+  return (
+    <section>
+      <h2 className="text-2xl font-semibold mb-4">Resumen Financiero</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Card key={i} className="h-full border-s-4 border-s-gray-300 @container">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-5 w-5 rounded-full" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-8 w-24 mb-1" />
+              <Skeleton className="h-4 w-40" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Financial Metrics Section - separated for parallel loading
+async function FinancialMetrics() {
   // Default values
   let metricsData = {
     totalOutstandingBalance: 0,
@@ -43,6 +148,9 @@ export default async function FinancialHubPage() {
   };
   
   try {
+    // Create a service client with full privileges
+    const serviceClient = createServiceClient();
+    
     // Calculate date range for "last 30 days" metric
     const today = new Date();
     const thirtyDaysAgo = subDays(today, 30);
@@ -51,160 +159,90 @@ export default async function FinancialHubPage() {
     const endDate = format(today, 'yyyy-MM-dd');
     const startDate = format(thirtyDaysAgo, 'yyyy-MM-dd');
     
-    // Fetch all metrics in parallel, passing the server-side client
-    const [
-      totalOutstandingBalance,
-      paymentsLastThirtyDays,
-      pendingCreditOrdersCount,
-      overdueClientsCount
-    ] = await Promise.all([
-      financialService.getTotalOutstandingBalance(supabase),
-      financialService.getTotalPaymentsReceived(startDate, endDate, supabase),
-      financialService.getPendingCreditOrdersCount(supabase),
-      financialService.getOverdueClientsCount(supabase)
-    ]);
-
-    // Update with actual data
-    metricsData = {
-      totalOutstandingBalance,
-      paymentsLastThirtyDays,
-      pendingCreditOrdersCount,
-      overdueClientsCount
-    };
+    // Use the optimized method that fetches all dashboard data in parallel
+    metricsData = await financialService.getFinancialDashboardData(
+      startDate, 
+      endDate, 
+      serviceClient,
+      true // Enable cache on this component
+    );
+    
+    console.log("Financial metrics loaded");
   } catch (error) {
     console.error("Error fetching metrics data:", error);
   }
 
   return (
-    <div className="container mx-auto p-6">
-      <h1 className="text-3xl font-bold tracking-tight mb-8">Centro Financiero</h1>
-      
-      <RoleProtectedSection
-        allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
-        action="ver información financiera"
-      >
-        <div className="space-y-8">
-          {/* Financial metrics summary cards */}
-          <section>
-            <h2 className="text-2xl font-semibold mb-4">Resumen Financiero</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Outstanding balance */}
-              <Card className="h-full border-l-4 border-l-red-500">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Saldo Total Pendiente</CardTitle>
-                  <FaDollarSign className="h-5 w-5 text-red-500" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold mb-1">
-                    <span className={metricsData.totalOutstandingBalance > 0 ? "text-red-600" : "text-green-600"}>
-                      {formatCurrency(metricsData.totalOutstandingBalance)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Total de saldos pendientes por cobrar
-                  </p>
-                </CardContent>
-              </Card>
-              
-              {/* Payments received */}
-              <Card className="h-full border-l-4 border-l-green-500">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Pagos Recibidos (30 días)</CardTitle>
-                  <FaCreditCard className="h-5 w-5 text-green-500" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold mb-1 text-green-600">
-                    {formatCurrency(metricsData.paymentsLastThirtyDays.totalAmount)}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {metricsData.paymentsLastThirtyDays.count} pagos en los últimos 30 días
-                  </p>
-                </CardContent>
-              </Card>
-              
-              {/* Clients with balances */}
-              <Card className="h-full border-l-4 border-l-blue-500">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Clientes con Saldo Pendiente</CardTitle>
-                  <FaUsers className="h-5 w-5 text-blue-500" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold mb-1 text-blue-600">
-                    {metricsData.overdueClientsCount}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Clientes con balance mayor a cero
-                  </p>
-                </CardContent>
-              </Card>
-              
-              {/* Orders pending credit approval */}
-              <Card className="h-full border-l-4 border-l-amber-500">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Órdenes Pendientes de Crédito</CardTitle>
-                  <FaClipboardList className="h-5 w-5 text-amber-500" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold mb-1 text-amber-600">
-                    {metricsData.pendingCreditOrdersCount}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Órdenes que requieren aprobación de crédito
-                  </p>
-                </CardContent>
-              </Card>
+    <section>
+      <h2 className="text-2xl font-semibold mb-4">Resumen Financiero</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Outstanding balance */}
+        <Card className="h-full border-s-4 border-s-red-500 @container">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+            <CardTitle className="text-sm font-medium">Saldo Total Pendiente</CardTitle>
+            <FaDollarSign className="h-5 w-5 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl @md:text-2xl font-bold mb-1 break-words">
+              <span className={metricsData.totalOutstandingBalance > 0 ? "text-red-600" : "text-green-600"}>
+                {formatCurrency(metricsData.totalOutstandingBalance)}
+              </span>
             </div>
-          </section>
-          
-          {/* Tabbed interface for balances and credit approval */}
-          <Tabs defaultValue="balances" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="balances">Balances de Clientes</TabsTrigger>
-              <TabsTrigger value="credit">Aprobación de Crédito</TabsTrigger>
-            </TabsList>
-            
-            {/* Client Balances Tab */}
-            <TabsContent value="balances" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Balances de Clientes</CardTitle>
-                  <CardDescription>
-                    Visualiza los saldos pendientes de todos los clientes
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Suspense fallback={<div>Cargando balances de clientes...</div>}>
-                    <ClientBalancesSection supabaseClient={supabase} />
-                  </Suspense>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            
-            {/* Credit Approval Tab */}
-            <TabsContent value="credit" className="space-y-4">
-              <RoleProtectedSection
-                allowedRoles={['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER']}
-                action="ver y gestionar aprobaciones de crédito"
-              >
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Órdenes Pendientes de Aprobación de Crédito</CardTitle>
-                    <CardDescription>
-                      Gestiona las órdenes que requieren aprobación de crédito antes de ser procesadas
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Suspense fallback={<div>Cargando órdenes pendientes de crédito...</div>}>
-                      <CreditApprovalSection supabaseClient={supabase} />
-                    </Suspense>
-                  </CardContent>
-                </Card>
-              </RoleProtectedSection>
-            </TabsContent>
-          </Tabs>
-        </div>
-      </RoleProtectedSection>
-    </div>
+            <p className="text-xs text-muted-foreground">
+              Total de saldos pendientes por cobrar
+            </p>
+          </CardContent>
+        </Card>
+        
+        {/* Payments received */}
+        <Card className="h-full border-s-4 border-s-green-500 @container">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+            <CardTitle className="text-sm font-medium">Pagos Recibidos (30 días)</CardTitle>
+            <FaCreditCard className="h-5 w-5 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl @md:text-2xl font-bold mb-1 text-green-600 break-words">
+              {formatCurrency(metricsData.paymentsLastThirtyDays.totalAmount)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {metricsData.paymentsLastThirtyDays.count} pagos en los últimos 30 días (todas las obras)
+            </p>
+          </CardContent>
+        </Card>
+        
+        {/* Clients with balances */}
+        <Card className="h-full border-s-4 border-s-blue-500 @container">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+            <CardTitle className="text-sm font-medium">Clientes con Saldo Pendiente</CardTitle>
+            <FaUsers className="h-5 w-5 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl @md:text-2xl font-bold mb-1 text-blue-600">
+              {metricsData.overdueClientsCount}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Clientes con balance mayor a cero
+            </p>
+          </CardContent>
+        </Card>
+        
+        {/* Orders pending credit approval */}
+        <Card className="h-full border-s-4 border-s-amber-500 @container">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+            <CardTitle className="text-sm font-medium">Órdenes Pendientes de Crédito</CardTitle>
+            <FaClipboardList className="h-5 w-5 text-amber-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl @md:text-2xl font-bold mb-1 text-amber-600">
+              {metricsData.pendingCreditOrdersCount}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Órdenes que requieren aprobación de crédito
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    </section>
   );
 }
 
@@ -214,7 +252,7 @@ async function ClientBalancesSection({ supabaseClient }: { supabaseClient: Supab
   let fetchError: Error | null = null;
   
   try {
-    // Fetch client balances using the passed client
+    // Fetch client balances using the passed client - ensure fresh data
     clientBalances = await financialService.getClientBalancesForTable(supabaseClient);
   } catch (error) {
     console.error("Error loading client balances:", error);
@@ -252,8 +290,8 @@ async function CreditApprovalSection({ supabaseClient }: { supabaseClient: Supab
   let fetchError: Error | null = null;
   
   try {
-    // Get orders with PENDING credit status, using the passed client
-    const { data, error } = await orderService.getOrders({ creditStatus: 'PENDING' }, supabaseClient);
+    // Get orders with pending credit status, using the passed client - ensure fresh data
+    const { data, error } = await orderService.getOrders({ creditStatus: 'pending' }, supabaseClient);
     if (error) {
       throw new Error(error);
     }
@@ -281,5 +319,23 @@ async function CreditApprovalSection({ supabaseClient }: { supabaseClient: Supab
     );
   }
   
-  return <CreditOrdersSection orders={pendingOrders} />;
+  // Using Tabs for different views of the same data
+  return (
+    <div className="space-y-6">
+      <Tabs defaultValue="card-view" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="card-view">Vista de Tarjetas</TabsTrigger>
+          <TabsTrigger value="table-view">Vista de Tabla</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="card-view" className="mt-4">
+          <CreditOrdersSection orders={pendingOrders} />
+        </TabsContent>
+        
+        <TabsContent value="table-view" className="mt-4">
+          <PendingCreditOrdersTable orders={pendingOrders} />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
 } 

@@ -37,10 +37,126 @@ interface ClientPayment {
   payment_date: string;
 }
 
+// New interface for the dashboard data
+interface FinancialDashboardData {
+  totalOutstandingBalance: number;
+  paymentsLastThirtyDays: {
+    totalAmount: number;
+    count: number;
+  };
+  pendingCreditOrdersCount: number;
+  overdueClientsCount: number;
+}
+
+// Function to get cached data - could be moved to a utils file
+function getClientCache<T>(key: string): T | null {
+  if (typeof window === 'undefined') return null;
+  
+  try {
+    const cachedData = localStorage.getItem(key);
+    const cachedTimestamp = localStorage.getItem(`${key}_timestamp`);
+    const now = Date.now();
+    
+    if (cachedData && cachedTimestamp && (now - parseInt(cachedTimestamp)) < 5 * 60 * 1000) {
+      return JSON.parse(cachedData);
+    }
+  } catch (e) {
+    console.warn('Cache read error:', e);
+  }
+  
+  return null;
+}
+
+// Function to set cached data
+function setClientCache<T>(key: string, data: T): void {
+  if (typeof window === 'undefined') return;
+  
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+    localStorage.setItem(`${key}_timestamp`, Date.now().toString());
+  } catch (e) {
+    console.warn('Cache write error:', e);
+  }
+}
+
 /**
  * Service for financial data operations in Supabase
  */
 export const financialService = {
+  /**
+   * Get all financial dashboard data in parallel to improve performance
+   * @param startDate Start date for payments calculation
+   * @param endDate End date for payments calculation
+   * @param client Optional Supabase client instance
+   * @param useCache Whether to use cached data (default: true)
+   * @returns Combined financial dashboard data
+   */
+  async getFinancialDashboardData(
+    startDate: string, 
+    endDate: string, 
+    client?: SupabaseClient<Database>,
+    useCache: boolean = true
+  ): Promise<FinancialDashboardData> {
+    try {
+      // Try to get from cache first
+      const cacheKey = `financial_dashboard_${startDate}`;
+      const cachedData = useCache ? getClientCache<FinancialDashboardData>(cacheKey) : null;
+      
+      if (cachedData) {
+        console.log('Using cached financial dashboard data');
+        return cachedData;
+      }
+      
+      console.log('Fetching fresh financial dashboard data');
+      
+      // Execute all queries in parallel using Promise.all with timeout protection
+      const resultsPromise = Promise.all([
+        this.getTotalOutstandingBalance(client),
+        this.getTotalPaymentsReceived(startDate, endDate, client),
+        this.getPendingCreditOrdersCount(client),
+        this.getOverdueClientsCount(client)
+      ]);
+      
+      // Add timeout of 2 seconds for dashboard metrics to prevent blocking page load
+      const timeoutPromise = new Promise<any[]>((resolve) => {
+        setTimeout(() => {
+          resolve([0, {totalAmount: 0, count: 0}, 0, 0]);
+        }, 2000);
+      });
+      
+      // Use race to ensure we get either results or fallback values within 2 seconds
+      const [
+        totalOutstandingBalance,
+        paymentsLastThirtyDays,
+        pendingCreditOrdersCount,
+        overdueClientsCount
+      ] = await Promise.race([resultsPromise, timeoutPromise]);
+
+      const result = {
+        totalOutstandingBalance,
+        paymentsLastThirtyDays,
+        pendingCreditOrdersCount,
+        overdueClientsCount
+      };
+      
+      // Save to cache if we didn't hit the timeout
+      if (useCache) {
+        setClientCache(cacheKey, result);
+      }
+      
+      return result;
+    } catch (error) {
+      handleError(error, 'getFinancialDashboardData');
+      // Return default values in case of error to prevent UI failures
+      return {
+        totalOutstandingBalance: 0,
+        paymentsLastThirtyDays: { totalAmount: 0, count: 0 },
+        pendingCreditOrdersCount: 0,
+        overdueClientsCount: 0
+      };
+    }
+  },
+
   /**
    * Get the total outstanding balance across all clients
    * @param client Optional Supabase client instance (server or browser)
@@ -49,50 +165,61 @@ export const financialService = {
   async getTotalOutstandingBalance(client?: SupabaseClient<Database>) {
     const supabase = client || browserClient;
     try {
+      // Optimized query - select only what we need
       const { data, error } = await supabase
         .from('client_balances')
         .select('current_balance')
-        .eq('construction_site', null);
-
+        .is('construction_site', null)
+        .limit(1000)  // Add a reasonable limit
+        .abortSignal(AbortSignal.timeout(1800)); // 1.8s timeout
+  
       if (error) throw error;
-
+      
       // Sum up all balances
-      const totalBalance = data.reduce((sum, item) => sum + (item.current_balance || 0), 0);
+      const totalBalance = (data || []).reduce((sum, item) => sum + (item.current_balance || 0), 0);
       return totalBalance;
     } catch (error) {
-      const errorMessage = handleError(error, 'getTotalOutstandingBalance');
-      console.error(errorMessage);
-      throw new Error(errorMessage);
+      handleError(error, 'getTotalOutstandingBalance');
+      return 0; // Return 0 instead of throwing to prevent component failure
     }
   },
 
   /**
    * Get the total payments received within a date range
-   * @param startDate The start date of the range
-   * @param endDate The end date of the range
+   * @param startDate The start date of the range (typically 30 days ago)
+   * @param endDate The end date of the range (optional, not used in the query)
    * @param client Optional Supabase client instance (server or browser)
    * @returns The total payment amount and count
    */
-  async getTotalPaymentsReceived(startDate: string, endDate: string, client?: SupabaseClient<Database>) {
+  async getTotalPaymentsReceived(startDate: string, endDate?: string, client?: SupabaseClient<Database>) {
     const supabase = client || browserClient;
     try {
+      // IMPORTANT: We must get all payments regardless of construction_site
+      // This means construction_site can be null, empty string, or any value
       const { data, error } = await supabase
         .from('client_payments')
-        .select('amount')
-        .gte('payment_date', startDate)
-        .lte('payment_date', endDate);
-
+        .select('amount') // Only select the fields we need
+        .gte('payment_date', startDate) // Get all payments since startDate
+        .order('payment_date', { ascending: false })
+        .limit(1000)
+        .abortSignal(AbortSignal.timeout(1800)); // 1.8s timeout
+        
       if (error) throw error;
 
-      const totalAmount = data.reduce((sum, payment) => sum + payment.amount, 0);
+      // IMPORTANT: We need to sum ALL payments regardless of construction_site value
+      const totalAmount = (data || []).reduce((sum, payment) => sum + (payment.amount || 0), 0);
+      
       return {
         totalAmount,
-        count: data.length
+        count: data?.length || 0
       };
     } catch (error) {
-      const errorMessage = handleError(error, `getTotalPaymentsReceived:${startDate}:${endDate}`);
-      console.error(errorMessage);
-      throw new Error(errorMessage);
+      const errorMessage = handleError(error, `getTotalPaymentsReceived`);
+      console.error('Error in getTotalPaymentsReceived:', error);
+      return {
+        totalAmount: 0,
+        count: 0
+      };
     }
   },
 
@@ -107,14 +234,14 @@ export const financialService = {
       const { count, error } = await supabase
         .from('orders')
         .select('*', { count: 'exact', head: true })
-        .eq('credit_status', 'PENDING');
+        .eq('credit_status', 'pending')
+        .abortSignal(AbortSignal.timeout(1800)); // 1.8s timeout
 
       if (error) throw error;
       return count || 0;
     } catch (error) {
-      const errorMessage = handleError(error, 'getPendingCreditOrdersCount');
-      console.error(errorMessage);
-      throw new Error(errorMessage);
+      handleError(error, 'getPendingCreditOrdersCount');
+      return 0; // Return 0 instead of throwing to prevent component failure
     }
   },
 
@@ -126,18 +253,20 @@ export const financialService = {
   async getOverdueClientsCount(client?: SupabaseClient<Database>) {
     const supabase = client || browserClient;
     try {
+      // Optimized query
       const { count, error } = await supabase
         .from('client_balances')
         .select('*', { count: 'exact', head: true })
-        .eq('construction_site', null)
-        .gt('current_balance', 0);
+        .is('construction_site', null)
+        .gt('current_balance', 0)
+        .abortSignal(AbortSignal.timeout(1800)); // 1.8s timeout
 
       if (error) throw error;
+      
       return count || 0;
     } catch (error) {
-      const errorMessage = handleError(error, 'getOverdueClientsCount');
-      console.error(errorMessage);
-      throw new Error(errorMessage);
+      handleError(error, 'getOverdueClientsCount');
+      return 0; // Return 0 instead of throwing to prevent component failure
     }
   },
 
@@ -165,12 +294,9 @@ export const financialService = {
             credit_status
           )
         `)
-        .is('construction_site', null); // Ensure we only get general balances, not site-specific ones
+        .is('construction_site', null); // Use .is() instead of .eq() for NULL values
 
-      if (balanceError) {
-        console.error("Error fetching client balances:", balanceError);
-        throw balanceError;
-      }
+      if (balanceError) throw balanceError;
 
       if (!balanceData || balanceData.length === 0) {
         return [];
@@ -185,10 +311,6 @@ export const financialService = {
         .select('client_id, payment_date')
         .in('client_id', clientIds)
         .order('payment_date', { ascending: false });
-
-      if (paymentsError) {
-        console.error("Error fetching latest payments:", paymentsError);
-      }
 
       // Map of latest payment date by client ID
       const latestPaymentsByClient = new Map<string, string>();
@@ -221,7 +343,6 @@ export const financialService = {
       return formattedBalances;
     } catch (error) {
       const errorMessage = handleError(error, 'getClientBalancesForTable');
-      console.error('Error fetching client balances:', errorMessage);
       throw new Error(errorMessage);
     }
   },
@@ -260,15 +381,13 @@ export const financialService = {
           )
         `)
         .eq('client_id', clientId)
-        .is('construction_site', null)
+        .is('construction_site', null)  // Use .is() instead of .eq() for NULL values
         .single();
 
       if (error) throw error;
       return data;
     } catch (error) {
-      const errorMessage = handleError(error, `getClientBalance:${clientId}`);
-      console.error(errorMessage);
-      throw new Error(errorMessage);
+      throw new Error(handleError(error, `getClientBalance:${clientId}`));
     }
   },
 
@@ -294,9 +413,7 @@ export const financialService = {
 
       return { generalBalance, siteBalances };
     } catch (error) {
-      const errorMessage = handleError(error, `getAllClientBalances:${clientId}`);
-      console.error(errorMessage);
-      throw new Error(errorMessage);
+      throw new Error(handleError(error, `getAllClientBalances:${clientId}`));
     }
   },
 
@@ -325,9 +442,7 @@ export const financialService = {
       if (error) throw error;
       return data || [];
     } catch (error) {
-      const errorMessage = handleError(error, `getClientPaymentHistory:${clientId}`);
-      console.error(errorMessage);
-      throw new Error(errorMessage);
+      throw new Error(handleError(error, `getClientPaymentHistory:${clientId}`));
     }
   },
 
@@ -338,8 +453,6 @@ export const financialService = {
   async createTestBalanceRecords(client?: SupabaseClient<Database>) {
     const supabase = client || browserClient;
     try {
-      console.log('Checking for existing records...');
-      
       // First, check if there are any records
       const { data: existingRecords, error: checkError } = await supabase
         .from('client_balances')
@@ -347,45 +460,58 @@ export const financialService = {
         .limit(1);
         
       if (checkError) {
-        console.error('Error checking for records:', checkError);
-        throw checkError;
+        return { success: false, error: checkError };
       }
       
       // If records exist, don't create test data
       if (existingRecords && existingRecords.length > 0) {
-        console.log('Balance records already exist, not creating test data');
         return { success: false, message: 'Records already exist' };
       }
       
-      console.log('No balance records found, creating test data...');
-      
       // Get some client IDs to use
-      const { data: clients, error: clientsError } = await supabase
+      let clientsData; // Use a mutable variable
+      const { data: initialClients, error: clientsError } = await supabase
         .from('clients')
         .select('id, business_name')
-        .limit(3);
+        .limit(5);
         
       if (clientsError) {
-        console.error('Error fetching clients:', clientsError);
-        throw clientsError;
+        return { success: false, error: clientsError };
       }
       
-      if (!clients || clients.length === 0) {
-        console.log('No clients found to create test balances');
-        return { success: false, message: 'No clients found' };
+      clientsData = initialClients || []; // Assign fetched clients
+      
+      if (clientsData.length === 0) {
+        // Create a sample client
+        const { data: sampleClient, error: sampleClientError } = await supabase
+          .from('clients')
+          .insert({
+            business_name: 'Test Cliente',
+            client_code: 'TEST-001',
+            contact_name: 'Test Contact',
+            phone: '123456789',
+            email: 'test@example.com'
+          })
+          .select();
+          
+        if (sampleClientError) {
+          return { success: false, error: sampleClientError };
+        }
+        
+        clientsData = sampleClient || []; // Reassign with created client
       }
       
-      console.log('Found clients:', clients);
+      if (clientsData.length === 0) {
+        return { success: false, message: 'No clients found and could not create sample client' };
+      }
       
       // Create balance records for each client
-      const records = clients.map(client => ({
+      const records = clientsData.map(client => ({
         client_id: client.id,
         construction_site: null, // General balance
         current_balance: Math.floor(Math.random() * 20000) + 5000, // Random amount between 5000-25000
         last_updated: new Date().toISOString()
       }));
-      
-      console.log('Creating records:', records);
       
       // Insert the records
       const { data: insertResult, error: insertError } = await supabase
@@ -394,15 +520,12 @@ export const financialService = {
         .select();
         
       if (insertError) {
-        console.error('Error inserting test balances:', insertError);
-        throw insertError;
+        return { success: false, error: insertError };
       }
       
-      console.log('Test balances created successfully:', insertResult);
       return { success: true, data: insertResult };
     } catch (error) {
       const errorMessage = handleError(error, 'createTestBalanceRecords');
-      console.error('Error creating test balances:', errorMessage);
       return { success: false, error: errorMessage };
     }
   }

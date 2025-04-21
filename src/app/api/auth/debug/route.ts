@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
     } = { success: false, error: null, user: null };
     
     try {
-      const supabase = createServerSupabaseClient();
+      const supabase = await createServerSupabaseClient();
       
       // Try both getUser (secure) and getSession
       const { data: { user }, error: userError } = await supabase.auth.getUser();

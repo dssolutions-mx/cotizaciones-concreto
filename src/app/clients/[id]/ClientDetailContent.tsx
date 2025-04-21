@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { clientService } from '@/lib/supabase/clients';
+import { orderService } from '@/lib/supabase/orders';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import PaymentForm from '@/components/clients/PaymentForm';
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import {
 import { subMonths } from 'date-fns';
 // Import types from the new file
 import { Client, ConstructionSite, ClientPayment, ClientBalance } from '@/types/client';
+import { OrderWithClient } from '@/types/orders';
 import { formatCurrency, formatDate } from '@/lib/utils'; // Assuming these now exist or will be created
 import { toast } from "sonner";
 
@@ -485,15 +487,337 @@ function SiteStatusToggle({ site, onStatusChange }: { site: ConstructionSite, on
   );
 }
 
+// Order Detail Modal Component
+function OrderDetailModal({ 
+  isOpen, 
+  onClose, 
+  orderId 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  orderId: string | null 
+}) {
+  const [orderDetails, setOrderDetails] = useState<any>(null);
+  const [remisiones, setRemisiones] = useState<any[]>([]);
+  const [loadingRemisiones, setLoadingRemisiones] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen && orderId) {
+      const fetchOrderDetails = async () => {
+        setLoading(true);
+        try {
+          // Obtener los datos del pedido
+          const { data, error } = await orderService.getOrderById(orderId);
+          if (error) throw new Error(error);
+          setOrderDetails(data);
+        } catch (err) {
+          const errorMessage = err instanceof Error ? err.message : 'Error al cargar detalles del pedido';
+          setError(errorMessage);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      // Función separada para las remisiones
+      const fetchRemisiones = async () => {
+        setLoadingRemisiones(true);
+        try {
+          // Importamos dinámicamente para evitar problemas de SSR
+          const supabaseModule = await import('@/lib/supabase/client');
+          const supabase = supabaseModule.supabase || supabaseModule.default;
+          
+          if (!supabase) {
+            console.error("Cliente Supabase no disponible");
+            return;
+          }
+          
+          // Verificamos primero si la tabla existe
+          const { error: tableCheckError } = await supabase
+            .from('remisiones')
+            .select('id')
+            .limit(1);
+          
+          // Si hay error con la tabla, probablemente no existe o no tenemos acceso
+          if (tableCheckError) {
+            console.log("La tabla de remisiones no está disponible:", tableCheckError.message);
+            return;
+          }
+          
+          // Si la tabla existe, procedemos con la consulta completa
+          const { data: remisionesData, error: remisionesError } = await supabase
+            .from('remisiones')
+            .select(`
+              *,
+              recipe:recipes(recipe_code),
+              materiales:remision_materiales(*)
+            `)
+            .eq('order_id', orderId)
+            .order('fecha', { ascending: false });
+          
+          if (remisionesError) {
+            console.error("Error al cargar remisiones:", remisionesError);
+          } else {
+            setRemisiones(remisionesData || []);
+          }
+        } catch (err) {
+          console.error("Error inesperado al cargar remisiones:", err);
+        } finally {
+          setLoadingRemisiones(false);
+        }
+      };
+
+      fetchOrderDetails();
+      fetchRemisiones();
+    }
+  }, [isOpen, orderId]);
+
+  // Agrupar remisiones por tipo
+  const concreteRemisiones = remisiones.filter(r => r.tipo_remision === 'CONCRETO');
+  const pumpRemisiones = remisiones.filter(r => r.tipo_remision === 'BOMBEO');
+  
+  // Calcular totales de volumen
+  const totalConcreteVolume = concreteRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
+  const totalPumpVolume = pumpRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
+
+  // Verificar si hay remisiones de concreto
+  const hasRemisiones = concreteRemisiones.length > 0;
+
+  if (!isOpen || !orderId) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={() => onClose()}>
+      <DialogContent className="sm:max-w-[800px]">
+        <DialogHeader>
+          <DialogTitle>Detalles del Pedido</DialogTitle>
+          <DialogDescription>
+            {orderDetails?.order_number || 'Cargando...'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <p>Cargando detalles del pedido...</p>
+          </div>
+        ) : error ? (
+          <div className="text-red-600 py-4">
+            {error}
+          </div>
+        ) : orderDetails ? (
+          <div className="space-y-6">
+            {/* Order General Info */}
+            <Card>
+              <CardContent className="pt-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Número de Pedido</p>
+                    <p className="text-base">{orderDetails.order_number}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Fecha de Entrega</p>
+                    <p className="text-base">{formatDate(orderDetails.delivery_date, 'PP')} {orderDetails.delivery_time}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Estado</p>
+                    <div className={`px-2 py-1 mt-1 rounded-full text-xs font-medium inline-flex items-center
+                      ${orderDetails.order_status === 'created' ? 'bg-yellow-100 text-yellow-800' : 
+                        orderDetails.order_status === 'validated' ? 'bg-green-100 text-green-800' :
+                        orderDetails.order_status === 'scheduled' ? 'bg-purple-100 text-purple-800' :
+                        orderDetails.order_status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                        'bg-gray-100 text-gray-800'}`}>
+                      {orderDetails.order_status.charAt(0).toUpperCase() + orderDetails.order_status.slice(1)}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Obra</p>
+                    <p className="text-base">{orderDetails.construction_site || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Monto Total</p>
+                    <p className="text-base">{orderDetails.final_amount ? formatCurrency(orderDetails.final_amount) : '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Requiere Factura</p>
+                    <p className="text-base">{orderDetails.requires_invoice ? 'Sí' : 'No'}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Order Products or Remisiones */}
+            {hasRemisiones ? (
+              // Mostrar productos basados en remisiones
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Productos (Basados en Remisiones)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>№ Remisión</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Receta</TableHead>
+                        <TableHead className="text-right">Volumen (m³)</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {concreteRemisiones.map((remision) => (
+                        <TableRow key={remision.id}>
+                          <TableCell className="font-medium">{remision.remision_number}</TableCell>
+                          <TableCell>
+                            {remision.fecha ? formatDate(new Date(remision.fecha), 'dd/MM/yyyy') : '-'}
+                          </TableCell>
+                          <TableCell>{remision.recipe?.recipe_code || 'N/A'}</TableCell>
+                          <TableCell className="text-right">{(remision.volumen_fabricado || 0).toFixed(2)}</TableCell>
+                        </TableRow>
+                      ))}
+                      {/* Mostrar fila de totales si hay más de una remisión */}
+                      {concreteRemisiones.length > 1 && (
+                        <TableRow className="bg-gray-50 font-medium">
+                          <TableCell colSpan={3} className="text-right">
+                            Total:
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {totalConcreteVolume.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            ) : loadingRemisiones ? (
+              // Mostramos mensaje de carga si aún estamos buscando remisiones
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Productos</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="py-4 text-center text-gray-500">
+                    <p>Cargando información de productos...</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              // Mostrar productos originales del pedido
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Productos</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {orderDetails.items && orderDetails.items.length > 0 ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Producto</TableHead>
+                          <TableHead className="text-right">Cantidad</TableHead>
+                          <TableHead className="text-right">Precio Unitario</TableHead>
+                          <TableHead className="text-right">Total</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {orderDetails.items.map((item: any, index: number) => (
+                          <TableRow key={index}>
+                            <TableCell>{item.product_type || 'Producto'}</TableCell>
+                            <TableCell className="text-right">{item.volume || 0} m³</TableCell>
+                            <TableCell className="text-right">{formatCurrency(item.unit_price || 0)}</TableCell>
+                            <TableCell className="text-right">{formatCurrency(item.total_price || 0)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <p className="text-gray-500 text-sm">No hay productos registrados para este pedido.</p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Bombeo (si hay remisiones de bombeo) */}
+            {pumpRemisiones.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Servicios de Bombeo</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>№ Remisión</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Operador</TableHead>
+                        <TableHead className="text-right">Volumen (m³)</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pumpRemisiones.map((remision) => (
+                        <TableRow key={remision.id}>
+                          <TableCell className="font-medium">{remision.remision_number}</TableCell>
+                          <TableCell>
+                            {remision.fecha ? formatDate(new Date(remision.fecha), 'dd/MM/yyyy') : '-'}
+                          </TableCell>
+                          <TableCell>{remision.operador || '-'}</TableCell>
+                          <TableCell className="text-right">{(remision.volumen_fabricado || 0).toFixed(2)}</TableCell>
+                        </TableRow>
+                      ))}
+                      {/* Mostrar fila de totales si hay más de una remisión de bombeo */}
+                      {pumpRemisiones.length > 1 && (
+                        <TableRow className="bg-gray-50 font-medium">
+                          <TableCell colSpan={3} className="text-right">
+                            Total:
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {totalPumpVolume.toFixed(2)}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Special Requirements */}
+            {orderDetails.special_requirements && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Requisitos Especiales</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm">{orderDetails.special_requirements}</p>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={onClose}>Cerrar</Button>
+              <Button asChild variant="default">
+                <Link href={`/orders/${orderId}`} target="_blank">Ver Completo</Link>
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function ClientDetailContent({ clientId }: { clientId: string }) {
   const [client, setClient] = useState<Client | null>(null);
   const [sites, setSites] = useState<ConstructionSite[]>([]);
   const [payments, setPayments] = useState<ClientPayment[]>([]);
   const [balances, setBalances] = useState<ClientBalance[]>([]);
+  const [clientOrders, setClientOrders] = useState<OrderWithClient[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   // Dialog state for payment form
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  // Order detail modal state
+  const [isOrderDetailModalOpen, setIsOrderDetailModalOpen] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
 
   // Find the current total balance for passing to PaymentForm - MOVED UP HERE to fix hooks order
   const currentTotalBalance = useMemo(() => {
@@ -518,6 +842,16 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
       setPayments(fetchedPayments);
       setBalances(fetchedBalances);
 
+      // Fetch orders for this client
+      setLoadingOrders(true);
+      const { data: orders, error: ordersError } = await orderService.getOrders({ clientId });
+      if (ordersError) {
+        console.error("Error loading client orders:", ordersError);
+      } else {
+        setClientOrders(orders);
+      }
+      setLoadingOrders(false);
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error desconocido al cargar datos';
       console.error("Error loading client data:", errorMessage);
@@ -538,6 +872,17 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
 
   const handlePaymentCancel = () => {
     setIsPaymentDialogOpen(false); // Close the dialog
+  };
+
+  // Handle opening the order detail modal
+  const handleViewOrderDetails = (orderId: string) => {
+    setSelectedOrderId(orderId);
+    setIsOrderDetailModalOpen(true);
+  };
+
+  // Format date helper function for orders section
+  const formatOrderDate = (dateString: string): string => {
+    return formatDate(dateString, 'PP');
   };
 
   if (loading) {
@@ -659,14 +1004,74 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
       <Card>
         <CardHeader>
           <CardTitle>Pedidos Relacionados</CardTitle>
+          <CardDescription>Lista de pedidos asociados a este cliente</CardDescription>
         </CardHeader>
         <CardContent>
-           <p className="text-sm text-gray-500">Funcionalidad de pedidos relacionados aún no implementada.</p>
-           <Link href={`/orders?clientId=${clientId}`}>
-              <Button variant="link" className="p-0 h-auto">Ver Pedidos</Button>
-           </Link>
+          {loadingOrders ? (
+            <p className="text-sm text-gray-500">Cargando pedidos...</p>
+          ) : clientOrders.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Número de Pedido</TableHead>
+                  <TableHead>Fecha de Entrega</TableHead>
+                  <TableHead>Hora</TableHead>
+                  <TableHead>Obra</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead>Monto</TableHead>
+                  <TableHead className="text-right">Acción</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {clientOrders.map((order) => (
+                  <TableRow key={order.id}>
+                    <TableCell className="font-medium">{order.order_number}</TableCell>
+                    <TableCell>{formatOrderDate(order.delivery_date)}</TableCell>
+                    <TableCell>{order.delivery_time}</TableCell>
+                    <TableCell className="truncate max-w-[150px]" title={order.construction_site || ''}>
+                      {order.construction_site || "-"}
+                    </TableCell>
+                    <TableCell>
+                      <div className={`px-2 py-1 rounded-full text-xs font-medium inline-flex items-center
+                        ${order.order_status === 'created' ? 'bg-yellow-100 text-yellow-800' : 
+                          order.order_status === 'validated' ? 'bg-green-100 text-green-800' :
+                          order.order_status === 'scheduled' ? 'bg-purple-100 text-purple-800' :
+                          order.order_status === 'completed' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'}`}>
+                        {order.order_status.charAt(0).toUpperCase() + order.order_status.slice(1)}
+                      </div>
+                    </TableCell>
+                    <TableCell>{order.final_amount ? formatCurrency(order.final_amount) : '-'}</TableCell>
+                    <TableCell className="text-right">
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={() => handleViewOrderDetails(order.id)}
+                      >
+                        Ver Detalles
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <p className="text-sm text-gray-500">No hay pedidos registrados para este cliente.</p>
+          )}
+          <div className="mt-4">
+            <Link href={`/orders/create?clientId=${clientId}`}>
+              <Button variant="default">Crear Nuevo Pedido</Button>
+            </Link>
+          </div>
         </CardContent>
       </Card>
+
+      {/* Order Detail Modal */}
+      <OrderDetailModal 
+        isOpen={isOrderDetailModalOpen} 
+        onClose={() => setIsOrderDetailModalOpen(false)} 
+        orderId={selectedOrderId} 
+      />
     </div>
   );
 } 

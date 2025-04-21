@@ -1,21 +1,39 @@
 'use client';
 
-import React from 'react';
-import Link from 'next/link';
+import React, { useEffect } from 'react';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
+import { 
+  FileText, 
+  Users, 
+  ClipboardList, 
+  BarChart3, 
+  User, 
+  DollarSign, 
+  CheckSquare, 
+  FileCheck, 
+  Search,
+  ChevronRight
+} from 'lucide-react';
+import Link from 'next/link';
 
 export default function LandingPage() {
+  // Verificar si estamos en el cliente para evitar errores de hidratación
+  useEffect(() => {
+    // Solo ejecuta código específico del cliente después de que el componente se monte
+    console.log('Landing page mounted');
+  }, []);
+
   return (
     <div className="min-h-screen bg-white">
       {/* Hero Section */}
       <section className="relative h-screen flex items-center">
         {/* Background Image */}
         <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-black/50 z-10" />
+          <div className="absolute inset-0 bg-linear-to-r from-gray-900/80 to-gray-900/60 z-10" />
           <Image 
-            src="/images/concrete-construction.jpg" 
-            alt="Obra de construcción con concreto" 
+            src="/images/dcconcretos/hero1.jpg?v=1"
+            alt="DC Concretos - Obra de construcción con concreto" 
             fill
             className="object-cover"
             priority
@@ -24,246 +42,262 @@ export default function LandingPage() {
 
         {/* Logo */}
         <div className="absolute top-6 left-6 z-20">
-          <Image 
-            src="/images/dcconcretos/logo.svg" 
-            alt="DC Concretos Logo" 
-            width={180} 
-            height={60} 
-            style={{ objectFit: 'contain' }}
-          />
+          <div className="">
+            <Image 
+              src="/images/dcconcretos/logo.svg" 
+              alt="DC Concretos Logo" 
+              width={160} 
+              height={50} 
+              className="drop-shadow-md"
+            />
+          </div>
         </div>
 
         {/* Hero Content */}
-        <div className="container mx-auto px-4 md:px-6 relative z-20 text-white">
+        <div className="container mx-auto px-6 relative z-20 text-white">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
             className="max-w-2xl"
           >
-            <h1 className="text-3xl md:text-5xl font-bold mb-3 md:mb-4">
+            <h1 className="text-5xl font-bold mb-4 drop-shadow-lg">
               Cotizaciones precisas de concreto en minutos, no en días
             </h1>
-            <p className="text-lg md:text-xl mb-6 md:mb-8">
+            <p className="text-xl mb-8 drop-shadow-sm text-gray-100">
               Simplifica tus procesos de cotización con nuestro sistema especializado para la industria del concreto
             </p>
-            <Link href="/login">
+            <a href="/login">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="bg-green-500 hover:bg-green-600 text-white py-2 md:py-3 px-6 md:px-8 rounded-lg text-lg font-medium shadow-lg"
+                className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg"
               >
                 Abrir Cotizador
               </motion.button>
-            </Link>
+            </a>
           </motion.div>
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="py-12 md:py-16 bg-gray-50">
-        <div className="container mx-auto px-4 md:px-6">
-          <h2 className="text-2xl md:text-3xl font-bold text-center mb-8 md:mb-12 text-gray-800">
-            Características Principales
+      {/* Panel de Acceso Rápido */}
+      <section className="py-20 bg-gray-50">
+        <div className="container mx-auto px-6">
+          <h2 className="text-3xl font-bold text-center mb-12 text-gray-800">
+            Acceso Rápido
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
             {[
-              {
-                title: 'Gestión de Recetas',
-                description: 'Administra fácilmente tus recetas de concreto con todos los componentes y características.',
-                icon: '🧪',
-                link: '/login'
+              { 
+                title: 'Nueva Cotización', 
+                description: 'Inicia el proceso de cotización de manera rápida',
+                icon: <FileText className="w-8 h-8" />,
+                href: '/login',
+                color: 'bg-green-50 text-green-600'
               },
-              {
-                title: 'Precios Actualizados',
-                description: 'Mantén los precios de materiales siempre actualizados para cotizaciones precisas.',
-                icon: '💹',
-                link: '/login'
+              { 
+                title: 'Gestión de Clientes', 
+                description: 'Administra la información de tus clientes',
+                icon: <Users className="w-8 h-8" />,
+                href: '/login',
+                color: 'bg-green-50 text-green-600'
               },
-              {
-                title: 'Historial de Precios',
-                description: 'Accede al historial completo de cambios de precios para análisis y comparativas.',
-                icon: '📊',
-                link: '/login'
+              { 
+                title: 'Recetas', 
+                description: 'Administra tus recetas y fórmulas de concreto',
+                icon: <ClipboardList className="w-8 h-8" />,
+                href: '/login',
+                color: 'bg-green-50 text-green-600'
               },
-              {
-                title: 'Cotizaciones Rápidas',
-                description: 'Genera cotizaciones en minutos con cálculos automáticos basados en volumen y distancia.',
-                icon: '⚡',
-                link: '/login'
-              },
-              {
-                title: 'Gestión de Clientes',
-                description: 'Administra tu cartera de clientes con información detallada y personalizada.',
-                icon: '👥',
-                link: '/login'
-              },
-              {
-                title: 'Reportes y Estadísticas',
-                description: 'Obtén reportes detallados y visualizaciones para tomar mejores decisiones comerciales.',
-                icon: '📈',
-                link: '/dashboard'
+              { 
+                title: 'Historial de Precios', 
+                description: 'Consulta el histórico de precios y cotizaciones',
+                icon: <BarChart3 className="w-8 h-8" />,
+                href: '/login',
+                color: 'bg-green-50 text-green-600'
               }
             ].map((item, index) => (
-              <Link href={item.link} key={index}>
+              <a key={index} href={item.href}>
                 <motion.div
-                  whileHover={{ y: -5 }}
-                  className="bg-white p-6 rounded-lg shadow-md h-full cursor-pointer"
+                  whileHover={{ y: -10, boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.1)' }}
+                  className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 h-full border border-gray-100 cursor-pointer"
                 >
-                  <div className="text-3xl md:text-4xl mb-3 md:mb-4">{item.icon}</div>
-                  <h3 className="text-lg md:text-xl font-bold mb-2 text-gray-800">{item.title}</h3>
-                  <p className="text-sm md:text-base text-gray-600">{item.description}</p>
+                  <div className={`mb-5 p-4 rounded-full ${item.color} inline-block`}>{item.icon}</div>
+                  <h3 className="text-xl font-bold mb-3 text-gray-800">{item.title}</h3>
+                  <p className="text-gray-600">{item.description}</p>
                 </motion.div>
-              </Link>
+              </a>
             ))}
           </div>
         </div>
       </section>
 
       {/* Explicación Visual del Sistema */}
-      <section className="py-12 md:py-16 bg-white">
-        <div className="container mx-auto px-4 md:px-6">
-          <h2 className="text-2xl md:text-3xl font-bold text-center mb-8 md:mb-12 text-gray-800">
+      <section className="py-20 bg-white">
+        <div className="container mx-auto px-6">
+          <h2 className="text-3xl font-bold text-center mb-16 text-gray-800">
             Cómo Funciona
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6 md:gap-4">
+          <div className="flex flex-col lg:flex-row justify-between items-center space-y-12 lg:space-y-0 lg:space-x-4">
             {[
               {
                 step: 1,
                 title: 'Selección de cliente',
                 description: 'Elige o registra el cliente para la cotización',
-                icon: '👤'
+                icon: <User className="w-8 h-8" />,
+                color: 'bg-green-50 text-green-600'
               },
               {
                 step: 2,
                 title: 'Selección de receta',
                 description: 'Elige la receta de concreto adecuada',
-                icon: '📋'
+                icon: <ClipboardList className="w-8 h-8" />,
+                color: 'bg-green-50 text-green-600'
               },
               {
                 step: 3,
                 title: 'Configuración de precio',
                 description: 'Ajusta precios según volúmenes y condiciones',
-                icon: '💰'
+                icon: <DollarSign className="w-8 h-8" />,
+                color: 'bg-green-50 text-green-600'
               },
               {
                 step: 4,
                 title: 'Proceso de aprobación',
                 description: 'Envía para revisión y aprobación',
-                icon: '✅'
+                icon: <CheckSquare className="w-8 h-8" />,
+                color: 'bg-green-50 text-green-600'
               },
               {
                 step: 5,
                 title: 'Cotización finalizada',
                 description: 'Genera el documento final para el cliente',
-                icon: '📄'
+                icon: <FileCheck className="w-8 h-8" />,
+                color: 'bg-green-50 text-green-600'
               }
             ].map((step, index) => (
               <motion.div
                 key={index}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.2 }}
                 viewport={{ once: true }}
-                transition={{ delay: index * 0.1 }}
-                className="flex flex-col items-center text-center p-4"
+                className="flex flex-col items-center text-center w-full lg:w-1/5"
               >
-                <div className="bg-green-500 text-white w-12 h-12 md:w-16 md:h-16 rounded-full flex items-center justify-center text-xl md:text-2xl mb-4">
+                <div className={`mb-5 p-5 rounded-full ${step.color} shadow-md`}>
                   {step.icon}
                 </div>
-                <div className="bg-green-100 text-green-800 text-sm font-bold px-2 py-1 rounded-full mb-2">
-                  Paso {step.step}
-                </div>
-                <h3 className="font-bold text-lg mb-2">{step.title}</h3>
-                <p className="text-sm md:text-base text-gray-600">{step.description}</p>
+                <h3 className="text-lg font-bold mb-2 text-gray-800">{step.title}</h3>
+                <p className="text-sm text-gray-600">{step.description}</p>
+                {index < 4 && (
+                  <div className="hidden lg:block mt-6 text-green-500 text-2xl">
+                    <ChevronRight className="h-8 w-8" />
+                  </div>
+                )}
               </motion.div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Testimonials Section */}
-      <section className="py-12 md:py-16 bg-gray-50">
-        <div className="container mx-auto px-4 md:px-6">
-          <h2 className="text-2xl md:text-3xl font-bold text-center mb-8 md:mb-12 text-gray-800">
-            Lo Que Dicen Nuestros Clientes
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
-            {[
-              {
-                name: 'Carlos Rodríguez',
-                position: 'Director de Operaciones',
-                company: 'Constructora XYZ',
-                testimonial: 'Este sistema ha transformado completamente nuestro proceso de cotización. Ahora generamos presupuestos precisos en minutos.',
-              },
-              {
-                name: 'María González',
-                position: 'Gerente de Ventas',
-                company: 'Concretos Modernos',
-                testimonial: 'La facilidad de uso y la precisión en los cálculos nos ha permitido mejorar nuestras tasas de conversión y satisfacción del cliente.',
-              },
-              {
-                name: 'Juan Pérez',
-                position: 'Dueño',
-                company: 'Constructora Pérez',
-                testimonial: 'Como pequeña empresa, este sistema nos ha permitido competir con grandes concreteras gracias a la rapidez y profesionalismo en nuestras cotizaciones.',
-              }
-            ].map((testimonial, index) => (
+      {/* Búsqueda Centralizada con Imagen de Fondo */}
+      <section className="py-20 relative">
+        <div className="absolute inset-0 z-0">
+          <div className="absolute inset-0 bg-gray-900/80 z-10" />
+          <Image 
+            src="/images/dcconcretos/hero2.jpg?v=1" 
+            alt="DC Concretos - Concreto" 
+            fill
+            className="object-cover"
+          />
+        </div>
+        <div className="container mx-auto px-6 relative z-20">
+          <div className="max-w-3xl mx-auto text-center">
+            <h2 className="text-3xl font-bold mb-6 text-white">
+              Búsqueda Centralizada
+            </h2>
+            <p className="text-gray-200 mb-10 text-lg">
+              Encuentra rápidamente lo que necesitas en un solo lugar
+            </p>
+            <form action="/dashboard" method="get">
               <motion.div
-                key={index}
-                initial={{ opacity: 0 }}
-                whileInView={{ opacity: 1 }}
-                viewport={{ once: true }}
-                transition={{ delay: index * 0.1 }}
-                className="bg-white p-6 rounded-lg shadow-md h-full"
+                whileHover={{ scale: 1.02 }}
+                className="bg-white p-4 rounded-lg shadow-lg flex items-center border border-gray-100"
               >
-                <div className="flex flex-col h-full">
-                  <div className="grow">
-                    <p className="text-gray-700 mb-4 text-sm md:text-base">&ldquo;{testimonial.testimonial}&rdquo;</p>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-base md:text-lg">{testimonial.name}</p>
-                    <p className="text-gray-600 text-sm">{testimonial.position}, {testimonial.company}</p>
-                  </div>
-                </div>
+                <input
+                  type="text"
+                  name="search"
+                  placeholder="Buscar clientes, cotizaciones o recetas..."
+                  className="flex-1 py-3 px-5 outline-hidden text-gray-700"
+                />
+                <button 
+                  type="submit"
+                  className="bg-green-600 hover:bg-green-700 text-white py-3 px-6 rounded-md ml-2 transition-colors duration-300 shadow-md flex items-center"
+                >
+                  <Search className="w-5 h-5 mr-2" />
+                  Buscar
+                </button>
               </motion.div>
-            ))}
+            </form>
+            <div className="mt-5 text-sm text-gray-200 flex flex-wrap justify-center gap-3">
+              <span className="bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full">Cliente ABC</span>
+              <span className="bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full">Cotización #123</span>
+              <span className="bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full">Receta Concreto 300</span>
+            </div>
           </div>
-        </div>
-      </section>
-
-      {/* Call to Action */}
-      <section className="py-12 md:py-16 bg-green-500 text-white">
-        <div className="container mx-auto px-4 md:px-6 text-center">
-          <h2 className="text-2xl md:text-3xl font-bold mb-4">¿Listo para optimizar tu proceso de cotización?</h2>
-          <p className="text-lg md:text-xl mb-8">Comienza hoy mismo a ahorrar tiempo y mejorar la precisión de tus cotizaciones</p>
-          <Link href="/login">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="bg-white text-green-600 py-2 md:py-3 px-6 md:px-8 rounded-lg text-lg font-medium shadow-lg"
-            >
-              Comenzar Ahora
-            </motion.button>
-          </Link>
         </div>
       </section>
 
       {/* Footer */}
-      <footer className="bg-gray-800 text-white py-6 md:py-8">
-        <div className="container mx-auto px-4 md:px-6">
+      <footer className="bg-gray-900 text-white py-12">
+        <div className="container mx-auto px-6">
           <div className="flex flex-col md:flex-row justify-between items-center">
-            <div className="mb-4 md:mb-0">
-              <Image 
-                src="/images/dcconcretos/logo.svg" 
-                alt="DC Concretos Logo" 
-                width={160} 
-                height={50}
-                style={{ objectFit: 'contain' }}
-              />
+            <div className="mb-8 md:mb-0">
+              <div className="">
+                <Image 
+                  src="/images/dcconcretos/logo.svg" 
+                  alt="DC Concretos Logo" 
+                  width={120} 
+                  height={40} 
+                  className="brightness-150"
+                />
+              </div>
+              <p className="mt-3 text-gray-400 text-sm">
+                Soluciones precisas para la industria del concreto
+              </p>
             </div>
-            <div className="text-center md:text-right text-sm md:text-base">
-              <p>&copy; {new Date().getFullYear()} DC Concretos. Todos los derechos reservados.</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center md:text-left">
+              <div>
+                <h4 className="font-bold mb-3 text-gray-300">Enlaces Rápidos</h4>
+                <ul className="space-y-2 text-gray-400">
+                  <li><Link href="/login" className="hover:text-white transition-colors">Iniciar Sesión</Link></li>
+                  <li><Link href="/quotes" className="hover:text-white transition-colors">Cotizaciones</Link></li>
+                  <li><Link href="/clients" className="hover:text-white transition-colors">Clientes</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-bold mb-3 text-gray-300">Recursos</h4>
+                <ul className="space-y-2 text-gray-400">
+                  <li><Link href="/help" className="hover:text-white transition-colors">Centro de Ayuda</Link></li>
+                  <li><Link href="/contact" className="hover:text-white transition-colors">Contacto</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-bold mb-3 text-gray-300">Legal</h4>
+                <ul className="space-y-2 text-gray-400">
+                  <li><Link href="/terms" className="hover:text-white transition-colors">Términos de Uso</Link></li>
+                  <li><Link href="/privacy" className="hover:text-white transition-colors">Privacidad</Link></li>
+                </ul>
+              </div>
             </div>
+          </div>
+          <div className="border-t border-gray-800 mt-10 pt-8 text-center md:flex md:justify-between md:items-center">
+            <p className="text-gray-400 text-sm">&copy; {new Date().getFullYear()} DC Concretos. Todos los derechos reservados.</p>
+            <p className="text-gray-400 text-sm mt-2 md:mt-0">
+              <a href="http://dcconcretos.com.mx" target="_blank" rel="noopener noreferrer" className="hover:text-white transition-colors">
+                dcconcretos.com.mx
+              </a>
+            </p>
           </div>
         </div>
       </footer>

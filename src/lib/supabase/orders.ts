@@ -92,17 +92,21 @@ export const orderService = {
   }, client?: SupabaseClient<Database>) {
     const supabase = client || browserClient;
     try {
+      console.log('getOrders called with filters:', filters);
+      
       let query = supabase
         .from('orders')
         .select(`
           id,
           order_number,
+          quote_id,
           requires_invoice,
           delivery_date,
           delivery_time,
           construction_site,
           special_requirements,
-          total_amount,
+          preliminary_amount,
+          final_amount,
           credit_status,
           order_status,
           created_at,
@@ -116,27 +120,33 @@ export const orderService = {
       
       // Apply filters if provided
       if (filters?.creditStatus) {
+        console.log(`Applying credit_status filter: ${filters.creditStatus}`);
         query = query.eq('credit_status', filters.creditStatus);
       }
       
       if (filters?.orderStatus) {
+        console.log(`Applying order_status filter: ${filters.orderStatus}`);
         query = query.eq('order_status', filters.orderStatus);
       }
       
       if (filters?.clientId) {
+        console.log(`Applying client_id filter: ${filters.clientId}`);
         query = query.eq('client_id', filters.clientId);
       }
       
       if (filters?.startDate) {
+        console.log(`Applying start date filter: ${filters.startDate}`);
         query = query.gte('delivery_date', filters.startDate);
       }
       
       if (filters?.endDate) {
+        console.log(`Applying end date filter: ${filters.endDate}`);
         query = query.lte('delivery_date', filters.endDate);
       }
       
       // Apply limit if provided
       if (filters?.limit) {
+        console.log(`Applying limit: ${filters.limit}`);
         query = query.limit(filters.limit);
       }
       
@@ -145,7 +155,12 @@ export const orderService = {
       
       const { data, error } = await query;
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error in getOrders:', error);
+        throw error;
+      }
+      
+      console.log(`getOrders found ${data?.length || 0} records`);
       return { data: data || [], error: null };
     } catch (error) {
       const errorMessage = handleError(error, 'getOrders');
@@ -175,12 +190,10 @@ export const orderService = {
           construction_site,
           special_requirements,
           total_amount,
+          preliminary_amount,
+          final_amount,
           credit_status,
-          credit_validated_by (
-            first_name,
-            last_name,
-            email
-          ),
+          credit_validated_by,
           credit_validation_date,
           order_status,
           created_at,
@@ -197,11 +210,7 @@ export const orderService = {
             phone,
             credit_status
           ),
-          created_by (
-            first_name,
-            last_name,
-            email
-          )
+          created_by
         `)
         .eq('id', orderId)
         .single();
@@ -299,7 +308,7 @@ export const orderService = {
             credit_status
           )
         `)
-        .eq('credit_status', 'PENDING')
+        .eq('credit_status', 'pending')
         .order('created_at', { ascending: false });
       
       if (error) throw error;
@@ -430,5 +439,22 @@ export async function getOrderDetailsForDosificador(orderId: string) {
   } catch (err) {
     console.error('Error fetching order details for dosificador:', err);
     throw new Error('Error al obtener los detalles del pedido.');
+  }
+}
+
+// Debugging function to list all orders with their credit status
+export async function debugGetAllOrdersWithCreditStatus() {
+  try {
+    const { data, error } = await browserClient
+      .from('orders')
+      .select('id, order_number, credit_status')
+      .order('created_at', { ascending: false });
+      
+    if (error) throw error;
+    console.log('All orders with credit status:', data);
+    return data;
+  } catch (err) {
+    console.error('Error fetching all orders:', err);
+    return [];
   }
 } 

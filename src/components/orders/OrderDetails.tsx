@@ -30,6 +30,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 
 // Define una interfaz para editar la orden
 interface EditableOrderData {
@@ -441,43 +442,75 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const renderOrderActions = () => {
     return (
       <div className="flex flex-wrap gap-2 items-center justify-end mt-4">
-        {/* ... existing buttons ... */}
-        
-        {/* Payment Button with Dialog */}
-        {order?.client_id && (
-          <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-            <DialogTrigger asChild>
-              <RoleProtectedButton
-                allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
-                className="bg-green-600 hover:bg-green-700"
-                onClick={() => setIsPaymentDialogOpen(true)}
-              >
-                Registrar Pago
-              </RoleProtectedButton>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px]">
-              <DialogHeader>
-                <DialogTitle>Registrar Pago</DialogTitle>
-                <DialogDescription>
-                  Registre un pago para este cliente
-                </DialogDescription>
-              </DialogHeader>
-              
-              {loadingSites ? (
-                <div className="py-4 text-center">Cargando información...</div>
-              ) : (
-                <PaymentForm
-                  clientId={order.client_id}
-                  sites={clientSites}
-                  onSuccess={handlePaymentSuccess}
-                  onCancel={() => setIsPaymentDialogOpen(false)}
-                  defaultConstructionSite={order.construction_site}
-                  currentBalance={currentClientBalance}
-                />
-              )}
-            </DialogContent>
-          </Dialog>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {/* ... existing buttons ... */}
+          
+          {/* Payment Button with Dialog */}
+          {order?.client_id && (
+            <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+              <DialogTrigger asChild>
+                <RoleProtectedSection
+                  allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
+                >
+                  <Button 
+                    variant="success"
+                    className="font-medium"
+                    onClick={() => setIsPaymentDialogOpen(true)}
+                  >
+                    <svg 
+                      xmlns="http://www.w3.org/2000/svg" 
+                      className="h-4 w-4 mr-2" 
+                      viewBox="0 0 24 24" 
+                      fill="none" 
+                      stroke="currentColor" 
+                      strokeWidth="2" 
+                      strokeLinecap="round" 
+                      strokeLinejoin="round"
+                    >
+                      <rect x="2" y="5" width="20" height="14" rx="2" />
+                      <line x1="2" y1="10" x2="22" y2="10" />
+                    </svg>
+                    Registrar Pago
+                  </Button>
+                </RoleProtectedSection>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[650px]">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2 text-xl">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-600" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                    </svg>
+                    Registrar Pago
+                  </DialogTitle>
+                  <DialogDescription className="text-base mt-2">
+                    Registre un pago para la orden #{order.order_number} del cliente <span className="font-medium">{order.client?.business_name}</span>
+                    {order.construction_site && (
+                      <span> - Obra: <span className="font-medium">{order.construction_site}</span></span>
+                    )}
+                  </DialogDescription>
+                </DialogHeader>
+                
+                <div className="border-t border-gray-100 my-4"></div>
+                
+                {loadingSites ? (
+                  <div className="py-8 text-center flex flex-col items-center justify-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500 mb-3"></div>
+                    <p>Cargando información de obras...</p>
+                  </div>
+                ) : (
+                  <PaymentForm
+                    clientId={order.client_id}
+                    sites={clientSites}
+                    onSuccess={handlePaymentSuccess}
+                    onCancel={() => setIsPaymentDialogOpen(false)}
+                    defaultConstructionSite={order.construction_site}
+                    currentBalance={currentClientBalance}
+                  />
+                )}
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
       </div>
     );
   };

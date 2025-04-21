@@ -214,6 +214,9 @@ export default function OrdersList({
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       
@@ -230,7 +233,12 @@ export default function OrdersList({
       const dateGroups = {
         'pasado': {
           date: 'pasado',
-          formattedDate: 'En el pasado',
+          formattedDate: 'Anteriores',
+          orders: [] as OrderWithClient[]
+        },
+        'ayer': {
+          date: 'ayer',
+          formattedDate: 'Ayer',
           orders: [] as OrderWithClient[]
         },
         'hoy': {
@@ -276,7 +284,9 @@ export default function OrdersList({
         orderDate.setHours(0, 0, 0, 0);
         
         // Determinar a qué grupo pertenece
-        if (orderDate < today) {
+        if (orderDate.getTime() === yesterday.getTime()) {
+          dateGroups['ayer'].orders.push(order);
+        } else if (orderDate < yesterday) {
           dateGroups['pasado'].orders.push(order);
         } else if (orderDate.getTime() === today.getTime()) {
           dateGroups['hoy'].orders.push(order);
@@ -382,7 +392,7 @@ export default function OrdersList({
       {Object.keys(groupedOrders)
         // Ordenar los grupos según su prioridad
         .sort((a, b) => {
-          const order = ['hoy', 'mañana', 'esta-semana', 'proxima-semana', 'otro-mes', 'pasado'];
+          const order = ['hoy', 'ayer', 'mañana', 'esta-semana', 'proxima-semana', 'otro-mes', 'pasado'];
           return order.indexOf(a) - order.indexOf(b);
         })
         .map(groupKey => {
@@ -394,6 +404,10 @@ export default function OrdersList({
             case 'pasado':
               headerStyle = "bg-red-50";
               headerTextStyle = "text-red-900";
+              break;
+            case 'ayer':
+              headerStyle = "bg-amber-50";
+              headerTextStyle = "text-amber-900";
               break;
             case 'hoy':
               headerStyle = "bg-blue-100";

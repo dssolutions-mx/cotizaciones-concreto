@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import KPICard from './KPICard';
 import { formatCurrency } from '@/lib/utils';
 
@@ -14,9 +14,10 @@ interface KPIMetricsDashboardProps {
     overdueClientsCount: number;
     pendingCreditOrdersCount: number;
   };
+  error?: string | null;
 }
 
-export default function KPIMetricsDashboard({ data }: KPIMetricsDashboardProps) {
+export default function KPIMetricsDashboard({ data, error }: KPIMetricsDashboardProps) {
   // Apply defaults for any potentially missing data
   const {
     totalOutstandingBalance = 0,
@@ -28,6 +29,11 @@ export default function KPIMetricsDashboard({ data }: KPIMetricsDashboardProps) 
   return (
     <section>
       <h2 className="text-2xl font-semibold mb-4">Métricas Financieras</h2>
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md">
+          {error}
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <KPICard
           title="Saldo Total Pendiente"

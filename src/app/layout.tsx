@@ -103,10 +103,6 @@ function Navigation({ children }: { children: React.ReactNode }) {
     }
   }
 
-  if (isLandingRoute) {
-    return null; // No mostrar navegación en rutas de landing
-  }
-
   return (
     <div className="flex min-h-screen">
       {/* Sidebar - versión simple */}
@@ -343,13 +339,13 @@ class ErrorBoundary extends React.Component<
 // Componente principal
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isLandingRoute = pathname?.includes('/landing');
+  const isLandingRoute = pathname === '/landing' || pathname?.startsWith('/landing/'); // More specific check
 
   // Use Inter font
   const fontClassName = inter.className;
 
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang="es" suppressHydrationWarning className={fontClassName}>
       <head>
         <title>DC Concretos - Sistema de Cotizaciones</title>
         <meta name="description" content="Sistema de cotizaciones para DC Concretos" />
@@ -359,13 +355,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={isLandingRoute ? 'bg-white' : 'bg-gray-100'} suppressHydrationWarning>
         <AuthContextProvider>
           <OrderPreferencesProvider>
+            <SessionManager /> {/* Manage session within auth context */}
             <ErrorBoundary>
-              <Navigation>
-                {children}
-              </Navigation>
+              {/* Conditionally render Navigation wrapper */}
+              {isLandingRoute ? (
+                <>{children}</> // Render children directly for landing page
+              ) : (
+                <Navigation>{children}</Navigation> // Wrap other pages with Navigation
+              )}
             </ErrorBoundary>
             <Toaster />
-            <SonnerToaster position="top-right" />
+            <SonnerToaster position="top-right" richColors/>
           </OrderPreferencesProvider>
         </AuthContextProvider>
       </body>

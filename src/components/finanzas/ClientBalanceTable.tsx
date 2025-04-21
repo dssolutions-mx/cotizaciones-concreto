@@ -18,8 +18,15 @@ import {
   ArrowUp, 
   ArrowDown,
   Search,
+  InfoIcon
 } from 'lucide-react';
 import { financialService } from '@/lib/supabase/financial';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ClientBalance {
   client_id: string;
@@ -96,7 +103,10 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances }: Cl
           comparison = new Date(a.last_payment_date).getTime() - new Date(b.last_payment_date).getTime();
         }
         else if (sortField === 'credit_status') {
-          comparison = a.credit_status.localeCompare(b.credit_status);
+          // Ordenar por balance actual para el estado de balance
+          // Si balance ≤ 0 es "Al Corriente", si > 0 es "Saldo Pendiente"
+          // Al ordenar ascendente, "Al Corriente" aparece primero (valores menores primero)
+          comparison = a.current_balance - b.current_balance;
         }
         
         return sortDirection === 'asc' ? comparison : -comparison;
@@ -181,7 +191,18 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances }: Cl
                   onClick={() => handleSort('credit_status')}
                   className="font-medium flex items-center"
                 >
-                  Estado de Crédito {renderSortIcon('credit_status')}
+                  Estado de Balance {renderSortIcon('credit_status')}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <InfoIcon className="ml-1 h-4 w-4 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        <p><strong>Al Corriente:</strong> El cliente no debe dinero o tiene saldo a favor.</p>
+                        <p><strong>Saldo Pendiente:</strong> El cliente tiene un balance pendiente por pagar.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 </Button>
               </TableHead>
               <TableHead className="w-[100px]">Acciones</TableHead>
@@ -203,14 +224,15 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances }: Cl
                   </TableCell>
                   <TableCell>
                     <span className={`px-2 py-1 text-xs rounded-full ${
-                      client.credit_status === 'approved' ? 'bg-green-100 text-green-800' :
-                      client.credit_status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
+                      client.current_balance <= 0 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                     }`}>
-                      {client.credit_status === 'approved' ? 'Aprobado' :
-                       client.credit_status === 'pending' ? 'Pendiente' : 
-                       'Rechazado'}
+                      {client.current_balance <= 0 
+                        ? 'Al Corriente' 
+                        : 'Saldo Pendiente'}
                     </span>
+                    {client.current_balance < 0 && (
+                      <span className="ml-1 text-xs text-blue-600">(Saldo a Favor)</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Link 

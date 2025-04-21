@@ -6,8 +6,8 @@ import type { Database } from '@/types/supabase';
 
 // Utility function to create a Supabase client for Server Components,
 // Route Handlers, and Server Actions.
-export function createServerSupabaseClient() {
-  const cookieStore = cookies();
+export async function createServerSupabaseClient() {
+  const cookieStore = await cookies();
   
   // Create and return the Supabase client using the standard pattern
   return createServerClient<Database>(

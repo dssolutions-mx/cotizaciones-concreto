@@ -6,7 +6,13 @@ import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -22,6 +28,16 @@ import type { OrderWithClient } from '@/types/orders';
 import { formatCurrency } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { UserRole } from '@/types/auth';
+import { 
+  CalendarIcon, 
+  ClockIcon, 
+  CreditCardIcon, 
+  PiggyBankIcon, 
+  FileTextIcon, 
+  EyeIcon,
+  CheckIcon, 
+  XIcon 
+} from 'lucide-react';
 
 interface CreditOrdersSectionProps {
   orders: OrderWithClient[];
@@ -174,94 +190,123 @@ export function CreditOrdersSection({ orders }: CreditOrdersSectionProps) {
   }
 
   return (
-    <div className="space-y-4">
-      {modifiedOrders.map(order => (
-        <Card key={order.id} className="overflow-hidden">
-          <div className="p-4 grid md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <h3 className="font-medium">Orden #{order.order_number}</h3>
-                <Badge variant="outline">Crédito Pendiente</Badge>
+    <div className="@container">
+      <div className="grid grid-cols-1 @lg:grid-cols-2 gap-6">
+        {modifiedOrders.map(order => (
+          <Card key={order.id} className="@container overflow-hidden border-s-4 border-s-amber-400 shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 transition-shadow">
+            <CardHeader className="pb-2 ps-4 pe-4">
+              <div className="flex justify-between items-center">
+                <CardTitle className="text-lg font-medium flex items-center gap-1">
+                  <span>Orden #{order.order_number}</span>
+                  <Badge variant="outline" className="ms-2 bg-amber-50 text-amber-700 border-amber-200">
+                    Pendiente
+                  </Badge>
+                </CardTitle>
               </div>
-              <p className="text-sm">{order.clients?.business_name}</p>
-              <p className="text-xs text-gray-500">
-                Entrega: {formatOrderDate(order.delivery_date)} a las {order.delivery_time.substring(0, 5)}
-              </p>
-            </div>
+              <p className="text-base font-medium text-gray-800">{order.clients?.business_name}</p>
+            </CardHeader>
             
-            <div>
-              <p className="text-sm font-medium mb-1">Información Financiera</p>
-              <div className="text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Monto:</span>
-                  <span className="font-medium">{formatCurrency(order.preliminary_amount || 0)}</span>
+            <CardContent className="pb-3 ps-4 pe-4 @md:ps-6 @md:pe-6">
+              <div className="grid gap-3">
+                <div className="flex flex-wrap items-center text-sm text-muted-foreground gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                    <span>{formatOrderDate(order.delivery_date)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <ClockIcon className="h-4 w-4 text-muted-foreground" />
+                    <span>{order.delivery_time.substring(0, 5)} hrs</span>
+                  </div>
                 </div>
-                {order.previous_client_balance !== undefined && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Balance Previo:</span>
-                    <span className={`font-medium ${(order.previous_client_balance || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {formatCurrency(order.previous_client_balance || 0)}
-                    </span>
+                
+                <div className="grid @md:grid-cols-2 gap-3 mt-2 p-3 rounded-md bg-gray-50 border border-gray-100">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-sm text-gray-600 mb-1">
+                      <CreditCardIcon className="h-4 w-4" />
+                      <span>Monto Orden:</span>
+                    </div>
+                    <p className="font-semibold text-sm">
+                      {formatCurrency(order.preliminary_amount || 0)}
+                    </p>
+                  </div>
+                  
+                  {order.previous_client_balance !== undefined && (
+                    <div>
+                      <div className="flex items-center gap-1.5 text-sm text-gray-600 mb-1">
+                        <PiggyBankIcon className="h-4 w-4" />
+                        <span>Balance Previo:</span>
+                      </div>
+                      <p className={`font-semibold text-sm ${(order.previous_client_balance || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                        {formatCurrency(order.previous_client_balance || 0)}
+                      </p>
+                    </div>
+                  )}
+                </div>
+                
+                {order.special_requirements && (
+                  <div className="mt-1 flex gap-1.5 items-start">
+                    <FileTextIcon className="h-4 w-4 text-gray-500 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-gray-700 overflow-hidden text-ellipsis line-clamp-3 @md:line-clamp-2">
+                      {order.special_requirements}
+                    </p>
                   </div>
                 )}
               </div>
-            </div>
+            </CardContent>
             
-            <div className="flex flex-col justify-between">
-              <div className="text-sm">
-                {order.special_requirements && (
-                  <p className="text-gray-600 overflow-hidden text-ellipsis line-clamp-2">
-                    <span className="font-medium">Notas:</span> {order.special_requirements}
-                  </p>
-                )}
-              </div>
+            <CardFooter className="pt-0 ps-4 pe-4 flex flex-wrap gap-2 justify-end border-t border-gray-100 mt-2 pt-3">
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="gap-1"
+                onClick={() => handleViewDetails(order.id)}
+              >
+                <EyeIcon className="h-3.5 w-3.5" />
+                <span>Detalles</span>
+              </Button>
               
-              <div className="flex gap-2 justify-end mt-2">
-                <Button 
-                  variant="outline" 
-                  size="sm"
-                  onClick={() => handleViewDetails(order.id)}
-                >
-                  Detalles
-                </Button>
-                
-                {(isCreditValidator || isManager) && (
-                  <>
+              {(isCreditValidator || isManager) && (
+                <>
+                  <Button 
+                    variant="default" 
+                    size="sm"
+                    className="gap-1 bg-green-600 hover:bg-green-700 text-shadow-sm"
+                    disabled={isSubmitting}
+                    onClick={() => handleApproveCredit(order.id)}
+                  >
+                    <CheckIcon className="h-3.5 w-3.5" />
+                    <span>Aprobar</span>
+                  </Button>
+                  
+                  {isCreditValidator ? (
                     <Button 
-                      variant="default" 
+                      variant="destructive" 
                       size="sm"
+                      className="gap-1"
                       disabled={isSubmitting}
-                      onClick={() => handleApproveCredit(order.id)}
+                      onClick={() => openRejectModal(order.id)}
                     >
-                      Aprobar
+                      <XIcon className="h-3.5 w-3.5" />
+                      <span>Rechazar</span>
                     </Button>
-                    
-                    {isCreditValidator ? (
-                      <Button 
-                        variant="destructive" 
-                        size="sm"
-                        disabled={isSubmitting}
-                        onClick={() => openRejectModal(order.id)}
-                      >
-                        Rechazar
-                      </Button>
-                    ) : (
-                      <Button 
-                        variant="destructive" 
-                        size="sm"
-                        disabled={isSubmitting}
-                        onClick={() => openConfirmModal(order.id)}
-                      >
-                        Rechazar
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </Card>
-      ))}
+                  ) : (
+                    <Button 
+                      variant="destructive" 
+                      size="sm"
+                      className="gap-1"
+                      disabled={isSubmitting}
+                      onClick={() => openConfirmModal(order.id)}
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                      <span>Rechazar</span>
+                    </Button>
+                  )}
+                </>
+              )}
+            </CardFooter>
+          </Card>
+        ))}
+      </div>
       
       {/* Rejection Modal for Credit Validators */}
       <Dialog open={rejectModalOpen} onOpenChange={setRejectModalOpen}>
