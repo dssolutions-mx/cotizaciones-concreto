@@ -20,13 +20,184 @@ import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 
 interface RemisionesListProps {
   orderId: string;
+  requiresInvoice?: boolean;
+  constructionSite?: string;
+  hasEmptyTruckCharge?: boolean;
+  onRemisionesLoaded?: (data: any[]) => void;
 }
 
-export default function RemisionesList({ orderId }: RemisionesListProps) {
+// Format remisiones data for accounting software
+export const formatRemisionesForAccounting = (
+  remisiones: any[], 
+  requiresInvoice: boolean = false, 
+  constructionSite: string = "",
+  hasEmptyTruckCharge: boolean = false,
+  orderProducts: any[] = []
+): string => {
+  if (!remisiones || remisiones.length === 0) return "";
+  
+  // Helper function to properly format a date string without timezone issues
+  const formatDateString = (dateStr: string): string => {
+    if (!dateStr) return '-';
+    
+    // Parse the date string into parts to avoid timezone issues
+    const [year, month, day] = dateStr.split('T')[0].split('-').map(num => parseInt(num, 10));
+    // Create date with local timezone (without hours to avoid timezone shifts)
+    const date = new Date(year, month - 1, day, 12, 0, 0);
+    return format(date, 'dd/MM/yyyy', { locale: es });
+  };
+  
+  // First, identify and list all remisiones
+  let concreteRemisiones = remisiones.filter(r => r.tipo_remision === 'CONCRETO');
+  const pumpRemisiones = remisiones.filter(r => r.tipo_remision === 'BOMBEO');
+  
+  // Sort remisiones by date/number to ensure consistent ordering
+  concreteRemisiones = concreteRemisiones.sort((a, b) => {
+    // Compare by date first, then by remision_number if dates are equal
+    const dateA = new Date(a.fecha || 0);
+    const dateB = new Date(b.fecha || 0);
+    
+    if (dateA.getTime() !== dateB.getTime()) {
+      return dateA.getTime() - dateB.getTime();
+    }
+    
+    return a.remision_number.localeCompare(b.remision_number);
+  });
+  
+  // Create header for the table
+  const headers = [
+    "FOLIO REMISION", 
+    "FECHA", 
+    "OBSERVACIONES", 
+    "CODIGO DE PRODUCTO", 
+    "VOLUMEN", 
+    "PRECIO DE VENTA", 
+    "PLANTA"
+  ].join("\t");
+  
+  // Process each remision
+  const rows: string[] = [];
+  
+  // Function to find price for a product type
+  const findProductPrice = (productType: string): number => {
+    if (!orderProducts || orderProducts.length === 0) return 0;
+    
+    // For SER001 (Vacío de Olla)
+    if (productType === 'SER001') {
+      const emptyTruckProduct = orderProducts.find(p => 
+        p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge
+      );
+      return emptyTruckProduct?.empty_truck_price || 0;
+    }
+    
+    // For SER002 (Bombeo)
+    if (productType === 'SER002') {
+      const pumpProduct = orderProducts.find(p => p.has_pump_service);
+      return pumpProduct?.pump_price || 0;
+    }
+    
+    // For concrete products, match by recipe code
+    const concreteProduct = orderProducts.find(p => 
+      p.product_type === productType || 
+      (p.recipe_id && p.recipe_id.toString() === productType)
+    );
+    
+    return concreteProduct?.unit_price || 0;
+  };
+  
+  // First handle VACIO DE OLLA if any exists (should be assigned first remision number)
+  // Only include if hasEmptyTruckCharge is true
+  if (concreteRemisiones.length > 0 && hasEmptyTruckCharge) {
+    // Use the first concrete remision for vacio de olla
+    const firstRemision = concreteRemisiones[0];
+    const prefix = "A-";
+    const plantaPrefix = requiresInvoice ? "Remision " : "NVRemision ";
+    
+    // Format the date
+    const dateFormatted = formatDateString(firstRemision.fecha);
+    
+    // Get price for vacío de olla
+    const emptyTruckPrice = findProductPrice('SER001');
+    
+    // Add row for "VACIO DE OLLA" with code SER001
+    rows.push([
+      `${prefix}${firstRemision.remision_number}`,
+      dateFormatted,
+      constructionSite || "N/A",
+      "SER001", // Código para VACIO DE OLLA
+      "1.00", // Fixed value for vacío de olla
+      emptyTruckPrice.toFixed(2), // Empty truck price
+      `${plantaPrefix}1-SILAO`
+    ].join("\t"));
+  }
+  
+  // Then add concrete remisiones
+  concreteRemisiones.forEach(remision => {
+    const prefix = "A-";
+    const plantaPrefix = requiresInvoice ? "Remision " : "NVRemision ";
+    
+    // Format the date
+    const dateFormatted = formatDateString(remision.fecha);
+    
+    // Get product code from recipe code if available
+    const productCode = remision.recipe?.recipe_code || "PRODUCTO";
+    
+    // Get price for this product
+    const productPrice = findProductPrice(productCode);
+    
+    rows.push([
+      `${prefix}${remision.remision_number}`,
+      dateFormatted,
+      constructionSite || "N/A",
+      productCode,
+      remision.volumen_fabricado.toFixed(2),
+      productPrice.toFixed(2), // Product price
+      `${plantaPrefix}1-SILAO`
+    ].join("\t"));
+  });
+  
+  // Add pump remisiones
+  pumpRemisiones.forEach(remision => {
+    const prefix = "A-";
+    const plantaPrefix = requiresInvoice ? "Remision " : "NVRemision ";
+    
+    // Format the date
+    const dateFormatted = formatDateString(remision.fecha);
+    
+    // Get price for pump service
+    const pumpPrice = findProductPrice('SER002');
+    
+    rows.push([
+      `${prefix}${remision.remision_number}`,
+      dateFormatted,
+      constructionSite || "N/A",
+      "SER002", // Código para BOMBEO
+      remision.volumen_fabricado.toFixed(2),
+      pumpPrice.toFixed(2), // Pump price
+      `${plantaPrefix}1-SILAO`
+    ].join("\t"));
+  });
+  
+  // Combine headers and rows
+  return `${headers}\n${rows.join("\n")}`;
+};
+
+export default function RemisionesList({ orderId, requiresInvoice, constructionSite, hasEmptyTruckCharge, onRemisionesLoaded }: RemisionesListProps) {
   const [remisiones, setRemisiones] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedRemisionId, setExpandedRemisionId] = useState<string | null>(null);
+  
+  // Helper function to safely format dates without timezone issues
+  const formatDateSafely = (dateStr: string): string => {
+    if (!dateStr) return '-';
+    
+    // Parse the date string into parts to avoid timezone issues
+    const [year, month, day] = dateStr.split('T')[0].split('-').map(num => parseInt(num, 10));
+    // Create date with local timezone (without hours to avoid timezone shifts)
+    const date = new Date(year, month - 1, day, 12, 0, 0);
+    return format(date, 'dd/MM/yyyy', { locale: es });
+  };
   
   const fetchRemisiones = useCallback(async () => {
     try {
@@ -46,13 +217,18 @@ export default function RemisionesList({ orderId }: RemisionesListProps) {
       if (error) throw error;
       
       setRemisiones(data || []);
+      
+      // Call the callback if provided to notify parent component about the data
+      if (onRemisionesLoaded) {
+        onRemisionesLoaded(data || []);
+      }
     } catch (err: any) {
       console.error('Error cargando remisiones:', err);
       setError(err.message || 'Error al cargar las remisiones');
     } finally {
       setLoading(false);
     }
-  }, [orderId]);
+  }, [orderId, onRemisionesLoaded]);
   
   useEffect(() => {
     fetchRemisiones();
@@ -153,7 +329,7 @@ export default function RemisionesList({ orderId }: RemisionesListProps) {
                             </button>
                           </TableCell>
                           <TableCell>
-                            {remision.fecha ? format(new Date(remision.fecha), 'dd/MM/yyyy', { locale: es }) : '-'}
+                            {formatDateSafely(remision.fecha)}
                           </TableCell>
                           <TableCell>{remision.conductor || '-'}</TableCell>
                           <TableCell>{remision.unidad || '-'}</TableCell>
@@ -204,7 +380,7 @@ export default function RemisionesList({ orderId }: RemisionesListProps) {
                       <TableRow key={remision.id}>
                         <TableCell className="font-medium">{remision.remision_number}</TableCell>
                         <TableCell>
-                          {remision.fecha ? format(new Date(remision.fecha), 'dd/MM/yyyy', { locale: es }) : '-'}
+                          {formatDateSafely(remision.fecha)}
                         </TableCell>
                         <TableCell>{remision.conductor || '-'}</TableCell>
                         <TableCell>{remision.unidad || '-'}</TableCell>

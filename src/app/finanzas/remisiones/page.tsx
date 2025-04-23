@@ -1,0 +1,534 @@
+'use client';
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { format, parse, subDays } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { DateRange } from "react-day-picker";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-with-presets";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Check, Copy, FileDown, ChevronDown, ChevronRight } from 'lucide-react';
+import { Input } from "@/components/ui/input";
+import { supabase } from '@/lib/supabase';
+import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
+import { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
+import { clientService } from '@/lib/supabase/clients';
+import { formatCurrency } from '@/lib/utils';
+
+// Helper function to safely format dates
+const formatDateSafely = (dateStr: string): string => {
+  if (!dateStr) return '-';
+  
+  // Parse the date string into parts to avoid timezone issues
+  const [year, month, day] = dateStr.split('T')[0].split('-').map(num => parseInt(num, 10));
+  // Create date with local timezone (without hours to avoid timezone shifts)
+  const date = new Date(year, month - 1, day, 12, 0, 0);
+  return format(date, 'dd/MM/yyyy', { locale: es });
+};
+
+export default function RemisionesPorCliente() {
+  const [clients, setClients] = useState<any[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [selectedSite, setSelectedSite] = useState<string>('todos');
+  const [clientSites, setClientSites] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState<DateRange>({
+    from: subDays(new Date(), 30),
+    to: new Date()
+  });
+  const [remisiones, setRemisiones] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [filteredRemisiones, setFilteredRemisiones] = useState<any[]>([]);
+  const [expandedRemisionId, setExpandedRemisionId] = useState<string | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [orderProducts, setOrderProducts] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [totalVolume, setTotalVolume] = useState(0);
+  const [totalAmount, setTotalAmount] = useState(0);
+  
+  // Load clients on component mount
+  useEffect(() => {
+    async function loadClients() {
+      try {
+        const clientsData = await clientService.getAllClients();
+        setClients(clientsData);
+      } catch (error) {
+        console.error('Error loading clients:', error);
+      }
+    }
+    
+    loadClients();
+  }, []);
+  
+  // Load client construction sites when a client is selected
+  useEffect(() => {
+    async function loadClientSites() {
+      if (!selectedClientId) {
+        setClientSites([]);
+        return;
+      }
+      
+      try {
+        const sites = await clientService.getClientSites(selectedClientId);
+        const siteNames = sites.map(site => site.name);
+        setClientSites(siteNames);
+      } catch (error) {
+        console.error('Error loading client sites:', error);
+        setClientSites([]);
+      }
+    }
+    
+    loadClientSites();
+  }, [selectedClientId]);
+  
+  // Fetch remisiones when client, date range, or site changes
+  const fetchRemisiones = useCallback(async () => {
+    if (!selectedClientId || !dateRange.from || !dateRange.to) return;
+    
+    setLoading(true);
+    
+    try {
+      // Format dates for Supabase query
+      const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
+      const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
+      
+      // Get all orders for the selected client
+      const { data: orders, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, construction_site, requires_invoice, total_amount')
+        .eq('client_id', selectedClientId);
+      
+      if (ordersError) throw ordersError;
+      
+      if (!orders || orders.length === 0) {
+        setRemisiones([]);
+        setFilteredRemisiones([]);
+        setLoading(false);
+        return;
+      }
+      
+      // Get all order IDs
+      const orderIds = orders.map(order => order.id);
+      
+      // Get all order products for price information
+      const { data: products, error: productsError } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('order_id', orderIds);
+      
+      if (productsError) throw productsError;
+      setOrderProducts(products || []);
+      
+      // Fetch remisiones for all found orders and filter by date range
+      const { data: remisionesData, error: remisionesError } = await supabase
+        .from('remisiones')
+        .select(`
+          *,
+          recipe:recipes(recipe_code),
+          materiales:remision_materiales(*),
+          order:orders(requires_invoice, construction_site)
+        `)
+        .in('order_id', orderIds)
+        .gte('fecha', formattedStartDate)
+        .lte('fecha', formattedEndDate)
+        .order('fecha', { ascending: false });
+      
+      if (remisionesError) throw remisionesError;
+      
+      // Enrich remisiones with order data (requires_invoice and construction_site)
+      const enrichedRemisiones = (remisionesData || []).map(remision => {
+        const order = orders.find(o => o.id === remision.order_id);
+        return {
+          ...remision,
+          requires_invoice: remision.order?.requires_invoice || false,
+          construction_site: remision.order?.construction_site || ''
+        };
+      });
+      
+      setRemisiones(enrichedRemisiones);
+      
+      // Calculate totals
+      const volume = enrichedRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
+      setTotalVolume(volume);
+      
+      // Calculate total amount based on order_items prices
+      let amount = 0;
+      enrichedRemisiones.forEach(remision => {
+        const recipeCode = remision.recipe?.recipe_code;
+        const product = products?.find(p => p.product_type === recipeCode || 
+          (p.recipe_id && p.recipe_id.toString() === recipeCode));
+        
+        if (product) {
+          amount += (product.unit_price || 0) * remision.volumen_fabricado;
+        }
+      });
+      setTotalAmount(amount);
+      
+      // Apply initial site filter if needed
+      filterRemisiones(enrichedRemisiones, selectedSite, searchTerm);
+    } catch (error) {
+      console.error('Error fetching remisiones:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedClientId, dateRange, selectedSite, searchTerm]);
+  
+  // Filter remisiones based on selected site and search term
+  const filterRemisiones = (remisiones: any[], site: string, search: string) => {
+    let filtered = [...remisiones];
+    
+    // Filter by site if not "todos" (all)
+    if (site !== 'todos') {
+      filtered = filtered.filter(r => r.construction_site === site);
+    }
+    
+    // Filter by search term
+    if (search) {
+      const searchLower = search.toLowerCase();
+      filtered = filtered.filter(r => 
+        r.remision_number?.toLowerCase().includes(searchLower) ||
+        r.construction_site?.toLowerCase().includes(searchLower) ||
+        r.recipe?.recipe_code?.toLowerCase().includes(searchLower) ||
+        r.conductor?.toLowerCase().includes(searchLower) ||
+        r.unidad?.toLowerCase().includes(searchLower)
+      );
+    }
+    
+    setFilteredRemisiones(filtered);
+    
+    // Recalculate totals for filtered data
+    const volume = filtered.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
+    setTotalVolume(volume);
+    
+    let amount = 0;
+    filtered.forEach(remision => {
+      const recipeCode = remision.recipe?.recipe_code;
+      const product = orderProducts?.find(p => p.product_type === recipeCode || 
+        (p.recipe_id && p.recipe_id.toString() === recipeCode));
+      
+      if (product) {
+        amount += (product.unit_price || 0) * remision.volumen_fabricado;
+      }
+    });
+    setTotalAmount(amount);
+  };
+  
+  // Handle site selection changes
+  useEffect(() => {
+    filterRemisiones(remisiones, selectedSite, searchTerm);
+  }, [selectedSite, searchTerm]);
+  
+  // Handle client change
+  const handleClientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedClientId(e.target.value);
+    setSelectedSite('todos');
+  };
+  
+  // Handle site change
+  const handleSiteChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setSelectedSite(e.target.value);
+  };
+  
+  // Handle search input change
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchTerm(e.target.value);
+  };
+  
+  // Trigger fetch when dependencies change
+  useEffect(() => {
+    if (selectedClientId) {
+      fetchRemisiones();
+    }
+  }, [fetchRemisiones, selectedClientId]);
+  
+  // Toggle remision details expansion
+  const toggleExpand = (remisionId: string) => {
+    setExpandedRemisionId(expandedRemisionId === remisionId ? null : remisionId);
+  };
+  
+  // Copy remisiones data for accounting
+  const handleCopyToAccounting = async () => {
+    try {
+      if (filteredRemisiones.length === 0) return;
+      
+      // Get first remision to determine requirements
+      const firstRemision = filteredRemisiones[0];
+      const requiresInvoice = firstRemision.requires_invoice || false;
+      const constructionSite = selectedSite === 'todos' ? '' : selectedSite;
+      
+      // Check if any order has empty truck charge AND there are actual remisiones for that order
+      // We only want to include empty truck if we have concrete remisiones for this
+      const hasEmptyTruckCharge = orderProducts.some(
+        product => (product.has_empty_truck_charge === true || product.product_type === 'VACÍO DE OLLA') &&
+        // Make sure this order actually has remisiones
+        filteredRemisiones.some(r => r.order_id === product.order_id && r.tipo_remision === 'CONCRETO')
+      );
+      
+      // Format the remisiones data for accounting
+      const formattedData = formatRemisionesForAccounting(
+        filteredRemisiones,
+        requiresInvoice,
+        constructionSite,
+        hasEmptyTruckCharge,
+        orderProducts
+      );
+      
+      if (formattedData) {
+        await navigator.clipboard.writeText(formattedData);
+        setCopySuccess(true);
+        
+        // Reset success message after 3 seconds
+        setTimeout(() => {
+          setCopySuccess(false);
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Error copying to clipboard:', err);
+    }
+  };
+  
+  // Group remisiones by type
+  const concreteRemisiones = filteredRemisiones.filter(r => r.tipo_remision === 'CONCRETO');
+  const pumpRemisiones = filteredRemisiones.filter(r => r.tipo_remision === 'BOMBEO');
+  
+  // Calculate totals
+  const totalConcreteVolume = concreteRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
+  const totalPumpVolume = pumpRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
+  
+  // Handle date range change
+  const handleDateRangeChange = (range: DateRange | undefined) => {
+    if (range && range.from && range.to) {
+      setDateRange(range);
+    }
+  };
+  
+  return (
+    <div className="container mx-auto p-6">
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Remisiones por Cliente</CardTitle>
+          <CardDescription>
+            Consulta y exporta las remisiones por cliente para su procesamiento en el sistema contable
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+            {/* Client Selection */}
+            <div>
+              <Label htmlFor="client">Cliente</Label>
+              <select
+                id="client"
+                value={selectedClientId}
+                onChange={handleClientChange}
+                className="w-full p-2 border border-gray-300 rounded-md mt-1"
+              >
+                <option value="">Seleccionar Cliente</option>
+                {clients.map(client => (
+                  <option key={client.id} value={client.id}>
+                    {client.business_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Site Selection */}
+            <div>
+              <Label htmlFor="site">Obra</Label>
+              <select
+                id="site"
+                value={selectedSite}
+                onChange={handleSiteChange}
+                className="w-full p-2 border border-gray-300 rounded-md mt-1"
+                disabled={!selectedClientId}
+              >
+                <option value="todos">Todas las Obras</option>
+                {clientSites.map(site => (
+                  <option key={site} value={site}>
+                    {site}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Date Range Picker */}
+            <div className="flex flex-col">
+              <Label>Rango de Fechas</Label>
+              <DateRangePickerWithPresets 
+                dateRange={dateRange} 
+                onDateRangeChange={handleDateRangeChange}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          
+          {/* Search and Action Bar */}
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
+            <div className="relative w-full sm:w-64">
+              <Input
+                type="text"
+                placeholder="Buscar remisión..."
+                value={searchTerm}
+                onChange={handleSearchChange}
+                className="pl-9"
+              />
+              <svg
+                className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </div>
+            
+            <div className="flex items-center gap-2 self-end">
+              <div className="flex flex-col items-end">
+                <span className="text-sm text-gray-500">Total: {formatCurrency(totalAmount)}</span>
+                <span className="text-sm text-gray-500">Volumen: {totalVolume.toFixed(2)} m³</span>
+              </div>
+              
+              <Button
+                variant="outline"
+                className="flex items-center gap-2"
+                onClick={handleCopyToAccounting}
+                disabled={filteredRemisiones.length === 0}
+              >
+                {copySuccess ? <Check size={16} /> : <Copy size={16} />}
+                <span>{copySuccess ? "¡Copiado!" : "Copiar para Contabilidad"}</span>
+              </Button>
+            </div>
+          </div>
+          
+          {/* Results */}
+          {loading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-10 w-full" />
+            </div>
+          ) : filteredRemisiones.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              {selectedClientId 
+                ? "No se encontraron remisiones con los filtros aplicados" 
+                : "Selecciona un cliente para ver sus remisiones"}
+            </div>
+          ) : (
+            <Tabs defaultValue="concrete" className="w-full">
+              <TabsList className="grid w-full grid-cols-2 mb-4">
+                <TabsTrigger value="concrete">
+                  Concreto ({concreteRemisiones.length}) - {totalConcreteVolume.toFixed(2)} m³
+                </TabsTrigger>
+                <TabsTrigger value="pump">
+                  Bombeo ({pumpRemisiones.length}) - {totalPumpVolume.toFixed(2)} m³
+                </TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="concrete">
+                <div className="overflow-x-auto border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>№ Remisión</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Obra</TableHead>
+                        <TableHead>Conductor</TableHead>
+                        <TableHead>Unidad</TableHead>
+                        <TableHead>Receta</TableHead>
+                        <TableHead className="text-right">Volumen</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {concreteRemisiones.map((remision) => (
+                        <React.Fragment key={remision.id}>
+                          <TableRow 
+                            onClick={() => toggleExpand(remision.id)} 
+                            className="cursor-pointer hover:bg-gray-50"
+                          >
+                            <TableCell>
+                              <button className="flex items-center text-blue-600 hover:text-blue-800">
+                                {expandedRemisionId === remision.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                <span className="ml-1 font-medium">{remision.remision_number}</span>
+                              </button>
+                            </TableCell>
+                            <TableCell>{formatDateSafely(remision.fecha)}</TableCell>
+                            <TableCell>{remision.construction_site || '-'}</TableCell>
+                            <TableCell>{remision.conductor || '-'}</TableCell>
+                            <TableCell>{remision.unidad || '-'}</TableCell>
+                            <TableCell>{remision.recipe?.recipe_code || 'N/A'}</TableCell>
+                            <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                          </TableRow>
+                          {expandedRemisionId === remision.id && (
+                            <TableRow>
+                              <TableCell colSpan={7} className="p-0">
+                                <div className="p-4 bg-gray-50 border-t">
+                                  <h4 className="text-sm font-semibold mb-2">Detalles Adicionales</h4>
+                                  <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
+                                    <div className="sm:col-span-1">
+                                      <dt className="text-sm font-medium text-gray-500">Requiere Factura</dt>
+                                      <dd className="mt-1 text-sm text-gray-900">
+                                        {remision.requires_invoice ? 'Sí' : 'No'}
+                                      </dd>
+                                    </div>
+                                    <div className="sm:col-span-1">
+                                      <dt className="text-sm font-medium text-gray-500">ID de Orden</dt>
+                                      <dd className="mt-1 text-sm text-gray-900">
+                                        {remision.order_id}
+                                      </dd>
+                                    </div>
+                                  </dl>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </React.Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+              
+              <TabsContent value="pump">
+                <div className="overflow-x-auto border rounded-md">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>№ Remisión</TableHead>
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Obra</TableHead>
+                        <TableHead>Conductor</TableHead>
+                        <TableHead>Unidad</TableHead>
+                        <TableHead className="text-right">Volumen</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {pumpRemisiones.map((remision) => (
+                        <TableRow key={remision.id}>
+                          <TableCell className="font-medium">{remision.remision_number}</TableCell>
+                          <TableCell>{formatDateSafely(remision.fecha)}</TableCell>
+                          <TableCell>{remision.construction_site || '-'}</TableCell>
+                          <TableCell>{remision.conductor || '-'}</TableCell>
+                          <TableCell>{remision.unidad || '-'}</TableCell>
+                          <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </TabsContent>
+            </Tabs>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+} 

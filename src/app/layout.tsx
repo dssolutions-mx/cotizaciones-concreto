@@ -17,7 +17,9 @@ import {
   Plus,
   UserCog,
   Package,
-  Home
+  Home,
+  LineChart,
+  FileBarChart2
 } from 'lucide-react';
 import { AuthContextProvider } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,6 +29,7 @@ import { Inter } from 'next/font/google';
 import { OrderPreferencesProvider } from '@/contexts/OrderPreferencesContext';
 import { Toaster as SonnerToaster } from 'sonner';
 import SessionManager from '@/components/session-manager';
+import { cn } from '@/lib/utils';
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
@@ -34,12 +37,42 @@ import SessionManager from '@/components/session-manager';
 // Define Inter font
 const inter = Inter({ subsets: ['latin'] });
 
+// Define Finanzas submenu items with component types
+const finanzasSubMenuItems = [
+  {
+    title: "Dashboard Finanzas",
+    href: "/finanzas",
+    IconComponent: LineChart,
+  },
+  {
+    title: "Balances de Clientes",
+    href: "/finanzas/clientes",
+    IconComponent: Users,
+  },
+  {
+    title: "Reporte de Ventas",
+    href: "/finanzas/ventas",
+    IconComponent: BarChart2,
+  },
+  {
+    title: "Remisiones por Cliente",
+    href: "/finanzas/remisiones",
+    IconComponent: FileBarChart2,
+  },
+];
+
 // Componente interno para navegación con soporte de roles
 function Navigation({ children }: { children: React.ReactNode }) {
   const { profile } = useAuth();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const isLandingRoute = pathname?.includes('/landing');
+  const isLandingRoute = pathname?.startsWith('/landing');
+  const isFinanzasRoute = pathname?.startsWith('/finanzas');
+
+  // If it's a landing route, just render children without the main layout
+  if (isLandingRoute) {
+    return <>{children}</>;
+  }
 
   // Determinar los elementos de navegación basados en el rol
   const navItems = [];
@@ -49,57 +82,59 @@ function Navigation({ children }: { children: React.ReactNode }) {
     const role = profile.role;
     
     // Elementos comunes para todos los roles
-    navItems.push({ href: '/dashboard', label: 'Dashboard', icon: Home });
+    navItems.push({ href: '/dashboard', label: 'Dashboard', IconComponent: Home });
     
+    // Flag to check if Finanzas link should be added
+    let addFinanzasLink = false;
+
     // Específicos por rol
     switch (role) {
       case 'DOSIFICADOR':
-        // Dosificador solo puede ver pedidos, no editarlos
-        navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
+        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
         break;
         
       case 'CREDIT_VALIDATOR':
-        // Validador de crédito puede ver clientes y pedidos
-        navItems.push({ href: '/clients', label: 'Clientes', icon: Users });
-        navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
-        navItems.push({ href: '/finanzas', label: 'Finanzas', icon: DollarSign });
+        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
+        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        addFinanzasLink = true;
         break;
         
       case 'SALES_AGENT':
-        // Navegación existente para SALES_AGENT
-        navItems.push({ href: '/recipes', label: 'Recetas', icon: FileText });
-        navItems.push({ href: '/prices', label: 'Precios', icon: DollarSign });
-        navItems.push({ href: '/clients', label: 'Clientes', icon: Users });
-        navItems.push({ href: '/quotes', label: 'Cotizaciones', icon: ClipboardList });
-        navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
+        navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
+        navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
+        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
+        navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
+        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
         break;
         
       case 'PLANT_MANAGER':
       case 'EXECUTIVE':
-        // Navegación para roles administrativos
-        navItems.push({ href: '/recipes', label: 'Recetas', icon: FileText });
-        navItems.push({ href: '/prices', label: 'Precios', icon: DollarSign });
-        navItems.push({ href: '/price-history', label: 'Historial', icon: BarChart2 });
-        navItems.push({ href: '/clients', label: 'Clientes', icon: Users });
-        navItems.push({ href: '/quotes', label: 'Cotizaciones', icon: ClipboardList });
-        navItems.push({ href: '/orders', label: 'Pedidos', icon: Package });
-        navItems.push({ href: '/finanzas', label: 'Finanzas', icon: DollarSign });
+        navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
+        navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
+        navItems.push({ href: '/price-history', label: 'Historial', IconComponent: BarChart2 });
+        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
+        navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
+        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        addFinanzasLink = true;
         break;
         
       case 'QUALITY_TEAM':
-        // Navegación para equipo de calidad
-        navItems.push({ href: '/recipes', label: 'Recetas', icon: FileText });
-        navItems.push({ href: '/prices', label: 'Precios', icon: DollarSign });
+        navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
+        navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
         break;
         
       default:
-        // Navegación predeterminada
         break;
+    }
+
+    // Add Finanzas link if applicable
+    if (addFinanzasLink) {
+      navItems.push({ href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign });
     }
     
     // EXECUTIVE puede gestionar usuarios
     if (role === 'EXECUTIVE') {
-      navItems.push({ href: '/admin/users', label: 'Usuarios', icon: UserCog });
+      navItems.push({ href: '/admin/users', label: 'Usuarios', IconComponent: UserCog });
     }
   }
 
@@ -118,20 +153,56 @@ function Navigation({ children }: { children: React.ReactNode }) {
             />
           </Link>
         </div>
-        <nav className="p-4">
-          {navItems.map((item, index) => (
-            <Link 
-              key={`nav-${index}`}
-              href={item.href}
-              className={pathname === item.href 
-                ? "flex items-center gap-2 py-2 px-4 rounded transition-colors bg-green-500 text-white"
-                : "flex items-center gap-2 py-2 px-4 rounded transition-colors text-gray-700 hover:bg-gray-100"
-              }
-            >
-              <span className="mr-2">{React.createElement(item.icon, { size: 18 })}</span>
-              {item.label}
-            </Link>
-          ))}
+        <nav className="p-4 space-y-1">
+          {navItems.map((item, index) => {
+            const isFinanzasMainLink = item.href === '/finanzas';
+            const isActive = isFinanzasMainLink ? isFinanzasRoute : pathname === item.href;
+            const Icon = item.IconComponent;
+
+            return (
+              <React.Fragment key={`nav-${index}`}>
+                <Link 
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-2 py-2 px-4 rounded transition-colors w-full",
+                    isActive 
+                      ? "bg-green-500 text-white"
+                      : "text-gray-700 hover:bg-gray-100"
+                  )}
+                >
+                  <span className="mr-2">
+                    {Icon && <Icon size={18} />}
+                  </span>
+                  {item.label}
+                </Link>
+                {/* Render Finanzas submenu if active */}
+                {isFinanzasMainLink && isFinanzasRoute && (
+                  <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
+                    {finanzasSubMenuItems.map((subItem, subIndex) => {
+                      const SubIcon = subItem.IconComponent;
+                      return (
+                        <Link
+                          key={`subnav-${subIndex}`}
+                          href={subItem.href}
+                          className={cn(
+                            "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
+                            pathname === subItem.href
+                              ? "bg-gray-200 text-gray-900 font-medium"
+                              : "text-gray-600 hover:bg-gray-100"
+                          )}
+                        >
+                          <span className="mr-2">
+                            {SubIcon && <SubIcon size={16} />}
+                          </span>
+                          {subItem.title}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
         </nav>
       </aside>
 
@@ -174,8 +245,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         {/* Header desktop */}
         <div className="hidden md:flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold text-gray-800">
-            {/* Título dinámico según la ruta */}
-            {navItems.find(item => item.href === pathname)?.label || 'Panel principal'}
+            {'Panel Principal'} {/* Temporarily using static title */}
           </h1>
           
           <ProfileMenu />
@@ -206,23 +276,26 @@ function Navigation({ children }: { children: React.ReactNode }) {
               </button>
               
               <div className="mt-6">
-                {navItems.map((item, index) => (
-                  <Link 
-                    key={`mobile-full-${index}`}
-                    href={item.href}
-                    onClick={() => setMobileMenuOpen(false)}
-                    className={`flex items-center py-3 px-4 rounded-lg mb-2 ${
-                      pathname === item.href 
-                        ? "bg-green-500 text-white" 
-                        : "bg-gray-100 text-gray-700 active:bg-gray-200"
-                    }`}
-                  >
-                    <span className="text-xl mr-3">
-                      {React.createElement(item.icon, { size: 20 })}
-                    </span>
-                    <span className="text-lg">{item.label}</span>
-                  </Link>
-                ))}
+                {navItems.map((item, index) => {
+                  const Icon = item.IconComponent;
+                  return (
+                    <Link 
+                      key={`mobile-full-${index}`}
+                      href={item.href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={`flex items-center py-3 px-4 rounded-lg mb-2 ${
+                        pathname === item.href 
+                          ? "bg-green-500 text-white" 
+                          : "bg-gray-100 text-gray-700 active:bg-gray-200"
+                      }`}
+                    >
+                      <span className="text-xl mr-3">
+                        {Icon && <Icon size={20} />}
+                      </span>
+                      <span className="text-lg">{item.label}</span>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -240,6 +313,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         <div className="flex justify-around items-center">
           {navItems.slice(0, 5).map((item, index) => {
             const isActive = pathname === item.href;
+            const Icon = item.IconComponent;
             return (
               <Link 
                 key={`mobile-nav-${index}`}
@@ -255,7 +329,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
                   <span className="absolute top-0 left-0 right-0 h-0.5 bg-green-500 mobile-nav-indicator" />
                 )}
                 <span className="text-xl mb-0.5 transform transition-transform active:scale-90">
-                  {React.createElement(item.icon, { size: 22 })}
+                  {Icon && <Icon size={22} />}
                 </span>
                 <span className={`text-xs ${isActive ? "font-medium" : ""}`}>
                   {item.label}
@@ -308,41 +382,23 @@ class ErrorBoundary extends React.Component<
 
   render() {
     if (this.state.hasError) {
-      // You can render any custom fallback UI
+      // Fallback UI
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-red-50">
-          <div className="bg-white p-8 rounded-lg shadow-xl text-center max-w-md">
-            <h2 className="text-2xl font-bold text-red-600 mb-4">Algo salió mal</h2>
-            <p className="text-gray-700 mb-6">
-              Hubo un error inesperado en la aplicación. Por favor, intente recargar la página.
-            </p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition"
-            >
-              Recargar Página
-            </button>
-            {this.state.error && (
-              <pre className="mt-4 text-xs text-gray-500 text-left overflow-auto max-h-40">
-                {this.state.error.toString()}
-              </pre>
-            )}
-          </div>
+          {/* ... (Fallback UI content) ... */}
         </div>
       );
     }
-
     return this.props.children;
   }
 }
 
 // Componente principal
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const isLandingRoute = pathname === '/landing' || pathname?.startsWith('/landing/'); // More specific check
-
   // Use Inter font
   const fontClassName = inter.className;
+
+  // We no longer need pathname or isLandingRoute check here
 
   return (
     <html lang="es" suppressHydrationWarning className={fontClassName}>
@@ -352,17 +408,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <link rel="icon" href="/images/dcconcretos/favicon.svg" />
       </head>
-      <body className={isLandingRoute ? 'bg-white' : 'bg-gray-100'} suppressHydrationWarning>
+      {/* Body doesn't need conditional class anymore based on route */}
+      <body className="bg-gray-100" suppressHydrationWarning>
         <AuthContextProvider>
           <OrderPreferencesProvider>
             <SessionManager /> {/* Manage session within auth context */}
             <ErrorBoundary>
-              {/* Conditionally render Navigation wrapper */}
-              {isLandingRoute ? (
-                <>{children}</> // Render children directly for landing page
-              ) : (
-                <Navigation>{children}</Navigation> // Wrap other pages with Navigation
-              )}
+              {/* Always render Navigation; it will handle landing internally */}
+              <Navigation>{children}</Navigation> 
             </ErrorBoundary>
             <Toaster />
             <SonnerToaster position="top-right" richColors/>
@@ -371,4 +424,4 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </body>
     </html>
   );
-} 
+}

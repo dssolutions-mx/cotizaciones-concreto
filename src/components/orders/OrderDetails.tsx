@@ -10,7 +10,7 @@ import { ConstructionSite, ClientBalance } from '@/types/client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, UserRole } from '@/contexts/AuthContext';
 import RegistroRemision from '@/components/remisiones/RegistroRemision';
-import RemisionesList from '@/components/remisiones/RemisionesList';
+import RemisionesList, { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
 import OrderDetailsBalance from './OrderDetailsBalance';
 import PaymentForm from '../clients/PaymentForm';
 import ClientBalanceSummary from '../clients/ClientBalanceSummary';
@@ -31,6 +31,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
+import { Copy } from 'lucide-react';
 
 // Define una interfaz para editar la orden
 interface EditableOrderData {
@@ -68,6 +69,9 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [clientSites, setClientSites] = useState<ConstructionSite[]>([]);
   const [loadingSites, setLoadingSites] = useState(false);
   const [clientBalances, setClientBalances] = useState<ClientBalance[]>([]);
+  const [hasRemisiones, setHasRemisiones] = useState<boolean>(false);
+  const [remisionesData, setRemisionesData] = useState<any[]>([]);
+  const [copySuccess, setCopySuccess] = useState<boolean>(false);
   
   // Calculate allowed recipe IDs
   const allowedRecipeIds = useMemo(() => {
@@ -419,6 +423,51 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     loadOrderDetails();
     // Potentially add other refresh logic if needed
   }, [loadOrderDetails]);
+
+  // Add function to handle copy to accounting clipboard
+  const handleCopyToAccounting = useCallback(async () => {
+    try {
+      // Check if the order has empty truck charge
+      const hasEmptyTruckCharge = order?.products?.some(
+        product => product.has_empty_truck_charge === true || product.product_type === 'VACÍO DE OLLA'
+      ) || false;
+      
+      // Format the remisiones data for accounting
+      const formattedData = formatRemisionesForAccounting(
+        remisionesData,
+        order?.requires_invoice || false,
+        order?.construction_site || "",
+        hasEmptyTruckCharge,
+        order?.products || []
+      );
+      
+      if (formattedData) {
+        await navigator.clipboard.writeText(formattedData);
+        setCopySuccess(true);
+        
+        // Reset success message after 3 seconds
+        setTimeout(() => {
+          setCopySuccess(false);
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('Error copying to clipboard:', err);
+      setError('Error al copiar los datos al portapapeles. Por favor, intente nuevamente.');
+    }
+  }, [remisionesData, order?.requires_invoice, order?.construction_site, order?.products]);
+  
+  // Function to update remisiones data when loaded in the child component
+  const handleRemisionesDataUpdate = useCallback((data: any[]) => {
+    setRemisionesData(data);
+    setHasRemisiones(data && data.length > 0);
+  }, []);
+
+  // Check if the order has empty truck charge product
+  const hasEmptyTruckCharge = useMemo(() => {
+    return order?.products?.some(
+      product => product.has_empty_truck_charge === true || product.product_type === 'VACÍO DE OLLA'
+    ) || false;
+  }, [order?.products]);
 
   if (loading) {
     return <div className="flex justify-center p-4">Cargando detalles de la orden...</div>;
@@ -845,13 +894,37 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               </div>
             ) : (
               <div className="mt-6 space-y-6">
+                {hasRemisiones && (
+                  <div className="flex justify-end mb-4">
+                    <Button 
+                      variant="outline" 
+                      className="flex items-center gap-2"
+                      onClick={handleCopyToAccounting}
+                    >
+                      <Copy size={16} />
+                      <span>Copiar para Contabilidad</span>
+                      {copySuccess && (
+                        <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                          ¡Copiado!
+                        </span>
+                      )}
+                    </Button>
+                  </div>
+                )}
+                
                 <RegistroRemision 
                   orderId={order.id} 
                   onRemisionCreated={loadOrderDetails} 
                   allowedRecipeIds={allowedRecipeIds}
                 />
                 
-                <RemisionesList orderId={order.id} />
+                <RemisionesList 
+                  orderId={order.id} 
+                  requiresInvoice={order.requires_invoice}
+                  constructionSite={order.construction_site}
+                  hasEmptyTruckCharge={hasEmptyTruckCharge}
+                  onRemisionesLoaded={handleRemisionesDataUpdate}
+                />
               </div>
             )}
           </div>
