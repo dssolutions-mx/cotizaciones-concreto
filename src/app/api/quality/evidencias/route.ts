@@ -1,14 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createAdminClientForApi, isUsingFallbackEnv } from '@/lib/supabase/api';
 
 // Create a Supabase client with the service role key to bypass RLS
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || ''
-);
+const supabaseAdmin = createAdminClientForApi();
 
 export async function POST(request: NextRequest) {
   try {
+    // Verify we have real credentials before proceeding
+    if (isUsingFallbackEnv) {
+      return NextResponse.json(
+        { error: 'Supabase credentials not configured' },
+        { status: 500 }
+      );
+    }
+    
     // Get the form data
     const formData = await request.formData();
     const ensayoId = formData.get('ensayoId') as string;
