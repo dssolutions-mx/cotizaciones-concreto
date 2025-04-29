@@ -2,12 +2,12 @@
 
 import * as React from "react"
 import { format } from "date-fns"
-import { es } from 'date-fns/locale'
+import { es } from "date-fns/locale"
 import { Calendar as CalendarIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import { Calendar } from "@/components/ui/calendar"
+import { Calendar } from "@/components/ui/calendar" // Asegúrate de usar el nuevo Calendar sin encabezados
 import {
   Popover,
   PopoverContent,
@@ -18,11 +18,9 @@ interface DatePickerProps {
   date: Date | undefined;
   setDate: (date: Date | undefined) => void;
   className?: string;
-  // Add other props from react-day-picker if needed, e.g., disabled dates
 }
 
 export function DatePicker({ date, setDate, className }: DatePickerProps) {
-
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -40,13 +38,13 @@ export function DatePicker({ date, setDate, className }: DatePickerProps) {
       </PopoverTrigger>
       <PopoverContent className="w-auto p-0">
         <Calendar
-          locale={es}
           mode="single"
           selected={date}
           onSelect={setDate}
           initialFocus
+          locale={es}
         />
       </PopoverContent>
     </Popover>
   )
-} 
+}

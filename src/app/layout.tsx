@@ -19,7 +19,11 @@ import {
   Package,
   Home,
   LineChart,
-  FileBarChart2
+  FileBarChart2,
+  Beaker,
+  FlaskConical,
+  Clipboard,
+  BarChart
 } from 'lucide-react';
 import { AuthContextProvider } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -61,6 +65,30 @@ const finanzasSubMenuItems = [
   },
 ];
 
+// Define quality submenu items
+const qualitySubMenuItems = [
+  {
+    title: "Dashboard Calidad",
+    href: "/quality",
+    IconComponent: BarChart,
+  },
+  {
+    title: "Muestreos",
+    href: "/quality/muestreos",
+    IconComponent: Beaker,
+  },
+  {
+    title: "Ensayos",
+    href: "/quality/ensayos",
+    IconComponent: FlaskConical,
+  },
+  {
+    title: "Reportes",
+    href: "/quality/reportes",
+    IconComponent: Clipboard,
+  },
+];
+
 // Componente interno para navegación con soporte de roles
 function Navigation({ children }: { children: React.ReactNode }) {
   const { profile } = useAuth();
@@ -68,6 +96,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isLandingRoute = pathname?.startsWith('/landing');
   const isFinanzasRoute = pathname?.startsWith('/finanzas');
+  const isQualityRoute = pathname?.startsWith('/quality');
 
   // If it's a landing route, just render children without the main layout
   if (isLandingRoute) {
@@ -86,6 +115,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
     
     // Flag to check if Finanzas link should be added
     let addFinanzasLink = false;
+    // Flag to check if Quality link should be added
+    let addQualityLink = false;
 
     // Específicos por rol
     switch (role) {
@@ -116,11 +147,13 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
         addFinanzasLink = true;
+        addQualityLink = true;
         break;
         
       case 'QUALITY_TEAM':
         navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
         navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
+        addQualityLink = true;
         break;
         
       default:
@@ -130,6 +163,11 @@ function Navigation({ children }: { children: React.ReactNode }) {
     // Add Finanzas link if applicable
     if (addFinanzasLink) {
       navItems.push({ href: '/finanzas', label: 'Finanzas', IconComponent: DollarSign });
+    }
+    
+    // Add Quality link if applicable
+    if (addQualityLink) {
+      navItems.push({ href: '/quality', label: 'Calidad', IconComponent: Beaker });
     }
     
     // EXECUTIVE puede gestionar usuarios
@@ -156,7 +194,11 @@ function Navigation({ children }: { children: React.ReactNode }) {
         <nav className="p-4 space-y-1">
           {navItems.map((item, index) => {
             const isFinanzasMainLink = item.href === '/finanzas';
-            const isActive = isFinanzasMainLink ? isFinanzasRoute : pathname === item.href;
+            const isQualityMainLink = item.href === '/quality';
+            const isActive = 
+              isFinanzasMainLink ? isFinanzasRoute : 
+              isQualityMainLink ? isQualityRoute :
+              pathname === item.href;
             const Icon = item.IconComponent;
 
             return (
@@ -183,6 +225,32 @@ function Navigation({ children }: { children: React.ReactNode }) {
                       return (
                         <Link
                           key={`subnav-${subIndex}`}
+                          href={subItem.href}
+                          className={cn(
+                            "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
+                            pathname === subItem.href
+                              ? "bg-gray-200 text-gray-900 font-medium"
+                              : "text-gray-600 hover:bg-gray-100"
+                          )}
+                        >
+                          <span className="mr-2">
+                            {SubIcon && <SubIcon size={16} />}
+                          </span>
+                          {subItem.title}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+                
+                {/* Render Quality submenu if active */}
+                {isQualityMainLink && isQualityRoute && (
+                  <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
+                    {qualitySubMenuItems.map((subItem, subIndex) => {
+                      const SubIcon = subItem.IconComponent;
+                      return (
+                        <Link
+                          key={`quality-subnav-${subIndex}`}
                           href={subItem.href}
                           className={cn(
                             "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",

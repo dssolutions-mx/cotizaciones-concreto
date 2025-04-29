@@ -26,7 +26,12 @@ export function formatCurrency(amount: number | null | undefined): string {
 export function formatDate(date: string | Date | null | undefined, formatString = 'PP'): string {
   if (!date) return 'N/A';
   
-  const dateObj = typeof date === 'string' ? parseISO(date) : date;
+  // If string is a simple YYYY-MM-DD, add T12:00:00 to avoid timezone shifts
+  const dateObj = typeof date === 'string' 
+    ? (date.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(date) 
+        ? parseISO(`${date}T12:00:00`) 
+        : parseISO(date))
+    : date;
   
   try {
     return formatFn(dateObj, formatString, { locale: es });
@@ -38,4 +43,19 @@ export function formatDate(date: string | Date | null | undefined, formatString 
     }
     return String(date); // Fallback to string conversion
   }
+}
+
+// Helper function to safely create date objects without timezone issues
+export function createSafeDate(dateStr: string | Date | null | undefined): Date | null {
+  if (!dateStr) return null;
+  
+  if (typeof dateStr === 'string') {
+    // If the date is just YYYY-MM-DD without time, add noon time to prevent timezone shifts
+    if (dateStr.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return new Date(`${dateStr}T12:00:00`);
+    }
+    return parseISO(dateStr);
+  }
+  
+  return dateStr;
 }

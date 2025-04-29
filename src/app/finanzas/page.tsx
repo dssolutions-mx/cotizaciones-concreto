@@ -19,6 +19,7 @@ import { Database } from '@/types/supabase';
 import { FinancialDashboardSkeleton } from '@/components/finanzas/FinancialDashboardSkeleton';
 import { ClientBalanceTableSkeleton, CreditApprovalSkeleton } from '@/components/finanzas/FinancialMetricsSkeleton';
 import { Skeleton } from '@/components/ui/skeleton';
+import QuickAddPaymentButton from '@/components/finanzas/QuickAddPaymentButton';
 
 // Enable ISR with 5-minute revalidation interval
 export const revalidate = 300; // 5 minutes in seconds
@@ -46,7 +47,10 @@ export default async function FinancialHubPage() {
   return (
     <Suspense fallback={<FinancialDashboardSkeleton />}>
       <div className="container mx-auto p-6">
-        <h1 className="text-3xl font-bold tracking-tight mb-8">Centro Financiero</h1>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold tracking-tight">Centro Financiero</h1>
+          <QuickAddPaymentButton />
+        </div>
         
         <RoleProtectedSection
           allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
