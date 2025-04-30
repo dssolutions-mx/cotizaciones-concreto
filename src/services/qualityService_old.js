@@ -1,13 +1,14 @@
 import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
-import { formatInTimeZone } from 'date-fns-tz'; // Updated import for timezone handling
+import { utcToZonedTime } from 'date-fns-tz'; // Import for timezone handling
 
 // Function to safely format dates, handling potential timezone issues
 const formatLocalDate = (dateString) => {
   if (!dateString) return 'N/A';
   try {
     const date = new Date(dateString + 'T00:00:00Z'); // Treat as UTC midnight
-    return formatInTimeZone(date, 'America/Mexico_City', 'dd/MM/yyyy');
+    const zonedDate = utcToZonedTime(date, 'America/Mexico_City'); 
+    return format(zonedDate, 'dd/MM/yyyy');
   } catch (e) {
     console.error("Error formatting date:", dateString, e);
     return 'Fecha inválida';

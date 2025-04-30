@@ -14,9 +14,6 @@ import {
 } from '@/types/quality';
 import { format, subMonths } from 'date-fns';
 
-// Define a type for the recipe versions map
-interface RecipeVersionsMapType extends Map<string, { recipe_id: string; recipe_code?: string; notes?: string; age_days?: number }> {}
-
 // Muestreos
 export async function fetchMuestreos(filters?: FiltrosCalidad) {
   try {
@@ -1468,10 +1465,7 @@ export async function fetchEficienciaReporteData(fechaDesde?: string | Date, fec
             p_muestreo_id: muestreo.id
           });
         
-        if (metricasError || !metricasRPC || metricasRPC.length === 0) {
-          console.log(`No server metrics for muestreo ${muestreo.id}`);
-          return null;
-        }
+        if (metricasError || !metricasRPC || metricasRPC.length === 0) return null;
         
         // Calculate client metrics
         let clasificacion = 'FC';
@@ -1488,29 +1482,23 @@ export async function fetchEficienciaReporteData(fechaDesde?: string | Date, fec
           volumenRegistrado = remision.volumen_fabricado || 0;
           
           // Get recipe version
-          const recipeVersion = recipeVersionsMap?.get(remision.recipe_id);
+          const recipeVersion = recipeVersionsMap.get(remision.recipe_id);
           if (recipeVersion) {
             clasificacion = recipeVersion.notes && recipeVersion.notes.toUpperCase().includes('MR') ? 'MR' : 'FC';
             edadGarantia = recipeVersion.age_days || 28;
           }
           
           // Calculate suma materiales and kg cemento
-          const materiales = materialesByRemisionMap.get(muestreo.remision_id) || [];
+          const materiales = materialesMap.get(remision.id) || [];
           if (materiales.length > 0) {
-            sumaMateriales = materiales.reduce((sum: number, mat: any) => sum + (mat.cantidad_real || 0), 0);
-            const cementoMaterial = materiales.find((m: any) => m.material_type === 'cement');
+            sumaMateriales = materiales.reduce((sum: number, mat: MaterialData) => sum + (mat.cantidad_real || 0), 0);
+            const cementoMaterial = materiales.find((m: MaterialData) => m.material_type === 'cement');
             kgCemento = cementoMaterial ? cementoMaterial.cantidad_real || 0 : 0;
           }
         }
         
-        // Get recipe data from nested object if available
-        const recipeData = muestreo.remision?.recipe;
-        if (recipeData?.age_days) {
-          edadGarantia = recipeData.age_days;
-        }
-        
-        // Get resistance from ensayos
-        const { data: resistenciaData } = await supabase
+        // Get average resistance for this muestreo
+        const { data: resistenciaData, error: resistenciaError } = await supabase
           .from('ensayos')
           .select(`
             resistencia_calculada,
@@ -1520,94 +1508,28 @@ export async function fetchEficienciaReporteData(fechaDesde?: string | Date, fec
           `)
           .eq('muestra.muestreo_id', muestreo.id);
           
-        if (resistenciaData && resistenciaData.length > 0) {
-          resistenciaPromedio = resistenciaData.reduce((sum: number, item: any) => 
-            sum + (item.resistencia_calculada || 0), 0) / resistenciaData.length;
+        if (!resistenciaError && resistenciaData && resistenciaData.length > 0) {
+          resistenciaPromedio = resistenciaData.reduce((sum: number, item: any) => sum + (item.resistencia_calculada || 0), 0) / resistenciaData.length;
         }
         
-        // Handle dates with UTC methods
-        const fechaMuestreoStr = muestreo.fecha_muestreo.split('T')[0];
-        const fechaMuestreo = createUTCDate(fechaMuestreoStr);
-        const fechaFormatted = format(new Date(fechaMuestreoStr.replace(/-/g, '/')), 'dd/MM/yyyy');
-        
-        // Calculate guarantee date
-        const fechaEdadGarantia = new Date(fechaMuestreo);
-        fechaEdadGarantia.setUTCDate(fechaMuestreo.getUTCDate() + edadGarantia);
-        const fechaEdadGarantiaStr = formatUTCDate(fechaEdadGarantia);
-        
-        // Process muestras - EXACTLY the same as debugMuestreosMuestras
-        const muestras = muestreoMuestrasMap[muestreo.id] || [];
-        const muestrasProcessed = muestras.map(muestra => {
-          // Get ensayos for this muestra
-          const ensayos = muestra.ensayos || [];
-          
-          // Add edad_dias and is_edad_garantia to each ensayo
-          const ensayosWithAge = ensayos.map(ensayo => {
-            const fechaEnsayoStr = ensayo.fecha_ensayo.split('T')[0];
-            const fechaEnsayo = createUTCDate(fechaEnsayoStr);
-            const diffTime = Math.abs(fechaEnsayo.getTime() - fechaMuestreo.getTime());
-            const edadDias = Math.round(diffTime / (1000 * 60 * 60 * 24));
-            
-            return {
-              ...ensayo,
-              edad_dias: edadDias,
-              is_edad_garantia: Math.abs(edadDias - edadGarantia) <= 1, // Within 1 day of guarantee age
-              fecha_programada_matches_garantia: muestra.fecha_programada_ensayo === fechaEdadGarantiaStr
-            };
-          });
-          
-          return {
-            muestra_id: muestra.id,
-            id: muestra.id,
-            identificacion: muestra.identificacion,
-            codigo: muestra.identificacion, // In case codigo is used in UI
-            tipo_muestra: muestra.tipo_muestra,
-            fecha_programada: muestra.fecha_programada_ensayo,
-            fecha_programada_matches_garantia: muestra.fecha_programada_ensayo === fechaEdadGarantiaStr,
-            is_edad_garantia: ensayosWithAge.some(e => e.is_edad_garantia),
-            resistencia: ensayosWithAge.find(e => e.is_edad_garantia)?.resistencia_calculada,
-            cumplimiento: ensayosWithAge.find(e => e.is_edad_garantia)?.porcentaje_cumplimiento,
-            ensayos: ensayosWithAge
-          };
-        });
-        
-        // Update classification from recipe data if needed
-        // Override the earlier classification if MR is found in the recipe code
-        if (recipeData?.recipe_code?.includes('MR')) {
-          clasificacion = 'MR';
-        }
-        
-        // Return formatted result - same structure as debugMuestreosMuestras
         return {
           id: muestreo.id,
-          remision_id: muestreo.remision_id,
-          fecha: fechaFormatted,
-          fecha_muestreo: fechaMuestreoStr,
+          fecha: format(new Date(muestreo.fecha_muestreo), 'dd/MM/yyyy'),
           planta: muestreo.planta,
-          receta: recipeData?.recipe_code || 'N/A',
-          recipe_id: recipeData?.id,
-          recipe_code: recipeData?.recipe_code,
+          receta: remision && recipeVersionsMap.get(remision.recipe_id)?.recipe_code || 
+                  (remision ? `${remision.recipe_id}` : 'N/A'),
           clasificacion,
-          
-          // Client-calculated metrics
+          // Client-calculated fields
           masa_unitaria: masaUnitaria,
           suma_materiales: sumaMateriales,
           kg_cemento: kgCemento,
           volumen_registrado: volumenRegistrado,
-          
-          // Server-calculated metrics
+          // Server-calculated fields from RPC
           volumen_real: metricasRPC[0].volumen_real,
           rendimiento_volumetrico: metricasRPC[0].rendimiento_volumetrico,
           consumo_cemento: metricasRPC[0].consumo_cemento_real,
           resistencia_promedio: resistenciaPromedio,
-          eficiencia: metricasRPC[0].eficiencia || 0,
-          
-          // Relationship data
-          edad_garantia: edadGarantia,
-          fecha_garantia: fechaEdadGarantiaStr,
-          muestras: muestrasProcessed,
-          muestras_count: muestras.length,
-          muestras_garantia_count: muestras.filter(m => m.fecha_programada_ensayo === fechaEdadGarantiaStr).length
+          eficiencia: metricasRPC[0].eficiencia || 0
         };
       } catch (err) {
         console.error('Error calculando métricas para muestreo:', muestreo.id, err);
@@ -1615,9 +1537,8 @@ export async function fetchEficienciaReporteData(fechaDesde?: string | Date, fec
       }
     });
     
-    // Resolve all promises and filter out nulls
+    // Filter out null values from failed calculations
     const eficienciaData = (await Promise.all(eficienciaPromises)).filter(Boolean);
-    console.log(`Efficiency report processed ${eficienciaData.length} entries with muestras`);
     return eficienciaData;
   } catch (error) {
     handleError(error, 'fetchEficienciaReporteData');
@@ -2189,40 +2110,39 @@ export async function debugMuestreosMuestras(fechaDesde?: string | Date, fechaHa
     console.log(`Found ${muestrasData.length} ensayado muestras`);
     
     // Now fetch ensayos separately
-    const ensayosByMuestraId: Record<string, any[]> = {};
+    const muestraIds = muestrasData.map(m => m.id);
+    const { data: ensayosData, error: ensayosError } = await supabase
+      .from('ensayos')
+      .select(`
+        id,
+        muestra_id,
+        fecha_ensayo,
+        resistencia_calculada,
+        porcentaje_cumplimiento
+      `)
+      .in('muestra_id', muestraIds);
     
-    if (muestrasData && muestrasData.length > 0) {
-      const muestraIds = muestrasData.map(m => m.id);
-      const { data: ensayosData, error: ensayosError } = await supabase
-        .from('ensayos')
-        .select(`
-          id,
-          muestra_id,
-          fecha_ensayo,
-          resistencia_calculada,
-          porcentaje_cumplimiento
-        `)
-        .in('muestra_id', muestraIds);
-      
-      if (ensayosError) {
-        console.error('Error fetching ensayos:', ensayosError);
-        // Continue with muestras even if ensayos have errors
-      } else if (ensayosData && ensayosData.length > 0) {
-        // Group ensayos by muestra_id
-        ensayosData.forEach(ensayo => {
-          if (!ensayosByMuestraId[ensayo.muestra_id]) {
-            ensayosByMuestraId[ensayo.muestra_id] = [];
-          }
-          ensayosByMuestraId[ensayo.muestra_id].push(ensayo);
-        });
-      }
+    if (ensayosError) {
+      console.error('Error fetching ensayos:', ensayosError);
+      // Continue with muestras even if ensayos have errors
+    }
+    
+    // Group ensayos by muestra_id
+    const ensayosByMuestraId: Record<string, any[]> = {};
+    if (ensayosData) {
+      ensayosData.forEach(ensayo => {
+        if (!ensayosByMuestraId[ensayo.muestra_id]) {
+          ensayosByMuestraId[ensayo.muestra_id] = [];
+        }
+        ensayosByMuestraId[ensayo.muestra_id].push(ensayo);
+      });
     }
     
     // Add ensayos to muestras
-    const muestrasWithEnsayos = muestrasData?.map(muestra => ({
+    const muestrasWithEnsayos = muestrasData.map(muestra => ({
       ...muestra,
       ensayos: ensayosByMuestraId[muestra.id] || []
-    })) || [];
+    }));
     
     // Group muestras by muestreo
     const muestreoMuestrasMap: Record<string, any[]> = {};
@@ -2249,7 +2169,7 @@ export async function debugMuestreosMuestras(fechaDesde?: string | Date, fechaHa
       
       // Analyze each muestra and its ensayos
       const muestrasAnalysis = muestras.map(muestra => {
-        // Get ensayos for this muestra
+        // Get ensayo data if available
         const ensayos = muestra.ensayos || [];
         
         // For each ensayo, calculate the age in days from muestreo
@@ -2596,21 +2516,6 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
       throw remisionesError;
     }
     
-    // Collect recipe IDs for recipe versions query
-    const recipeIds = remisionesData?.map(r => r.recipe_id).filter(Boolean) || [];
-    
-    // Fetch recipe versions
-    const { data: recipeVersionsData, error: recipeVersionsError } = await supabase
-      .from('recipe_versions')
-      .select('recipe_id, recipe_code, notes, age_days')
-      .in('recipe_id', recipeIds)
-      .order('version', { ascending: false });
-      
-    if (recipeVersionsError) {
-      console.error('Error fetching recipe versions:', recipeVersionsError);
-      // Continue without recipe versions
-    }
-    
     // Fetch materiales
     const { data: materialesData, error: materialesError } = await supabase
       .from('remision_materiales')
@@ -2650,7 +2555,7 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
     }
     
     // Now fetch ensayos separately
-    const ensayosByMuestraId: Record<string, any[]> = {};
+    const ensayosByMuestraId = new Map();
     
     if (muestrasData && muestrasData.length > 0) {
       const muestraIds = muestrasData.map(m => m.id);
@@ -2670,10 +2575,10 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
       } else if (ensayosData && ensayosData.length > 0) {
         // Group ensayos by muestra_id
         ensayosData.forEach(ensayo => {
-          if (!ensayosByMuestraId[ensayo.muestra_id]) {
-            ensayosByMuestraId[ensayo.muestra_id] = [];
+          if (!ensayosByMuestraId.has(ensayo.muestra_id)) {
+            ensayosByMuestraId.set(ensayo.muestra_id, []);
           }
-          ensayosByMuestraId[ensayo.muestra_id].push(ensayo);
+          ensayosByMuestraId.get(ensayo.muestra_id).push(ensayo);
         });
       }
     }
@@ -2681,16 +2586,16 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
     // Add ensayos to muestras
     const muestrasWithEnsayos = muestrasData?.map(muestra => ({
       ...muestra,
-      ensayos: ensayosByMuestraId[muestra.id] || []
+      ensayos: ensayosByMuestraId.get(muestra.id) || []
     })) || [];
     
     // Group muestras by muestreo
-    const muestreoMuestrasMap: Record<string, any[]> = {};
+    const muestreoMuestrasMap = new Map();
     muestrasWithEnsayos.forEach(muestra => {
-      if (!muestreoMuestrasMap[muestra.muestreo_id]) {
-        muestreoMuestrasMap[muestra.muestreo_id] = [];
+      if (!muestreoMuestrasMap.has(muestra.muestreo_id)) {
+        muestreoMuestrasMap.set(muestra.muestreo_id, []);
       }
-      muestreoMuestrasMap[muestra.muestreo_id].push(muestra);
+      muestreoMuestrasMap.get(muestra.muestreo_id).push(muestra);
     });
     
     // STEP 3: Create mappings for efficiency metrics
@@ -2700,18 +2605,9 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
     const remisionesMap = new Map();
     remisionesData?.forEach(r => remisionesMap.set(r.id, r));
     
-    // Create recipe versions map
-    const recipeVersionsMap: RecipeVersionsMapType = new Map();
-    recipeVersionsData?.forEach(rv => {
-      // Only add if it doesn't exist or has a higher version (we sorted by version desc)
-      if (!recipeVersionsMap.has(rv.recipe_id)) {
-        recipeVersionsMap.set(rv.recipe_id, rv);
-      }
-    });
-    
     // Group materials by remision
-    const materialsByRemision = new Map<string, any[]>();
-    materialesData?.forEach((mat: any) => {
+    const materialsByRemision = new Map();
+    materialesData?.forEach(mat => {
       if (!materialsByRemision.has(mat.remision_id)) {
         materialsByRemision.set(mat.remision_id, []);
       }
@@ -2723,37 +2619,131 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
     
     const eficienciaPromises = muestreosData.map(async (muestreo) => {
       try {
-        // Calculate client metrics
-        let clasificacion = 'FC';
-        const masaUnitaria = muestreo.masa_unitaria || 0;
-        let sumaMateriales = 0;
-        let kgCemento = 0;
-        let volumenRegistrado = 0;
-        let edadGarantia = 28;
-        let resistenciaPromedio = 0;
+        // Get server metrics using RPC
+        const { data: metricasRPC, error: metricasError } = await supabase
+          .rpc('calcular_metricas_muestreo', {
+            p_muestreo_id: muestreo.id
+          });
         
-        // Get additional data if available
-        const remision = remisionesMap.get(muestreo.remision_id);
-        if (remision) {
-          volumenRegistrado = remision.volumen_fabricado || 0;
-          
-          // Get recipe version
-          const recipeVersion = recipeVersionsMap?.get(remision.recipe_id);
-          if (recipeVersion) {
-            clasificacion = recipeVersion.notes && recipeVersion.notes.toUpperCase().includes('MR') ? 'MR' : 'FC';
-            edadGarantia = recipeVersion.age_days || 28;
-          }
-          
-          // Calculate suma materiales and kg cemento
-          const materiales = materialsByRemision.get(muestreo.remision_id) || [];
-          if (materiales.length > 0) {
-            sumaMateriales = materiales.reduce((sum: number, mat: any) => sum + (mat.cantidad_real || 0), 0);
-            const cementoMaterial = materiales.find((m: any) => m.material_type === 'cement');
-            kgCemento = cementoMaterial ? cementoMaterial.cantidad_real || 0 : 0;
-          }
+        if (metricasError || !metricasRPC || metricasRPC.length === 0) {
+          console.log(`No server metrics for muestreo ${muestreo.id}`);
+          return null;
         }
-
-        // ... existing code ...
+        
+        // Calculate client metrics
+        const remision = remisionesMap.get(muestreo.remision_id);
+        
+        // Get materiales for this remision
+        const materiales = materialsByRemision.get(muestreo.remision_id) || [];
+        
+        // Calculate sums and totals
+        const sumaMateriales = materiales.reduce((sum, mat) => sum + (mat.cantidad_real || 0), 0);
+        const kgCemento = materiales.find(m => m.material_type === 'cement')?.cantidad_real || 0;
+        
+        // Get recipe data from nested object
+        const recipeData = muestreo.remision?.recipe;
+        const edadGarantia = recipeData?.age_days || 28;
+        
+        // Get resistance from ensayos
+        let resistenciaPromedio = 0;
+        const { data: resistenciaData } = await supabase
+          .from('ensayos')
+          .select(`
+            resistencia_calculada,
+            muestra:muestra_id (
+              muestreo_id
+            )
+          `)
+          .eq('muestra.muestreo_id', muestreo.id);
+          
+        if (resistenciaData && resistenciaData.length > 0) {
+          resistenciaPromedio = resistenciaData.reduce((sum, item) => 
+            sum + (item.resistencia_calculada || 0), 0) / resistenciaData.length;
+        }
+        
+        // Handle dates with UTC methods
+        const fechaMuestreoStr = muestreo.fecha_muestreo.split('T')[0];
+        const fechaMuestreo = createUTCDate(fechaMuestreoStr);
+        const fechaFormatted = format(new Date(fechaMuestreoStr.replace(/-/g, '/')), 'dd/MM/yyyy');
+        
+        // Calculate guarantee date
+        const fechaEdadGarantia = new Date(fechaMuestreo);
+        fechaEdadGarantia.setUTCDate(fechaMuestreo.getUTCDate() + edadGarantia);
+        const fechaEdadGarantiaStr = formatUTCDate(fechaEdadGarantia);
+        
+        // Process muestras - EXACTLY the same as debugMuestreosMuestras
+        const muestras = muestreoMuestrasMap.get(muestreo.id) || [];
+        const muestrasProcessed = muestras.map(muestra => {
+          // Get ensayos for this muestra
+          const ensayos = muestra.ensayos || [];
+          
+          // Add edad_dias and is_edad_garantia to each ensayo
+          const ensayosWithAge = ensayos.map(ensayo => {
+            const fechaEnsayoStr = ensayo.fecha_ensayo.split('T')[0];
+            const fechaEnsayo = createUTCDate(fechaEnsayoStr);
+            const diffTime = Math.abs(fechaEnsayo.getTime() - fechaMuestreo.getTime());
+            const edadDias = Math.round(diffTime / (1000 * 60 * 60 * 24));
+            
+            return {
+              ...ensayo,
+              edad_dias: edadDias,
+              is_edad_garantia: Math.abs(edadDias - edadGarantia) <= 1 // Within 1 day of guarantee age
+            };
+          });
+          
+          return {
+            muestra_id: muestra.id,
+            id: muestra.id,
+            identificacion: muestra.identificacion,
+            codigo: muestra.identificacion, // In case codigo is used in UI
+            tipo_muestra: muestra.tipo_muestra,
+            fecha_programada: muestra.fecha_programada_ensayo,
+            fecha_programada_matches_garantia: muestra.fecha_programada_ensayo === fechaEdadGarantiaStr,
+            is_edad_garantia: ensayosWithAge.some(e => e.is_edad_garantia),
+            resistencia: ensayosWithAge.find(e => e.is_edad_garantia)?.resistencia_calculada,
+            cumplimiento: ensayosWithAge.find(e => e.is_edad_garantia)?.porcentaje_cumplimiento,
+            ensayos: ensayosWithAge
+          };
+        });
+        
+        // Determine classification from recipe data
+        let clasificacion = 'FC';
+        if (recipeData?.recipe_code?.includes('MR')) {
+          clasificacion = 'MR';
+        }
+        
+        // Return formatted result - same structure as debugMuestreosMuestras
+        return {
+          id: muestreo.id,
+          remision_id: muestreo.remision_id,
+          fecha: fechaFormatted,
+          fecha_muestreo: fechaMuestreoStr,
+          planta: muestreo.planta,
+          receta: recipeData?.recipe_code || 'N/A',
+          recipe_id: recipeData?.id,
+          recipe_code: recipeData?.recipe_code,
+          clasificacion,
+          
+          // Client-calculated metrics
+          masa_unitaria: muestreo.masa_unitaria || 0,
+          suma_materiales: sumaMateriales,
+          kg_cemento: kgCemento,
+          volumen_registrado: remision?.volumen_fabricado || 0,
+          
+          // Server-calculated metrics
+          volumen_real: metricasRPC[0].volumen_real,
+          rendimiento_volumetrico: metricasRPC[0].rendimiento_volumetrico,
+          consumo_cemento: metricasRPC[0].consumo_cemento_real,
+          resistencia_promedio: resistenciaPromedio,
+          eficiencia: metricasRPC[0].eficiencia || 0,
+          
+          // Relationship data
+          edad_garantia: edadGarantia,
+          fecha_garantia: fechaEdadGarantiaStr,
+          muestras: muestrasProcessed,
+          muestras_count: muestras.length,
+          muestras_garantia_count: muestras.filter(m => m.fecha_programada_ensayo === fechaEdadGarantiaStr).length
+        };
       } catch (err) {
         console.error('Error calculando métricas para muestreo:', muestreo.id, err);
         return null;
@@ -2769,6 +2759,3 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
     return [];
   }
 }
-
-// Define a type for the recipe versions map
-interface RecipeVersionsMapType extends Map<string, { recipe_id: string; recipe_code?: string; notes?: string; age_days?: number }> {}
