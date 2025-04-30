@@ -702,148 +702,144 @@ export async function debugQueryMetricas(fechaDesde: string, fechaHasta: string)
 
 export async function fetchDatosGraficoResistencia(fechaDesde?: string | Date, fechaHasta?: string | Date) {
   try {
-    // Default to last month if dates not provided
-    const desde = fechaDesde 
-      ? (typeof fechaDesde === 'string' ? fechaDesde.split('T')[0] : format(fechaDesde, 'yyyy-MM-dd'))
-      : format(subMonths(new Date(), 1), 'yyyy-MM-dd');
-    
-    const hasta = fechaHasta 
-      ? (typeof fechaHasta === 'string' ? fechaHasta.split('T')[0] : format(fechaHasta, 'yyyy-MM-dd'))
-      : format(new Date(), 'yyyy-MM-dd');
-      
-    console.log('Fetching graph data with date range:', { desde, hasta });
-    
-    // Use more robust date filtering with filter method
-    try {
-      // Directly query ensayos first to confirm data exists
-      const { data: countData, error: countError } = await supabase
-        .from('ensayos')
-        .select('id', { count: 'exact' })
-        .filter('fecha_ensayo', 'gte', desde)
-        .filter('fecha_ensayo', 'lte', hasta);
-        
-      console.log('Count check:', { count: countData?.length, countError });
-      
-      if (countError) {
-        console.error('Error counting ensayos:', countError);
-      }
-      
-      const { data, error } = await supabase
-        .from('ensayos')
-        .select(`
-          id,
-          fecha_ensayo,
-          resistencia_calculada,
-          porcentaje_cumplimiento,
-          muestra_id,
-          muestras:muestra_id (
-            muestreo_id,
-            muestreos:muestreo_id (
-              remision_id,
-              remisiones:remision_id (
-                recipe_id,
-                recipe:recipes(
-                  id,
-                  age_days,
-                  recipe_versions(*)
-                )
-              )
+    // Ensure dates are formatted correctly
+    const formattedFechaDesde = fechaDesde 
+      ? (typeof fechaDesde === 'string' 
+          ? fechaDesde 
+          : format(fechaDesde, 'yyyy-MM-dd'))
+      : undefined;
+
+    const formattedFechaHasta = fechaHasta 
+      ? (typeof fechaHasta === 'string' 
+          ? fechaHasta 
+          : format(fechaHasta, 'yyyy-MM-dd'))
+      : undefined;
+
+    console.log('🔍 Fetching Resistance Graph Data', {
+      fechaDesde: formattedFechaDesde,
+      fechaHasta: formattedFechaHasta
+    });
+
+    let query = supabase
+      .from('ensayos')
+      .select(`
+        id, 
+        fecha_ensayo, 
+        porcentaje_cumplimiento,
+        muestra:muestra_id (
+          *,
+          muestreo:muestreo_id (
+            *,
+            remision:remision_id (
+              *,
+              recipe:recipes(*)
             )
           )
-        `)
-        .filter('fecha_ensayo', 'gte', desde)
-        .filter('fecha_ensayo', 'lte', hasta)
-        .order('fecha_ensayo', { ascending: true });
-      
-      console.log('Graph data response:', { dataLength: data?.length, error });
-        
-      if (error) {
-        console.error('Error fetching graph data:', error);
-        throw error;
-      }
-      
-      if (!data || data.length === 0) {
-        console.warn('No data found for graph within date range', { desde, hasta });
-        return [];
-      }
-      
-      // Format data for chart
-      const chartData: DatoGraficoResistencia[] = data.map(dato => {
-        // Just use `any` type assertion to bypass type checking for the complex nested structure
-        const muestras = dato.muestras as any;
-        
-        // Default values
-        let recipeVersions: any[] = [];
-        let edadGarantia = 28;
-        
-        // Try to access the nested properties
-        try {
-          if (muestras && muestras.muestreos && 
-              muestras.muestreos.remisiones && 
-              muestras.muestreos.remisiones.recipe) {
-            recipeVersions = muestras.muestreos.remisiones.recipe.recipe_versions || [];
-            edadGarantia = muestras.muestreos.remisiones.recipe.age_days || 28;
-          }
-        } catch (e) {
-          console.error('Error accessing nested properties', e);
-        }
-        
-        // Determine classification from recipe notes
-        const currentVersion = recipeVersions.find((v: any) => v.is_current === true);
-        const clasificacion = currentVersion?.notes?.includes('MR') ? 'MR' : 'FC';
-        
-        return {
-          x: format(new Date(dato.fecha_ensayo), 'dd/MM/yyyy'),
-          y: dato.porcentaje_cumplimiento,
-          clasificacion: clasificacion as 'FC' | 'MR',
-          edad: edadGarantia
-        };
-      });
-      
-      console.log('Processed chart data:', { points: chartData.length });
-      
-      return chartData;
-    } catch (error) {
-      console.error('Error in main query approach:', error);
-      
-      // Try fallback approach with a simpler query
-      console.log('Trying fallback approach with simpler query...');
-      
-      const { data: simpleData, error: simpleError } = await supabase
-        .from('ensayos')
-        .select('id, fecha_ensayo, porcentaje_cumplimiento')
-        .filter('fecha_ensayo', 'gte', desde)
-        .filter('fecha_ensayo', 'lte', hasta)
-        .order('fecha_ensayo', { ascending: true });
-        
-      if (simpleError) {
-        console.error('Error in fallback query:', simpleError);
-        throw simpleError;
-      }
-      
-      if (!simpleData || simpleData.length === 0) {
-        console.warn('No data found in fallback query');
-        return [];
-      }
-      
-      // Create simplified chart data
-      const simpleChartData: DatoGraficoResistencia[] = simpleData.map(dato => ({
-        x: format(new Date(dato.fecha_ensayo), 'dd/MM/yyyy'),
-        y: dato.porcentaje_cumplimiento,
-        clasificacion: 'FC', // Default as we don't have the nested data
-        edad: 28  // Default as we don't have the nested data
-      }));
-      
-      console.log('Processed fallback chart data:', { points: simpleChartData.length });
-      
-      return simpleChartData;
+        )
+      `)
+      .order('fecha_ensayo', { ascending: true });
+
+    // Apply date filters if provided
+    if (formattedFechaDesde) {
+      query = query.gte('fecha_ensayo', formattedFechaDesde);
     }
+    if (formattedFechaHasta) {
+      query = query.lte('fecha_ensayo', formattedFechaHasta);
+    }
+
+    const { data, error } = await query;
+
+    console.log('📊 Raw Ensayos Data', {
+      count: data?.length || 0,
+      firstRecord: data?.[0],
+      error
+    });
+
+    if (error) {
+      console.error('❌ Error fetching graph data:', error);
+      throw error;
+    }
+
+    // Process the chart data with detailed logging
+    const processedData = processChartData(data);
+
+    console.log('📈 Processed Chart Data', {
+      count: processedData.length,
+      firstDataPoint: processedData[0],
+      lastDataPoint: processedData[processedData.length - 1]
+    });
+
+    return processedData;
   } catch (error) {
-    handleError(error, 'fetchDatosGraficoResistencia');
-    console.error('Full error in fetchDatosGraficoResistencia:', error);
-    return [] as DatoGraficoResistencia[];
+    console.error('🚨 Comprehensive Error in fetchDatosGraficoResistencia:', error);
+    return [];
   }
 }
+
+const processChartData = (data: any[]): DatoGraficoResistencia[] => {
+  console.log('🔬 Processing Chart Data', {
+    totalInputRecords: data.length
+  });
+
+  const validData = data.filter(item => {
+    const isValid = item.fecha_ensayo && 
+                    item.porcentaje_cumplimiento !== null && 
+                    item.porcentaje_cumplimiento !== undefined;
+    
+    if (!isValid) {
+      console.warn('❗ Filtered out invalid data point:', item);
+    }
+    
+    return isValid;
+  });
+
+  console.log('✅ Valid Data Points', {
+    validCount: validData.length
+  });
+
+  const processedData = validData.map(item => {
+    try {
+      // Try parsing the date in multiple formats
+      let timestamp: number;
+      
+      // Try parsing DD/MM/YYYY format
+      if (item.fecha_ensayo.includes('/')) {
+        const [day, month, year] = item.fecha_ensayo.split('/').map(Number);
+        timestamp = new Date(year, month - 1, day).getTime();
+      } 
+      // Try parsing YYYY-MM-DD format
+      else {
+        timestamp = new Date(item.fecha_ensayo).getTime();
+      }
+
+      if (isNaN(timestamp)) {
+        console.warn('❌ Invalid timestamp for:', item.fecha_ensayo);
+        return null;
+      }
+
+      return {
+        x: timestamp,
+        y: item.porcentaje_cumplimiento,
+        clasificacion: item.muestra?.muestreo?.remision?.recipe?.recipe_code ? 
+          (item.muestra.muestreo.remision.recipe.recipe_code.includes('MR') ? 'MR' : 'FC') 
+          : 'FC',
+        edad: 28, // Default age
+        fecha_ensayo: item.fecha_ensayo
+      };
+    } catch (parseError) {
+      console.warn('❌ Error parsing data point:', parseError, item);
+      return null;
+    }
+  }).filter((item): item is DatoGraficoResistencia => item !== null);
+
+  console.log('🎉 Final Processed Data', {
+    processedCount: processedData.length,
+    firstDataPoint: processedData[0],
+    lastDataPoint: processedData[processedData.length - 1]
+  });
+
+  return processedData;
+};
 
 // RPC Helper Functions
 export async function calcularResistencia(clasificacion: 'FC' | 'MR', tipoMuestra: 'CILINDRO' | 'VIGA', cargaKg: number) {
@@ -1090,38 +1086,168 @@ export async function fetchResistenciaReporteData(fechaDesde?: string | Date, fe
     }
     
     // Format data for report
-    const reportData = data.map(ensayo => {
+    console.log('DEBUG: Starting resistance report data processing');
+    console.log(`DEBUG: Found ${data.length} total resistance test records`);
+
+    // Create a type-safe accumulator
+    interface GroupedMuestreo {
+      [key: string]: {
+        muestreo: any;
+        ensayos: any[];
+        debug?: any;
+      }
+    }
+
+    const groupedByMuestreo: GroupedMuestreo = data.reduce((acc: GroupedMuestreo, ensayo) => {
       // Type assertion for complex nested structure
       const muestra = ensayo.muestra as any;
+      const muestreoId = muestra?.muestreo?.id;
       
-      // Calculate días de edad between fecha_muestreo and fecha_ensayo
-      const fechaMuestreo = new Date(muestra?.muestreo?.fecha_muestreo || '');
-      const fechaEnsayo = new Date(ensayo.fecha_ensayo);
-      const diasEdad = Math.floor((fechaEnsayo.getTime() - fechaMuestreo.getTime()) / (1000 * 60 * 60 * 24));
+      if (!muestreoId) return acc;
       
-      // Get classification from recipe notes
-      const recipeVersions = muestra?.muestreo?.remision?.recipe?.recipe_versions || [];
-      const currentVersion = recipeVersions.find((v: any) => v.is_current === true);
-      const clasificacionReceta = currentVersion?.notes?.includes('MR') ? 'MR' : 'FC';
-      
-      // Only include if classification matches filter (if provided)
-      if (clasificacion && clasificacion !== 'all' && clasificacionReceta !== clasificacion) {
-        return null;
+      if (!acc[muestreoId]) {
+        acc[muestreoId] = {
+          muestreo: muestra?.muestreo,
+          ensayos: [],
+          debug: {
+            muestreoId,
+            muestreoDate: muestra?.muestreo?.fecha_muestreo,
+            recipeId: muestra?.muestreo?.remision?.recipe?.id,
+            ageGuarantee: muestra?.muestreo?.remision?.recipe?.age_days
+          }
+        };
       }
       
-      return {
+      acc[muestreoId].ensayos.push({
         id: ensayo.id,
-        fechaEnsayo: format(new Date(ensayo.fecha_ensayo), 'dd/MM/yyyy'),
-        muestra: muestra?.identificacion || '',
-        clasificacion: clasificacionReceta,
-        edadDias: diasEdad,
-        cargaKg: ensayo.carga_kg,
-        resistencia: ensayo.resistencia_calculada,
-        cumplimiento: ensayo.porcentaje_cumplimiento,
-        planta: muestra?.muestreo?.planta || ''
-      };
-    }).filter(Boolean); // Remove null entries (filtered by classification)
+        fecha_ensayo: ensayo.fecha_ensayo,
+        muestra_id: muestra?.id,
+        fecha_programada_ensayo: muestra?.fecha_programada_ensayo,
+        resistencia_calculada: ensayo.resistencia_calculada,
+        porcentaje_cumplimiento: ensayo.porcentaje_cumplimiento,
+        carga_kg: ensayo.carga_kg,
+        identificacion: muestra?.identificacion
+      });
+      
+      return acc;
+    }, {});
     
+    console.log(`DEBUG: Grouped into ${Object.keys(groupedByMuestreo).length} muestreos`);
+    
+    // Process each muestreo to filter for correct tests at guarantee age
+    const reportData = Object.values(groupedByMuestreo)
+      .map((group: any) => {
+        const muestreo = group.muestreo;
+        if (!muestreo) {
+          console.log('DEBUG: Skipping group - No muestreo data');
+          return null;
+        }
+        
+        // Get recipe data
+        const recipe = muestreo?.remision?.recipe;
+        if (!recipe) {
+          console.log(`DEBUG: Skipping muestreo ${muestreo.id} - No recipe data`);
+          return null;
+        }
+        
+        // Get classification
+        const recipeVersions = recipe?.recipe_versions || [];
+        const currentVersion = recipeVersions.find((v: any) => v.is_current === true);
+        const clasificacionReceta = currentVersion?.notes?.includes('MR') ? 'MR' : 'FC';
+        
+        // Only include if classification matches filter (if provided)
+        if (clasificacion && clasificacion !== 'all' && clasificacionReceta !== clasificacion) {
+          console.log(`DEBUG: Skipping muestreo ${muestreo.id} - Classification doesn't match filter (${clasificacionReceta} vs ${clasificacion})`);
+          return null;
+        }
+        
+        // Get guarantee age
+        const edadGarantia = recipe.age_days || 28;
+        
+        // Calculate guarantee date
+        const fechaMuestreo = new Date(muestreo.fecha_muestreo);
+        const fechaEdadGarantia = new Date(fechaMuestreo);
+        fechaEdadGarantia.setDate(fechaMuestreo.getDate() + edadGarantia);
+        const fechaEdadGarantiaStr = fechaEdadGarantia.toISOString().split('T')[0];
+        
+        console.log(`DEBUG: Muestreo ${muestreo.id} - Looking for tests on guarantee date ${fechaEdadGarantiaStr} (${edadGarantia} days)`);
+        
+        // Log all sample dates to help debug
+        console.log('DEBUG: Available muestra scheduled dates:');
+        group.ensayos.forEach((ensayo: any) => {
+          console.log(`  - Ensayo ${ensayo.id}: programada=${ensayo.fecha_programada_ensayo}, real=${ensayo.fecha_ensayo}`);
+        });
+        
+        // Find tests at guarantee age with 1-day tolerance
+        const ensayosEdadGarantia = group.ensayos.filter((ensayo: any) => {
+          // Check if the date is the exact guarantee date or ±1 day
+          const fecha = ensayo.fecha_programada_ensayo ? new Date(ensayo.fecha_programada_ensayo) : null;
+          if (!fecha) return false;
+          
+          const fechaGarantia = new Date(fechaEdadGarantiaStr);
+          
+          // Calculate difference in days
+          const diffTime = Math.abs(fecha.getTime() - fechaGarantia.getTime());
+          const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+          
+          const matches = diffDays <= 1; // Allow ±1 day tolerance
+          
+          console.log(`DEBUG: Checking ensayo ${ensayo.id} - fecha_programada=${ensayo.fecha_programada_ensayo}, garantia=${fechaEdadGarantiaStr}, diff=${diffDays} days, match=${matches}`);
+          
+          return matches;
+        });
+        
+        console.log(`DEBUG: Found ${ensayosEdadGarantia.length} tests at guarantee age for muestreo ${muestreo.id}`);
+        
+        if (ensayosEdadGarantia.length === 0) {
+          console.log(`DEBUG: No tests found at guarantee age for muestreo ${muestreo.id}`);
+          
+          // DEBUG - Include all tests with debug info
+          return group.ensayos.map((ensayo: any) => ({
+            id: ensayo.id,
+            fechaEnsayo: format(new Date(ensayo.fecha_ensayo), 'dd/MM/yyyy'),
+            muestra: ensayo.identificacion || '',
+            clasificacion: clasificacionReceta,
+            edadDias: edadGarantia,
+            edadGarantia: edadGarantia,
+            cargaKg: ensayo.carga_kg,
+            resistencia: ensayo.resistencia_calculada,
+            cumplimiento: ensayo.porcentaje_cumplimiento,
+            planta: muestreo.planta || '',
+            muestreoId: muestreo.id || '',
+            muestreoFecha: format(new Date(muestreo.fecha_muestreo), 'dd/MM/yyyy'),
+            muestraCodigo: ensayo.identificacion || '',
+            _debug: {
+              fecha_programada: ensayo.fecha_programada_ensayo,
+              fecha_garantia_calculada: fechaEdadGarantiaStr,
+              matches: ensayo.fecha_programada_ensayo === fechaEdadGarantiaStr,
+              edad_garantia: edadGarantia,
+              fecha_muestreo: muestreo.fecha_muestreo
+            }
+          }));
+        }
+        
+        // Return data for each test at guarantee age
+        return ensayosEdadGarantia.map((ensayo: any) => ({
+          id: ensayo.id,
+          fechaEnsayo: format(new Date(ensayo.fecha_ensayo), 'dd/MM/yyyy'),
+          muestra: ensayo.identificacion || '',
+          clasificacion: clasificacionReceta,
+          edadDias: edadGarantia,
+          edadGarantia: edadGarantia,
+          cargaKg: ensayo.carga_kg,
+          resistencia: ensayo.resistencia_calculada,
+          cumplimiento: ensayo.porcentaje_cumplimiento,
+          planta: muestreo.planta || '',
+          muestreoId: muestreo.id || '',
+          muestreoFecha: format(new Date(muestreo.fecha_muestreo), 'dd/MM/yyyy'),
+          muestraCodigo: ensayo.identificacion || ''
+        }));
+      })
+      .filter(Boolean) // Remove null entries
+      .flat(); // Flatten the array of arrays
+    
+    console.log(`DEBUG: Final report data has ${reportData.length} entries`);
     return reportData;
   } catch (error) {
     handleError(error, 'fetchResistenciaReporteData');
@@ -1147,51 +1273,229 @@ export async function fetchEficienciaReporteData(fechaDesde?: string | Date, fec
         id,
         fecha_muestreo,
         planta,
-        remision:remision_id (
-          id,
-          volumen_fabricado,
-          remision_materiales (
-            id,
-            material_type,
-            cantidad_real
-          ),
-          recipe:recipe_id (
-            id,
-            recipe_code,
-            strength_fc
-          )
-        )
+        masa_unitaria,
+        remision_id
       `)
-      .filter('fecha_muestreo', 'gte', desde)
-      .filter('fecha_muestreo', 'lte', hasta);
+      .gte('fecha_muestreo', desde)
+      .lte('fecha_muestreo', hasta);
       
     // Apply plant filter if provided
     if (planta && planta !== 'all') {
       query = query.eq('planta', planta);
     }
     
-    const { data, error } = await query;
+    const { data: muestreosData, error: muestreosError } = await query;
     
-    if (error) throw error;
+    if (muestreosError) throw muestreosError;
     
     // If no data, return empty array
-    if (!data || data.length === 0) {
+    if (!muestreosData || muestreosData.length === 0) {
       return [];
     }
     
-    // Calculate efficiency metrics for each muestreo
-    const eficienciaData = await Promise.all(data.map(async (muestreo) => {
-      try {
-        // Type assertion for complex nested structure
-        const remision = muestreo.remision as any;
+    // Get remisiones data
+    const remisionIds = muestreosData.map(m => m.remision_id).filter(Boolean);
+    
+    // Log for debugging
+    console.log('Remision IDs to fetch:', remisionIds);
+    
+    // Define types for our data
+    interface RemisionData {
+      id: string;
+      recipe_id: string;
+      volumen_fabricado: number;
+      planta?: string;
+      planta_nombre?: string;
+    }
+    
+    interface RecipeVersionData {
+      recipe_id: string;
+      recipe_code: string;
+      notes: string;
+      age_days: number;
+    }
+    
+    interface MaterialData {
+      remision_id: string;
+      material_type: string;
+      cantidad_real: number;
+    }
+    
+    // Fetch all related data in parallel
+    let remisionesData: RemisionData[] = [];
+    let materialesData: MaterialData[] = [];
+    let recipeVersionsData: RecipeVersionData[] = [];
+    
+    // Handle each query separately to isolate errors
+    try {
+      // Fetch remisiones
+      const { data, error } = await supabase
+        .from('remisiones')
+        .select('id, recipe_id, volumen_fabricado')
+        .eq('id', remisionIds.length > 0 ? remisionIds[0] : ''); // Start with just one ID for debugging
         
-        // Call the server-side function to calculate metrics
-        const { data: metricas, error } = await supabase
+      if (error) throw error;
+      remisionesData = data || [];
+      
+      // Try fetching all remisiones if first one succeeded
+      if (remisionIds.length > 1) {
+        const promises = remisionIds.slice(1).map(id => 
+          supabase
+            .from('remisiones')
+            .select('id, recipe_id, volumen_fabricado')
+            .eq('id', id)
+            .then(({ data }) => data && data.length > 0 ? data[0] as RemisionData : null)
+        );
+        
+        const results = await Promise.all(promises);
+        const validResults = results.filter((item): item is RemisionData => item !== null);
+        remisionesData = [...remisionesData, ...validResults];
+      }
+    } catch (error) {
+      console.error('Error fetching remisiones:', error);
+    }
+    
+    try {
+      // Fetch materiales
+      const { data, error } = await supabase
+        .from('remision_materiales')
+        .select('remision_id, material_type, cantidad_real')
+        .in('remision_id', remisionIds);
+        
+      if (error) throw error;
+      materialesData = data || [];
+    } catch (error) {
+      console.error('Error fetching materiales:', error);
+    }
+    
+    try {
+      // Fetch recipe data - we need to query both tables
+      const recipeIds = remisionesData
+        .map(r => r.recipe_id)
+        .filter(Boolean);
+        
+      if (recipeIds.length > 0) {
+        // First get the recipe_code and age_days from recipes table
+        const { data: recipesData, error: recipesError } = await supabase
+          .from('recipes')
+          .select('id, recipe_code, age_days')
+          .in('id', recipeIds);
+          
+        if (recipesError) throw recipesError;
+        
+        // Then get the notes from recipe_versions table
+        const { data: versionsData, error: versionsError } = await supabase
+          .from('recipe_versions')
+          .select('recipe_id, notes')
+          .in('recipe_id', recipeIds);
+          
+        if (versionsError) throw versionsError;
+        
+        // Combine the data
+        recipeVersionsData = recipesData ? recipesData.map(recipe => {
+          // Find matching version notes if available
+          const versionData = versionsData?.find(v => v.recipe_id === recipe.id);
+          
+          return {
+            recipe_id: recipe.id,
+            recipe_code: recipe.recipe_code || '',
+            notes: versionData?.notes || '',
+            age_days: recipe.age_days || 28
+          };
+        }) : [];
+      }
+    } catch (error) {
+      console.error('Error fetching recipe data:', error);
+    }
+
+    // Create type-safe lookup maps
+    const remisionesMap = new Map<string, RemisionData>();
+    const recipeVersionsMap = new Map<string, RecipeVersionData>();
+    const materialesMap = new Map<string, MaterialData[]>();
+    
+    // Create a mapping between remision_id and planta from muestreos
+    const muestreoPlantaMap = new Map<string, string>();
+    muestreosData.forEach(muestreo => {
+      if (muestreo.remision_id) {
+        muestreoPlantaMap.set(muestreo.remision_id, muestreo.planta);
+      }
+    });
+
+    // Populate maps
+    remisionesData.forEach((remision: any) => {
+      const plantaFromMuestreo = muestreoPlantaMap.get(remision.id) || '';
+      remisionesMap.set(remision.id, {
+        id: remision.id,
+        recipe_id: remision.recipe_id,
+        volumen_fabricado: remision.volumen_fabricado,
+        planta: plantaFromMuestreo,
+        planta_nombre: `Planta ${plantaFromMuestreo}` // Use planta from muestreo instead
+      });
+    });
+
+    recipeVersionsData.forEach((version: any) => {
+      recipeVersionsMap.set(version.recipe_id, {
+        recipe_id: version.recipe_id,
+        recipe_code: version.recipe_code,
+        notes: version.notes,
+        age_days: version.age_days
+      });
+    });
+
+    materialesData.forEach((material: any) => {
+      if (!materialesMap.has(material.remision_id)) {
+        materialesMap.set(material.remision_id, []);
+      }
+      const materialesArray = materialesMap.get(material.remision_id);
+      if (materialesArray) {
+        materialesArray.push({
+          remision_id: material.remision_id,
+          material_type: material.material_type,
+          cantidad_real: material.cantidad_real
+        });
+      }
+    });
+
+    // Get metrics for each muestreo using RPC and client-side data
+    const eficienciaPromises = muestreosData.map(async (muestreo) => {
+      try {
+        // Get server metrics using RPC
+        const { data: metricasRPC, error: metricasError } = await supabase
           .rpc('calcular_metricas_muestreo', {
             p_muestreo_id: muestreo.id
           });
+        
+        if (metricasError || !metricasRPC || metricasRPC.length === 0) return null;
+        
+        // Calculate client metrics
+        let clasificacion = 'FC';
+        const masaUnitaria = muestreo.masa_unitaria || 0;
+        let sumaMateriales = 0;
+        let kgCemento = 0;
+        let volumenRegistrado = 0;
+        let edadGarantia = 28;
+        let resistenciaPromedio = 0;
+        
+        // Get additional data if available
+        const remision = remisionesMap.get(muestreo.remision_id);
+        if (remision) {
+          volumenRegistrado = remision.volumen_fabricado || 0;
           
-        if (error) throw error;
+          // Get recipe version
+          const recipeVersion = recipeVersionsMap.get(remision.recipe_id);
+          if (recipeVersion) {
+            clasificacion = recipeVersion.notes && recipeVersion.notes.toUpperCase().includes('MR') ? 'MR' : 'FC';
+            edadGarantia = recipeVersion.age_days || 28;
+          }
+          
+          // Calculate suma materiales and kg cemento
+          const materiales = materialesMap.get(remision.id) || [];
+          if (materiales.length > 0) {
+            sumaMateriales = materiales.reduce((sum: number, mat: MaterialData) => sum + (mat.cantidad_real || 0), 0);
+            const cementoMaterial = materiales.find((m: MaterialData) => m.material_type === 'cement');
+            kgCemento = cementoMaterial ? cementoMaterial.cantidad_real || 0 : 0;
+          }
+        }
         
         // Get average resistance for this muestreo
         const { data: resistenciaData, error: resistenciaError } = await supabase
@@ -1204,35 +1508,38 @@ export async function fetchEficienciaReporteData(fechaDesde?: string | Date, fec
           `)
           .eq('muestra.muestreo_id', muestreo.id);
           
-        if (resistenciaError) throw resistenciaError;
-        
-        const resistenciaPromedio = resistenciaData?.length 
-          ? resistenciaData.reduce((sum, item) => sum + (item.resistencia_calculada || 0), 0) / resistenciaData.length
-          : 0;
-        
-        // Find cement material
-        const materialesList = remision?.remision_materiales || [];
-        const cementoMaterial = materialesList.find((m: any) => m.material_type === 'cement');
+        if (!resistenciaError && resistenciaData && resistenciaData.length > 0) {
+          resistenciaPromedio = resistenciaData.reduce((sum: number, item: any) => sum + (item.resistencia_calculada || 0), 0) / resistenciaData.length;
+        }
         
         return {
           id: muestreo.id,
           fecha: format(new Date(muestreo.fecha_muestreo), 'dd/MM/yyyy'),
           planta: muestreo.planta,
-          receta: remision?.recipe?.recipe_code || '',
-          volumeReal: metricas?.volumen_real || 0,
-          rendimientoVolumetrico: metricas?.rendimiento_volumetrico || 0,
-          kgCemento: cementoMaterial?.cantidad_real || 0,
-          resistenciaPromedio,
-          eficiencia: metricas?.eficiencia || 0
+          receta: remision && recipeVersionsMap.get(remision.recipe_id)?.recipe_code || 
+                  (remision ? `${remision.recipe_id}` : 'N/A'),
+          clasificacion,
+          // Client-calculated fields
+          masa_unitaria: masaUnitaria,
+          suma_materiales: sumaMateriales,
+          kg_cemento: kgCemento,
+          volumen_registrado: volumenRegistrado,
+          // Server-calculated fields from RPC
+          volumen_real: metricasRPC[0].volumen_real,
+          rendimiento_volumetrico: metricasRPC[0].rendimiento_volumetrico,
+          consumo_cemento: metricasRPC[0].consumo_cemento_real,
+          resistencia_promedio: resistenciaPromedio,
+          eficiencia: metricasRPC[0].eficiencia || 0
         };
       } catch (err) {
         console.error('Error calculando métricas para muestreo:', muestreo.id, err);
         return null;
       }
-    }));
+    });
     
     // Filter out null values from failed calculations
-    return eficienciaData.filter(Boolean) as any[];
+    const eficienciaData = (await Promise.all(eficienciaPromises)).filter(Boolean);
+    return eficienciaData;
   } catch (error) {
     handleError(error, 'fetchEficienciaReporteData');
     return [];
@@ -1717,3 +2024,759 @@ export async function fetchMetricasCalidadSimple(fechaDesde?: string | Date, fec
     };
   }
 } 
+
+// Debug function to analyze relationships between muestreos and muestras
+export async function debugMuestreosMuestras(fechaDesde?: string | Date, fechaHasta?: string | Date) {
+  try {
+    // Default to last 3 months if dates not provided
+    const desde = fechaDesde 
+      ? (typeof fechaDesde === 'string' ? fechaDesde.split('T')[0] : format(fechaDesde, 'yyyy-MM-dd'))
+      : format(subMonths(new Date(), 3), 'yyyy-MM-dd');
+    
+    const hasta = fechaHasta 
+      ? (typeof fechaHasta === 'string' ? fechaHasta.split('T')[0] : format(fechaHasta, 'yyyy-MM-dd'))
+      : format(new Date(), 'yyyy-MM-dd');
+    
+    console.log(`Fetching muestreos from ${desde} to ${hasta}`);
+    
+    // First, get all muestreos in date range
+    const { data: muestreosData, error: muestreosError } = await supabase
+      .from('muestreos')
+      .select(`
+        id,
+        fecha_muestreo,
+        planta,
+        remision_id,
+        remision:remision_id (
+          recipe:recipe_id (
+            id,
+            recipe_code,
+            age_days
+          )
+        )
+      `)
+      .gte('fecha_muestreo', desde)
+      .lte('fecha_muestreo', hasta)
+      .order('fecha_muestreo', { ascending: false });
+    
+    if (muestreosError) {
+      console.error('Error fetching muestreos:', muestreosError);
+      return { error: muestreosError.message, results: [] };
+    }
+    
+    if (!muestreosData || muestreosData.length === 0) {
+      console.log('No muestreos found in date range');
+      return { 
+        total_muestreos: 0, 
+        total_muestras_ensayado: 0, 
+        results: [] 
+      };
+    }
+    
+    console.log(`Found ${muestreosData.length} muestreos`);
+    
+    // Now fetch all related muestras with ensayos
+    const muestreoIds = muestreosData.map(m => m.id);
+    
+    // First get muestras without ensayos to avoid relationship error
+    const { data: muestrasData, error: muestrasError } = await supabase
+      .from('muestras')
+      .select(`
+        id,
+        muestreo_id,
+        identificacion,
+        tipo_muestra,
+        estado,
+        fecha_programada_ensayo,
+        created_at
+      `)
+      .in('muestreo_id', muestreoIds)
+      .eq('estado', 'ENSAYADO');
+    
+    if (muestrasError) {
+      console.error('Error fetching muestras:', muestrasError);
+      return { error: muestrasError.message, results: [] };
+    }
+    
+    if (!muestrasData || muestrasData.length === 0) {
+      console.log('No ensayado muestras found');
+      return { 
+        total_muestreos: muestreosData.length, 
+        total_muestras_ensayado: 0, 
+        results: [] 
+      };
+    }
+    
+    console.log(`Found ${muestrasData.length} ensayado muestras`);
+    
+    // Now fetch ensayos separately
+    const ensayosByMuestraId: Record<string, any[]> = {};
+    
+    if (muestrasData && muestrasData.length > 0) {
+      const muestraIds = muestrasData.map(m => m.id);
+      const { data: ensayosData, error: ensayosError } = await supabase
+        .from('ensayos')
+        .select(`
+          id,
+          muestra_id,
+          fecha_ensayo,
+          resistencia_calculada,
+          porcentaje_cumplimiento
+        `)
+        .in('muestra_id', muestraIds);
+      
+      if (ensayosError) {
+        console.error('Error fetching ensayos:', ensayosError);
+        // Continue with muestras even if ensayos have errors
+      } else if (ensayosData && ensayosData.length > 0) {
+        // Group ensayos by muestra_id
+        ensayosData.forEach(ensayo => {
+          if (!ensayosByMuestraId[ensayo.muestra_id]) {
+            ensayosByMuestraId[ensayo.muestra_id] = [];
+          }
+          ensayosByMuestraId[ensayo.muestra_id].push(ensayo);
+        });
+      }
+    }
+    
+    // Add ensayos to muestras
+    const muestrasWithEnsayos = muestrasData?.map(muestra => ({
+      ...muestra,
+      ensayos: ensayosByMuestraId[muestra.id] || []
+    })) || [];
+    
+    // Group muestras by muestreo
+    const muestreoMuestrasMap: Record<string, any[]> = {};
+    muestrasWithEnsayos.forEach(muestra => {
+      if (!muestreoMuestrasMap[muestra.muestreo_id]) {
+        muestreoMuestrasMap[muestra.muestreo_id] = [];
+      }
+      muestreoMuestrasMap[muestra.muestreo_id].push(muestra);
+    });
+    
+    // Combine and analyze data
+    const results = muestreosData.map((muestreo: any) => {
+      const muestras = muestreoMuestrasMap[muestreo.id] || [];
+      // Type assertion for nested objects to fix TypeScript errors
+      const recipeData = muestreo.remision?.recipe as any;
+      const edadGarantia = recipeData?.age_days || 28;
+      
+      // Calculate the guarantee date using UTC to avoid timezone issues
+      const fechaMuestreoStr = muestreo.fecha_muestreo.split('T')[0];
+      const fechaMuestreo = createUTCDate(fechaMuestreoStr);
+      const fechaEdadGarantia = new Date(fechaMuestreo);
+      fechaEdadGarantia.setUTCDate(fechaMuestreo.getUTCDate() + edadGarantia);
+      const fechaEdadGarantiaStr = formatUTCDate(fechaEdadGarantia);
+      
+      // Analyze each muestra and its ensayos
+      const muestrasAnalysis = muestras.map(muestra => {
+        // Get ensayo data if available
+        const ensayos = muestra.ensayos || [];
+        
+        // For each ensayo, calculate the age in days from muestreo
+        const ensayosWithAge = ensayos.map((ensayo: any) => {
+          const fechaEnsayoStr = ensayo.fecha_ensayo.split('T')[0];
+          const fechaEnsayo = createUTCDate(fechaEnsayoStr);
+          const diffTime = Math.abs(fechaEnsayo.getTime() - fechaMuestreo.getTime());
+          const edadDias = Math.round(diffTime / (1000 * 60 * 60 * 24));
+          
+          return {
+            ...ensayo,
+            edad_dias: edadDias,
+            is_edad_garantia: Math.abs(edadDias - edadGarantia) <= 1, // Within 1 day of guarantee age
+            fecha_programada_matches_garantia: muestra.fecha_programada_ensayo === fechaEdadGarantiaStr
+          };
+        });
+        
+        return {
+          muestra_id: muestra.id,
+          identificacion: muestra.identificacion,
+          tipo_muestra: muestra.tipo_muestra,
+          fecha_programada: muestra.fecha_programada_ensayo,
+          fecha_programada_matches_garantia: muestra.fecha_programada_ensayo === fechaEdadGarantiaStr,
+          ensayos: ensayosWithAge
+        };
+      });
+      
+      return {
+        muestreo_id: muestreo.id,
+        fecha_muestreo: muestreo.fecha_muestreo,
+        planta: muestreo.planta,
+        recipe_id: recipeData?.id,
+        recipe_code: recipeData?.recipe_code,
+        edad_garantia: edadGarantia,
+        fecha_garantia: fechaEdadGarantiaStr,
+        muestras: muestrasAnalysis,
+        muestras_count: muestras.length,
+        muestras_garantia_count: muestras.filter(m => m.fecha_programada_ensayo === fechaEdadGarantiaStr).length
+      };
+    });
+    
+    return {
+      total_muestreos: muestreosData.length,
+      total_muestras_ensayado: muestrasData.length,
+      results: results
+    };
+    
+  } catch (error) {
+    console.error('Error in debug function:', error);
+    return { error: String(error), results: [] };
+  }
+}
+
+// Fixed version that directly accesses related tables
+export async function fetchResistenciaReporteDataFixed(fechaDesde?: string | Date, fechaHasta?: string | Date, planta?: string, clasificacion?: string) {
+  try {
+    // Default to last 3 months if dates not provided
+    const desde = fechaDesde 
+      ? (typeof fechaDesde === 'string' ? fechaDesde.split('T')[0] : format(fechaDesde, 'yyyy-MM-dd'))
+      : format(subMonths(new Date(), 3), 'yyyy-MM-dd');
+    
+    const hasta = fechaHasta 
+      ? (typeof fechaHasta === 'string' ? fechaHasta.split('T')[0] : format(fechaHasta, 'yyyy-MM-dd'))
+      : format(new Date(), 'yyyy-MM-dd');
+    
+    // First get all muestreos with their related recipe data
+    let muestreosQuery = supabase
+      .from('muestreos')
+      .select(`
+        id,
+        fecha_muestreo,
+        planta,
+        remision:remision_id (
+          id,
+          recipe:recipe_id (
+            id, 
+            recipe_code,
+            age_days,
+            recipe_versions (
+              id,
+              notes,
+              is_current
+            )
+          )
+        )
+      `)
+      .gte('fecha_muestreo', desde)
+      .lte('fecha_muestreo', hasta);
+      
+    // Apply plant filter if provided
+    if (planta && planta !== 'all') {
+      muestreosQuery = muestreosQuery.eq('planta', planta);
+    }
+    
+    const { data: muestreosData, error: muestreosError } = await muestreosQuery;
+    
+    if (muestreosError) {
+      console.error('Error fetching muestreos data:', muestreosError);
+      throw muestreosError;
+    }
+    
+    if (!muestreosData || muestreosData.length === 0) {
+      return [];
+    }
+    
+    console.log(`Found ${muestreosData.length} muestreos`);
+    
+    // Process each muestreo and get its samples at the guarantee age
+    const reportPromises = muestreosData.map(async (muestreo: any) => {
+      // Skip if no recipe data
+      if (!muestreo.remision?.recipe) {
+        return null;
+      }
+      
+      // Get recipe data
+      const recipe = muestreo.remision.recipe;
+      
+      // Get classification from recipe versions
+      const recipeVersions = recipe.recipe_versions || [];
+      const currentVersion = recipeVersions.find((v: any) => v.is_current === true);
+      const clasificacionReceta = currentVersion?.notes?.includes('MR') ? 'MR' : 'FC';
+      
+      // Apply classification filter
+      if (clasificacion && clasificacion !== 'all' && clasificacionReceta !== clasificacion) {
+        return null;
+      }
+      
+      // Get guarantee age
+      const edadGarantia = recipe.age_days || 28;
+      
+      // Calculate guarantee date - using UTC dates to avoid timezone issues
+      const fechaMuestreoStr = muestreo.fecha_muestreo.split('T')[0];
+      const fechaMuestreo = createUTCDate(fechaMuestreoStr);
+      const fechaEdadGarantia = new Date(fechaMuestreo);
+      fechaEdadGarantia.setUTCDate(fechaMuestreo.getUTCDate() + edadGarantia);
+      const fechaEdadGarantiaStr = formatUTCDate(fechaEdadGarantia);
+      
+      console.log(`DEBUG: Muestreo ${muestreo.id} - Fecha muestreo: ${fechaMuestreoStr}, guarantee date: ${fechaEdadGarantiaStr} (${edadGarantia} days)`);
+      
+      // Get muestras for this muestreo that match the guarantee age
+      const { data: muestrasData, error: muestrasError } = await supabase
+        .from('muestras')
+        .select(`
+          id,
+          identificacion,
+          tipo_muestra,
+          estado,
+          fecha_programada_ensayo
+        `)
+        .eq('muestreo_id', muestreo.id)
+        .eq('estado', 'ENSAYADO');
+      
+      if (muestrasError) {
+        console.error('Error fetching muestras:', muestrasError);
+        return null;
+      }
+      
+      if (!muestrasData || muestrasData.length === 0) {
+        return null;
+      }
+      
+      console.log(`DEBUG: Found ${muestrasData.length} muestras for muestreo ${muestreo.id}`);
+      
+      // Filter muestras to those scheduled for the guarantee age ±1 day
+      const garantiaMuestras = muestrasData.filter(muestra => {
+        if (!muestra.fecha_programada_ensayo) return false;
+        
+        // Use UTC dates to avoid timezone shifts
+        const fechaProgramadaStr = muestra.fecha_programada_ensayo.split('T')[0];
+        const fechaProgramada = createUTCDate(fechaProgramadaStr);
+        
+        // Calculate difference in days - use UTC methods for consistency
+        const diffTime = Math.abs(fechaProgramada.getTime() - fechaEdadGarantia.getTime());
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+        
+        const matches = diffDays <= 1; // Allow ±1 day tolerance
+        
+        console.log(`DEBUG: Muestra ${muestra.id} - fecha_programada=${fechaProgramadaStr}, garantia=${fechaEdadGarantiaStr}, diff=${diffDays} days, match=${matches}`);
+        
+        return matches;
+      });
+      
+      console.log(`DEBUG: Found ${garantiaMuestras.length} muestras at guarantee age for muestreo ${muestreo.id}`);
+      
+      if (garantiaMuestras.length === 0) {
+        return null;
+      }
+      
+      // Get ensayos for these muestras
+      const muestraIds = garantiaMuestras.map(m => m.id);
+      const { data: ensayosData, error: ensayosError } = await supabase
+        .from('ensayos')
+        .select(`
+          id,
+          fecha_ensayo,
+          muestra_id,
+          carga_kg,
+          resistencia_calculada,
+          porcentaje_cumplimiento
+        `)
+        .in('muestra_id', muestraIds);
+      
+      if (ensayosError) {
+        console.error('Error fetching ensayos:', ensayosError);
+        return null;
+      }
+      
+      if (!ensayosData || ensayosData.length === 0) {
+        return null;
+      }
+      
+      // Create a mapping of muestras
+      const muestrasMap = garantiaMuestras.reduce((acc, muestra) => {
+        acc[muestra.id] = muestra;
+        return acc;
+      }, {} as Record<string, any>);
+      
+      // Format data for report
+      return ensayosData.map(ensayo => {
+        const muestra = muestrasMap[ensayo.muestra_id];
+        
+        // Format dates consistently - use replace to avoid timezone issues
+        const fechaEnsayoStr = ensayo.fecha_ensayo.split('T')[0];
+        const fechaMuestreoFormatted = format(new Date(fechaMuestreoStr.replace(/-/g, '/')), 'dd/MM/yyyy');
+        const fechaEnsayoFormatted = format(new Date(fechaEnsayoStr.replace(/-/g, '/')), 'dd/MM/yyyy');
+        
+        return {
+          id: ensayo.id,
+          fechaEnsayo: fechaEnsayoFormatted,
+          muestra: muestra?.identificacion || '',
+          clasificacion: clasificacionReceta,
+          edadDias: edadGarantia,
+          edadGarantia: edadGarantia,
+          cargaKg: ensayo.carga_kg,
+          resistencia: ensayo.resistencia_calculada,
+          cumplimiento: ensayo.porcentaje_cumplimiento,
+          planta: muestreo.planta || '',
+          muestreoId: muestreo.id || '',
+          muestreoFecha: fechaMuestreoFormatted,
+          muestraCodigo: muestra?.identificacion || '',
+          fechaProgramada: muestra?.fecha_programada_ensayo || ''
+        };
+      });
+    });
+    
+    // Wait for all promises to resolve and flatten the array
+    const results = (await Promise.all(reportPromises))
+      .filter(Boolean)
+      .flat();
+    
+    console.log(`Fixed report found ${results.length} resistance test entries`);
+    return results;
+    
+  } catch (error) {
+    handleError(error, 'fetchResistenciaReporteDataFixed');
+    return [];
+  }
+}
+
+// Make helper functions exported so they can be used across the file
+export function createUTCDate(dateString: string): Date {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+// Helper to format a date as YYYY-MM-DD in UTC
+export function formatUTCDate(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+// Completely rewrite the muestras processing in fetchEficienciaReporteDataFixed
+export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date, fechaHasta?: string | Date, planta?: string) {
+  try {
+    // Default to last 3 months if dates not provided
+    const desde = fechaDesde 
+      ? (typeof fechaDesde === 'string' ? fechaDesde.split('T')[0] : format(fechaDesde, 'yyyy-MM-dd'))
+      : format(subMonths(new Date(), 3), 'yyyy-MM-dd');
+    
+    const hasta = fechaHasta 
+      ? (typeof fechaHasta === 'string' ? fechaHasta.split('T')[0] : format(fechaHasta, 'yyyy-MM-dd'))
+      : format(new Date(), 'yyyy-MM-dd');
+
+    console.log(`Fetching efficiency data from ${desde} to ${hasta}`);
+
+    // First get muestreos with their relationships
+    let query = supabase
+      .from('muestreos')
+      .select(`
+        id,
+        fecha_muestreo,
+        planta,
+        masa_unitaria,
+        remision_id,
+        remision:remision_id (
+          recipe:recipe_id (
+            id,
+            recipe_code,
+            age_days
+          )
+        )
+      `)
+      .gte('fecha_muestreo', desde)
+      .lte('fecha_muestreo', hasta);
+      
+    // Apply plant filter if provided
+    if (planta && planta !== 'all') {
+      query = query.eq('planta', planta);
+    }
+    
+    const { data: muestreosData, error: muestreosError } = await query;
+    
+    if (muestreosError) {
+      console.error('Error fetching muestreos:', muestreosError);
+      throw muestreosError;
+    }
+    
+    // If no data, return empty array
+    if (!muestreosData || muestreosData.length === 0) {
+      console.log('No muestreos found in date range');
+      return [];
+    }
+    
+    console.log(`Found ${muestreosData.length} muestreos for efficiency report`);
+    
+    // Get remisiones data
+    const remisionIds = muestreosData.map(m => m.remision_id).filter(Boolean);
+    const muestreoIds = muestreosData.map(m => m.id);
+    
+    // STEP 1: Fetch remisiones and materials
+    // ====================================
+    
+    // Fetch detailed remision data
+    const { data: remisionesData, error: remisionesError } = await supabase
+      .from('remisiones')
+      .select(`
+        id, 
+        recipe_id, 
+        volumen_fabricado
+      `)
+      .in('id', remisionIds);
+      
+    if (remisionesError) {
+      console.error('Error fetching remisiones data:', remisionesError);
+      throw remisionesError;
+    }
+    
+    // Fetch materiales
+    const { data: materialesData, error: materialesError } = await supabase
+      .from('remision_materiales')
+      .select('remision_id, material_type, cantidad_real')
+      .in('remision_id', remisionIds);
+      
+    if (materialesError) {
+      console.error('Error fetching materiales data:', materialesError);
+      throw materialesError;
+    }
+    
+    // STEP 2: Fetch muestras and ensayos (using the exact same approach as debugMuestreosMuestras)
+    // ======================================================================================
+    
+    // First get muestras without ensayos to avoid relationship error
+    const { data: muestrasData, error: muestrasError } = await supabase
+      .from('muestras')
+      .select(`
+        id,
+        muestreo_id,
+        identificacion,
+        tipo_muestra,
+        estado,
+        fecha_programada_ensayo,
+        created_at
+      `)
+      .in('muestreo_id', muestreoIds)
+      .eq('estado', 'ENSAYADO');
+    
+    if (muestrasError) {
+      console.error('Error fetching muestras:', muestrasError);
+      // Continue with muestreos even if muestras have errors
+    }
+    
+    if (!muestrasData || muestrasData.length === 0) {
+      console.log('No ensayado muestras found');
+    }
+    
+    // Now fetch ensayos separately
+    const ensayosByMuestraId: Record<string, any[]> = {};
+    
+    if (muestrasData && muestrasData.length > 0) {
+      const muestraIds = muestrasData.map(m => m.id);
+      const { data: ensayosData, error: ensayosError } = await supabase
+        .from('ensayos')
+        .select(`
+          id,
+          muestra_id,
+          fecha_ensayo,
+          resistencia_calculada,
+          porcentaje_cumplimiento
+        `)
+        .in('muestra_id', muestraIds);
+      
+      if (ensayosError) {
+        console.error('Error fetching ensayos:', ensayosError);
+      } else if (ensayosData && ensayosData.length > 0) {
+        // Group ensayos by muestra_id
+        ensayosData.forEach(ensayo => {
+          if (!ensayosByMuestraId[ensayo.muestra_id]) {
+            ensayosByMuestraId[ensayo.muestra_id] = [];
+          }
+          ensayosByMuestraId[ensayo.muestra_id].push(ensayo);
+        });
+      }
+    }
+    
+    // Add ensayos to muestras
+    const muestrasWithEnsayos = muestrasData?.map(muestra => ({
+      ...muestra,
+      ensayos: ensayosByMuestraId[muestra.id] || []
+    })) || [];
+    
+    // Group muestras by muestreo
+    const muestreoMuestrasMap: Record<string, any[]> = {};
+    muestrasWithEnsayos.forEach(muestra => {
+      if (!muestreoMuestrasMap[muestra.muestreo_id]) {
+        muestreoMuestrasMap[muestra.muestreo_id] = [];
+      }
+      muestreoMuestrasMap[muestra.muestreo_id].push(muestra);
+    });
+    
+    // STEP 3: Create mappings for efficiency metrics
+    // ============================================
+    
+    // Create simple lookups for remisiones and materials
+    const remisionesMap = new Map();
+    remisionesData?.forEach(r => remisionesMap.set(r.id, r));
+    
+    // Group materials by remision
+    const materialsByRemision = new Map();
+    materialesData?.forEach(mat => {
+      if (!materialsByRemision.has(mat.remision_id)) {
+        materialsByRemision.set(mat.remision_id, []);
+      }
+      materialsByRemision.get(mat.remision_id).push(mat);
+    });
+    
+    // STEP 4: Process each muestreo to construct final result
+    // ===================================================
+    
+    const eficienciaPromises = muestreosData.map(async (muestreo) => {
+      try {
+        // Get server metrics using RPC
+        const { data: metricasRPC, error: metricasError } = await supabase
+          .rpc('calcular_metricas_muestreo', {
+            p_muestreo_id: muestreo.id
+          });
+        
+        if (metricasError || !metricasRPC || metricasRPC.length === 0) {
+          console.log(`No server metrics for muestreo ${muestreo.id}`);
+          return null;
+        }
+        
+        // Calculate client metrics
+        let clasificacion = 'FC';
+        const masaUnitaria = muestreo.masa_unitaria || 0;
+        let sumaMateriales = 0;
+        let kgCemento = 0;
+        let volumenRegistrado = 0;
+        let edadGarantia = 28;
+        let resistenciaPromedio = 0;
+        
+        // Get additional data if available
+        const remision = remisionesMap.get(muestreo.remision_id);
+        if (remision) {
+          volumenRegistrado = remision.volumen_fabricado || 0;
+          
+          // Get recipe version
+          const recipeVersion = recipeVersionsMap.get(remision.recipe_id);
+          if (recipeVersion) {
+            clasificacion = recipeVersion.notes && recipeVersion.notes.toUpperCase().includes('MR') ? 'MR' : 'FC';
+            edadGarantia = recipeVersion.age_days || 28;
+          }
+          
+          // Calculate suma materiales and kg cemento
+          const materiales = materialsByRemision.get(muestreo.remision_id) || [];
+          if (materiales.length > 0) {
+            sumaMateriales = materiales.reduce((sum, mat) => sum + (mat.cantidad_real || 0), 0);
+            const cementoMaterial = materiales.find((m) => m.material_type === 'cement');
+            kgCemento = cementoMaterial ? cementoMaterial.cantidad_real || 0 : 0;
+          }
+        }
+        
+        // Get recipe data from nested object
+        const recipeData = muestreo.remision?.recipe;
+        const edadGarantia = recipeData?.age_days || 28;
+        
+        // Get resistance from ensayos
+        let resistenciaPromedio = 0;
+        const { data: resistenciaData } = await supabase
+          .from('ensayos')
+          .select(`
+            resistencia_calculada,
+            muestra:muestra_id (
+              muestreo_id
+            )
+          `)
+          .eq('muestra.muestreo_id', muestreo.id);
+          
+        if (resistenciaData && resistenciaData.length > 0) {
+          resistenciaPromedio = resistenciaData.reduce((sum, item) => 
+            sum + (item.resistencia_calculada || 0), 0) / resistenciaData.length;
+        }
+        
+        // Handle dates with UTC methods
+        const fechaMuestreoStr = muestreo.fecha_muestreo.split('T')[0];
+        const fechaMuestreo = createUTCDate(fechaMuestreoStr);
+        const fechaFormatted = format(new Date(fechaMuestreoStr.replace(/-/g, '/')), 'dd/MM/yyyy');
+        
+        // Calculate guarantee date
+        const fechaEdadGarantia = new Date(fechaMuestreo);
+        fechaEdadGarantia.setUTCDate(fechaMuestreo.getUTCDate() + edadGarantia);
+        const fechaEdadGarantiaStr = formatUTCDate(fechaEdadGarantia);
+        
+        // Process muestras - EXACTLY the same as debugMuestreosMuestras
+        const muestras = muestreoMuestrasMap[muestreo.id] || [];
+        const muestrasProcessed = muestras.map(muestra => {
+          // Get ensayos for this muestra
+          const ensayos = muestra.ensayos || [];
+          
+          // Add edad_dias and is_edad_garantia to each ensayo
+          const ensayosWithAge = ensayos.map(ensayo => {
+            const fechaEnsayoStr = ensayo.fecha_ensayo.split('T')[0];
+            const fechaEnsayo = createUTCDate(fechaEnsayoStr);
+            const diffTime = Math.abs(fechaEnsayo.getTime() - fechaMuestreo.getTime());
+            const edadDias = Math.round(diffTime / (1000 * 60 * 60 * 24));
+            
+            return {
+              ...ensayo,
+              edad_dias: edadDias,
+              is_edad_garantia: Math.abs(edadDias - edadGarantia) <= 1 // Within 1 day of guarantee age
+            };
+          });
+          
+          return {
+            muestra_id: muestra.id,
+            id: muestra.id,
+            identificacion: muestra.identificacion,
+            codigo: muestra.identificacion, // In case codigo is used in UI
+            tipo_muestra: muestra.tipo_muestra,
+            fecha_programada: muestra.fecha_programada_ensayo,
+            fecha_programada_matches_garantia: muestra.fecha_programada_ensayo === fechaEdadGarantiaStr,
+            is_edad_garantia: ensayosWithAge.some(e => e.is_edad_garantia),
+            resistencia: ensayosWithAge.find(e => e.is_edad_garantia)?.resistencia_calculada,
+            cumplimiento: ensayosWithAge.find(e => e.is_edad_garantia)?.porcentaje_cumplimiento,
+            ensayos: ensayosWithAge
+          };
+        });
+        
+        // Determine classification from recipe data
+        let clasificacion = 'FC';
+        if (recipeData?.recipe_code?.includes('MR')) {
+          clasificacion = 'MR';
+        }
+        
+        // Return formatted result - same structure as debugMuestreosMuestras
+        return {
+          id: muestreo.id,
+          remision_id: muestreo.remision_id,
+          fecha: fechaFormatted,
+          fecha_muestreo: fechaMuestreoStr,
+          planta: muestreo.planta,
+          receta: recipeData?.recipe_code || 'N/A',
+          recipe_id: recipeData?.id,
+          recipe_code: recipeData?.recipe_code,
+          clasificacion,
+          
+          // Client-calculated metrics
+          masa_unitaria: masaUnitaria,
+          suma_materiales: sumaMateriales,
+          kg_cemento: kgCemento,
+          volumen_registrado: volumenRegistrado,
+          
+          // Server-calculated metrics
+          volumen_real: metricasRPC[0].volumen_real,
+          rendimiento_volumetrico: metricasRPC[0].rendimiento_volumetrico,
+          consumo_cemento: metricasRPC[0].consumo_cemento_real,
+          resistencia_promedio: resistenciaPromedio,
+          eficiencia: metricasRPC[0].eficiencia || 0,
+          
+          // Relationship data
+          edad_garantia: edadGarantia,
+          fecha_garantia: fechaEdadGarantiaStr,
+          muestras: muestrasProcessed,
+          muestras_count: muestras.length,
+          muestras_garantia_count: muestras.filter(m => m.fecha_programada_ensayo === fechaEdadGarantiaStr).length
+        };
+      } catch (err) {
+        console.error('Error calculando métricas para muestreo:', muestreo.id, err);
+        return null;
+      }
+    });
+    
+    // Resolve all promises and filter out nulls
+    const eficienciaData = (await Promise.all(eficienciaPromises)).filter(Boolean);
+    console.log(`Efficiency report processed ${eficienciaData.length} entries with muestras`);
+    return eficienciaData;
+  } catch (error) {
+    handleError(error, 'fetchEficienciaReporteDataFixed');
+    return [];
+  }
+}

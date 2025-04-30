@@ -347,13 +347,13 @@ BEGIN
     );
     
     -- Calcular eficiencia
-    IF v_kg_cemento > 0 THEN
+    IF consumo_cemento_real > 0 THEN
         IF v_clasificacion = 'MR' THEN
             -- Para MR, dividir entre 0.13 y luego entre kg de cemento
-            eficiencia := (v_resistencia / 0.13) / v_kg_cemento;
+            eficiencia := (v_resistencia / 0.13) / consumo_cemento_real;
         ELSE
             -- Para FC, dividir directamente entre kg de cemento
-            eficiencia := v_resistencia / v_kg_cemento;
+            eficiencia := v_resistencia / consumo_cemento_real;
         END IF;
     ELSE
         eficiencia := 0;

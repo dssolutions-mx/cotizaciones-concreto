@@ -119,12 +119,13 @@ export interface MetricasCalidad {
 }
 
 // Chart data type
-export interface DatoGraficoResistencia {
-  x: string; // fecha formateada
-  y: number; // porcentaje_cumplimiento
+export type DatoGraficoResistencia = {
+  x: number;
+  y: number;
   clasificacion: 'FC' | 'MR';
   edad: number;
-}
+  fecha_ensayo: string;
+};
 
 // Filters for quality data
 export interface FiltrosCalidad {

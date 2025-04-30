@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { format, subMonths } from 'date-fns';
+import { format, subMonths, parse } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
 import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity } from 'lucide-react';
-import { fetchMetricasCalidad, fetchDatosGraficoResistencia, debugQueryMetricas, debugApiEndpoint, checkDatabaseContent, directTableAccess, fetchMetricasCalidadSimple } from '@/services/qualityService';
+import { fetchMetricasCalidad, fetchDatosGraficoResistencia, checkDatabaseContent } from '@/services/qualityService';
 import { useAuth } from '@/contexts/AuthContext';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -19,6 +19,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 import AlertasEnsayos from '@/components/quality/AlertasEnsayos';
 import { supabase } from '@/lib/supabase';
+import { calcularMediaSinCeros } from '@/lib/qualityMetricsUtils';
+import { DatoGraficoResistencia } from '@/types/quality';
 
 // Importar dinámicamente el componente de gráficos
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -39,9 +41,36 @@ export default function QualityDashboardPage() {
     rendimientoVolumetrico: 0,
     coeficienteVariacion: 0
   });
-  const [datosGrafico, setDatosGrafico] = useState<any[]>([]);
+  const [datosGrafico, setDatosGrafico] = useState<DatoGraficoResistencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Add this helper function near the top of the component, before the component definition
+  const formatDataForChart = (ensayos: any[]): [number, number][] => {
+    const formatted = ensayos
+      .filter(e => e.fecha_ensayo && e.porcentaje_cumplimiento !== null)
+      .map(e => {
+        // Parse date and get timestamp
+        const rawDateStr = e.fecha_ensayo;
+        const [day, month, year] = rawDateStr.split('/').map(Number);
+        const parsedDate = new Date(year, month - 1, day);
+        const timestamp = parsedDate.getTime(); 
+        const compliance = e.porcentaje_cumplimiento;
+        
+        // Ensure timestamp is a valid number before returning
+        if (isNaN(timestamp)) {
+          console.warn(`Invalid date encountered for chart: ${rawDateStr}`);
+          return null;
+        }
+
+        return [timestamp, compliance] as [number, number];
+      })
+      // Filter out any null entries caused by invalid dates
+      .filter((entry): entry is [number, number] => entry !== null)
+      // Sort by timestamp
+      .sort((a, b) => a[0] - b[0]);
+    return formatted;
+  };
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -54,161 +83,148 @@ export default function QualityDashboardPage() {
         }
         
         // Format dates properly for API call with explicit format
-        // Ensure we're always providing UTC dates
         const fromDate = format(dateRange.from, 'yyyy-MM-dd');
         const toDate = format(dateRange.to, 'yyyy-MM-dd');
         
-        console.log('Loading dashboard data with date range:', { 
-          fromDate, 
-          toDate,
-          fromJS: dateRange.from.toISOString(),
-          toJS: dateRange.to.toISOString() 
-        });
-        
-        // Special debug function to try different approaches
+        // First try direct RPC call to Supabase
         try {
-          console.log('Running special debug function...');
-          const debugResults = await debugQueryMetricas(fromDate, toDate);
-          console.log('Debug results:', debugResults);
-          
-          // Check if we have the old format or new format response
-          if (Array.isArray(debugResults)) {
-            // Old format - array of results
-            const validResult = debugResults.find(r => r.data && !r.error);
-            if (validResult) {
-              console.log('Found valid result from debug function:', validResult);
-              // Convert the data to our metrics format
-              const metricsData = {
-                numeroMuestras: validResult.data.numero_muestras || 0,
-                muestrasEnCumplimiento: validResult.data.muestras_en_cumplimiento || 0,
-                resistenciaPromedio: validResult.data.resistencia_promedio || 0,
-                desviacionEstandar: validResult.data.desviacion_estandar || 0,
-                porcentajeResistenciaGarantia: validResult.data.porcentaje_resistencia_garantia || 0,
-                eficiencia: validResult.data.eficiencia || 0,
-                rendimientoVolumetrico: validResult.data.rendimiento_volumetrico || 0,
-                coeficienteVariacion: validResult.data.coeficiente_variacion || 0
-              };
-              
-              setMetricas(metricsData);
-              console.log('Set metrics from debug data:', metricsData);
-              
-              // Load graph data the normal way
-              const graficosData = await fetchDatosGraficoResistencia(fromDate, toDate);
-              if (graficosData && graficosData.length > 0) {
-                setDatosGrafico(graficosData);
-                console.log(`Se cargaron ${graficosData.length} puntos para el gráfico`);
-              } else {
-                console.warn('No se recibieron datos para el gráfico de resistencia');
-              }
-              
-              setLoading(false);
-              return; // Exit early, we've handled the data
-            }
-          } else if (debugResults && debugResults.results) {
-            // New format - object with results and databaseInfo
-            console.log('Database info:', debugResults.databaseInfo);
-            
-            // Check if any result has valid data
-            const validResult = debugResults.results.find(r => r.data && !r.error);
-            if (validResult) {
-              console.log('Found valid result from debug function:', validResult);
-              // Convert the data to our metrics format
-              const metricsData = {
-                numeroMuestras: validResult.data.numero_muestras || 0,
-                muestrasEnCumplimiento: validResult.data.muestras_en_cumplimiento || 0,
-                resistenciaPromedio: validResult.data.resistencia_promedio || 0,
-                desviacionEstandar: validResult.data.desviacion_estandar || 0,
-                porcentajeResistenciaGarantia: validResult.data.porcentaje_resistencia_garantia || 0,
-                eficiencia: validResult.data.eficiencia || 0,
-                rendimientoVolumetrico: validResult.data.rendimiento_volumetrico || 0,
-                coeficienteVariacion: validResult.data.coeficiente_variacion || 0
-              };
-              
-              setMetricas(metricsData);
-              console.log('Set metrics from debug data:', metricsData);
-              
-              // Load graph data the normal way
-              const graficosData = await fetchDatosGraficoResistencia(fromDate, toDate);
-              if (graficosData && graficosData.length > 0) {
-                setDatosGrafico(graficosData);
-                console.log(`Se cargaron ${graficosData.length} puntos para el gráfico`);
-              } else {
-                console.warn('No se recibieron datos para el gráfico de resistencia');
-              }
-              
-              setLoading(false);
-              return; // Exit early, we've handled the data
-            }
-          }
-        } catch (debugError) {
-          console.error('Error in debug function:', debugError);
-        }
-        
-        // Try a direct call to the database via supabase.rpc first
-        try {
-          // Test if the Supabase client is working
-          const { data: testData, error: testError } = await supabase
-            .from('ensayos')
-            .select('count(*)')
-            .limit(1);
-            
-          console.log('Test query result:', { testData, testError });
-            
-          // Try direct RPC call
+          // Get metrics directly from stored procedure
           const { data: rpcData, error: rpcError } = await supabase
             .rpc('obtener_metricas_calidad', {
               p_fecha_desde: fromDate,
               p_fecha_hasta: toDate
             });
             
-          console.log('Direct RPC call result:', { rpcData, rpcError });
-        } catch (directError) {
-          console.error('Error in direct calls:', directError);
+          if (!rpcError && rpcData) {
+            // Process the data
+            const processedMetrics = {
+              numeroMuestras: rpcData.numero_muestras || 0,
+              muestrasEnCumplimiento: rpcData.muestras_en_cumplimiento || 0,
+              resistenciaPromedio: rpcData.resistencia_promedio || 0,
+              desviacionEstandar: rpcData.desviacion_estandar || 0,
+              porcentajeResistenciaGarantia: rpcData.porcentaje_resistencia_garantia || 0,
+              eficiencia: rpcData.eficiencia || 0,
+              rendimientoVolumetrico: rpcData.rendimiento_volumetrico || 0,
+              coeficienteVariacion: rpcData.coeficiente_variacion || 0
+            };
+            
+            // Fix the rendimiento volumétrico calculation if necessary
+            // Get detailed muestreo metrics to calculate a corrected rendimiento volumétrico
+            try {
+              // Get all muestreos in the date range
+              const { data: muestreosData } = await supabase
+                .from('muestreos')
+                .select('id, fecha_muestreo')
+                .gte('fecha_muestreo', fromDate)
+                .lte('fecha_muestreo', toDate);
+                
+              if (muestreosData && muestreosData.length > 0) {
+                // Get metrics for each muestreo
+                const metricsPromises = muestreosData.map(async (muestreo) => {
+                  const { data: metricasRPC } = await supabase
+                    .rpc('calcular_metricas_muestreo', {
+                      p_muestreo_id: muestreo.id
+                    });
+                  
+                  return metricasRPC && metricasRPC.length > 0 ? metricasRPC[0] : null;
+                });
+                
+                const results = (await Promise.all(metricsPromises)).filter(Boolean);
+                
+                // Calculate corrected rendimiento volumétrico by ignoring zeros
+                if (results.length > 0) {
+                  const rendimientos = results
+                    .map(r => r.rendimiento_volumetrico)
+                    .filter(r => r !== null && r !== 0);
+                    
+                  if (rendimientos.length > 0) {
+                    // Replace the global rendimiento with this corrected value
+                    processedMetrics.rendimientoVolumetrico = 
+                      calcularMediaSinCeros(rendimientos) || processedMetrics.rendimientoVolumetrico;
+                  }
+                }
+              }
+            } catch (detailedError) {
+              // Continue with the uncorrected value if there's an error
+            }
+            
+            setMetricas(processedMetrics);
+          } else {
+            throw new Error('Error en la llamada a RPC');
+          }
+        } catch (rpcError) {
+          // Fall back to using the service function
+          const metricasData = await fetchMetricasCalidad(fromDate, toDate);
+          
+          if (metricasData) {
+            // Apply the same rendimiento volumétrico correction
+            try {
+              // Get all muestreos in the date range
+              const { data: muestreosData } = await supabase
+                .from('muestreos')
+                .select('id, fecha_muestreo')
+                .gte('fecha_muestreo', fromDate)
+                .lte('fecha_muestreo', toDate);
+                
+              if (muestreosData && muestreosData.length > 0) {
+                // Get metrics for each muestreo
+                const metricsPromises = muestreosData.map(async (muestreo) => {
+                  const { data: metricasRPC } = await supabase
+                    .rpc('calcular_metricas_muestreo', {
+                      p_muestreo_id: muestreo.id
+                    });
+                  
+                  return metricasRPC && metricasRPC.length > 0 ? metricasRPC[0] : null;
+                });
+                
+                const results = (await Promise.all(metricsPromises)).filter(Boolean);
+                
+                // Calculate corrected rendimiento volumétrico by ignoring zeros
+                if (results.length > 0) {
+                  const rendimientos = results
+                    .map(r => r.rendimiento_volumetrico)
+                    .filter(r => r !== null && r !== 0);
+                    
+                  if (rendimientos.length > 0) {
+                    // Replace the global rendimiento with this corrected value
+                    metricasData.rendimientoVolumetrico = 
+                      calcularMediaSinCeros(rendimientos) || metricasData.rendimientoVolumetrico;
+                  }
+                }
+              }
+            } catch (detailedError) {
+              // Continue with the uncorrected value if there's an error
+            }
+            
+            setMetricas(metricasData);
+          } else {
+            throw new Error('No se pudieron obtener métricas de calidad');
+          }
         }
         
-        // As a fallback, use the standard API functions
-        console.log('Falling back to standard API calls...');
+        // Get graph data
+        const graficosDataRaw = await fetchDatosGraficoResistencia(fromDate, toDate);
         
-        try {
-          // Use Promise.all to load data concurrently
-          const [metricasData, graficosData] = await Promise.all([
-            fetchMetricasCalidad(fromDate, toDate),
-            fetchDatosGraficoResistencia(fromDate, toDate)
-          ]);
+        console.log('🌟 Received Graph Data Raw:', {
+          dataLength: graficosDataRaw.length,
+          firstDataPoint: graficosDataRaw[0],
+          lastDataPoint: graficosDataRaw[graficosDataRaw.length - 1]
+        });
+
+        // Process raw graph data into chart format
+        if (graficosDataRaw && graficosDataRaw.length > 0) {
+          // Directly use the processed data from the service
+          console.log('📊 Setting Chart Data:', {
+            dataPoints: graficosDataRaw.length,
+            sampleDataPoint: graficosDataRaw[0]
+          });
           
-          // Check if we got valid data
-          if (!metricasData || Object.values(metricasData).every(v => v === 0)) {
-            console.warn('No se recibieron métricas de calidad o todas son cero', metricasData);
-            
-            // Try the simplified metrics function as a last resort
-            console.log('Trying simplified metrics function as final fallback...');
-            const simplifiedMetricas = await fetchMetricasCalidadSimple(fromDate, toDate);
-            
-            if (simplifiedMetricas && !Object.values(simplifiedMetricas).every(v => v === 0)) {
-              console.log('Got data from simplified metrics:', simplifiedMetricas);
-              setMetricas(simplifiedMetricas);
-            } else {
-              console.warn('Still no data from simplified metrics');
-              setMetricas(metricasData); // Use the original zero values
-            }
-          } else {
-            console.log('Métricas de calidad cargadas:', metricasData);
-            setMetricas(metricasData);
-          }
-          
-          if (!graficosData || graficosData.length === 0) {
-            console.warn('No se recibieron datos para el gráfico de resistencia');
-          } else {
-            console.log(`Se cargaron ${graficosData.length} puntos para el gráfico`);
-          }
-          
-          setDatosGrafico(graficosData);
-        } catch (error) {
-          console.error('Error in standard API calls:', error);
-          throw error;
+          setDatosGrafico(graficosDataRaw);
+        } else {
+          console.warn('❌ No chart data received from fetchDatosGraficoResistencia');
+          setDatosGrafico([]); // Ensure it's an empty array if no data
         }
       } catch (err) {
-        console.error('Error loading dashboard data:', err);
         setError('Error al cargar los datos del dashboard: ' + (err instanceof Error ? err.message : 'Error desconocido'));
       } finally {
         setLoading(false);
@@ -224,64 +240,44 @@ export default function QualityDashboardPage() {
     }
   };
 
-  // Opciones para el gráfico de resistencia
+  // Opciones para el gráfico de resistencia (datetime axis)
   const chartOptions: ApexOptions = {
     chart: {
-      type: 'scatter' as const,
+      type: 'scatter',
       zoom: { enabled: true },
       toolbar: { show: true }
     },
     xaxis: {
-      type: 'category',
-      tickPlacement: 'on',
+      type: 'datetime',
       labels: {
+        datetimeUTC: true,
         rotate: -45,
-        rotateAlways: false
+        rotateAlways: false,
+        format: 'dd MMM'
       }
     },
     yaxis: {
       min: 0,
-      max: datosGrafico.length > 0 ? Math.max(150, ...datosGrafico.map(d => d.y)) + 10 : 150,
+      max: datosGrafico.length > 0 ? Math.max(110, ...datosGrafico.map(d => d.y)) + 10 : 110,
       tickAmount: 5,
-      title: { text: 'Porcentaje de Cumplimiento (%)' },
+      title: { text: 'Resistencia (%)' },
       labels: {
-        formatter: (value: number) => `${value.toFixed(0)}%`
+        formatter: (value: number) => `${value.toFixed(2)}%`
       }
     },
     colors: ['#3EB56D'],
-    dataLabels: {
-      enabled: false
-    },
-    grid: {
-      row: {
-        colors: ['#f3f3f3', 'transparent'],
-        opacity: 0.5
-      }
-    },
     markers: {
-      size: 6,
-      colors: ['#3EB56D'],
-      strokeWidth: 1,
-      strokeColors: '#fff',
-      hover: {
-        size: 8
-      }
+      size: 5
     },
     tooltip: {
-      y: {
-        formatter: (value: number) => `${value.toFixed(2)}%`
+      x: {
+        format: 'dd MMM yyyy'
       },
-      custom: ({ series, seriesIndex, dataPointIndex, w }) => {
-        const data = datosGrafico[dataPointIndex];
-        if (!data) return '';
-        
-        return `
-          <div class="p-2 bg-white shadow rounded">
-            <div class="font-medium">Fecha: ${data.x}</div>
-            <div>Cumplimiento: ${data.y.toFixed(2)}%</div>
-            <div>Clasificación: ${data.clasificacion}</div>
-          </div>
-        `;
+      y: {
+        formatter: (value: number) => `${value.toFixed(2)}%`,
+        title: {
+          formatter: () => 'Cumplimiento'
+        }
       }
     },
     annotations: {
@@ -290,10 +286,7 @@ export default function QualityDashboardPage() {
         borderColor: '#FF4560',
         label: {
           borderColor: '#FF4560',
-          style: {
-            color: '#fff',
-            background: '#FF4560'
-          },
+          style: { color: '#fff', background: '#FF4560' },
           text: '100% Cumplimiento'
         }
       }]
@@ -353,36 +346,14 @@ export default function QualityDashboardPage() {
             onClick={async () => {
               setLoading(true);
               try {
-                const result = await debugApiEndpoint();
-                console.log('API Debug result:', result);
-                alert('API Debug ejecutado - revisa la consola para detalles');
-              } catch (err) {
-                console.error('Error debugging API:', err);
-                alert('Error en el diagnóstico de API');
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            Debug API
-          </Button>
-          
-          <Button 
-            variant="outline" 
-            size="sm"
-            onClick={async () => {
-              setLoading(true);
-              try {
                 const result = await checkDatabaseContent();
-                console.log('Database check result:', result);
                 
                 if (result.dateRange?.earliest && result.dateRange?.latest) {
-                  alert(`Datos encontrados en la base de datos.\nRango de fechas: ${result.dateRange.earliest} a ${result.dateRange.latest}\nVerifica la consola para más detalles.`);
+                  alert(`Datos encontrados en la base de datos.\nRango de fechas: ${result.dateRange.earliest} a ${result.dateRange.latest}`);
                 } else {
-                  alert('No se encontraron datos en la base de datos. Verifica la consola para más detalles.');
+                  alert('No se encontraron datos en la base de datos.');
                 }
               } catch (err) {
-                console.error('Error checking database:', err);
                 alert('Error al revisar la base de datos');
               } finally {
                 setLoading(false);
@@ -436,19 +407,56 @@ export default function QualityDashboardPage() {
                     ? format(dateRange.to, 'yyyy-MM-dd')
                     : format(new Date(), 'yyyy-MM-dd');
                   
-                  console.log('Retrying dashboard data load with date range:', { fromDate, toDate });
-                  
                   // Use Promise.all to load data concurrently
-                  const [metricsData, chartData] = await Promise.all([
+                  const [metricsData, chartDataRaw] = await Promise.all([
                     fetchMetricasCalidad(fromDate, toDate),
                     fetchDatosGraficoResistencia(fromDate, toDate)
                   ]);
                   
                   setMetricas(metricsData);
-                  setDatosGrafico(chartData);
+                  
+                  // Process raw chart data within the retry logic as well
+                  if (chartDataRaw && chartDataRaw.length > 0) {
+                    console.log('Raw Retry Chart Data:', chartDataRaw);
+                    
+                    const processedChartData = chartDataRaw
+                      .filter((d: any) => d.fecha_ensayo && d.y !== null && d.y !== undefined)
+                      .map((d: any, index: number) => {
+                        // Parse fecha_ensayo directly
+                        const [day, month, year] = d.fecha_ensayo.split('/').map(Number);
+                        const parsedDate = new Date(year, month - 1, day);
+                        
+                        console.log(`Retry Data Point ${index}:`, {
+                          originalDateString: d.fecha_ensayo,
+                          parsedDate: parsedDate,
+                          timestamp: parsedDate.getTime(),
+                          year: parsedDate.getFullYear(),
+                          month: parsedDate.getMonth() + 1,
+                          day: parsedDate.getDate(),
+                          value: d.y
+                        });
+                        
+                        const timestamp = parsedDate.getTime();
+                        
+                        return {
+                          x: timestamp,
+                          y: d.y,
+                          clasificacion: 'FC', // Default classification
+                          edad: 28, // Default age
+                          fecha_ensayo: d.fecha_ensayo
+                        } as DatoGraficoResistencia;
+                      })
+                      .sort((a, b) => a.x - b.x);
+                      
+                    console.log('Processed Retry Chart Data:', processedChartData);
+                    
+                    setDatosGrafico(processedChartData);
+                  } else {
+                    setDatosGrafico([]);
+                  }
+                  
                   setError(null);
                 } catch (err) {
-                  console.error('Error retrying dashboard data:', err);
                   setError('No se pudieron cargar los datos del dashboard. Intente nuevamente más tarde.');
                 } finally {
                   setLoading(false);
@@ -457,88 +465,6 @@ export default function QualityDashboardPage() {
             }}
           >
             Reintentar
-          </Button>
-          
-          <Button 
-            className="mt-2 ml-2" 
-            variant="outline" 
-            onClick={async () => {
-              setLoading(true);
-              try {
-                // Get formatted dates
-                const fromDate = dateRange?.from 
-                  ? format(dateRange.from, 'yyyy-MM-dd')
-                  : format(subMonths(new Date(), 1), 'yyyy-MM-dd');
-                const toDate = dateRange?.to
-                  ? format(dateRange.to, 'yyyy-MM-dd')
-                  : format(new Date(), 'yyyy-MM-dd');
-                
-                // Run the debug function
-                console.log('Running debug query for dates:', { fromDate, toDate });
-                const debugResults = await debugQueryMetricas(fromDate, toDate);
-                console.log('Debug query results:', debugResults);
-                
-                // Try a direct SQL query to verify the data exists
-                const { data: directCount, error: directError } = await supabase
-                  .from('ensayos')
-                  .select('*', { count: 'exact' })
-                  .gte('fecha_ensayo', fromDate)
-                  .lte('fecha_ensayo', toDate);
-                  
-                console.log('Direct data check:', {
-                  count: directCount?.length,
-                  error: directError
-                });
-                
-                // Display the debug information to the user
-                setError(`Debug info: Found ${directCount?.length || 0} records in ensayos table directly.\n${JSON.stringify(debugResults || {}, null, 2)}`);
-              } catch (err) {
-                console.error('Error in debug function:', err);
-                setError('Error en debugging: ' + (err instanceof Error ? err.message : 'Error desconocido'));
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            Debug Query
-          </Button>
-          
-          <Button 
-            className="mt-2 ml-2" 
-            variant="outline" 
-            onClick={async () => {
-              setLoading(true);
-              try {
-                // Get formatted dates
-                const fromDate = dateRange?.from 
-                  ? format(dateRange.from, 'yyyy-MM-dd')
-                  : format(subMonths(new Date(), 1), 'yyyy-MM-dd');
-                const toDate = dateRange?.to
-                  ? format(dateRange.to, 'yyyy-MM-dd')
-                  : format(new Date(), 'yyyy-MM-dd');
-                
-                // Run direct table access
-                console.log('Running direct table access for dates:', { fromDate, toDate });
-                const result = await directTableAccess(fromDate, toDate);
-                console.log('Direct table access results:', result);
-                
-                // Display the information to the user
-                setError(`Direct Data Test Results:
-                  - Total Ensayos: ${result.totalRecords?.ensayos || 0}
-                  - Total Muestras: ${result.totalRecords?.muestras || 0}
-                  - Total Muestreos: ${result.totalRecords?.muestreos || 0}
-                  - 2025 Data Found: ${result.dateSpecificData?.ensayos2025?.found || 0}
-                  - Date Range (${fromDate} to ${toDate}) Data Found: ${result.dateSpecificData?.dateRangeQuery?.found || 0}
-                `);
-              } catch (err) {
-                console.error('Error in direct table access:', err);
-                setError('Error en direct table access: ' + (err instanceof Error ? err.message : 'Error desconocido'));
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            Direct Data Test
           </Button>
         </Alert>
       ) : (
@@ -649,8 +575,15 @@ export default function QualityDashboardPage() {
                 <CardContent>
                   {typeof window !== 'undefined' && datosGrafico.length > 0 ? (
                     <Chart 
+                      key={JSON.stringify(datosGrafico)} 
                       options={chartOptions}
-                      series={[{ name: 'Cumplimiento', data: datosGrafico }]}
+                      series={[{ 
+                        name: 'Cumplimiento', 
+                        data: datosGrafico.map(point => ({
+                          x: point.x,
+                          y: point.y
+                        }))
+                      }]}
                       type="scatter"
                       height={350}
                     />

@@ -450,15 +450,7 @@ const QuotePDF = ({ quote, showVAT = false }: { quote: ApprovedQuote; showVAT?: 
               <Text style={styles.termsText}>
                 4.- Apertura de planta en domingo y/o día festivo: $11,500 {showVAT ? 'con IVA' : '+ IVA'} (cargo fijo).
               </Text>
-              <Text style={styles.termsText}>
-                5.- Resistencia a 14 días*, considerar un incremento en precio de $ 145 {showVAT ? 'con IVA' : '+ IVA'}
-              </Text>
-              <Text style={styles.termsText}>
-                6.- Resistencia a 7 días*, considerar un incremento en precio de $ 200 {showVAT ? 'con IVA' : '+ IVA'}
-              </Text>
-              <Text style={styles.termsText}>
-                7.- Resistencia a 3 días*, considerar un incremento en precio de $ 250 {showVAT ? 'con IVA' : '+ IVA'}
-              </Text>
+              
             </View>
             <Text style={styles.smallNote}>*Los concretos de resistencia rápida con características especiales requieren revisión previa a la cotización.</Text>
           </View>
