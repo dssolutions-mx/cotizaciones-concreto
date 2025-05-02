@@ -17,6 +17,7 @@ import { es } from 'date-fns/locale';
 import * as Popover from '@radix-ui/react-popover';
 import { CalendarIcon } from 'lucide-react';
 import 'react-day-picker/dist/style.css';
+import { useDebouncedCallback } from 'use-debounce';
 
 interface Client {
   id: string;
@@ -56,6 +57,23 @@ interface QuoteProduct {
   profitMargin: number;
   finalPrice: number;
   // Pump service is now handled at the quote level, not per product
+}
+
+// Define a storage key
+const DRAFT_QUOTE_STORAGE_KEY = 'draftQuoteData';
+
+// Interface for the data to be stored
+interface DraftQuoteData {
+  selectedClient: string;
+  quoteProducts: QuoteProduct[];
+  selectedSite: string;
+  constructionSite: string;
+  location: string;
+  validityDate: string;
+  selectedDate?: string; // Store ISO string
+  includePumpService: boolean;
+  pumpServicePrice: number;
+  includesVAT: boolean;
 }
 
 export default function QuoteBuilder() {
@@ -131,6 +149,76 @@ export default function QuoteBuilder() {
 
     loadClientHistory();
   }, [selectedClient]);
+
+  // Load draft from sessionStorage on mount
+  useEffect(() => {
+    const savedDraft = sessionStorage.getItem(DRAFT_QUOTE_STORAGE_KEY);
+    if (savedDraft) {
+      try {
+        const draftData: DraftQuoteData = JSON.parse(savedDraft);
+        setSelectedClient(draftData.selectedClient || '');
+        setQuoteProducts(draftData.quoteProducts || []);
+        setSelectedSite(draftData.selectedSite || '');
+        setConstructionSite(draftData.constructionSite || '');
+        setLocation(draftData.location || '');
+        setValidityDate(draftData.validityDate || '');
+        setSelectedDate(draftData.selectedDate ? new Date(draftData.selectedDate) : undefined);
+        setIncludePumpService(draftData.includePumpService || false);
+        setPumpServicePrice(draftData.pumpServicePrice || 0);
+        setIncludesVAT(draftData.includesVAT || false);
+        console.log('Draft quote loaded from sessionStorage.');
+      } catch (error) {
+        console.error('Error parsing draft quote from sessionStorage:', error);
+        sessionStorage.removeItem(DRAFT_QUOTE_STORAGE_KEY); // Clear corrupted data
+      }
+    }
+  }, []);
+
+  // Debounced save draft to sessionStorage
+  const debouncedSaveDraft = useDebouncedCallback(() => {
+    const draftData: DraftQuoteData = {
+      selectedClient,
+      quoteProducts,
+      selectedSite,
+      constructionSite,
+      location,
+      validityDate,
+      selectedDate: selectedDate?.toISOString(), // Store as ISO string
+      includePumpService,
+      pumpServicePrice,
+      includesVAT,
+    };
+    sessionStorage.setItem(DRAFT_QUOTE_STORAGE_KEY, JSON.stringify(draftData));
+    console.log('Draft quote saved to sessionStorage.');
+  }, 500);
+
+  // Trigger save draft on state change
+  useEffect(() => {
+    // Don't save immediately on mount if loading from storage
+    // Only save after initial load and subsequent user interactions
+    const timeoutId = setTimeout(() => {
+      // Check if component is still mounted and data is not default empty state
+      // Avoid saving empty state right after clearing or initial load
+      if (selectedClient || quoteProducts.length > 0 || constructionSite || location || validityDate || includePumpService || includesVAT) {
+         debouncedSaveDraft();
+      }
+    }, 100); // Small delay to prevent saving initial empty state right after loading
+
+    return () => clearTimeout(timeoutId); // Cleanup timeout
+
+  }, [
+    selectedClient, 
+    quoteProducts, 
+    selectedSite, 
+    constructionSite, 
+    location, 
+    validityDate, 
+    selectedDate, 
+    includePumpService, 
+    pumpServicePrice, 
+    includesVAT,
+    debouncedSaveDraft // Include debounced function in dependency array
+  ]);
 
   // Toggle function for expansion
   const toggleStrength = (strength: number) => {
@@ -313,6 +401,10 @@ export default function QuoteBuilder() {
       setPumpServicePrice(0);
       setIncludesVAT(false);
 
+      // Clear draft from sessionStorage after successful save
+      sessionStorage.removeItem(DRAFT_QUOTE_STORAGE_KEY);
+      console.log('Draft quote cleared from sessionStorage after saving.');
+
       return createdQuote;
     } catch (error) {
       console.error('Error al guardar la cotización:', error);
@@ -369,6 +461,24 @@ export default function QuoteBuilder() {
       setValidityDate(format(selectedDate, 'yyyy-MM-dd'));
     }
   }, [selectedDate]);
+
+  // Clear draft function
+  const clearDraft = () => {
+    setSelectedClient('');
+    setQuoteProducts([]);
+    setConstructionSite('');
+    setLocation('');
+    setValidityDate('');
+    setSelectedDate(undefined);
+    setClientHistory([]);
+    setIncludePumpService(false);
+    setPumpServicePrice(0);
+    setIncludesVAT(false);
+    setSelectedSite(''); // Also reset selected site ID
+    sessionStorage.removeItem(DRAFT_QUOTE_STORAGE_KEY);
+    alert('Borrador de cotización limpiado.');
+    console.log('Draft quote cleared from state and sessionStorage.');
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 @container">
@@ -851,8 +961,18 @@ export default function QuoteBuilder() {
           </div>
         </div>
 
-        <div className="flex justify-end mt-6">
-          <button 
+        <div className="flex justify-between items-center mt-6">
+          <button
+            onClick={clearDraft}
+            className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            disabled={isLoading}
+          >
+            <svg className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+            </svg>
+            Limpiar Borrador
+          </button>
+          <button
             onClick={saveQuote}
             className="inline-flex items-center justify-center px-5 py-2.5 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
             disabled={isLoading}
@@ -970,7 +1090,7 @@ export default function QuoteBuilder() {
                       disabled={isLoading}
                     >
                       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                       </svg>
                       Eliminar
                     </button>

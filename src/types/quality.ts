@@ -125,6 +125,8 @@ export type DatoGraficoResistencia = {
   clasificacion: 'FC' | 'MR';
   edad: number;
   fecha_ensayo: string;
+  resistencia_calculada?: number;
+  muestra?: any;
 };
 
 // Filters for quality data

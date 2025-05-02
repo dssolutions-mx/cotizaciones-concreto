@@ -292,7 +292,7 @@ const QuotePDF = ({ quote, showVAT = false }: { quote: ApprovedQuote; showVAT?: 
           <View style={styles.header}>
             <Image style={styles.logo} src="/images/logo.png" />
             <View style={styles.documentInfo}>
-              <Text style={styles.quoteNumber}>COT-EF-{quote.quote_number}</Text>
+              <Text style={styles.quoteNumber}>{`${quote.creator_initials}-${quote.quote_number}`}</Text>
               <View style={styles.dateSection}>
                 <Text>Fecha:</Text>
                 <Text>{new Date(quote.created_at).toLocaleDateString('es-MX')}</Text>
@@ -420,7 +420,7 @@ const QuotePDF = ({ quote, showVAT = false }: { quote: ApprovedQuote; showVAT?: 
             <Text style={styles.termsTitle}>Términos y condiciones comerciales:</Text>
             <View style={styles.termsList}>
               <Text style={styles.termsText}>
-                1.- Vigencia de cotización {new Date(quote.created_at).toLocaleDateString('es-MX', {
+                1.- Vigencia de cotización {new Date(quote.validity_date).toLocaleDateString('es-MX', {
                   day: 'numeric',
                   month: 'long',
                   year: 'numeric'

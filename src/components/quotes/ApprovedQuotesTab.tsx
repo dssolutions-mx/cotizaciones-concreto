@@ -16,13 +16,33 @@ interface SupabaseApprovedQuote {
   quote_number: string;
   construction_site: string;
   created_at: string;
+  validity_date: string;
   approval_date: string;
   approved_by: string | null;
-  clients: {
+  clients: { 
+    id: string;
     business_name: string;
-    client_code: string;
-  };
-  quote_details: SupabaseQuoteDetail[];
+    client_code: string; 
+  } | { 
+    id: string;
+    business_name: string;
+    client_code: string; 
+  }[] | null;
+  creator: {
+    first_name: string;
+    last_name: string;
+  }[] | { 
+    first_name: string;
+    last_name: string;
+  } | null;
+  approver?: {
+    first_name: string;
+    last_name: string;
+  }[] | { 
+    first_name: string;
+    last_name: string;
+  } | null;
+  quote_details: SupabaseQuoteDetail[] | SupabaseQuoteDetail | null;
 }
 
 interface SupabaseQuoteDetail {
@@ -43,8 +63,20 @@ interface SupabaseQuoteDetail {
     age_days: number;
     recipe_versions: {
       notes: string;
+      is_current?: boolean;
     }[];
-  };
+  } | { 
+    recipe_code: string;
+    strength_fc: number;
+    placement_type: string;
+    max_aggregate_size: number;
+    slump: number;
+    age_days: number;
+    recipe_versions: {
+      notes: string;
+      is_current?: boolean;
+    }[];
+  }[] | null;
 }
 
 export interface ApprovedQuote {
@@ -55,9 +87,12 @@ export interface ApprovedQuote {
     business_name: string;
     client_code: string;
   } | null;
+  creator_initials: string;
+  approver_name: string;
   construction_site: string;
   total_amount: number;
   created_at: string;
+  validity_date: string;
   approval_date: string;
   approved_by: string | null;
   quote_details: Array<{
@@ -100,12 +135,21 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
           quote_number, 
           construction_site, 
           created_at,
+          validity_date,
           approval_date,
           approved_by,
           clients (
             id,
             business_name, 
             client_code
+          ),
+          creator:user_profiles!created_by (
+            first_name,
+            last_name
+          ),
+          approver:user_profiles!approved_by (
+            first_name,
+            last_name
           ),
           quote_details (
             id, 
@@ -137,46 +181,67 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
       if (error) throw error;
 
       // Transform data to match ApprovedQuote interface
-      const transformedQuotes: ApprovedQuote[] = (data || []).map(quote => {
-        const clientData = Array.isArray(quote.clients) 
-          ? quote.clients[0] 
+      const transformedQuotes: ApprovedQuote[] = (data || []).map((quote) => {
+        const clientData = Array.isArray(quote.clients)
+          ? quote.clients[0]
           : quote.clients;
+
+        const quoteDetailsInput = Array.isArray(quote.quote_details)
+          ? quote.quote_details
+          : quote.quote_details ? [quote.quote_details] : [];
         
-        const quoteDetailsData = Array.isArray(quote.quote_details)
-          ? quote.quote_details.map(detail => {
-              const recipeData = Array.isArray(detail.recipes) 
-                ? detail.recipes[0] 
-                : detail.recipes;
-              
-              return {
-                id: detail.id,
-                volume: detail.volume,
-                base_price: detail.base_price,
-                final_price: detail.final_price,
-                pump_service: detail.pump_service,
-                pump_price: detail.pump_price,
-                includes_vat: detail.includes_vat,
-                recipe: recipeData ? {
-                  recipe_code: recipeData.recipe_code,
-                  strength_fc: recipeData.strength_fc,
-                  placement_type: recipeData.placement_type,
-                  max_aggregate_size: recipeData.max_aggregate_size,
-                  slump: recipeData.slump,
-                  age_days: recipeData.age_days,
-                  notes: recipeData.recipe_versions?.find(version => version.is_current)?.notes
-                } : null
-              };
-            })
-          : [];
+        const quoteDetailsData = quoteDetailsInput.filter(Boolean).map(detail => {
+          const recipeData = Array.isArray(detail.recipes) ? detail.recipes[0] : detail.recipes;
+          const currentVersion = recipeData?.recipe_versions?.find((version: { is_current?: boolean }) => version.is_current);
+          return {
+            id: detail.id,
+            volume: detail.volume,
+            base_price: detail.base_price,
+            final_price: detail.final_price,
+            pump_service: detail.pump_service,
+            pump_price: detail.pump_price,
+            includes_vat: detail.includes_vat,
+            recipe: recipeData ? {
+              recipe_code: recipeData.recipe_code,
+              strength_fc: recipeData.strength_fc,
+              placement_type: recipeData.placement_type,
+              max_aggregate_size: recipeData.max_aggregate_size,
+              slump: recipeData.slump,
+              age_days: recipeData.age_days,
+              notes: currentVersion?.notes
+            } : null
+          };
+        });
+
+        // Extract creator name and generate initials
+        const creatorData = Array.isArray(quote.creator) ? quote.creator[0] : quote.creator;
+        const creatorFirstName = creatorData?.first_name || '';
+        const creatorLastName = creatorData?.last_name || '';
+        const initials = ( (creatorFirstName ? creatorFirstName[0] : '') + (creatorLastName ? creatorLastName[0] : '') )
+                           .toUpperCase();
+
+        // Extract approver name
+        const approverData = Array.isArray(quote.approver) ? quote.approver[0] : quote.approver;
+        const approverFirstName = approverData?.first_name || '';
+        const approverLastName = approverData?.last_name || '';
+        const approverFullName = [approverFirstName, approverLastName].filter(Boolean).join(' ') || 'Sin información';
 
         return {
-          ...quote,
+          id: quote.id,
+          quote_number: quote.quote_number,
+          construction_site: quote.construction_site,
+          created_at: quote.created_at,
+          validity_date: quote.validity_date,
+          approval_date: quote.approval_date,
+          approved_by: quote.approved_by,
           client: clientData ? {
             id: clientData.id,
             business_name: clientData.business_name,
             client_code: clientData.client_code
           } : null,
           quote_details: quoteDetailsData,
+          creator_initials: initials || 'XX',
+          approver_name: approverFullName,
           total_amount: quoteDetailsData.reduce((sum, detail) => sum + (detail.final_price * detail.volume), 0)
         };
       });
@@ -376,7 +441,7 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
                 </div>
                 <div>
                   <p className="font-semibold">Aprobado por</p>
-                  <p>{selectedQuote.approved_by || 'Sin información'}</p>
+                  <p>{selectedQuote.approver_name}</p>
                 </div>
               </div>
 

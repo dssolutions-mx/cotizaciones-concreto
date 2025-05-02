@@ -412,7 +412,13 @@ export async function uploadEvidencia(file: File, ensayoId: string) {
 }
 
 // Dashboard functions
-export async function fetchMetricasCalidad(fechaDesde?: string | Date, fechaHasta?: string | Date) {
+export async function fetchMetricasCalidad(
+  fechaDesde?: string | Date, 
+  fechaHasta?: string | Date,
+  client_id?: string,
+  construction_site_id?: string,
+  recipe_code?: string
+) {
   try {
     // Default to last month if dates not provided
     const desde = fechaDesde 
@@ -423,139 +429,222 @@ export async function fetchMetricasCalidad(fechaDesde?: string | Date, fechaHast
       ? (typeof fechaHasta === 'string' ? fechaHasta.split('T')[0] : format(fechaHasta, 'yyyy-MM-dd'))
       : format(new Date(), 'yyyy-MM-dd');
     
-    console.log('Fetching quality metrics with date range:', { desde, hasta });
+    console.log('Fetching quality metrics with date range and filters:', { 
+      desde, 
+      hasta, 
+      client_id, 
+      construction_site_id, 
+      recipe_code 
+    });
     
-    // Try first with the RPC function which should be the most reliable method
-    try {
-      console.log('Attempting RPC call to obtener_metricas_calidad');
-      const { data, error } = await supabase
-        .rpc('obtener_metricas_calidad', {
-          p_fecha_desde: desde,
-          p_fecha_hasta: hasta
-        });
+    // First get the raw data without filters
+    const { data: ensayosData, error: ensayosError } = await supabase
+      .from('ensayos')
+      .select(`
+        id,
+        fecha_ensayo,
+        resistencia_calculada,
+        porcentaje_cumplimiento,
+        muestra:muestra_id (
+          id,
+          identificacion,
+          tipo_muestra,
+          fecha_programada_ensayo,
+          muestreo:muestreo_id (
+            id,
+            fecha_muestreo,
+            planta,
+            remision:remision_id (
+              id,
+              order:order_id(
+                id,
+                client_id,
+                construction_site
+              ),
+              recipe:recipe_id(
+                id,
+                recipe_code,
+                strength_fc,
+                age_days
+              )
+            )
+          )
+        )
+      `)
+      .gte('fecha_ensayo', desde)
+      .lte('fecha_ensayo', hasta);
+      
+    if (ensayosError) {
+      console.error('Error fetching ensayos data:', ensayosError);
+      throw ensayosError;
+    }
+    
+    console.log(`[DEBUG] Initial ensayos data: ${ensayosData?.length || 0} records found`);
+
+    if (!ensayosData || ensayosData.length === 0) {
+      console.warn('No ensayos found in date range');
+      return {
+        numeroMuestras: 0,
+        muestrasEnCumplimiento: 0,
+        resistenciaPromedio: 0,
+        desviacionEstandar: 0,
+        porcentajeResistenciaGarantia: 0,
+        eficiencia: 0,
+        rendimientoVolumetrico: 0,
+        coeficienteVariacion: 0
+      } as MetricasCalidad;
+    }
+    
+    // Apply the same filters as in fetchDatosGraficoResistencia
+    let filteredData = ensayosData;
+    
+    // Filter by client_id if provided
+    if (client_id) {
+      console.log(`[DEBUG] Filtering by client_id: ${client_id}`);
+      filteredData = filteredData.filter((item: any) => {
+        const muestra = item.muestra;
+        if (!muestra) return false;
         
-      console.log('RPC response:', { data, error });
+        const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+        if (!muestreo) return false;
         
-      if (error) {
-        console.error('Error fetching quality metrics via RPC:', error);
-      } else if (data) {
-        // Process the data if successful
-        // Check if the data might be a string that needs parsing
-        let processedData = data;
-        if (typeof data === 'string') {
-          try {
-            processedData = JSON.parse(data);
-            console.log('Parsed string data:', processedData);
-          } catch (parseErr) {
-            console.error('Failed to parse string data:', parseErr);
-          }
+        const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+        if (!remision) return false;
+        
+        const order = Array.isArray(remision.order) ? remision.order[0] : remision.order;
+        if (!order) return false;
+        
+        const matches = order.client_id === client_id;
+        console.log(`[DEBUG] Item client_id check: order.client_id=${order.client_id}, filter=${client_id}, matches=${matches}`);
+        return matches;
+      });
+      console.log(`[DEBUG] After client filtering: ${filteredData.length} records remain`);
+    }
+    
+    // Filter by construction_site_id if provided
+    if (construction_site_id) {
+      console.log(`[DEBUG] Filtering by construction_site_id: ${construction_site_id}`);
+      // First try to get the construction site name
+      let constructionSiteName: string | null = null;
+      
+      try {
+        const { data: siteData } = await supabase
+          .from('construction_sites')
+          .select('name')
+          .eq('id', construction_site_id)
+          .single();
+          
+        if (siteData) {
+          constructionSiteName = siteData.name;
+          console.log(`[DEBUG] Found construction site name: ${constructionSiteName}`);
+        }
+      } catch (error) {
+        console.error('Error getting construction site name:', error);
+      }
+      
+      // Now filter by the name
+      filteredData = filteredData.filter((item: any) => {
+        const muestra = item.muestra;
+        if (!muestra) return false;
+        
+        const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+        if (!muestreo) return false;
+        
+        const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+        if (!remision) return false;
+        
+        const order = Array.isArray(remision.order) ? remision.order[0] : remision.order;
+        if (!order) return false;
+        
+        // If we have the name, match by name
+        if (constructionSiteName) {
+          const matches = order.construction_site === constructionSiteName;
+          console.log(`[DEBUG] Item construction_site check: order.construction_site=${order.construction_site}, filter=${constructionSiteName}, matches=${matches}`);
+          return matches;
         }
         
-        // Map the data to our MetricasCalidad interface
-        const metricas: MetricasCalidad = {
-          numeroMuestras: processedData.numero_muestras || 0,
-          muestrasEnCumplimiento: processedData.muestras_en_cumplimiento || 0,
-          resistenciaPromedio: processedData.resistencia_promedio || 0,
-          desviacionEstandar: processedData.desviacion_estandar || 0,
-          porcentajeResistenciaGarantia: processedData.porcentaje_resistencia_garantia || 0,
-          eficiencia: processedData.eficiencia || 0,
-          rendimientoVolumetrico: processedData.rendimiento_volumetrico || 0,
-          coeficienteVariacion: processedData.coeficiente_variacion || 0
-        };
-        
-        console.log('Processed metrics data:', metricas);
-        return metricas;
-      }
-    } catch (rpcError) {
-      console.error('Error in RPC call:', rpcError);
-    }
-    
-    // If RPC failed, try a fallback approach using direct table queries
-    console.log('Falling back to direct table queries');
-    
-    try {
-      // For direct querying, we need to use the filter method instead of gte/lte
-      // to properly handle date range filtering
-      const { data: ensayosData, error: ensayosError } = await supabase
-        .from('ensayos')
-        .select(`
-          id,
-          fecha_ensayo,
-          resistencia_calculada,
-          porcentaje_cumplimiento,
-          muestra_id
-        `)
-        .filter('fecha_ensayo', 'gte', desde)
-        .filter('fecha_ensayo', 'lte', hasta);
-        
-      console.log('Direct ensayos query result:', { 
-        count: ensayosData?.length || 0, 
-        error: ensayosError 
+        // Otherwise, try a direct ID match (less likely to work)
+        const matches = order.construction_site === construction_site_id || 
+                       order.construction_site_id === construction_site_id;
+        console.log(`[DEBUG] Item construction_site ID check: order.construction_site=${order.construction_site}, order.construction_site_id=${order.construction_site_id}, filter=${construction_site_id}, matches=${matches}`);
+        return matches;
       });
-      
-      if (ensayosError) {
-        console.error('Error fetching ensayos data:', ensayosError);
-        throw ensayosError;
-      }
-      
-      if (!ensayosData || ensayosData.length === 0) {
-        console.warn('No ensayos found in date range');
-        return {
-          numeroMuestras: 0,
-          muestrasEnCumplimiento: 0,
-          resistenciaPromedio: 0,
-          desviacionEstandar: 0,
-          porcentajeResistenciaGarantia: 0,
-          eficiencia: 0,
-          rendimientoVolumetrico: 0,
-          coeficienteVariacion: 0
-        } as MetricasCalidad;
-      }
-      
-      // Calculate metrics manually
-      const numeroMuestras = ensayosData.length;
-      const muestrasEnCumplimiento = ensayosData.filter(e => e.porcentaje_cumplimiento >= 100).length;
-      
-      // Calculate average resistance
-      const sumResistencia = ensayosData.reduce((sum, e) => sum + (e.resistencia_calculada || 0), 0);
-      const resistenciaPromedio = numeroMuestras > 0 ? sumResistencia / numeroMuestras : 0;
-      
-      // Calculate standard deviation
-      const sumSquaredDiff = ensayosData.reduce((sum, e) => {
-        const diff = (e.resistencia_calculada || 0) - resistenciaPromedio;
-        return sum + (diff * diff);
-      }, 0);
-      const desviacionEstandar = numeroMuestras > 0 ? Math.sqrt(sumSquaredDiff / numeroMuestras) : 0;
-      
-      // Calculate percentage of resistance guarantee
-      const sumPorcentaje = ensayosData.reduce((sum, e) => sum + (e.porcentaje_cumplimiento || 0), 0);
-      const porcentajeResistenciaGarantia = numeroMuestras > 0 ? sumPorcentaje / numeroMuestras : 0;
-      
-      // Calculate coefficient of variation
-      const coeficienteVariacion = resistenciaPromedio > 0 ? (desviacionEstandar / resistenciaPromedio) * 100 : 0;
-      
-      // For efficiency and volumetric performance, we would need more complex calculations
-      // which are done in the stored procedure. For now, set to zero.
-      const eficiencia = 0;
-      const rendimientoVolumetrico = 0;
-      
-      const manualMetrics: MetricasCalidad = {
-        numeroMuestras,
-        muestrasEnCumplimiento,
-        resistenciaPromedio,
-        desviacionEstandar,
-        porcentajeResistenciaGarantia,
-        eficiencia,
-        rendimientoVolumetrico,
-        coeficienteVariacion
-      };
-      
-      console.log('Manually calculated metrics:', manualMetrics);
-      return manualMetrics;
-    } catch (directQueryError) {
-      console.error('Error in direct query fallback:', directQueryError);
-      throw directQueryError;
+      console.log(`[DEBUG] After construction site filtering: ${filteredData.length} records remain`);
     }
+    
+    // Filter by recipe_code if provided
+    if (recipe_code) {
+      console.log(`[DEBUG] Filtering by recipe_code: ${recipe_code}`);
+      filteredData = filteredData.filter((item: any) => {
+        const muestra = item.muestra;
+        if (!muestra) return false;
+        
+        const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+        if (!muestreo) return false;
+        
+        const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+        if (!remision) return false;
+        
+        const recipe = Array.isArray(remision.recipe) ? remision.recipe[0] : remision.recipe;
+        if (!recipe) return false;
+        
+        const matches = recipe.recipe_code === recipe_code;
+        console.log(`[DEBUG] Item recipe check: recipe.recipe_code=${recipe.recipe_code}, filter=${recipe_code}, matches=${matches}`);
+        return matches;
+      });
+      console.log(`[DEBUG] After recipe filtering: ${filteredData.length} records remain`);
+    }
+    
+    console.log(`After filtering: ${filteredData.length} records remain`);
+    
+    if (filteredData.length === 0) {
+      return {
+        numeroMuestras: 0,
+        muestrasEnCumplimiento: 0,
+        resistenciaPromedio: 0,
+        desviacionEstandar: 0,
+        porcentajeResistenciaGarantia: 0,
+        eficiencia: 0,
+        rendimientoVolumetrico: 0,
+        coeficienteVariacion: 0
+      } as MetricasCalidad;
+    }
+    
+    // Calculate metrics manually from the filtered data
+    const numeroMuestras = filteredData.length;
+    const muestrasEnCumplimiento = filteredData.filter(d => d.porcentaje_cumplimiento >= 100).length;
+    
+    // Calculate average resistance
+    const sumResistencia = filteredData.reduce((sum, d) => sum + (d.resistencia_calculada || 0), 0);
+    const resistenciaPromedio = numeroMuestras > 0 ? sumResistencia / numeroMuestras : 0;
+    
+    // Calculate standard deviation
+    const sumSquaredDiff = filteredData.reduce((sum, d) => {
+      const diff = (d.resistencia_calculada || 0) - resistenciaPromedio;
+      return sum + (diff * diff);
+    }, 0);
+    const desviacionEstandar = numeroMuestras > 0 ? Math.sqrt(sumSquaredDiff / numeroMuestras) : 0;
+    
+    // Calculate percentage of resistance guarantee
+    const sumPorcentaje = filteredData.reduce((sum, d) => sum + (d.porcentaje_cumplimiento || 0), 0);
+    const porcentajeResistenciaGarantia = numeroMuestras > 0 ? sumPorcentaje / numeroMuestras : 0;
+    
+    // Calculate coefficient of variation
+    const coeficienteVariacion = resistenciaPromedio > 0 ? (desviacionEstandar / resistenciaPromedio) * 100 : 0;
+    
+    const manualMetrics: MetricasCalidad = {
+      numeroMuestras,
+      muestrasEnCumplimiento,
+      resistenciaPromedio,
+      desviacionEstandar,
+      porcentajeResistenciaGarantia,
+      eficiencia: 0, // Can't calculate without more data
+      rendimientoVolumetrico: 0, // Can't calculate without more data
+      coeficienteVariacion
+    };
+    
+    console.log('Manually calculated metrics from filtered data:', manualMetrics);
+    return manualMetrics;
   } catch (error) {
     handleError(error, 'fetchMetricasCalidad');
     console.error('Full error in fetchMetricasCalidad:', error);
@@ -700,7 +789,14 @@ export async function debugQueryMetricas(fechaDesde: string, fechaHasta: string)
   }
 }
 
-export async function fetchDatosGraficoResistencia(fechaDesde?: string | Date, fechaHasta?: string | Date) {
+export async function fetchDatosGraficoResistencia(
+  fechaDesde?: string | Date, 
+  fechaHasta?: string | Date, 
+  client_id?: string, 
+  construction_site_id?: string, 
+  recipe_code?: string, 
+  soloEdadGarantia: boolean = false
+) {
   try {
     // Ensure dates are formatted correctly
     const formattedFechaDesde = fechaDesde 
@@ -717,22 +813,42 @@ export async function fetchDatosGraficoResistencia(fechaDesde?: string | Date, f
 
     console.log('🔍 Fetching Resistance Graph Data', {
       fechaDesde: formattedFechaDesde,
-      fechaHasta: formattedFechaHasta
+      fechaHasta: formattedFechaHasta,
+      client_id,
+      construction_site_id,
+      recipe_code,
+      soloEdadGarantia
     });
 
     let query = supabase
       .from('ensayos')
       .select(`
         id, 
-        fecha_ensayo, 
+        fecha_ensayo,
         porcentaje_cumplimiento,
+        resistencia_calculada,
         muestra:muestra_id (
-          *,
+          id,
+          identificacion,
+          tipo_muestra,
+          fecha_programada_ensayo,
           muestreo:muestreo_id (
-            *,
+            id,
+            fecha_muestreo,
+            planta,
             remision:remision_id (
-              *,
-              recipe:recipes(*)
+              id,
+              order:order_id(
+                id,
+                client_id,
+                construction_site
+              ),
+              recipe:recipe_id(
+                id,
+                recipe_code,
+                strength_fc,
+                age_days
+              )
             )
           )
         )
@@ -760,8 +876,136 @@ export async function fetchDatosGraficoResistencia(fechaDesde?: string | Date, f
       throw error;
     }
 
+    // Filter data based on provided filters
+    let filteredData = data || [];
+
+    // Filter by client_id if provided
+    if (client_id) {
+      filteredData = filteredData.filter((item: any) => {
+        const muestra = item.muestra;
+        if (!muestra) return false;
+        
+        const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+        if (!muestreo) return false;
+        
+        const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+        if (!remision) return false;
+        
+        const order = Array.isArray(remision.order) ? remision.order[0] : remision.order;
+        if (!order) return false;
+        
+        return order.client_id === client_id;
+      });
+    }
+
+    // Filter by construction_site_id if provided
+    if (construction_site_id) {
+      // First try to get the construction site data to know its name
+      console.log('⚙️ Filtering by construction site ID:', construction_site_id);
+      
+      // We need to find the construction site name from its ID
+      let constructionSiteName: string | null = null;
+      
+      try {
+        const { data: siteData } = await supabase
+          .from('construction_sites')
+          .select('name')
+          .eq('id', construction_site_id)
+          .single();
+        
+        if (siteData) {
+          constructionSiteName = siteData.name;
+          console.log('📍 Found construction site name:', constructionSiteName);
+        }
+      } catch (error) {
+        console.error('Error getting construction site name:', error);
+      }
+      
+      filteredData = filteredData.filter((item: any) => {
+        const muestra = item.muestra;
+        if (!muestra) return false;
+        
+        const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+        if (!muestreo) return false;
+        
+        const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+        if (!remision) return false;
+        
+        const order = Array.isArray(remision.order) ? remision.order[0] : remision.order;
+        if (!order) return false;
+        
+        // If we have the construction site name, compare with order.construction_site
+        if (constructionSiteName) {
+          return order.construction_site === constructionSiteName;
+        }
+        
+        // Fallback: if we couldn't get the name, try direct comparison with ID
+        // (though this likely won't match if order.construction_site is a name)
+        return order.construction_site === construction_site_id || 
+               order.construction_site_id === construction_site_id;
+      });
+    }
+
+    // Filter by recipe_code if provided
+    if (recipe_code) {
+      filteredData = filteredData.filter((item: any) => {
+        const muestra = item.muestra;
+        if (!muestra) return false;
+        
+        const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+        if (!muestreo) return false;
+        
+        const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+        if (!remision) return false;
+        
+        const recipe = Array.isArray(remision.recipe) ? remision.recipe[0] : remision.recipe;
+        if (!recipe) return false;
+        
+        return recipe.recipe_code === recipe_code;
+      });
+    }
+
+    // Filter to only show ensayos at edad garantia if requested
+    if (soloEdadGarantia) {
+      filteredData = filteredData.filter((item: any) => {
+        const muestra = item.muestra;
+        if (!muestra) return false;
+        
+        const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+        if (!muestreo || !muestreo.fecha_muestreo) return false;
+        
+        const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+        if (!remision) return false;
+        
+        const recipe = Array.isArray(remision.recipe) ? remision.recipe[0] : remision.recipe;
+        if (!recipe || !recipe.age_days) return false;
+
+        // Calculate the guarantee age date
+        const fechaMuestreo = new Date(muestreo.fecha_muestreo);
+        const edadGarantia = recipe.age_days || 28;
+        const fechaEdadGarantia = new Date(fechaMuestreo);
+        fechaEdadGarantia.setDate(fechaMuestreo.getDate() + edadGarantia);
+
+        // Check if the date is the exact guarantee date or ±1 day
+        // Access fecha_programada_ensayo from muestra instead of ensayo
+        const fechaProgramada = muestra.fecha_programada_ensayo ? new Date(muestra.fecha_programada_ensayo) : null;
+        if (!fechaProgramada) return false;
+        
+        // Calculate difference in days
+        const diffTime = Math.abs(fechaProgramada.getTime() - fechaEdadGarantia.getTime());
+        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+        
+        // Allow ±1 day tolerance
+        return diffDays <= 1;
+      });
+    }
+
+    console.log('📊 Filtered Ensayos Data', {
+      count: filteredData.length
+    });
+
     // Process the chart data with detailed logging
-    const processedData = processChartData(data);
+    const processedData = processChartData(filteredData);
 
     console.log('📈 Processed Chart Data', {
       count: processedData.length,
@@ -817,20 +1061,24 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
         return null;
       }
 
-      return {
+      const chartDataPoint: DatoGraficoResistencia = {
         x: timestamp,
         y: item.porcentaje_cumplimiento,
         clasificacion: item.muestra?.muestreo?.remision?.recipe?.recipe_code ? 
           (item.muestra.muestreo.remision.recipe.recipe_code.includes('MR') ? 'MR' : 'FC') 
           : 'FC',
         edad: 28, // Default age
-        fecha_ensayo: item.fecha_ensayo
+        fecha_ensayo: item.fecha_ensayo,
+        resistencia_calculada: item.resistencia_calculada,
+        muestra: item.muestra
       };
+      
+      return chartDataPoint;
     } catch (parseError) {
       console.warn('❌ Error parsing data point:', parseError, item);
       return null;
     }
-  }).filter((item): item is DatoGraficoResistencia => item !== null);
+  }).filter(Boolean) as DatoGraficoResistencia[];
 
   console.log('🎉 Final Processed Data', {
     processedCount: processedData.length,
@@ -1546,10 +1794,25 @@ export async function fetchEficienciaReporteData(fechaDesde?: string | Date, fec
   }
 }
 
-export async function fetchDistribucionResistenciaData(fechaDesde?: string | Date, fechaHasta?: string | Date, clasificacion?: string) {
+export async function fetchDistribucionResistenciaData(
+  fechaDesde?: string | Date, 
+  fechaHasta?: string | Date, 
+  clasificacion?: string,
+  clientId?: string,
+  constructionSiteId?: string,
+  recipeCode?: string
+) {
   try {
-    // Fetch resistance data
-    const resistenciaData = await fetchResistenciaReporteData(fechaDesde, fechaHasta, undefined, clasificacion);
+    // Fetch resistance data with all filters
+    const resistenciaData = await fetchResistenciaReporteDataFixed(
+      fechaDesde, 
+      fechaHasta, 
+      undefined, 
+      clasificacion,
+      clientId,
+      constructionSiteId,
+      recipeCode
+    );
     
     // Group by resistance ranges
     const distribucion = [
@@ -1636,108 +1899,7 @@ export async function fetchTendenciaResistenciaData(fechaDesde?: string | Date, 
   }
 }
 
-// Utility function to debug Supabase API URLs
-export async function debugApiEndpoint() {
-  try {
-    // Get the Supabase URL and API key
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-    
-    console.log('Supabase configuration:', { 
-      url: supabaseUrl,
-      keyLength: supabaseKey ? supabaseKey.length : 0 
-    });
-    
-    // Test basic authentication first
-    const authHeaders = {
-      'apikey': supabaseKey,
-      'Authorization': `Bearer ${supabaseKey}`,
-      'Content-Type': 'application/json'
-    };
-    
-    // Test a simple endpoint first
-    try {
-      const response = await fetch(`${supabaseUrl}/rest/v1/ensayos?select=id&limit=1`, {
-        method: 'GET',
-        headers: authHeaders
-      });
-      
-      console.log('Basic API test:', {
-        status: response.status,
-        statusText: response.statusText,
-        headers: Object.fromEntries(response.headers.entries()),
-        ok: response.ok
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Test data:', data);
-      }
-    } catch (basicErr) {
-      console.error('Error in basic API test:', basicErr);
-    }
-    
-    // Test with date range parameters
-    const testDate = new Date();
-    const prevMonth = new Date();
-    prevMonth.setMonth(prevMonth.getMonth() - 1);
-    
-    const fromDate = format(prevMonth, 'yyyy-MM-dd');
-    const toDate = format(testDate, 'yyyy-MM-dd');
-    
-    // Test with properly formatted parameters
-    try {
-      // Using separate parameters for gte and lte conditions
-      const url = `${supabaseUrl}/rest/v1/ensayos?select=count&fecha_ensayo=gte.${fromDate}&fecha_ensayo=lte.${toDate}`;
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: authHeaders
-      });
-      
-      console.log('Date range test 1 (duplicate params):', {
-        url,
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok
-      });
-      
-      // Using range operators in the format Supabase expects
-      const url2 = `${supabaseUrl}/rest/v1/ensayos?select=count&fecha_ensayo=gte.${fromDate}&fecha_ensayo=lte.${toDate}`;
-      const response2 = await fetch(url2, {
-        method: 'GET',
-        headers: authHeaders
-      });
-      
-      console.log('Date range test 2 (range operators):', {
-        url: url2,
-        status: response2.status,
-        statusText: response2.statusText,
-        ok: response2.ok
-      });
-      
-      // Using query parameters in a different format
-      const url3 = `${supabaseUrl}/rest/v1/ensayos?select=count&and=(fecha_ensayo.gte.${fromDate},fecha_ensayo.lte.${toDate})`;
-      const response3 = await fetch(url3, {
-        method: 'GET',
-        headers: authHeaders
-      });
-      
-      console.log('Date range test 3 (and condition):', {
-        url: url3,
-        status: response3.status,
-        statusText: response3.statusText,
-        ok: response3.ok
-      });
-    } catch (rangeErr) {
-      console.error('Error in date range tests:', rangeErr);
-    }
-    
-    return "Debug completed - check console logs for details";
-  } catch (error) {
-    console.error('Error in debugApiEndpoint:', error);
-    return "Error in debug - check console logs";
-  }
-}
+
 
 export async function checkDatabaseContent() {
   try {
@@ -2224,7 +2386,15 @@ export async function debugMuestreosMuestras(fechaDesde?: string | Date, fechaHa
 }
 
 // Fixed version that directly accesses related tables
-export async function fetchResistenciaReporteDataFixed(fechaDesde?: string | Date, fechaHasta?: string | Date, planta?: string, clasificacion?: string) {
+export async function fetchResistenciaReporteDataFixed(
+  fechaDesde?: string | Date, 
+  fechaHasta?: string | Date, 
+  planta?: string, 
+  clasificacion?: string,
+  clientId?: string,
+  constructionSiteId?: string,
+  recipeCode?: string
+) {
   try {
     // Default to last 3 months if dates not provided
     const desde = fechaDesde 
@@ -2244,6 +2414,12 @@ export async function fetchResistenciaReporteDataFixed(fechaDesde?: string | Dat
         planta,
         remision:remision_id (
           id,
+          order_id,
+          order:order_id (
+            id,
+            client_id,
+            construction_site
+          ),
           recipe:recipe_id (
             id, 
             recipe_code,
@@ -2277,8 +2453,54 @@ export async function fetchResistenciaReporteDataFixed(fechaDesde?: string | Dat
     
     console.log(`Found ${muestreosData.length} muestreos`);
     
+    // Filter muestreos by client, construction site, and recipe if provided
+    let filteredMuestreos = muestreosData;
+    
+    if (clientId) {
+      filteredMuestreos = filteredMuestreos.filter(muestreo => {
+        return muestreo.remision?.order?.client_id === clientId;
+      });
+      console.log(`After client filter: ${filteredMuestreos.length} muestreos`);
+    }
+    
+    if (constructionSiteId) {
+      // For construction site, we need to get the name first
+      let constructionSiteName: string | null = null;
+      
+      try {
+        const { data: siteData } = await supabase
+          .from('construction_sites')
+          .select('name')
+          .eq('id', constructionSiteId)
+          .single();
+          
+        if (siteData) {
+          constructionSiteName = siteData.name;
+        }
+      } catch (error) {
+        console.error('Error getting construction site name:', error);
+      }
+      
+      filteredMuestreos = filteredMuestreos.filter(muestreo => {
+        // If we have the name, compare with that first
+        if (constructionSiteName) {
+          return muestreo.remision?.order?.construction_site === constructionSiteName;
+        }
+        // Otherwise try direct ID comparison, which may not work if construction_site is a name
+        return muestreo.remision?.order?.construction_site === constructionSiteId;
+      });
+      console.log(`After construction site filter: ${filteredMuestreos.length} muestreos`);
+    }
+    
+    if (recipeCode) {
+      filteredMuestreos = filteredMuestreos.filter(muestreo => {
+        return muestreo.remision?.recipe?.recipe_code === recipeCode;
+      });
+      console.log(`After recipe filter: ${filteredMuestreos.length} muestreos`);
+    }
+    
     // Process each muestreo and get its samples at the guarantee age
-    const reportPromises = muestreosData.map(async (muestreo: any) => {
+    const reportPromises = filteredMuestreos.map(async (muestreo: any) => {
       // Skip if no recipe data
       if (!muestreo.remision?.recipe) {
         return null;
@@ -2441,7 +2663,14 @@ export function formatUTCDate(date: Date): string {
 }
 
 // Completely rewrite the muestras processing in fetchEficienciaReporteDataFixed
-export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date, fechaHasta?: string | Date, planta?: string) {
+export async function fetchEficienciaReporteDataFixed(
+  fechaDesde?: string | Date, 
+  fechaHasta?: string | Date, 
+  planta?: string,
+  clientId?: string,
+  constructionSiteId?: string,
+  recipeCode?: string
+) {
   try {
     // Default to last 3 months if dates not provided
     const desde = fechaDesde 
@@ -2464,6 +2693,13 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
         masa_unitaria,
         remision_id,
         remision:remision_id (
+          id,
+          order_id,
+          order:order_id (
+            id,
+            client_id,
+            construction_site
+          ),
           recipe:recipe_id (
             id,
             recipe_code,
@@ -2494,9 +2730,56 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
     
     console.log(`Found ${muestreosData.length} muestreos for efficiency report`);
     
+    // Filter muestreos by client, construction site, and recipe if provided
+    let filteredMuestreos = muestreosData;
+    
+    if (clientId) {
+      filteredMuestreos = filteredMuestreos.filter(muestreo => {
+        return muestreo.remision?.order?.client_id === clientId;
+      });
+      console.log(`After client filter: ${filteredMuestreos.length} muestreos`);
+    }
+    
+    if (constructionSiteId) {
+      // For construction site, we need to get the name first
+      let constructionSiteName: string | null = null;
+      
+      try {
+        const { data: siteData } = await supabase
+          .from('construction_sites')
+          .select('name')
+          .eq('id', constructionSiteId)
+          .single();
+          
+        if (siteData) {
+          constructionSiteName = siteData.name;
+        }
+      } catch (error) {
+        console.error('Error getting construction site name:', error);
+      }
+      
+      filteredMuestreos = filteredMuestreos.filter(muestreo => {
+        // If we have the name, compare with that first
+        if (constructionSiteName) {
+          return muestreo.remision?.order?.construction_site === constructionSiteName;
+        }
+        // Otherwise try direct ID comparison, which may not work if construction_site is a name
+        return muestreo.remision?.order?.construction_site === constructionSiteId;
+      });
+      console.log(`After construction site filter: ${filteredMuestreos.length} muestreos`);
+    }
+    
+    if (recipeCode) {
+      filteredMuestreos = filteredMuestreos.filter(muestreo => {
+        return muestreo.remision?.recipe?.recipe_code === recipeCode;
+      });
+      console.log(`After recipe filter: ${filteredMuestreos.length} muestreos`);
+    }
+    
+    // Continue with existing implementation using filtered muestreos
     // Get remisiones data
-    const remisionIds = muestreosData.map(m => m.remision_id).filter(Boolean);
-    const muestreoIds = muestreosData.map(m => m.id);
+    const remisionIds = filteredMuestreos.map(m => m.remision_id).filter(Boolean);
+    const muestreoIds = filteredMuestreos.map(m => m.id);
     
     // STEP 1: Fetch remisiones and materials
     // ====================================
@@ -2617,7 +2900,7 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
     // STEP 4: Process each muestreo to construct final result
     // ===================================================
     
-    const eficienciaPromises = muestreosData.map(async (muestreo) => {
+    const eficienciaPromises = filteredMuestreos.map(async (muestreo) => {
       try {
         // Get server metrics using RPC
         const { data: metricasRPC, error: metricasError } = await supabase
@@ -2756,6 +3039,262 @@ export async function fetchEficienciaReporteDataFixed(fechaDesde?: string | Date
     return eficienciaData;
   } catch (error) {
     handleError(error, 'fetchEficienciaReporteDataFixed');
+    return [];
+  }
+}
+
+// New function to get clients that have quality data in the specified date range
+export async function fetchClientsWithQualityData(fechaDesde?: string | Date, fechaHasta?: string | Date) {
+  try {
+    // Default to last 3 months if dates not provided
+    const desde = fechaDesde 
+      ? (typeof fechaDesde === 'string' ? fechaDesde.split('T')[0] : format(fechaDesde, 'yyyy-MM-dd'))
+      : format(subMonths(new Date(), 3), 'yyyy-MM-dd');
+    
+    const hasta = fechaHasta 
+      ? (typeof fechaHasta === 'string' ? fechaHasta.split('T')[0] : format(fechaHasta, 'yyyy-MM-dd'))
+      : format(new Date(), 'yyyy-MM-dd');
+
+    // First get muestreos in the date range
+    const { data: muestreosData, error: muestreosError } = await supabase
+      .from('muestreos')
+      .select(`
+        remision:remision_id (
+          order:order_id (
+            client_id
+          )
+        )
+      `)
+      .gte('fecha_muestreo', desde)
+      .lte('fecha_muestreo', hasta);
+      
+    if (muestreosError) {
+      console.error('Error fetching muestreos for clients:', muestreosError);
+      throw muestreosError;
+    }
+    
+    if (!muestreosData || muestreosData.length === 0) {
+      return [];
+    }
+    
+    // Extract unique client IDs
+    const clientIds: string[] = [];
+    muestreosData.forEach(muestreo => {
+      const clientId = muestreo.remision?.order?.client_id;
+      if (clientId && !clientIds.includes(clientId)) {
+        clientIds.push(clientId);
+      }
+    });
+    
+    if (clientIds.length === 0) {
+      return [];
+    }
+    
+    // Get clients data
+    const { data: clientsData, error: clientsError } = await supabase
+      .from('clients')
+      .select('*')
+      .in('id', clientIds)
+      .order('business_name', { ascending: true });
+      
+    if (clientsError) {
+      console.error('Error fetching clients data:', clientsError);
+      throw clientsError;
+    }
+    
+    return clientsData || [];
+  } catch (error) {
+    handleError(error, 'fetchClientsWithQualityData');
+    return [];
+  }
+}
+
+// New function to get construction sites that have quality data for a specific client and date range
+export async function fetchConstructionSitesWithQualityData(
+  clientId: string,
+  fechaDesde?: string | Date, 
+  fechaHasta?: string | Date
+) {
+  try {
+    // Default to last 3 months if dates not provided
+    const desde = fechaDesde 
+      ? (typeof fechaDesde === 'string' ? fechaDesde.split('T')[0] : format(fechaDesde, 'yyyy-MM-dd'))
+      : format(subMonths(new Date(), 3), 'yyyy-MM-dd');
+    
+    const hasta = fechaHasta 
+      ? (typeof fechaHasta === 'string' ? fechaHasta.split('T')[0] : format(fechaHasta, 'yyyy-MM-dd'))
+      : format(new Date(), 'yyyy-MM-dd');
+
+    // First get muestreos in the date range for this client
+    const { data: muestreosData, error: muestreosError } = await supabase
+      .from('muestreos')
+      .select(`
+        remision:remision_id (
+          order:order_id (
+            client_id,
+            construction_site
+          )
+        )
+      `)
+      .gte('fecha_muestreo', desde)
+      .lte('fecha_muestreo', hasta);
+      
+    if (muestreosError) {
+      console.error('Error fetching muestreos for construction sites:', muestreosError);
+      throw muestreosError;
+    }
+    
+    if (!muestreosData || muestreosData.length === 0) {
+      return [];
+    }
+    
+    // Filter by client and extract unique construction site names
+    const siteNames: string[] = [];
+    muestreosData.forEach(muestreo => {
+      if (muestreo.remision?.order?.client_id === clientId) {
+        const siteName = muestreo.remision?.order?.construction_site;
+        if (siteName && !siteNames.includes(siteName)) {
+          siteNames.push(siteName);
+        }
+      }
+    });
+    
+    if (siteNames.length === 0) {
+      return [];
+    }
+    
+    // Get construction sites data
+    const { data: sitesData, error: sitesError } = await supabase
+      .from('construction_sites')
+      .select('*')
+      .eq('client_id', clientId)
+      .in('name', siteNames)
+      .order('name', { ascending: true });
+      
+    if (sitesError) {
+      console.error('Error fetching construction sites data:', sitesError);
+      throw sitesError;
+    }
+    
+    return sitesData || [];
+  } catch (error) {
+    handleError(error, 'fetchConstructionSitesWithQualityData');
+    return [];
+  }
+}
+
+// New function to get recipes that have quality data in the specified date range
+export async function fetchRecipesWithQualityData(
+  fechaDesde?: string | Date, 
+  fechaHasta?: string | Date,
+  clientId?: string,
+  constructionSiteId?: string
+) {
+  try {
+    // Default to last 3 months if dates not provided
+    const desde = fechaDesde 
+      ? (typeof fechaDesde === 'string' ? fechaDesde.split('T')[0] : format(fechaDesde, 'yyyy-MM-dd'))
+      : format(subMonths(new Date(), 3), 'yyyy-MM-dd');
+    
+    const hasta = fechaHasta 
+      ? (typeof fechaHasta === 'string' ? fechaHasta.split('T')[0] : format(fechaHasta, 'yyyy-MM-dd'))
+      : format(new Date(), 'yyyy-MM-dd');
+
+    // Get muestreos with recipe info in the date range
+    const { data: muestreosData, error: muestreosError } = await supabase
+      .from('muestreos')
+      .select(`
+        remision:remision_id (
+          order:order_id (
+            client_id,
+            construction_site
+          ),
+          recipe:recipe_id (
+            id,
+            recipe_code
+          )
+        )
+      `)
+      .gte('fecha_muestreo', desde)
+      .lte('fecha_muestreo', hasta);
+      
+    if (muestreosError) {
+      console.error('Error fetching muestreos for recipes:', muestreosError);
+      throw muestreosError;
+    }
+    
+    if (!muestreosData || muestreosData.length === 0) {
+      return [];
+    }
+    
+    // Filter by client and construction site if provided
+    let filteredMuestreos = muestreosData;
+    
+    if (clientId) {
+      filteredMuestreos = filteredMuestreos.filter(muestreo => 
+        muestreo.remision?.order?.client_id === clientId
+      );
+    }
+    
+    if (constructionSiteId) {
+      // First get the construction site name
+      let constructionSiteName: string | null = null;
+      
+      try {
+        const { data: siteData } = await supabase
+          .from('construction_sites')
+          .select('name')
+          .eq('id', constructionSiteId)
+          .single();
+          
+        if (siteData) {
+          constructionSiteName = siteData.name;
+        }
+      } catch (error) {
+        console.error('Error getting construction site name:', error);
+      }
+      
+      filteredMuestreos = filteredMuestreos.filter(muestreo => {
+        if (constructionSiteName) {
+          return muestreo.remision?.order?.construction_site === constructionSiteName;
+        }
+        return false;
+      });
+    }
+    
+    // Extract unique recipe IDs
+    const recipeIds: string[] = [];
+    const recipeCodesMap: Record<string, string> = {};
+    
+    filteredMuestreos.forEach(muestreo => {
+      const recipeId = muestreo.remision?.recipe?.id;
+      const recipeCode = muestreo.remision?.recipe?.recipe_code;
+      
+      if (recipeId && recipeCode && !recipeIds.includes(recipeId)) {
+        recipeIds.push(recipeId);
+        recipeCodesMap[recipeId] = recipeCode;
+      }
+    });
+    
+    if (recipeIds.length === 0) {
+      return [];
+    }
+    
+    // Get recipes data
+    const { data: recipesData, error: recipesError } = await supabase
+      .from('recipes')
+      .select('id, recipe_code, age_days')
+      .in('id', recipeIds)
+      .order('recipe_code', { ascending: true });
+      
+    if (recipesError) {
+      console.error('Error fetching recipes data:', recipesError);
+      throw recipesError;
+    }
+    
+    return recipesData || [];
+  } catch (error) {
+    handleError(error, 'fetchRecipesWithQualityData');
     return [];
   }
 }

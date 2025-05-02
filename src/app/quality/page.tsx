@@ -1,18 +1,17 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { format, subMonths, parse } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
-import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity } from 'lucide-react';
+import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter } from 'lucide-react';
 import { fetchMetricasCalidad, fetchDatosGraficoResistencia, checkDatabaseContent } from '@/services/qualityService';
 import { useAuth } from '@/contexts/AuthContext';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
-import { ApexOptions } from 'apexcharts';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -21,8 +20,34 @@ import AlertasEnsayos from '@/components/quality/AlertasEnsayos';
 import { supabase } from '@/lib/supabase';
 import { calcularMediaSinCeros } from '@/lib/qualityMetricsUtils';
 import { DatoGraficoResistencia } from '@/types/quality';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+  SheetFooter
+} from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
-// Importar dinámicamente el componente de gráficos
+// Import MUI X Charts components for data visualization
+import { 
+  ScatterChart,
+  ChartsGrid,
+  ChartsReferenceLine
+} from '@mui/x-charts';
+import type { ScatterItemIdentifier } from '@mui/x-charts';
+
+// Dynamically import ApexCharts (to be replaced)
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 export default function QualityDashboardPage() {
@@ -44,6 +69,169 @@ export default function QualityDashboardPage() {
   const [datosGrafico, setDatosGrafico] = useState<DatoGraficoResistencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Add state for selected point
+  const [selectedPoint, setSelectedPoint] = useState<DatoGraficoResistencia | null>(null);
+
+  // Filter states
+  const [clients, setClients] = useState<any[]>([]);
+  const [constructionSites, setConstructionSites] = useState<any[]>([]);
+  const [recipes, setRecipes] = useState<any[]>([]);
+  const [selectedClient, setSelectedClient] = useState<string>('all');
+  const [selectedConstructionSite, setSelectedConstructionSite] = useState<string>('all');
+  const [selectedRecipe, setSelectedRecipe] = useState<string>('all');
+  const [soloEdadGarantia, setSoloEdadGarantia] = useState<boolean>(false);
+  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
+
+  // Load available filter options
+  useEffect(() => {
+    const loadFilterOptions = async () => {
+      try {
+        // Fetch clients with existing data in quality tables
+        const { data: clientData } = await supabase
+          .rpc('get_clients_with_quality_data')
+          .select('id, business_name')
+          .order('business_name');
+          
+        if (clientData) {
+          setClients(clientData);
+        } else {
+          // Fallback if RPC doesn't exist - fetch through joins
+          const { data: fallbackClientData } = await supabase
+            .from('ensayos')
+            .select(`
+              muestra:muestra_id (
+                muestreo:muestreo_id (
+                  remision:remision_id (
+                    order:order_id (
+                      client:client_id (
+                        id, business_name
+                      )
+                    )
+                  )
+                )
+              )
+            `);
+            
+            if (fallbackClientData) {
+              // Extract unique clients from the nested data
+              const uniqueClients = new Map();
+              
+              fallbackClientData.forEach((ensayo: any) => {
+                const muestra = ensayo?.muestra;
+                if (!muestra) return;
+                
+                const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+                if (!muestreo) return;
+                
+                const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+                if (!remision) return;
+                
+                const order = Array.isArray(remision.order) ? remision.order[0] : remision.order;
+                if (!order) return;
+                
+                const client = Array.isArray(order.client) ? order.client[0] : order.client;
+                if (!client || !client.id || !client.business_name) return;
+                
+                uniqueClients.set(client.id, {
+                  id: client.id,
+                  business_name: client.business_name
+                });
+              });
+              
+              setClients(Array.from(uniqueClients.values()));
+            }
+        }
+        
+        // Fetch all construction sites (will be filtered based on client selection)
+        const { data: allSitesData } = await supabase
+          .from('construction_sites')
+          .select('id, name, client_id')
+          .order('name');
+          
+        if (allSitesData) {
+          setConstructionSites(allSitesData);
+        }
+        
+        // Instead of fetching all recipes, fetch only recipes that have quality data
+        const { data: recipesData } = await supabase
+          .rpc('get_recipes_with_quality_data');
+          
+        if (recipesData) {
+          // Sort and extract the fields we need
+          const formattedRecipes = recipesData
+            .map(recipe => ({
+              id: recipe.id,
+              recipe_code: recipe.recipe_code
+            }))
+            .sort((a, b) => a.recipe_code.localeCompare(b.recipe_code));
+            
+            setRecipes(formattedRecipes);
+        } else {
+          // Fallback if RPC doesn't exist - fetch through joins
+          const { data: fallbackRecipesData } = await supabase
+            .from('ensayos')
+            .select(`
+              muestra:muestra_id (
+                muestreo:muestreo_id (
+                  remision:remision_id (
+                    recipe:recipe_id (
+                      id, recipe_code
+                    )
+                  )
+                )
+              )
+            `);
+            
+          if (fallbackRecipesData) {
+            // Extract unique recipes from the nested data
+            const uniqueRecipes = new Map();
+            
+            fallbackRecipesData.forEach((ensayo: any) => {
+              const muestra = ensayo?.muestra;
+              if (!muestra) return;
+              
+              const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+              if (!muestreo) return;
+              
+              const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+              if (!remision) return;
+              
+              const recipe = Array.isArray(remision.recipe) ? remision.recipe[0] : remision.recipe;
+              if (!recipe || !recipe.id || !recipe.recipe_code) return;
+              
+              uniqueRecipes.set(recipe.id, {
+                id: recipe.id,
+                recipe_code: recipe.recipe_code
+              });
+            });
+            
+            setRecipes(Array.from(uniqueRecipes.values()));
+          }
+        }
+      } catch (err) {
+        console.error('Error loading filter options:', err);
+      }
+    };
+    
+    loadFilterOptions();
+  }, []);
+  
+  // Filter construction sites based on selected client
+  useEffect(() => {
+    if (selectedClient && selectedClient !== 'all') {
+      // If client changes, reset construction site selection
+      setSelectedConstructionSite('all');
+    }
+  }, [selectedClient]);
+  
+  // Function to get filtered construction sites based on selected client
+  const getFilteredConstructionSites = useCallback(() => {
+    if (!selectedClient || selectedClient === 'all') {
+      return constructionSites;
+    }
+    
+    return constructionSites.filter(site => site.client_id === selectedClient);
+  }, [selectedClient, constructionSites]);
 
   // Add this helper function near the top of the component, before the component definition
   const formatDataForChart = (ensayos: any[]): [number, number][] => {
@@ -88,73 +276,15 @@ export default function QualityDashboardPage() {
         
         // First try direct RPC call to Supabase
         try {
-          // Get metrics directly from stored procedure
-          const { data: rpcData, error: rpcError } = await supabase
-            .rpc('obtener_metricas_calidad', {
-              p_fecha_desde: fromDate,
-              p_fecha_hasta: toDate
-            });
-            
-          if (!rpcError && rpcData) {
-            // Process the data
-            const processedMetrics = {
-              numeroMuestras: rpcData.numero_muestras || 0,
-              muestrasEnCumplimiento: rpcData.muestras_en_cumplimiento || 0,
-              resistenciaPromedio: rpcData.resistencia_promedio || 0,
-              desviacionEstandar: rpcData.desviacion_estandar || 0,
-              porcentajeResistenciaGarantia: rpcData.porcentaje_resistencia_garantia || 0,
-              eficiencia: rpcData.eficiencia || 0,
-              rendimientoVolumetrico: rpcData.rendimiento_volumetrico || 0,
-              coeficienteVariacion: rpcData.coeficiente_variacion || 0
-            };
-            
-            // Fix the rendimiento volumétrico calculation if necessary
-            // Get detailed muestreo metrics to calculate a corrected rendimiento volumétrico
-            try {
-              // Get all muestreos in the date range
-              const { data: muestreosData } = await supabase
-                .from('muestreos')
-                .select('id, fecha_muestreo')
-                .gte('fecha_muestreo', fromDate)
-                .lte('fecha_muestreo', toDate);
-                
-              if (muestreosData && muestreosData.length > 0) {
-                // Get metrics for each muestreo
-                const metricsPromises = muestreosData.map(async (muestreo) => {
-                  const { data: metricasRPC } = await supabase
-                    .rpc('calcular_metricas_muestreo', {
-                      p_muestreo_id: muestreo.id
-                    });
-                  
-                  return metricasRPC && metricasRPC.length > 0 ? metricasRPC[0] : null;
-                });
-                
-                const results = (await Promise.all(metricsPromises)).filter(Boolean);
-                
-                // Calculate corrected rendimiento volumétrico by ignoring zeros
-                if (results.length > 0) {
-                  const rendimientos = results
-                    .map(r => r.rendimiento_volumetrico)
-                    .filter(r => r !== null && r !== 0);
-                    
-                  if (rendimientos.length > 0) {
-                    // Replace the global rendimiento with this corrected value
-                    processedMetrics.rendimientoVolumetrico = 
-                      calcularMediaSinCeros(rendimientos) || processedMetrics.rendimientoVolumetrico;
-                  }
-                }
-              }
-            } catch (detailedError) {
-              // Continue with the uncorrected value if there's an error
-            }
-            
-            setMetricas(processedMetrics);
-          } else {
-            throw new Error('Error en la llamada a RPC');
-          }
-        } catch (rpcError) {
-          // Fall back to using the service function
-          const metricasData = await fetchMetricasCalidad(fromDate, toDate);
+          // Get metrics directly from stored procedure with the same filters
+          // used for the chart data
+          const metricasData = await fetchMetricasCalidad(
+            fromDate, 
+            toDate,
+            selectedClient === 'all' ? undefined : selectedClient,
+            selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
+            selectedRecipe === 'all' ? undefined : selectedRecipe
+          );
           
           if (metricasData) {
             // Apply the same rendimiento volumétrico correction
@@ -200,10 +330,43 @@ export default function QualityDashboardPage() {
           } else {
             throw new Error('No se pudieron obtener métricas de calidad');
           }
+        } catch (rpcError) {
+          console.error('Error fetching metrics:', rpcError);
+          // Use simplified metrics calculation as fallback
+          const metricasData = await fetchMetricasCalidad(
+            fromDate, 
+            toDate,
+            selectedClient === 'all' ? undefined : selectedClient,
+            selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
+            selectedRecipe === 'all' ? undefined : selectedRecipe
+          );
+          
+          if (metricasData) {
+            setMetricas(metricasData);
+          } else {
+            // If all fails, set zeros
+            setMetricas({
+              numeroMuestras: 0,
+              muestrasEnCumplimiento: 0,
+              resistenciaPromedio: 0,
+              desviacionEstandar: 0,
+              porcentajeResistenciaGarantia: 0,
+              eficiencia: 0,
+              rendimientoVolumetrico: 0,
+              coeficienteVariacion: 0
+            });
+          }
         }
         
-        // Get graph data
-        const graficosDataRaw = await fetchDatosGraficoResistencia(fromDate, toDate);
+        // Get graph data with filters
+        const graficosDataRaw = await fetchDatosGraficoResistencia(
+          fromDate, 
+          toDate, 
+          selectedClient === 'all' ? undefined : selectedClient, 
+          selectedConstructionSite === 'all' ? undefined : selectedConstructionSite, 
+          selectedRecipe === 'all' ? undefined : selectedRecipe, 
+          soloEdadGarantia
+        );
         
         console.log('🌟 Received Graph Data Raw:', {
           dataLength: graficosDataRaw.length,
@@ -232,7 +395,7 @@ export default function QualityDashboardPage() {
     };
     
     loadDashboardData();
-  }, [dateRange]);
+  }, [dateRange, selectedClient, selectedConstructionSite, selectedRecipe, soloEdadGarantia]);
 
   const handleDateRangeChange = (range: DateRange | undefined) => {
     if (range?.from && range?.to) {
@@ -240,57 +403,50 @@ export default function QualityDashboardPage() {
     }
   };
 
-  // Opciones para el gráfico de resistencia (datetime axis)
-  const chartOptions: ApexOptions = {
-    chart: {
-      type: 'scatter',
-      zoom: { enabled: true },
-      toolbar: { show: true }
-    },
-    xaxis: {
-      type: 'datetime',
-      labels: {
-        datetimeUTC: true,
-        rotate: -45,
-        rotateAlways: false,
-        format: 'dd MMM'
-      }
-    },
-    yaxis: {
-      min: 0,
-      max: datosGrafico.length > 0 ? Math.max(110, ...datosGrafico.map(d => d.y)) + 10 : 110,
-      tickAmount: 5,
-      title: { text: 'Resistencia (%)' },
-      labels: {
-        formatter: (value: number) => `${value.toFixed(2)}%`
-      }
-    },
-    colors: ['#3EB56D'],
-    markers: {
-      size: 5
-    },
-    tooltip: {
-      x: {
-        format: 'dd MMM yyyy'
-      },
-      y: {
-        formatter: (value: number) => `${value.toFixed(2)}%`,
-        title: {
-          formatter: () => 'Cumplimiento'
-        }
-      }
-    },
-    annotations: {
-      yaxis: [{
-        y: 100,
-        borderColor: '#FF4560',
-        label: {
-          borderColor: '#FF4560',
-          style: { color: '#fff', background: '#FF4560' },
-          text: '100% Cumplimiento'
-        }
-      }]
-    }
+  // Format date from timestamp for display
+  const formatDate = (timestamp: number) => {
+    const date = new Date(timestamp);
+    return format(date, 'dd/MM/yyyy');
+  };
+
+  // Prepare data for MUI ScatterChart
+  const getScatterData = () => {
+    return datosGrafico.map((item, index) => {
+      // Format dates for display in a consistent way
+      const dateObj = new Date(item.x);
+      const formattedDate = format(dateObj, 'dd/MM/yyyy');
+      
+      return {
+        id: index,
+        x: item.x,
+        y: item.y,
+        // Add custom properties with better naming for tooltip display
+        fecha_muestreo: formattedDate,
+        cumplimiento: `${item.y.toFixed(2)}%`,
+        // Additional properties
+        resistencia_real: item.resistencia_calculada,
+        resistencia_esperada: item.muestra?.muestreo?.remision?.recipe?.strength_fc,
+        client_name: item.muestra?.muestreo?.remision?.order?.client?.business_name,
+        construction_site_name: item.muestra?.muestreo?.remision?.order?.construction_site || 
+                              item.muestra?.muestreo?.remision?.order?.construction_site_name,
+        recipe_code: item.muestra?.muestreo?.remision?.recipe?.recipe_code,
+        // Store the original full data for the detail panel
+        original_data: item
+      };
+    });
+  };
+
+  // Custom tooltip formatter for MUI X Charts
+  const formatTooltipContent = (params: any) => {
+    if (!params || !params.datum) return '';
+    
+    const date = params.datum.fecha_muestreo || format(new Date(params.datum.x), 'dd/MM/yyyy');
+    const compliance = params.datum.cumplimiento || `${params.datum.y.toFixed(2)}%`;
+    
+    return `<div style="padding: 2px">
+      <div><b>Fecha:</b> ${date}</div>
+      <div><b>Cumplimiento:</b> ${compliance}</div>
+    </div>`;
   };
 
   // Verificar roles permitidos
@@ -340,6 +496,106 @@ export default function QualityDashboardPage() {
               onChange={handleDateRangeChange}
             />
           </div>
+          
+          {/* Filters Sheet */}
+          <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" className="gap-2">
+                <Filter className="h-4 w-4" />
+                Filtros
+              </Button>
+            </SheetTrigger>
+            <SheetContent>
+              <SheetHeader>
+                <SheetTitle>Filtrar Datos</SheetTitle>
+                <SheetDescription>
+                  Selecciona los filtros para analizar datos específicos
+                </SheetDescription>
+              </SheetHeader>
+              
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="client">Cliente</Label>
+                  <Select
+                    value={selectedClient}
+                    onValueChange={setSelectedClient}
+                  >
+                    <SelectTrigger id="client">
+                      <SelectValue placeholder="Todos los clientes" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todos los clientes</SelectItem>
+                      {clients.filter(client => client.id && client.business_name).map(client => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.business_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="constructionSite">Obra</Label>
+                  <Select
+                    value={selectedConstructionSite}
+                    onValueChange={setSelectedConstructionSite}
+                  >
+                    <SelectTrigger id="constructionSite">
+                      <SelectValue placeholder="Todas las obras" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas las obras</SelectItem>
+                      {getFilteredConstructionSites().filter(site => site.id && site.name).map(site => (
+                        <SelectItem key={site.id} value={site.id}>
+                          {site.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="recipe">Receta</Label>
+                  <Select
+                    value={selectedRecipe}
+                    onValueChange={setSelectedRecipe}
+                  >
+                    <SelectTrigger id="recipe">
+                      <SelectValue placeholder="Todas las recetas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas las recetas</SelectItem>
+                      {recipes.filter(recipe => recipe.recipe_code && recipe.recipe_code.trim() !== '').map(recipe => (
+                        <SelectItem key={recipe.id} value={recipe.recipe_code}>
+                          {recipe.recipe_code}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                <div className="flex items-center space-x-2 pt-2">
+                  <Switch
+                    id="edadGarantia"
+                    checked={soloEdadGarantia}
+                    onCheckedChange={setSoloEdadGarantia}
+                  />
+                  <Label htmlFor="edadGarantia">Mostrar solo ensayos de edad garantía</Label>
+                </div>
+              </div>
+              
+              <SheetFooter>
+                <Button 
+                  onClick={() => {
+                    setFiltersOpen(false);
+                  }}
+                >
+                  Aplicar Filtros
+                </Button>
+              </SheetFooter>
+            </SheetContent>
+          </Sheet>
+          
           <Button 
             variant="outline" 
             size="sm"
@@ -364,6 +620,71 @@ export default function QualityDashboardPage() {
           </Button>
         </div>
       </div>
+      
+      {/* Active filters display */}
+      {(selectedClient || selectedConstructionSite || selectedRecipe || soloEdadGarantia) && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {selectedClient && (
+            <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>Cliente: {clients.find(c => c.id === selectedClient)?.business_name || selectedClient}</span>
+              <button 
+                className="hover:bg-blue-100 rounded-full p-1"
+                onClick={() => setSelectedClient('')}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          
+          {selectedConstructionSite && (
+            <div className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>Obra: {getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || selectedConstructionSite}</span>
+              <button 
+                className="hover:bg-green-100 rounded-full p-1"
+                onClick={() => setSelectedConstructionSite('')}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          
+          {selectedRecipe && (
+            <div className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>Receta: {selectedRecipe}</span>
+              <button 
+                className="hover:bg-purple-100 rounded-full p-1"
+                onClick={() => setSelectedRecipe('')}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          
+          {soloEdadGarantia && (
+            <div className="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>Solo edad garantía</span>
+              <button 
+                className="hover:bg-amber-100 rounded-full p-1"
+                onClick={() => setSoloEdadGarantia(false)}
+              >
+                ×
+              </button>
+            </div>
+          )}
+          
+          <button 
+            className="text-gray-500 hover:text-gray-700 text-sm underline"
+            onClick={() => {
+              setSelectedClient('');
+              setSelectedConstructionSite('');
+              setSelectedRecipe('');
+              setSoloEdadGarantia(false);
+            }}
+          >
+            Limpiar todos
+          </button>
+        </div>
+      )}
       
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -574,19 +895,235 @@ export default function QualityDashboardPage() {
                 </CardHeader>
                 <CardContent>
                   {typeof window !== 'undefined' && datosGrafico.length > 0 ? (
-                    <Chart 
-                      key={JSON.stringify(datosGrafico)} 
-                      options={chartOptions}
-                      series={[{ 
-                        name: 'Cumplimiento', 
-                        data: datosGrafico.map(point => ({
-                          x: point.x,
-                          y: point.y
-                        }))
-                      }]}
-                      type="scatter"
-                      height={350}
-                    />
+                    <div>
+                      <div style={{ height: 350, width: '100%' }}>
+                        <ScatterChart
+                          series={[
+                            {
+                              data: getScatterData(),
+                              label: 'Porcentaje de Cumplimiento',
+                              color: '#3EB56D',
+                              // Custom tooltip content using valueFormatter
+                              valueFormatter: (value: any) => {
+                                if (value?.y !== undefined) {
+                                  return `${value.y.toFixed(2)}%`;
+                                }
+                                if (value?.fecha_muestreo) {
+                                  return value.fecha_muestreo;
+                                }
+                                return typeof value === 'number' ? `${value.toFixed(2)}%` : '';
+                              }
+                            }
+                          ]}
+                          xAxis={[{
+                            scaleType: 'time',
+                            // Format tick labels (dates on axis)
+                            valueFormatter: (value) => format(new Date(value), 'dd/MM'),
+                            // Calculate a reasonable number of ticks based on data points
+                            tickNumber: Math.min(7, datosGrafico.length),
+                            tickMinStep: 24 * 3600 * 1000, // 1 day minimum interval
+                            tickLabelStyle: { 
+                              angle: 0,
+                              textAnchor: 'middle',
+                              fontSize: 12
+                            }
+                          }]}
+                          yAxis={[{
+                            min: 0,
+                            max: Math.max(110, ...datosGrafico.map(d => d.y)) + 10,
+                            scaleType: 'linear',
+                            label: 'Porcentaje de Cumplimiento (%)',
+                            tickLabelStyle: {
+                              fontSize: 12
+                            }
+                          }]}
+                          height={350}
+                          grid={{ 
+                            vertical: true, 
+                            horizontal: true
+                          }}
+                          margin={{ top: 20, right: 40, bottom: 50, left: 60 }}
+                          onItemClick={(_: React.MouseEvent<SVGElement>, itemData: ScatterItemIdentifier) => {
+                            if (itemData?.dataIndex !== undefined) {
+                              setSelectedPoint(datosGrafico[itemData.dataIndex]);
+                            }
+                          }}
+                          slotProps={{
+                            tooltip: {
+                              sx: {
+                                zIndex: 100,
+                                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                                backgroundColor: 'white',
+                                border: '1px solid #e0e0e0',
+                                borderRadius: '4px',
+                                // Make tooltip compact
+                                '& .MuiChartsTooltip-table': {
+                                  padding: '2px',
+                                  fontSize: '10px',
+                                  margin: 0
+                                },
+                                // Marker and series cells
+                                '& .MuiChartsTooltip-markCell': {
+                                  display: 'none'
+                                },
+                                '& .MuiChartsTooltip-seriesCell': {
+                                  display: 'none'
+                                },
+                                // Make cells compact
+                                '& .MuiChartsTooltip-cell': {
+                                  padding: '1px 2px'
+                                },
+                                '& .MuiChartsTooltip-valueCell': {
+                                  fontWeight: 'bold'
+                                }
+                              }
+                            }
+                          }}
+                          axisHighlight={{
+                            x: 'none', 
+                            y: 'none'
+                          }}
+                        >
+                          {/* Add a reference line at 100% */}
+                          <ChartsReferenceLine 
+                            y={100}
+                            lineStyle={{
+                              stroke: '#FF4560',
+                              strokeWidth: 1.5,
+                              strokeDasharray: '5 5'
+                            }}
+                            label="100% Cumplimiento"
+                            labelAlign="end"
+                            labelStyle={{
+                              fill: '#FF4560',
+                              fontSize: 12
+                            }}
+                          />
+                        </ScatterChart>
+                      </div>
+
+                      {/* Point information panel - displayed when a point is selected */}
+                      {selectedPoint && (
+                        <div className="mt-4 p-4 border border-gray-200 rounded-md bg-gray-50">
+                          <h3 className="font-medium text-gray-800 mb-2">Información del Punto Seleccionado</h3>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                            <div>
+                              <p className="font-medium text-gray-600">Fecha:</p>
+                              <p>{selectedPoint.fecha_ensayo || formatDate(selectedPoint.x)}</p>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-600">Cumplimiento:</p>
+                              <p>{selectedPoint.y.toFixed(2)}%</p>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-600">Clasificación:</p>
+                              <p>{selectedPoint.clasificacion || 'No especificada'}</p>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-600">Edad (días):</p>
+                              <p>{selectedPoint.edad || 28}</p>
+                            </div>
+                            
+                            {/* Additional information */}
+                            <div>
+                              <p className="font-medium text-gray-600">Cliente:</p>
+                              <p>{(() => {
+                                if (!selectedPoint.muestra) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo.remision.order) return 'No disponible';
+                                
+                                const order = selectedPoint.muestra.muestreo.remision.order;
+                                
+                                // Try different paths to get client name
+                                if (order.client && order.client.business_name) {
+                                  return order.client.business_name;
+                                }
+                                
+                                if (order.clients && order.clients.business_name) {
+                                  return order.clients.business_name;
+                                }
+                                
+                                // Try client_id if it exists directly
+                                if (order.client_id) {
+                                  // Find matching client from the clients array
+                                  const matchingClient = clients.find(c => c.id === order.client_id);
+                                  if (matchingClient) {
+                                    return matchingClient.business_name;
+                                  }
+                                }
+                                
+                                return 'No disponible';
+                              })()}</p>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-600">Obra:</p>
+                              <p>{(() => {
+                                if (!selectedPoint.muestra) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo.remision.order) return 'No disponible';
+                                
+                                const order = selectedPoint.muestra.muestreo.remision.order;
+                                
+                                // Try different paths to get construction site name
+                                if (order.construction_site) {
+                                  // If it's an ID, try to find the name from constructionSites array
+                                  const constructionSiteId = order.construction_site;
+                                  const matchingSite = constructionSites.find(site => site.id === constructionSiteId);
+                                  if (matchingSite) {
+                                    return matchingSite.name;
+                                  }
+                                  return order.construction_site;
+                                }
+                                
+                                if (order.construction_site_name) {
+                                  return order.construction_site_name;
+                                }
+                                
+                                return 'No disponible';
+                              })()}</p>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-600">Resistencia obtenida:</p>
+                              <p>{selectedPoint.resistencia_calculada || 'No disponible'} kg/cm²</p>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-600">Resistencia diseño:</p>
+                              <p>{(() => {
+                                if (!selectedPoint.muestra) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo.remision.recipe) return 'No disponible';
+                                
+                                const recipe = selectedPoint.muestra.muestreo.remision.recipe;
+                                return `${recipe.strength_fc || 'No disponible'} kg/cm²`;
+                              })()}</p>
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-600">Código receta:</p>
+                              <p>{(() => {
+                                if (!selectedPoint.muestra) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
+                                if (!selectedPoint.muestra.muestreo.remision.recipe) return 'No disponible';
+                                
+                                const recipe = selectedPoint.muestra.muestreo.remision.recipe;
+                                return recipe.recipe_code || 'No disponible';
+                              })()}</p>
+                            </div>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="mt-3"
+                            onClick={() => setSelectedPoint(null)}
+                          >
+                            Cerrar
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div className="text-center text-gray-500 py-8">
                       {loading ? (

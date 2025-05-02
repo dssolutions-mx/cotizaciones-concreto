@@ -54,6 +54,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import dynamic from 'next/dynamic';
 import RemisionesProduccionTab from '@/components/remisiones/RemisionesProduccionTab';
+import { useClientsWithQualityData } from '@/hooks/useClientsWithQualityData';
+import { useConstructionSitesWithQualityData } from '@/hooks/useConstructionSitesWithQualityData';
+import { useRecipesWithQualityData } from '@/hooks/useRecipesWithQualityData';
 
 // Re-add dynamic import for Chart
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -171,6 +174,25 @@ export default function ReportesPage() {
   const [selectedClasificacion, setSelectedClasificacion] = useState<string>('all');
   const [activeTab, setActiveTab] = useState('tabla');
   
+  // Add new filter states
+  const [selectedClient, setSelectedClient] = useState<string>('all');
+  const [selectedConstructionSite, setSelectedConstructionSite] = useState<string>('all');
+  const [selectedRecipe, setSelectedRecipe] = useState<string>('all');
+  
+  // Use our new filtered hooks
+  const { clients, loading: clientsLoading } = useClientsWithQualityData(dateRange);
+  
+  const { constructionSites, loading: sitesLoading } = useConstructionSitesWithQualityData(
+    selectedClient, 
+    dateRange
+  );
+  
+  const { recipes, loading: recipesLoading } = useRecipesWithQualityData(
+    dateRange,
+    selectedClient,
+    selectedConstructionSite
+  );
+  
   // Estados para datos
   const [tablaData, setTablaData] = useState<any[]>([]);
   const [eficienciaData, setEficienciaData] = useState<any[]>([]);
@@ -202,6 +224,17 @@ export default function ReportesPage() {
   const allowedRoles = ['QUALITY_TEAM', 'EXECUTIVE', 'PLANT_MANAGER'];
   const hasAccess = profile && allowedRoles.includes(profile.role);
 
+  // Reset construction site and recipe when client changes
+  useEffect(() => {
+    setSelectedConstructionSite('all');
+    setSelectedRecipe('all');
+  }, [selectedClient]);
+  
+  // Reset recipe when construction site changes
+  useEffect(() => {
+    setSelectedRecipe('all');
+  }, [selectedConstructionSite]);
+  
   // Cargar datos al cambiar filtros
   const loadReportData = async () => {
     if (!dateRange?.from || !dateRange?.to) {
@@ -226,12 +259,15 @@ export default function ReportesPage() {
       
       // Cargar datos según la pestaña activa
       if (activeTab === 'tabla') {
-        // Use the fixed function instead
+        // Use the fixed function instead and pass the new filters
         const data = await fetchResistenciaReporteDataFixed(
           dateRange.from,
           dateRange.to,
           selectedPlanta === 'all' ? undefined : selectedPlanta,
-          selectedClasificacion
+          selectedClasificacion === 'all' ? undefined : selectedClasificacion,
+          selectedClient === 'all' ? undefined : selectedClient,
+          selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
+          selectedRecipe === 'all' ? undefined : selectedRecipe
         );
         setTablaData(data);
       } 
@@ -239,7 +275,10 @@ export default function ReportesPage() {
         const data = await fetchEficienciaReporteDataFixed(
           dateRange.from,
           dateRange.to,
-          selectedPlanta === 'all' ? undefined : selectedPlanta
+          selectedPlanta === 'all' ? undefined : selectedPlanta,
+          selectedClient === 'all' ? undefined : selectedClient,
+          selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
+          selectedRecipe === 'all' ? undefined : selectedRecipe
         );
         
         // Log the structure to see what we're getting
@@ -286,7 +325,10 @@ export default function ReportesPage() {
         const data = await fetchDistribucionResistenciaData(
           dateRange.from,
           dateRange.to,
-          selectedClasificacion === 'all' ? undefined : selectedClasificacion
+          selectedClasificacion === 'all' ? undefined : selectedClasificacion,
+          selectedClient === 'all' ? undefined : selectedClient,
+          selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
+          selectedRecipe === 'all' ? undefined : selectedRecipe
         );
         setDistribucionData(data);
       }
@@ -319,7 +361,7 @@ export default function ReportesPage() {
       loadReportData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, dateRange, selectedPlanta, selectedClasificacion]);
+  }, [activeTab, dateRange, selectedPlanta, selectedClasificacion, selectedClient, selectedConstructionSite, selectedRecipe]);
   
   // Opciones para el gráfico de distribución
   const distribucionChartOptions = {
@@ -520,6 +562,92 @@ export default function ReportesPage() {
                   <SelectItem value="all">Todas</SelectItem>
                   <SelectItem value="FC">FC</SelectItem>
                   <SelectItem value="MR">MR</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Client filter */}
+            <div>
+              <p className="text-sm font-medium mb-2">Cliente</p>
+              <Select 
+                value={selectedClient} 
+                onValueChange={setSelectedClient} 
+                disabled={clientsLoading || clients.length === 0}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={
+                    clientsLoading 
+                      ? "Cargando clientes..." 
+                      : clients.length === 0 
+                      ? "No hay clientes disponibles" 
+                      : "Todos los clientes"
+                  } />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos los clientes</SelectItem>
+                  {clients && clients.map((client: any) => (
+                    <SelectItem key={client.id} value={client.id}>
+                      {client.business_name || client.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Construction Site filter */}
+            <div>
+              <p className="text-sm font-medium mb-2">Obra</p>
+              <Select 
+                value={selectedConstructionSite} 
+                onValueChange={setSelectedConstructionSite}
+                disabled={sitesLoading || constructionSites.length === 0 || selectedClient === 'all'}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={
+                    selectedClient === 'all'
+                      ? "Seleccione un cliente primero"
+                      : sitesLoading
+                      ? "Cargando obras..."
+                      : constructionSites.length === 0
+                      ? "No hay obras disponibles"
+                      : "Todas las obras"
+                  } />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las obras</SelectItem>
+                  {constructionSites && constructionSites.map((site: any) => (
+                    <SelectItem key={site.id} value={site.id}>
+                      {site.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Recipe filter */}
+            <div>
+              <p className="text-sm font-medium mb-2">Receta</p>
+              <Select 
+                value={selectedRecipe} 
+                onValueChange={setSelectedRecipe}
+                disabled={recipesLoading || recipes.length === 0}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder={
+                    recipesLoading 
+                      ? "Cargando recetas..." 
+                      : recipes.length === 0 
+                      ? "No hay recetas disponibles" 
+                      : "Todas las recetas"
+                  } />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas las recetas</SelectItem>
+                  {recipes && recipes.map((recipe: any) => (
+                    <SelectItem key={recipe.id} value={recipe.recipe_code}>
+                      {recipe.recipe_code}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
