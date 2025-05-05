@@ -26,10 +26,29 @@ import {
 } from "@/components/ui/select";
 import { subMonths } from 'date-fns';
 // Import types from the new file
-import { Client, ConstructionSite, ClientPayment, ClientBalance } from '@/types/client';
+import { Client, ConstructionSite as BaseConstructionSite, ClientPayment, ClientBalance } from '@/types/client';
 import { OrderWithClient } from '@/types/orders';
-import { formatCurrency, formatDate } from '@/lib/utils'; // Assuming these now exist or will be created
+import { formatCurrency, formatDate } from '@/lib/utils';
 import { toast } from "sonner";
+// Import for map components
+import dynamic from 'next/dynamic';
+
+// Extended type with coordinates
+interface ConstructionSite extends BaseConstructionSite {
+  latitude?: number | null;
+  longitude?: number | null;
+}
+
+// Dynamically import map components with no SSR to avoid window errors
+const GoogleMapSelector = dynamic(
+  () => import('@/components/maps/GoogleMapSelector'),
+  { ssr: false }
+);
+
+const GoogleMapWrapper = dynamic(
+  () => import('@/components/maps/GoogleMapWrapper'),
+  { ssr: false }
+);
 
 // Custom Switch component since @/components/ui/switch doesn't exist
 const Switch = ({ checked, onCheckedChange, disabled }: { 
@@ -65,7 +84,9 @@ function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded:
     location: '',
     access_restrictions: '',
     special_conditions: '',
-    is_active: true
+    is_active: true,
+    latitude: null as number | null,
+    longitude: null as number | null
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -75,6 +96,21 @@ function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded:
       [name]: value
     }));
   };
+
+  // Memoized callback for map location selection to prevent excessive re-renders
+  const handleLocationSelect = useCallback((lat: number, lng: number) => {
+    setSiteData(prev => {
+      // Only update if values actually changed
+      if (prev.latitude === lat && prev.longitude === lng) {
+        return prev;
+      }
+      return {
+        ...prev,
+        latitude: lat,
+        longitude: lng
+      };
+    });
+  }, []);
 
   const handleSubmit = async () => {
     if (!siteData.name.trim()) {
@@ -90,7 +126,9 @@ function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded:
         location: '',
         access_restrictions: '',
         special_conditions: '',
-        is_active: true
+        is_active: true,
+        latitude: null,
+        longitude: null
       });
       setShowForm(false);
       onSiteAdded();
@@ -208,6 +246,31 @@ function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded:
             </label>
           </div>
         </div>
+      </div>
+      
+      {/* Map for selecting coordinates */}
+      <div className="mt-4 mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Ubicación en el Mapa
+        </label>
+        <p className="text-sm text-gray-500 mb-2">
+          Haz clic en el mapa para seleccionar las coordenadas exactas de la obra
+        </p>
+        <GoogleMapWrapper>
+          <GoogleMapSelector 
+            onSelectLocation={handleLocationSelect} 
+            height="400px"
+            initialPosition={siteData.latitude && siteData.longitude ? 
+              { lat: siteData.latitude, lng: siteData.longitude } : null}
+          />
+        </GoogleMapWrapper>
+        
+        {/* Display coordinates if selected */}
+        {siteData.latitude && siteData.longitude && (
+          <div className="mt-2 text-sm">
+            <p>Coordenadas seleccionadas: {siteData.latitude.toFixed(6)}, {siteData.longitude.toFixed(6)}</p>
+          </div>
+        )}
       </div>
       
       <div className="flex justify-end mt-4">
@@ -456,8 +519,11 @@ function ClientPaymentsList({ payments: allPayments }: { payments: ClientPayment
   );
 }
 
+// Update SiteStatusToggle to also show coordinates
 function SiteStatusToggle({ site, onStatusChange }: { site: ConstructionSite, onStatusChange: () => void }) {
   const [isUpdating, setIsUpdating] = useState(false);
+  const [showMapDialog, setShowMapDialog] = useState(false);
+  const [dialogReady, setDialogReady] = useState(false);
 
   const handleToggle = async () => {
     try {
@@ -473,16 +539,81 @@ function SiteStatusToggle({ site, onStatusChange }: { site: ConstructionSite, on
     }
   };
 
+  // Return early if the site doesn't have valid coordinates
+  const hasCoordinates = site.latitude && site.longitude;
+
+  // Memoized handler for map selector to prevent re-renders
+  const handleMapSelection = useCallback(() => {
+    // This is a read-only map, so we don't need to do anything with selections
+  }, []);
+  
+  // Handle dialog opening
+  const openMapDialog = useCallback(() => {
+    setShowMapDialog(true);
+    // Short delay to ensure DOM is ready before rendering the map
+    setTimeout(() => {
+      setDialogReady(true);
+    }, 100);
+  }, []);
+
+  // Handle dialog closing
+  const closeDialog = useCallback(() => {
+    setShowMapDialog(false);
+    setDialogReady(false);
+  }, []);
+
   return (
-    <div className="flex items-center space-x-2">
-      <Switch
-        checked={site.is_active}
-        onCheckedChange={handleToggle}
-        disabled={isUpdating}
-      />
-      <span className={`text-sm ${site.is_active ? 'text-green-600' : 'text-gray-500'}`}>
-        {site.is_active ? 'Activa' : 'Inactiva'}
-      </span>
+    <div>
+      <div className="flex items-center space-x-2">
+        <Switch
+          checked={site.is_active}
+          onCheckedChange={handleToggle}
+          disabled={isUpdating}
+        />
+        <span className={`text-sm ${site.is_active ? 'text-green-600' : 'text-gray-500'}`}>
+          {site.is_active ? 'Activa' : 'Inactiva'}
+        </span>
+      </div>
+      
+      {hasCoordinates && (
+        <div className="mt-2">
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={openMapDialog}
+          >
+            Ver en Mapa
+          </Button>
+          
+          <Dialog open={showMapDialog} onOpenChange={closeDialog}>
+            <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Ubicación: {site.name}</DialogTitle>
+                <DialogDescription>
+                  {site.location || 'Sin dirección registrada'}
+                </DialogDescription>
+              </DialogHeader>
+              
+              {dialogReady && site.latitude && site.longitude && (
+                <div className="h-[400px] w-full mt-4 rounded-lg overflow-hidden">
+                  <GoogleMapWrapper className="h-full w-full">
+                    <GoogleMapSelector
+                      initialPosition={{ lat: site.latitude, lng: site.longitude }}
+                      onSelectLocation={handleMapSelection}
+                      height="100%"
+                      readOnly={true}
+                    />
+                  </GoogleMapWrapper>
+                </div>
+              )}
+              
+              <div className="mt-2 text-sm text-gray-600">
+                Coordenadas: {site.latitude!.toFixed(6)}, {site.longitude!.toFixed(6)}
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      )}
     </div>
   );
 }
@@ -526,7 +657,7 @@ function OrderDetailModal({
         try {
           // Importamos dinámicamente para evitar problemas de SSR
           const supabaseModule = await import('@/lib/supabase/client');
-          const supabase = supabaseModule.supabase || supabaseModule.default;
+          const supabase = supabaseModule.supabase;
           
           if (!supabase) {
             console.error("Cliente Supabase no disponible");
@@ -977,6 +1108,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                     <TableHead>Ubicación</TableHead>
                     <TableHead>Restricciones de Acceso</TableHead>
                     <TableHead>Condiciones Especiales</TableHead>
+                    <TableHead>Coordenadas</TableHead>
                     <TableHead>Estado</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -987,6 +1119,12 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                       <TableCell>{site.location || '-'}</TableCell>
                       <TableCell>{site.access_restrictions || '-'}</TableCell>
                       <TableCell>{site.special_conditions || '-'}</TableCell>
+                      <TableCell>
+                        {site.latitude && site.longitude 
+                          ? `${site.latitude.toFixed(6)}, ${site.longitude.toFixed(6)}`
+                          : '-'
+                        }
+                      </TableCell>
                       <TableCell>
                         <SiteStatusToggle site={site} onStatusChange={loadData} />
                       </TableCell>

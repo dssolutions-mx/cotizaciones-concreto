@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -21,9 +21,25 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 // Define Tab types for better management
 type OrderTab = 'list' | 'calendar' | 'credit' | 'rejected';
 
-// Mock function to get counts (replace with actual data fetching)
-// TODO: Replace with actual data fetching logic
-const getPendingValidationCount = () => 3; // Example count
+/**
+ * Fetches the count of orders pending validation from the API
+ * @returns {Promise<number>} The count of orders pending validation
+ */
+async function fetchPendingValidationCount(): Promise<number> {
+  try {
+    const response = await fetch('/api/dashboard/orders/validation-count');
+    if (!response.ok) {
+      console.error('Error fetching validation count: Server returned', response.status);
+      return 0;
+    }
+    
+    const data = await response.json();
+    return data.success ? data.count : 0;
+  } catch (error) {
+    console.error('Error fetching validation count:', error);
+    return 0;
+  }
+}
 
 export default function OrdersNavigation() {
   const router = useRouter();
@@ -33,6 +49,27 @@ export default function OrdersNavigation() {
   const currentTab = (searchParams.get('tab') as OrderTab) || 'list';
   const estadoFilter = searchParams.get('estado') || 'todos';
   const creditoFilter = searchParams.get('credito') || 'todos';
+  
+  // State for pending validation count
+  const [pendingValidationCount, setPendingValidationCount] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Fetch the validation count when component mounts
+  useEffect(() => {
+    const getCount = async () => {
+      try {
+        setIsLoading(true);
+        const count = await fetchPendingValidationCount();
+        setPendingValidationCount(count);
+      } catch (err) {
+        console.error('Failed to load validation count:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    getCount();
+  }, []);
 
   const navigate = (tab: OrderTab) => {
     const params = new URLSearchParams(searchParams);
@@ -60,12 +97,15 @@ export default function OrdersNavigation() {
   const statuses = ['todos', 'creada', 'aprobada', 'en_validacion', 'rechazada'];
   const creditStatuses = ['todos', 'aprobado', 'pendiente', 'rechazado'];
 
-  const pendingValidationCount = getPendingValidationCount(); // Fetch or calculate count
-
   const tabs: { id: OrderTab; label: string; icon: React.ElementType; badge?: number }[] = [
     { id: 'list', label: 'Listado', icon: ListBulletIcon },
     { id: 'calendar', label: 'Calendario', icon: CalendarIcon },
-    { id: 'credit', label: 'Validación', icon: CheckCircledIcon, badge: pendingValidationCount },
+    { 
+      id: 'credit', 
+      label: 'Validación', 
+      icon: CheckCircledIcon, 
+      badge: isLoading ? undefined : pendingValidationCount 
+    },
     { id: 'rejected', label: 'Rechazadas', icon: CrossCircledIcon },
   ];
 

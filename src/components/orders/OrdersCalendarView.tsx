@@ -5,9 +5,10 @@ import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eac
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import orderService from '@/services/orderService';
-import { OrderWithClient, OrderStatus, CreditStatus } from '@/types/orders';
+import { OrderWithClient, OrderStatus, CreditStatus, OrderItem } from '@/types/orders';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
+import { supabase } from '@/lib/supabase';
 
 type ViewType = 'day' | 'week' | 'month';
 
@@ -15,6 +16,11 @@ interface CalendarDay {
   date: Date;
   isCurrentMonth: boolean;
   orders: OrderWithClient[];
+}
+
+interface ConstructionSiteInfo {
+  name: string;
+  location: string;
 }
 
 interface OrdersCalendarViewProps {
@@ -30,6 +36,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [viewType, setViewType] = useState<ViewType>(() => preferences.calendarViewType || 'week');
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadingVolumes, setLoadingVolumes] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const calendarRef = useRef<HTMLDivElement>(null);
@@ -95,110 +102,265 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
         creditStatusFilter ? creditStatusFilter.toString() : undefined
       );
 
-      // Define helper function to generate daily calendar
-      const generateDailyCalendarData = (ordersData: OrderWithClient[], day: Date) => {
-        // Generate hours for the day (6AM to 8PM)
-        const startHour = new Date(day);
-        startHour.setHours(6, 0, 0, 0);
-        const endHour = new Date(day);
-        endHour.setHours(20, 0, 0, 0);
-        
-        const hours = eachHourOfInterval({ start: startHour, end: endHour });
-        
-        // Create a single day with hours
-        return hours.map(hour => {
-          const hourOrders = ordersData.filter(order => {
-            if (!order.delivery_date || !order.delivery_time) return false;
-            const orderDate = parseISO(order.delivery_date);
-            const orderHour = parseInt(order.delivery_time.split(':')[0]);
-            return isSameDay(orderDate, day) && getHours(hour) === orderHour;
-          });
-          
-          return {
-            date: hour,
-            isCurrentMonth: true, // Not relevant for daily view
-            orders: hourOrders
-          };
-        });
-      };
+      // Obtenemos información de los sitios de construcción
+      const constructionSiteNames = Array.from(new Set(data.map(order => order.construction_site)));
       
-      // Define helper function to generate weekly calendar
-      const generateWeeklyCalendarData = (ordersData: OrderWithClient[], weekStart: Date, weekEnd: Date) => {
-        // Generate all days for the week
-        const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
-        
-        // Create array of days with their orders
-        return days.map(day => {
-          const dayOrders = ordersData.filter(order => {
-            if (!order.delivery_date) return false;
-            const orderDate = parseISO(order.delivery_date);
-            return isSameDay(orderDate, day);
-          });
-          
-          dayOrders.sort((a, b) => {
-            if (!a.delivery_time || !b.delivery_time) return 0;
-            return a.delivery_time.localeCompare(b.delivery_time);
-          });
-          
-          return {
-            date: day,
-            isCurrentMonth: isSameMonth(day, currentDate),
-            orders: dayOrders
-          };
-        });
-      };
+      // Buscamos los sitios de construcción que coincidan con los nombres
+      const siteInfoMap = new Map<string, ConstructionSiteInfo>();
       
-      // Define helper function to generate monthly calendar
-      const generateMonthlyCalendarData = (ordersData: OrderWithClient[], monthStart: Date, monthEnd: Date, calStart: Date, calEnd: Date) => {
-        // Generate all days for the calendar (including days from adjacent months to complete weeks)
-        const days = eachDayOfInterval({ start: calStart, end: calEnd });
+      // Primero intentamos usar el construction_site_id si está disponible
+      const ordersWithSiteId = data.filter(order => order.construction_site_id);
+      if (ordersWithSiteId.length > 0) {
+        const siteIds = Array.from(new Set(ordersWithSiteId.map(order => order.construction_site_id)));
         
-        // Create array of days with their orders
-        return days.map(day => {
-          // Filter orders for this day by delivery_date
-          const dayOrders = ordersData.filter(order => {
-            if (!order.delivery_date) return false;
-            const orderDate = parseISO(order.delivery_date);
-            return isSameDay(orderDate, day);
+        const { data: sitesById } = await supabase
+          .from('construction_sites')
+          .select('id, name, location')
+          .in('id', siteIds);
+        
+        if (sitesById) {
+          sitesById.forEach(site => {
+            siteInfoMap.set(site.id, {
+              name: site.name,
+              location: site.location || ''
+            });
           });
-          
-          // Sort orders by delivery_time
-          dayOrders.sort((a, b) => {
-            if (!a.delivery_time || !b.delivery_time) return 0;
-            return a.delivery_time.localeCompare(b.delivery_time);
-          });
-          
-          return {
-            date: day,
-            isCurrentMonth: isSameMonth(day, monthStart),
-            orders: dayOrders
-          };
-        });
-      };
-
-      if (viewType === 'day') {
-        const calendarData = generateDailyCalendarData(data, calendarStart);
-        setCalendarDays(calendarData);
-      } else if (viewType === 'week') {
-        const calendarData = generateWeeklyCalendarData(data, calendarStart, calendarEnd);
-        setCalendarDays(calendarData);
-      } else {
-        const calendarData = generateMonthlyCalendarData(
-          data, 
-          startOfMonth(currentDate), 
-          endOfMonth(currentDate), 
-          calendarStart, 
-          calendarEnd
-        );
-        setCalendarDays(calendarData);
+        }
       }
+      
+      // Para órdenes más antiguas sin site_id, buscamos por nombre
+      const { data: sitesByName } = await supabase
+        .from('construction_sites')
+        .select('name, location')
+        .in('name', constructionSiteNames);
+      
+      if (sitesByName) {
+        sitesByName.forEach(site => {
+          siteInfoMap.set(site.name, {
+            name: site.name,
+            location: site.location || ''
+          });
+        });
+      }
+
+      // Primero, mostramos los datos básicos con estimaciones
+      const initialOrders = data.map(order => {
+        // Buscamos la información del sitio de construcción
+        // Primero intentamos por ID, luego por nombre
+        let siteLocation = '';
+        if (order.construction_site_id && siteInfoMap.has(order.construction_site_id)) {
+          siteLocation = siteInfoMap.get(order.construction_site_id)?.location || '';
+        } else if (siteInfoMap.has(order.construction_site)) {
+          siteLocation = siteInfoMap.get(order.construction_site)?.location || '';
+        }
+        
+        return {
+          ...order,
+          siteLocation,
+          concreteVolume: order.preliminary_amount 
+            ? Math.round((order.preliminary_amount / 2000) * 10) / 10 // Estimación basada en el precio
+            : null,
+          hasPumpService: false,
+          pumpVolume: null
+        };
+      });
+
+      // Actualizar el calendario con datos iniciales para mostrar algo rápidamente
+      updateCalendarWithOrders(initialOrders, calendarStart, calendarEnd);
+      
+      // Luego, indicamos que estamos cargando los volúmenes detallados
+      setLoading(false);
+      setLoadingVolumes(true);
+
+      // Para cada orden, vamos a cargar sus items para obtener los volúmenes reales
+      const ordersWithItems = await Promise.all(
+        data.map(async (order) => {
+          try {
+            // Obtenemos los detalles completos de la orden
+            const orderDetails = await orderService.getOrderById(order.id);
+            
+            // Calculamos el volumen total de concreto
+            let concreteVolume = 0;
+            let pumpVolume = 0;
+            let hasPumpService = false;
+            
+            // Si hay productos en la orden, sumamos sus volúmenes
+            // El API devuelve 'products' aunque el tipo define 'items'
+            const orderItems = (orderDetails as any)?.products || [];
+            
+            if (orderItems.length > 0) {
+              orderItems.forEach((product: any) => {
+                // Sumamos volumen solo para productos que no son específicamente "empty_truck_charge"
+                // Los productos de concreto real normalmente no tienen la propiedad has_empty_truck_charge marcada como true
+                if (product.volume) {
+                  // Si este item es específicamente un cargo por vacío de olla, no lo sumamos al concreto
+                  if (product.has_empty_truck_charge) {
+                    // No sumamos este volumen al concreto
+                  } else {
+                    // Este es volumen real de concreto
+                    concreteVolume += parseFloat(product.volume.toString());
+                  }
+                }
+                
+                // Verificamos si tiene servicio de bombeo y sumamos su volumen
+                if (product.has_pump_service) {
+                  hasPumpService = true;
+                  if (product.pump_volume) {
+                    pumpVolume += parseFloat(product.pump_volume.toString());
+                  }
+                }
+              });
+            }
+            
+            // Buscamos la información del sitio de construcción
+            let siteLocation = '';
+            if (order.construction_site_id && siteInfoMap.has(order.construction_site_id)) {
+              siteLocation = siteInfoMap.get(order.construction_site_id)?.location || '';
+            } else if (siteInfoMap.has(order.construction_site)) {
+              siteLocation = siteInfoMap.get(order.construction_site)?.location || '';
+            }
+            
+            return {
+              ...order,
+              siteLocation,
+              concreteVolume: concreteVolume > 0 ? Math.round(concreteVolume * 10) / 10 : null,
+              hasPumpService,
+              pumpVolume: pumpVolume > 0 ? Math.round(pumpVolume * 10) / 10 : null
+            };
+          } catch (error) {
+            console.error(`Error al cargar detalles de la orden ${order.id}:`, error);
+            // Si hay un error, devolvemos la orden original con valores estimados
+            let siteLocation = '';
+            if (order.construction_site_id && siteInfoMap.has(order.construction_site_id)) {
+              siteLocation = siteInfoMap.get(order.construction_site_id)?.location || '';
+            } else if (siteInfoMap.has(order.construction_site)) {
+              siteLocation = siteInfoMap.get(order.construction_site)?.location || '';
+            }
+            
+            return {
+              ...order,
+              siteLocation,
+              concreteVolume: order.preliminary_amount 
+                ? Math.round((order.preliminary_amount / 2000) * 10) / 10
+                : null,
+              hasPumpService: false,
+              pumpVolume: null
+            };
+          }
+        })
+      );
+
+      // Actualizar el calendario con los datos detallados
+      updateCalendarWithOrders(ordersWithItems, calendarStart, calendarEnd);
+      setLoadingVolumes(false);
     } catch (err) {
       console.error('Error loading orders for calendar:', err);
       setError('Error al cargar las órdenes para el calendario.');
-    } finally {
       setLoading(false);
+      setLoadingVolumes(false);
     }
   }, [currentDate, viewType, statusFilter, creditStatusFilter]);
+
+  // Función auxiliar para actualizar el calendario con órdenes
+  const updateCalendarWithOrders = (ordersData: any[], calendarStart: Date, calendarEnd: Date) => {
+    if (viewType === 'day') {
+      const calendarData = generateDailyCalendarData(ordersData, calendarStart);
+      setCalendarDays(calendarData);
+    } else if (viewType === 'week') {
+      const calendarData = generateWeeklyCalendarData(ordersData, calendarStart, calendarEnd);
+      setCalendarDays(calendarData);
+    } else {
+      const calendarData = generateMonthlyCalendarData(
+        ordersData, 
+        startOfMonth(currentDate), 
+        endOfMonth(currentDate), 
+        calendarStart, 
+        calendarEnd
+      );
+      setCalendarDays(calendarData);
+    }
+  };
+
+  // Define helper function to generate daily calendar
+  const generateDailyCalendarData = (ordersData: OrderWithClient[], day: Date) => {
+    // Generate hours for the day (6AM to 8PM)
+    const startHour = new Date(day);
+    startHour.setHours(6, 0, 0, 0);
+    const endHour = new Date(day);
+    endHour.setHours(20, 0, 0, 0);
+    
+    const hours = eachHourOfInterval({ start: startHour, end: endHour });
+    
+    // Create a single day with hours
+    return hours.map(hour => {
+      const hourOrders = ordersData.filter(order => {
+        if (!order.delivery_date || !order.delivery_time) return false;
+        const orderDate = parseISO(order.delivery_date);
+        const orderHour = parseInt(order.delivery_time.split(':')[0]);
+        return isSameDay(orderDate, day) && getHours(hour) === orderHour;
+      });
+      
+      return {
+        date: hour,
+        isCurrentMonth: true, // Not relevant for daily view
+        orders: hourOrders
+      };
+    });
+  };
+  
+  // Define helper function to generate weekly calendar
+  const generateWeeklyCalendarData = (ordersData: OrderWithClient[], weekStart: Date, weekEnd: Date) => {
+    // Generate all days for the week
+    const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
+    
+    // Create array of days with their orders
+    return days.map(day => {
+      const dayOrders = ordersData.filter(order => {
+        if (!order.delivery_date) return false;
+        const orderDate = parseISO(order.delivery_date);
+        return isSameDay(orderDate, day);
+      });
+      
+      dayOrders.sort((a, b) => {
+        if (!a.delivery_time || !b.delivery_time) return 0;
+        return a.delivery_time.localeCompare(b.delivery_time);
+      });
+      
+      return {
+        date: day,
+        isCurrentMonth: isSameMonth(day, currentDate),
+        orders: dayOrders
+      };
+    });
+  };
+  
+  // Define helper function to generate monthly calendar
+  const generateMonthlyCalendarData = (ordersData: OrderWithClient[], monthStart: Date, monthEnd: Date, calStart: Date, calEnd: Date) => {
+    // Generate all days for the calendar (including days from adjacent months to complete weeks)
+    const days = eachDayOfInterval({ start: calStart, end: calEnd });
+    
+    // Create array of days with their orders
+    return days.map(day => {
+      // Filter orders for this day by delivery_date
+      const dayOrders = ordersData.filter(order => {
+        if (!order.delivery_date) return false;
+        const orderDate = parseISO(order.delivery_date);
+        return isSameDay(orderDate, day);
+      });
+      
+      // Sort orders by delivery_time
+      dayOrders.sort((a, b) => {
+        if (!a.delivery_time || !b.delivery_time) return 0;
+        return a.delivery_time.localeCompare(b.delivery_time);
+      });
+      
+      return {
+        date: day,
+        isCurrentMonth: isSameMonth(day, monthStart),
+        orders: dayOrders
+      };
+    });
+  };
 
   useEffect(() => {
     loadOrders();
@@ -373,6 +535,27 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                         </svg>
                         {order.delivery_time ? format(parseISO(`2000-01-01T${order.delivery_time}`), 'HH:mm') : 'Sin hora'}
                       </div>
+                      <div className="flex items-center mt-1 text-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                        </svg>
+                        <span className="truncate">
+                          {order.construction_site}
+                          {(order as any).siteLocation && (
+                            <span className="text-gray-500"> - {(order as any).siteLocation}</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex items-center mt-1 text-sm">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
+                        </svg>
+                        <span className="truncate">
+                          {(order as any).concreteVolume ? `Conc: ${(order as any).concreteVolume} m³` : 'Vol. no especificado'}
+                          {(order as any).hasPumpService && (order as any).pumpVolume ? 
+                           ` • Bomba: ${(order as any).pumpVolume} m³` : ''}
+                        </span>
+                      </div>
                       <div className="mt-1 flex justify-between items-center">
                         <span className="text-xs capitalize">{order.order_status}</span>
                         {order.credit_status && (
@@ -446,6 +629,27 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                         </svg>
                         {order.delivery_time ? format(parseISO(`2000-01-01T${order.delivery_time}`), 'HH:mm') : 'Sin hora'}
                       </div>
+                      <div className="flex items-center mt-1 text-xs">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                        </svg>
+                        <span className="truncate">
+                          {order.construction_site}
+                          {(order as any).siteLocation && (
+                            <span className="text-gray-500"> - {(order as any).siteLocation}</span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex items-center mt-1 text-xs">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
+                        </svg>
+                        <span className="truncate">
+                          {(order as any).concreteVolume ? `Conc: ${(order as any).concreteVolume} m³` : 'Vol. N/E'}
+                          {(order as any).hasPumpService && (order as any).pumpVolume ? 
+                           ` • B: ${(order as any).pumpVolume} m³` : ''}
+                        </span>
+                      </div>
                       <div className="mt-1 flex justify-between items-center">
                         <span className="text-xs capitalize">{order.order_status}</span>
                         {order.credit_status && (
@@ -515,6 +719,26 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
                       </svg>
                       {order.delivery_time ? format(parseISO(`2000-01-01T${order.delivery_time}`), 'HH:mm') : 'Sin hora'}
+                    </div>
+                    <div className="flex items-center mt-1 text-xs overflow-hidden">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                      </svg>
+                      <span className="truncate">
+                        {order.construction_site}
+                        {(order as any).siteLocation && (
+                          <small className="text-gray-500"> ({(order as any).siteLocation})</small>
+                        )}
+                      </span>
+                    </div>
+                    <div className="flex items-center mt-1 text-xs overflow-hidden">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
+                      </svg>
+                      <span className="truncate">
+                        {(order as any).concreteVolume ? `C: ${(order as any).concreteVolume} m³` : 'Vol. N/E'}
+                        {(order as any).hasPumpService ? ` • B: ${(order as any).pumpVolume} m³` : ''}
+                      </span>
                     </div>
                   </div>
                 );
@@ -600,6 +824,16 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
             </div>
           </div>
         </div>
+        
+        {loadingVolumes && (
+          <div className="bg-blue-50 px-4 py-2 border-t border-blue-100 flex items-center text-sm text-blue-700">
+            <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Actualizando volúmenes de concreto y bombeo...
+          </div>
+        )}
         
         {statusFilter || creditStatusFilter ? (
           <div className="bg-green-50 px-4 py-2 border-t border-green-100 flex flex-wrap gap-2">

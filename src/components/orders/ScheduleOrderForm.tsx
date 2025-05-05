@@ -62,10 +62,12 @@ export default function ScheduleOrderForm({
   // Client selection
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClientId, setSelectedClientId] = useState(preSelectedClientId || '');
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Construction site selection
   const [constructionSites, setConstructionSites] = useState<ConstructionSite[]>([]);
-  const [selectedSiteId, setSelectedSiteId] = useState('');
+  const [selectedConstructionSiteId, setSelectedConstructionSiteId] = useState('');
+  const [selectedConstructionSite, setSelectedConstructionSite] = useState<ConstructionSite | null>(null);
   
   // Quotes and products
   const [availableQuotes, setAvailableQuotes] = useState<Quote[]>([]);
@@ -150,7 +152,7 @@ export default function ScheduleOrderForm({
         
         // If only one construction site exists, select it automatically
         if (data.length === 1) {
-          setSelectedSiteId(data[0].id);
+          setSelectedConstructionSiteId(data[0].id);
         }
       } catch (err) {
         console.error('Error loading construction sites:', err);
@@ -166,7 +168,7 @@ export default function ScheduleOrderForm({
   // Load approved quotes when client and site are selected
   useEffect(() => {
     const loadQuotes = async () => {
-      if (!selectedClientId || !selectedSiteId) return;
+      if (!selectedClientId || !selectedConstructionSiteId) return;
       
       try {
         setIsLoading(true);
@@ -256,7 +258,13 @@ export default function ScheduleOrderForm({
     };
     
     loadQuotes();
-  }, [selectedClientId, selectedSiteId, preSelectedQuoteId]);
+  }, [selectedClientId, selectedConstructionSiteId, preSelectedQuoteId]);
+  
+  // Filter clients based on search query
+  const filteredClients = clients.filter(client => 
+    client.business_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+    client.client_code.toLowerCase().includes(searchQuery.toLowerCase())
+  );
   
   // Go to next step
   const nextStep = () => {
@@ -266,7 +274,7 @@ export default function ScheduleOrderForm({
   // Handle client selection
   const handleClientSelect = (clientId: string) => {
     setSelectedClientId(clientId);
-    setSelectedSiteId(''); // Reset site selection
+    setSelectedConstructionSiteId(''); // Reset site selection
     setAvailableQuotes([]); // Reset quotes
     setSelectedProducts([]); // Reset selected products
     nextStep();
@@ -274,8 +282,12 @@ export default function ScheduleOrderForm({
   
   // Handle construction site selection
   const handleSiteSelect = (siteId: string) => {
-    setSelectedSiteId(siteId);
-    nextStep();
+    setSelectedConstructionSiteId(siteId);
+    const site = constructionSites.find(s => s.id === siteId);
+    if (site) {
+      setSelectedConstructionSite(site);
+      setCurrentStep(3);
+    }
   };
   
   // Handle product selection
@@ -342,8 +354,8 @@ export default function ScheduleOrderForm({
     return total;
   };
   
-  // Handle form submission
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Handle order creation
+  const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (selectedProducts.length === 0) {
@@ -364,8 +376,8 @@ export default function ScheduleOrderForm({
         throw new Error('No se pudo determinar la cotización');
       }
       
-      // Get the construction site name
-      const selectedSite = constructionSites.find(site => site.id === selectedSiteId);
+      // Get the construction site
+      const selectedSite = constructionSites.find(site => site.id === selectedConstructionSiteId);
       if (!selectedSite) {
         throw new Error('No se pudo determinar el sitio de construcción');
       }
@@ -375,6 +387,7 @@ export default function ScheduleOrderForm({
         quote_id: quoteId,
         client_id: selectedClientId,
         construction_site: selectedSite.name,
+        construction_site_id: selectedConstructionSiteId,
         delivery_date: deliveryDate,
         delivery_time: deliveryTime,
         requires_invoice: requiresInvoice,
@@ -459,7 +472,7 @@ export default function ScheduleOrderForm({
           if (retryButton) {
             retryButton.addEventListener('click', (e) => {
               e.preventDefault();
-              handleSubmit(e as unknown as React.FormEvent);
+              handleCreateOrder(e as unknown as React.FormEvent);
             });
           }
         }, 100);
@@ -474,22 +487,46 @@ export default function ScheduleOrderForm({
     <div className="bg-white rounded-lg border shadow-xs p-6">
       <h2 className="text-xl font-semibold mb-4">Seleccionar Cliente</h2>
       
+      {/* Search bar */}
+      <div className="mb-4">
+        <div className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Buscar por nombre o código de cliente..."
+            className="w-full px-4 py-2 border border-gray-300 rounded-md pl-10 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+          />
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
+        </div>
+      </div>
+      
       {isLoading ? (
         <div className="flex justify-center py-8">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500"></div>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {clients.map(client => (
-            <div 
-              key={client.id}
-              onClick={() => handleClientSelect(client.id)}
-              className="border rounded-lg p-4 cursor-pointer hover:bg-green-50 hover:border-green-500 transition-colors"
-            >
-              <h3 className="font-medium">{client.business_name}</h3>
-              <p className="text-sm text-gray-600">Código: {client.client_code}</p>
+          {filteredClients.length > 0 ? (
+            filteredClients.map(client => (
+              <div 
+                key={client.id}
+                onClick={() => handleClientSelect(client.id)}
+                className="border rounded-lg p-4 cursor-pointer hover:bg-green-50 hover:border-green-500 transition-colors"
+              >
+                <h3 className="font-medium">{client.business_name}</h3>
+                <p className="text-sm text-gray-600">Código: {client.client_code}</p>
+              </div>
+            ))
+          ) : (
+            <div className="col-span-full text-center py-4">
+              <p className="text-gray-500">No se encontraron clientes con ese criterio de búsqueda</p>
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>
@@ -564,7 +601,7 @@ export default function ScheduleOrderForm({
           Cliente: {clients.find(c => c.id === selectedClientId)?.business_name}
         </p>
         <p className="text-gray-600">
-          Obra: {constructionSites.find(s => s.id === selectedSiteId)?.name}
+          Obra: {constructionSites.find(s => s.id === selectedConstructionSiteId)?.name}
         </p>
       </div>
       
@@ -585,7 +622,7 @@ export default function ScheduleOrderForm({
           </button>
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleCreateOrder} className="space-y-6">
           {/* Product selection */}
           <div className="bg-gray-50 p-4 rounded-lg border">
             <h3 className="font-medium mb-3">Seleccionar Productos</h3>

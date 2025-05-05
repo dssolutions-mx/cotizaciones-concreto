@@ -14,6 +14,7 @@ export interface OrderCreationParams {
   quote_id: string;
   client_id: string;
   construction_site: string;
+  construction_site_id?: string;
   delivery_date: string;
   delivery_time: string;
   requires_invoice: boolean;
@@ -68,6 +69,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
         quote_id: orderData.quote_id,
         client_id: orderData.client_id,
         construction_site: orderData.construction_site,
+        construction_site_id: orderData.construction_site_id,
         order_number: orderNumber,
         delivery_date: orderData.delivery_date,
         delivery_time: orderData.delivery_time,

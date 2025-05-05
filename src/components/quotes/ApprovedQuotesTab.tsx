@@ -79,6 +79,27 @@ interface SupabaseQuoteDetail {
   }[] | null;
 }
 
+interface ApprovedQuoteDetailWithMargin {
+  id: string;
+  volume: number;
+  base_price: number;
+  final_price: number;
+  profit_margin: number;
+  pump_service: boolean;
+  pump_price: number | null;
+  includes_vat: boolean;
+  recipe_id?: string;
+  recipe: {
+    recipe_code: string;
+    strength_fc: number;
+    placement_type: string;
+    max_aggregate_size: number;
+    slump: number;
+    age_days: number;
+    notes?: string;
+  } | null;
+}
+
 export interface ApprovedQuote {
   id: string;
   quote_number: string;
@@ -122,6 +143,10 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
   const [page, setPage] = useState(1);
   const [totalQuotes, setTotalQuotes] = useState(0);
   const [vatToggles, setVatToggles] = useState<Record<string, boolean>>({});
+  const [isDuplicating, setIsDuplicating] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingQuoteDetails, setEditingQuoteDetails] = useState<ApprovedQuoteDetailWithMargin[]>([]);
   const quotesPerPage = 10;
   const router = useRouter();
 
@@ -190,7 +215,7 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
           ? quote.quote_details
           : quote.quote_details ? [quote.quote_details] : [];
         
-        const quoteDetailsData = quoteDetailsInput.filter(Boolean).map(detail => {
+        const quoteDetailsData = quoteDetailsInput.filter(Boolean).map((detail: any) => {
           const recipeData = Array.isArray(detail.recipes) ? detail.recipes[0] : detail.recipes;
           const currentVersion = recipeData?.recipe_versions?.find((version: { is_current?: boolean }) => version.is_current);
           return {
@@ -242,7 +267,7 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
           quote_details: quoteDetailsData,
           creator_initials: initials || 'XX',
           approver_name: approverFullName,
-          total_amount: quoteDetailsData.reduce((sum, detail) => sum + (detail.final_price * detail.volume), 0)
+          total_amount: quoteDetailsData.reduce((sum: number, detail: {final_price: number, volume: number}) => sum + (detail.final_price * detail.volume), 0)
         };
       });
 
@@ -271,14 +296,34 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
   }, [quotes]);
 
   const openQuoteDetails = (quote: ApprovedQuote) => {
+    // Create a deep copy of quote details for editing
+    const editableDetails = quote.quote_details.map((detail: any) => ({
+      id: detail.id,
+      volume: detail.volume,
+      base_price: detail.base_price,
+      final_price: detail.final_price,
+      profit_margin: detail.final_price / detail.base_price - 1,
+      pump_service: detail.pump_service,
+      pump_price: detail.pump_price,
+      includes_vat: detail.includes_vat,
+      recipe: detail.recipe
+    })) as ApprovedQuoteDetailWithMargin[];
+    
     setSelectedQuote(quote);
+    setEditingQuoteDetails(editableDetails);
+    setIsEditing(false); // Inicialmente no estamos en modo edición
   };
 
   const closeQuoteDetails = () => {
     setSelectedQuote(null);
+    setShowConfirmDialog(false);
+    setIsEditing(false);
   };
 
   const toggleVAT = (quoteId: string) => {
+    // Solo permitir cambiar IVA si no estamos editando
+    if (isEditing) return;
+    
     setVatToggles(prev => {
       const newToggles = {
         ...prev,
@@ -288,10 +333,235 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
     });
   };
 
+  // Function to update quote detail margins
+  const updateQuoteDetailMargin = (detailIndex: number, newMargin: number) => {
+    // Marcar que estamos editando al modificar márgenes
+    if (!isEditing) setIsEditing(true);
+    
+    const updatedDetails = [...editingQuoteDetails];
+    const detail = updatedDetails[detailIndex];
+    
+    // Remove immediate clamping to allow temporary values
+    const sanitizedMargin = newMargin / 100;
+    
+    // Recalculate final price
+    const finalPriceUnrounded = detail.base_price * (1 + sanitizedMargin);
+    const finalPrice = Math.ceil(finalPriceUnrounded / 5) * 5;
+
+    updatedDetails[detailIndex] = {
+      ...detail,
+      profit_margin: sanitizedMargin,
+      final_price: finalPrice
+    };
+
+    setEditingQuoteDetails(updatedDetails);
+  };
+
+  // Function to update pump service for the entire quote
+  const updateQuotePumpService = (pumpService: boolean, pumpPrice: number | null = null) => {
+    // Marcar que estamos editando al modificar servicio de bombeo
+    if (!isEditing) setIsEditing(true);
+    
+    const updatedDetails = [...editingQuoteDetails].map(detail => ({
+      ...detail,
+      pump_service: pumpService,
+      pump_price: pumpService ? (pumpPrice !== null ? pumpPrice : detail.pump_price) : null
+    }));
+    setEditingQuoteDetails(updatedDetails);
+  };
+
   const createOrder = (quote: ApprovedQuote) => {
     // Navigate to orders page with quote information
     const clientId = quote.client?.id || '';
     router.push(`/orders?quoteId=${quote.id}&clientId=${clientId}&totalAmount=${quote.total_amount}`);
+  };
+
+  const duplicateQuoteAsPending = async (quote: ApprovedQuote, updatedDetails: ApprovedQuoteDetailWithMargin[] | null = null) => {
+    try {
+      setIsDuplicating(true);
+      
+      // Obtener el ID del usuario actual
+      const { data: authData, error: authError } = await supabase.auth.getSession();
+      
+      if (authError) {
+        console.error('Error al obtener la sesión de usuario:', authError);
+        throw authError;
+      }
+      
+      if (!authData.session?.user?.id) {
+        throw new Error('Usuario no autenticado. Debe iniciar sesión para crear cotizaciones.');
+      }
+      
+      // Generate quote number (same implementation as in QuoteBuilder)
+      const currentYear = new Date().getFullYear();
+      const quoteNumberPrefix = `COT-${currentYear}`;
+      const quoteNumber = `${quoteNumberPrefix}-${Math.floor(Math.random() * 9000) + 1000}`;
+      
+      // Create new quote with PENDING status
+      const { data: newQuote, error: quoteError } = await supabase
+        .from('quotes')
+        .insert({
+          client_id: quote.client?.id,
+          created_by: authData.session.user.id, // Usar el ID del usuario actual
+          construction_site: quote.construction_site,
+          location: "N/A", // Este campo es obligatorio, usamos un valor por defecto
+          validity_date: new Date(new Date().setDate(new Date().getDate() + 30)).toISOString(), // 30 days validity
+          status: 'PENDING_APPROVAL', // Usando el valor correcto según la restricción de la BD
+          quote_number: quoteNumber
+        })
+        .select('id')
+        .single();
+
+      if (quoteError) {
+        console.error('Error al crear la nueva cotización:', quoteError);
+        throw quoteError;
+      }
+      
+      // Get original quote details with recipe_ids
+      const { data: originalQuoteDetails, error: detailsQueryError } = await supabase
+        .from('quote_details')
+        .select('id, recipe_id')
+        .eq('quote_id', quote.id);
+        
+      if (detailsQueryError) {
+        console.error('Error al obtener detalles originales:', detailsQueryError);
+        throw detailsQueryError;
+      }
+      
+      // Create a map of detail.id to recipe_id
+      const recipeIdMap = new Map();
+      originalQuoteDetails?.forEach(detail => {
+        recipeIdMap.set(detail.id, detail.recipe_id);
+      });
+      
+      // Use either the updated details from editing or the original quote details
+      const detailsToUse = updatedDetails || quote.quote_details;
+      
+      console.log('Detalles a usar para duplicación:', detailsToUse);
+      
+      // Insertar solo los detalles que tengan un recipe_id válido
+      const quoteDetailsToInsert = detailsToUse
+        .map(detail => {
+          // Verificar que los valores numéricos sean válidos
+          const basePrice = Number(detail.base_price) || 0;
+          const finalPrice = Number(detail.final_price) || 0;
+          let profitMargin = 0;
+          
+          // Calcular profit_margin basado en precios si no está disponible
+          if ('profit_margin' in detail && (detail as any).profit_margin !== undefined) {
+            profitMargin = (detail as any).profit_margin * 100;
+          } else {
+            profitMargin = ((finalPrice / basePrice) - 1) * 100;
+          }
+          
+          // Asegurar que no dividamos por cero
+          if (isNaN(profitMargin) || !isFinite(profitMargin)) {
+            profitMargin = 0;
+          }
+          
+          // Asegurarnos de que tenemos un recipe_id válido
+          const recipeId = recipeIdMap.get(detail.id);
+          
+          if (!recipeId) {
+            console.warn(`No se encontró recipe_id para el detalle con id ${detail.id}. Omitiendo este detalle.`);
+            return null; // Retornar null para los detalles sin recipe_id
+          }
+          
+          return {
+            quote_id: newQuote.id,
+            recipe_id: recipeId,
+            product_id: null, // Importante: solo uno de recipe_id o product_id debe tener valor, no ambos
+            volume: Number(detail.volume) || 0,
+            base_price: basePrice,
+            final_price: finalPrice,
+            profit_margin: profitMargin,
+            pump_service: !!detail.pump_service,
+            pump_price: detail.pump_service ? (detail.pump_price || 0) : null,
+            includes_vat: !!detail.includes_vat,
+            total_amount: finalPrice * Number(detail.volume) || 0
+          };
+        })
+        .filter(detail => detail !== null); // Filtrar los detalles nulos
+      
+      // Verificar que tenemos al menos un detalle válido
+      if (quoteDetailsToInsert.length === 0) {
+        throw new Error('No se pudieron encontrar detalles válidos para la cotización. Asegúrese de que las recetas existan.');
+      }
+      
+      console.log('Detalles a insertar:', quoteDetailsToInsert);
+      
+      const { error: detailsError } = await supabase
+        .from('quote_details')
+        .insert(quoteDetailsToInsert);
+        
+      if (detailsError) {
+        console.error('Error al insertar detalles de cotización:', detailsError);
+        console.error('Datos que se intentaron insertar:', quoteDetailsToInsert);
+        throw detailsError;
+      }
+
+      // Mostrar un mensaje de éxito
+      alert('Se ha creado una nueva cotización pendiente a partir de la cotización aprobada');
+
+      // Redirigir a la lista de cotizaciones pendientes en lugar de la página de edición
+      router.push('/quotes?tab=pending');
+      
+      if (onDataSaved) {
+        onDataSaved();
+      }
+      
+    } catch (error) {
+      console.error('Error duplicando cotización:', error);
+      alert('No se pudo duplicar la cotización. Revise la consola para más detalles.');
+    } finally {
+      setIsDuplicating(false);
+      setShowConfirmDialog(false);
+      setIsEditing(false);
+    }
+  };
+
+  const handleSaveClick = () => {
+    // Show confirmation dialog
+    setShowConfirmDialog(true);
+  };
+
+  const handleConfirmSave = () => {
+    if (selectedQuote) {
+      duplicateQuoteAsPending(selectedQuote, editingQuoteDetails);
+    }
+  };
+
+  // Función para comenzar a editar
+  const startEditing = () => {
+    setIsEditing(true);
+  };
+
+  // Función para cancelar la edición
+  const cancelEditing = () => {
+    if (selectedQuote) {
+      // Restaurar los detalles originales
+      const editableDetails = selectedQuote.quote_details.map((detail: any) => ({
+        id: detail.id,
+        volume: detail.volume,
+        base_price: detail.base_price,
+        final_price: detail.final_price,
+        profit_margin: detail.final_price / detail.base_price - 1,
+        pump_service: detail.pump_service,
+        pump_price: detail.pump_price,
+        includes_vat: detail.includes_vat,
+        recipe: detail.recipe
+      })) as ApprovedQuoteDetailWithMargin[];
+      
+      setEditingQuoteDetails(editableDetails);
+      setIsEditing(false);
+    }
+  };
+
+  // Modificar el render para mostrar total actualizado en edición
+  const calculateTotal = () => {
+    if (!editingQuoteDetails.length) return 0;
+    return editingQuoteDetails.reduce((sum: number, detail: {final_price: number, volume: number}) => 
+      sum + (detail.final_price * detail.volume), 0);
   };
 
   return (
@@ -411,7 +681,10 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
           <div className="bg-white rounded-lg shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Detalles de Cotización</h2>
+                <h2 className="text-2xl font-bold">
+                  Detalles de Cotización
+                  {isEditing && <span className="ml-2 text-sm text-orange-500 font-normal">(Editando)</span>}
+                </h2>
                 <button 
                   onClick={closeQuoteDetails}
                   className="text-gray-600 hover:text-gray-900"
@@ -445,20 +718,71 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
                 </div>
               </div>
 
-              {/* Pump Service Information */}
-              {selectedQuote.quote_details.some(detail => detail.pump_service) && (
-                <div className="mb-6 p-4 border rounded bg-gray-50">
-                  <div className="flex items-center mb-2">
-                    <span className="font-medium">Servicio de Bombeo Incluido</span>
-                  </div>
-                  <div className="flex items-center">
-                    <span className="mr-2">Precio del Servicio:</span>
-                    <span className="font-semibold">
-                      ${selectedQuote.quote_details.find(detail => detail.pump_service)?.pump_price?.toFixed(2) || '0.00'} MXN
-                    </span>
-                  </div>
+              {/* Edit mode controls */}
+              {!isEditing ? (
+                <div className="mb-4">
+                  <button
+                    onClick={startEditing}
+                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    Modificar Detalles
+                  </button>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Haga clic para editar los precios y márgenes de utilidad
+                  </p>
+                </div>
+              ) : (
+                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                  <p className="text-sm text-yellow-700 mb-2">
+                    <span className="font-semibold">Modo edición activo.</span> Se está modificando una cotización aprobada.
+                    Al guardar, se creará una nueva cotización pendiente con los cambios realizados.
+                  </p>
+                  <button
+                    onClick={cancelEditing}
+                    className="text-sm text-gray-600 underline"
+                  >
+                    Cancelar edición
+                  </button>
                 </div>
               )}
+
+              {/* Pump Service Information */}
+              <div className="mb-6 p-4 border rounded bg-gray-50">
+                <div className="flex items-center mb-2">
+                  <input
+                    type="checkbox"
+                    id="pumpService"
+                    checked={editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service}
+                    onChange={(e) => updateQuotePumpService(e.target.checked, 
+                      editingQuoteDetails.length > 0 ? editingQuoteDetails[0].pump_price : null)}
+                    className="mr-2 h-4 w-4"
+                    disabled={!isEditing}
+                  />
+                  <label htmlFor="pumpService" className="font-medium">
+                    Incluir Servicio de Bombeo para toda la cotización
+                  </label>
+                </div>
+                
+                {editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service && (
+                  <div className="mt-2 flex items-center">
+                    <label className="mr-2">Precio del Servicio:</label>
+                    <input
+                      type="number"
+                      value={editingQuoteDetails[0].pump_price || ''}
+                      onChange={(e) => {
+                        const price = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                        updateQuotePumpService(true, price);
+                      }}
+                      placeholder="0.00"
+                      min="0"
+                      step="1"
+                      className="w-32 p-1 border rounded"
+                      disabled={!isEditing}
+                    />
+                    <span className="ml-2">MXN</span>
+                  </div>
+                )}
+              </div>
 
               {/* Quote Details Table */}
               <div className="overflow-x-auto">
@@ -470,18 +794,57 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
                       <th className="px-4 py-3">Resistencia</th>
                       <th className="px-4 py-3">Volumen</th>
                       <th className="px-4 py-3">Precio Base</th>
+                      <th className="px-4 py-3">Margen %</th>
                       <th className="px-4 py-3">Precio Final</th>
                       <th className="px-4 py-3">Total</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedQuote.quote_details.map((detail) => (
+                    {editingQuoteDetails.map((detail, index) => (
                       <tr key={detail.id} className="border-b hover:bg-gray-100">
                         <td className="px-4 py-3">{detail.recipe?.recipe_code || 'Sin código'}</td>
                         <td className="px-4 py-3">{detail.recipe?.placement_type || 'Sin tipo'}</td>
                         <td className="px-4 py-3">{detail.recipe?.strength_fc || 'N/A'} kg/cm²</td>
                         <td className="px-4 py-3">{detail.volume} m³</td>
                         <td className="px-4 py-3">${detail.base_price.toFixed(2)}</td>
+                        <td className="px-4 py-3">
+                          {isEditing ? (
+                            <input 
+                              type="number" 
+                              value={Math.round(detail.profit_margin * 1000) / 10}
+                              onChange={(e) => {
+                                const rawValue = e.target.value;
+                                if (rawValue === '') {
+                                  updateQuoteDetailMargin(index, 0);
+                                  return;
+                                }
+                                const value = parseFloat(rawValue);
+                                if (!isNaN(value)) {
+                                  updateQuoteDetailMargin(index, value);
+                                }
+                              }}
+                              onBlur={(e) => {
+                                const rawValue = e.target.value;
+                                if (rawValue === '') {
+                                  // Set to minimum if left empty
+                                  updateQuoteDetailMargin(index, 4);
+                                  return;
+                                }
+                                const value = parseFloat(rawValue);
+                                if (!isNaN(value)) {
+                                  const clampedValue = Math.max(4, value);
+                                  updateQuoteDetailMargin(index, clampedValue);
+                                }
+                              }}
+                              step="0.1"
+                              min="4"
+                              className="w-20 p-1 border rounded text-right"
+                              placeholder="4.0"
+                            />
+                          ) : (
+                            `${(Math.round(detail.profit_margin * 1000) / 10).toFixed(1)}%`
+                          )}
+                        </td>
                         <td className="px-4 py-3">${detail.final_price.toFixed(2)}</td>
                         <td className="px-4 py-3">${(detail.final_price * detail.volume).toFixed(2)}</td>
                       </tr>
@@ -493,41 +856,124 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
               {/* Total and PDF Download */}
               <div className="mt-6 flex justify-between items-center">
                 <div>
-                  <p className="font-semibold text-lg">Total: ${selectedQuote.total_amount.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+                  <p className="font-semibold text-lg">
+                    Total: ${calculateTotal().toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                  </p>
                 </div>
                 <div className="flex items-center">
-                  <div className="flex items-center mr-4">
-                    <input
-                      type="checkbox"
-                      id={`modal-showVAT-${selectedQuote.id}`}
-                      checked={vatToggles[selectedQuote.id] || false}
-                      onChange={() => toggleVAT(selectedQuote.id)}
-                      className="mr-2"
-                    />
-                    <label htmlFor={`modal-showVAT-${selectedQuote.id}`}>Incluir IVA en PDF</label>
-                  </div>
-                  <PDFDownloadLink
-                    key={`modal-pdf-${selectedQuote.id}-${vatToggles[selectedQuote.id] || false}`}
-                    document={<QuotePDF quote={selectedQuote} showVAT={vatToggles[selectedQuote.id] || false} />}
-                    fileName={`cotizacion-${selectedQuote.quote_number}.pdf`}
-                    className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                  >
-                    {({ blob, url, loading, error }) =>
-                      loading ? 'Generando PDF...' : 'Descargar PDF'
-                    }
-                  </PDFDownloadLink>
+                  {!isEditing && (
+                    <>
+                      <div className="flex items-center mr-4">
+                        <input
+                          type="checkbox"
+                          id={`modal-showVAT-${selectedQuote.id}`}
+                          checked={vatToggles[selectedQuote.id] || false}
+                          onChange={() => toggleVAT(selectedQuote.id)}
+                          className="mr-2"
+                          disabled={isEditing}
+                        />
+                        <label htmlFor={`modal-showVAT-${selectedQuote.id}`}>Incluir IVA en PDF</label>
+                      </div>
+                      <PDFDownloadLink
+                        key={`modal-pdf-${selectedQuote.id}-${vatToggles[selectedQuote.id] || false}`}
+                        document={<QuotePDF quote={selectedQuote} showVAT={vatToggles[selectedQuote.id] || false} />}
+                        fileName={`cotizacion-${selectedQuote.quote_number}.pdf`}
+                        className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                      >
+                        {({ blob, url, loading, error }) =>
+                          loading ? 'Generando PDF...' : 'Descargar PDF'
+                        }
+                      </PDFDownloadLink>
+                    </>
+                  )}
                 </div>
               </div>
 
               {/* Modal Actions */}
               <div className="flex justify-end space-x-4 mt-6">
+                {isEditing && (
+                  <>
+                    <button 
+                      onClick={handleSaveClick}
+                      disabled={isDuplicating}
+                      className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {isDuplicating ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          Procesando...
+                        </>
+                      ) : (
+                        <>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                          </svg>
+                          Guardar Cambios
+                        </>
+                      )}
+                    </button>
+                    <button 
+                      onClick={cancelEditing}
+                      className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 flex items-center gap-2"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                      Cancelar
+                    </button>
+                  </>
+                )}
                 <button 
                   onClick={closeQuoteDetails}
-                  className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300"
+                  className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 flex items-center gap-2"
                 >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
                   Cerrar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation dialog */}
+      {showConfirmDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex justify-center items-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-xl font-bold mb-4 text-gray-800">Crear Nueva Cotización</h3>
+            <div className="mb-6 text-gray-600">
+              <p className="mb-3">
+                Estás modificando una cotización aprobada. Al guardar los cambios:
+              </p>
+              <ul className="list-disc pl-5 space-y-2">
+                <li>Se creará una <strong>nueva cotización pendiente</strong> con los cambios realizados</li>
+                <li>La cotización original permanecerá <strong>sin cambios</strong></li>
+                <li>La nueva cotización deberá pasar por el proceso de aprobación</li>
+              </ul>
+              <p className="mt-3 text-sm italic">
+                Nota: Este procedimiento es necesario para mantener un registro de los cambios de precios
+                en cotizaciones que ya fueron aprobadas.
+              </p>
+            </div>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowConfirmDialog(false)}
+                className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleConfirmSave}
+                disabled={isDuplicating}
+                className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+              >
+                {isDuplicating ? 'Procesando...' : 'Crear Nueva Cotización'}
+              </button>
             </div>
           </div>
         </div>

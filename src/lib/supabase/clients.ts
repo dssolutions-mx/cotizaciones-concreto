@@ -10,6 +10,8 @@ interface ConstructionSite {
   client_id: string;
   created_at: string;
   is_active: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
 }
 
 export const clientService = {
@@ -184,6 +186,8 @@ export const clientService = {
     access_restrictions?: string;
     special_conditions?: string;
     is_active?: boolean;
+    latitude?: number | null;
+    longitude?: number | null;
   }) {
     try {
       console.log('createSite called with:', { clientId, siteData });
@@ -198,7 +202,9 @@ export const clientService = {
         location: siteData.location || null,
         access_restrictions: siteData.access_restrictions || null,
         special_conditions: siteData.special_conditions || null,
-        is_active: siteData.is_active ?? true // Default to true if not specified
+        is_active: siteData.is_active ?? true, // Default to true if not specified
+        latitude: siteData.latitude || null,
+        longitude: siteData.longitude || null
       };
       
       console.log('Inserting site data:', dataToInsert);

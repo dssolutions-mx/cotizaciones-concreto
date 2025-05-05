@@ -28,6 +28,7 @@ export interface Order {
   quote_id: string;
   client_id: string;
   construction_site: string;
+  construction_site_id?: string;
   order_number: string;
   delivery_date: string;
   delivery_time: string;

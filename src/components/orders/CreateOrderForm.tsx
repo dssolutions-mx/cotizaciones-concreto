@@ -54,6 +54,7 @@ export default function CreateOrderForm({ quoteId, clientId, totalAmount, onSucc
         quote_id: quoteId,
         client_id: clientId,
         construction_site: 'Cliente Directo',
+        construction_site_id: undefined, // No hay sitio de construcción específico
         delivery_date: deliveryDate,
         delivery_time: deliveryTime,
         requires_invoice: requiresInvoice,
