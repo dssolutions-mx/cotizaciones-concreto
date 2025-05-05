@@ -18,6 +18,9 @@ import * as Popover from '@radix-ui/react-popover';
 import { CalendarIcon } from 'lucide-react';
 import 'react-day-picker/dist/style.css';
 import { useDebouncedCallback } from 'use-debounce';
+import ClientCreationForm from '@/components/clients/ClientCreationForm';
+import ConstructionSiteForm from '@/components/clients/ConstructionSiteForm';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 interface Client {
   id: string;
@@ -95,6 +98,16 @@ export default function QuoteBuilder() {
   const [includesVAT, setIncludesVAT] = useState<boolean>(false);
   const [recipeSearch, setRecipeSearch] = useState<string>('');
   const [clientSearch, setClientSearch] = useState<string>('');
+  
+  // New state variables for client and site creation
+  const [showCreateClientDialog, setShowCreateClientDialog] = useState(false);
+  const [showCreateSiteDialog, setShowCreateSiteDialog] = useState(false);
+  const [clientSites, setClientSites] = useState<any[]>([]);
+  const [enableMapForSite, setEnableMapForSite] = useState(false);
+  const [siteCoordinates, setSiteCoordinates] = useState<{lat: number | null, lng: number | null}>({
+    lat: null,
+    lng: null
+  });
 
   // Load initial data - clients and recipes
   useEffect(() => {
@@ -128,6 +141,9 @@ export default function QuoteBuilder() {
     };
 
     loadInitialData();
+
+    // Debug Google Maps API Key
+    console.log('Google Maps API Key set?', !!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY);
   }, []);
 
   // Load client history when client is selected
@@ -480,6 +496,64 @@ export default function QuoteBuilder() {
     console.log('Draft quote cleared from state and sessionStorage.');
   };
 
+  // Load client sites when a client is selected
+  useEffect(() => {
+    const loadClientSites = async () => {
+      if (selectedClient) {
+        try {
+          const sites = await clientService.getClientSites(selectedClient);
+          setClientSites(sites);
+        } catch (error) {
+          console.error('Error loading client sites:', error);
+        }
+      } else {
+        setClientSites([]);
+      }
+    };
+
+    loadClientSites();
+  }, [selectedClient]);
+
+  // Handle new client creation
+  const handleClientCreated = (clientId: string, clientName: string) => {
+    // Add the new client to the list
+    setClients(prev => [
+      ...prev,
+      { id: clientId, business_name: clientName, client_code: '' } as Client
+    ]);
+    
+    // Select the newly created client
+    setSelectedClient(clientId);
+    
+    // Close the dialog
+    setShowCreateClientDialog(false);
+  };
+
+  // Handle new site creation
+  const handleSiteCreated = (siteId: string, siteName: string) => {
+    // Add the new site to the list
+    setClientSites(prev => [
+      ...prev,
+      { id: siteId, name: siteName, latitude: siteCoordinates.lat, longitude: siteCoordinates.lng }
+    ]);
+    
+    // Select the newly created site
+    setSelectedSite(siteId);
+    setConstructionSite(siteName);
+    
+    // Close the dialog
+    setShowCreateSiteDialog(false);
+    
+    // Debug log
+    console.log('Site created with coordinates:', siteCoordinates);
+  };
+
+  // Handle map coordinates selection
+  const handleMapCoordinatesSelected = (lat: number, lng: number) => {
+    setSiteCoordinates({ lat, lng });
+    console.log('Map coordinates selected:', { lat, lng });
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 @container">
       {/* Left Panel: Product Catalog */}
@@ -720,84 +794,142 @@ export default function QuoteBuilder() {
 
           <div>
             <label htmlFor="client-select" className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-            <Select.Root
-              value={selectedClient}
-              onValueChange={setSelectedClient}
-              disabled={isLoading}
-            >
-              <Select.Trigger
-                id="client-select"
-                className="w-full p-2.5 bg-white border border-gray-300 rounded-lg flex items-center justify-between text-sm shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 data-[placeholder]:text-gray-500"
-                aria-label="Cliente"
+            <div className="flex space-x-2 items-center">
+              <Select.Root
+                value={selectedClient}
+                onValueChange={setSelectedClient}
+                disabled={isLoading}
               >
-                <Select.Value placeholder="Seleccionar Cliente" />
-                <Select.Icon>
-                  <ChevronDownIcon className="h-4 w-4 text-gray-500" />
-                </Select.Icon>
-              </Select.Trigger>
-              
-              <Select.Portal>
-                <Select.Content 
-                  className="overflow-hidden bg-white rounded-lg shadow-lg border border-gray-200 z-50"
-                  position="popper"
-                  sideOffset={5}
+                <Select.Trigger
+                  id="client-select"
+                  className="w-full p-2.5 bg-white border border-gray-300 rounded-lg flex items-center justify-between text-sm shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 data-[placeholder]:text-gray-500"
+                  aria-label="Cliente"
                 >
-                  <Select.ScrollUpButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
-                    <ChevronUpIcon />
-                  </Select.ScrollUpButton>
-                  
-                  <Select.Viewport className="p-1 max-h-[200px] overflow-y-auto">
-                    <Select.Group>
-                      <Select.Label className="px-6 py-1.5 text-xs font-medium text-gray-500">
-                        Clientes
-                      </Select.Label>
-                      
-                      <Select.Item 
-                        value="default" 
-                        className="text-sm relative flex items-center h-8 px-6 rounded select-none hover:bg-gray-100 data-[highlighted]:bg-gray-100 data-[state=checked]:bg-gray-50 outline-none cursor-pointer"
-                      >
-                        <Select.ItemText>Seleccionar Cliente</Select.ItemText>
-                      </Select.Item>
-                      
-                      {filteredClients.map(client => (
+                  <Select.Value placeholder="Seleccionar Cliente" />
+                  <Select.Icon>
+                    <ChevronDownIcon className="h-4 w-4 text-gray-500" />
+                  </Select.Icon>
+                </Select.Trigger>
+                <Select.Portal>
+                  <Select.Content className="overflow-hidden bg-white rounded-md shadow-lg border">
+                    <Select.ScrollUpButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
+                      <ChevronUpIcon />
+                    </Select.ScrollUpButton>
+                    <Select.Viewport className="p-1">
+                      {filteredClients.map((client) => (
                         <Select.Item
                           key={client.id}
                           value={client.id}
-                          className="text-sm relative flex items-center h-8 px-6 rounded select-none hover:bg-gray-100 data-[highlighted]:bg-gray-100 data-[state=checked]:bg-gray-50 outline-none cursor-pointer"
+                          className="relative flex items-center h-8 py-2 pl-7 pr-2 text-sm rounded select-none hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
                         >
-                          <Select.ItemText>
-                            {client.business_name} ({client.client_code})
-                          </Select.ItemText>
+                          <Select.ItemText>{client.business_name} ({client.client_code})</Select.ItemText>
                           <Select.ItemIndicator className="absolute left-1 inline-flex items-center justify-center">
-                            <CheckIcon className="h-4 w-4 text-green-600" />
+                            <CheckIcon className="h-4 w-4" />
                           </Select.ItemIndicator>
                         </Select.Item>
                       ))}
-                    </Select.Group>
-                  </Select.Viewport>
-                  
-                  <Select.ScrollDownButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
-                    <ChevronDownIcon />
-                  </Select.ScrollDownButton>
-                </Select.Content>
-              </Select.Portal>
-            </Select.Root>
+                    </Select.Viewport>
+                    <Select.ScrollDownButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
+                      <ChevronDownIcon />
+                    </Select.ScrollDownButton>
+                  </Select.Content>
+                </Select.Portal>
+              </Select.Root>
+              
+              <button
+                type="button"
+                onClick={() => setShowCreateClientDialog(true)}
+                className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow-xs flex items-center justify-center"
+                aria-label="Crear nuevo cliente"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {selectedClient && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Sitio de Construcción</label>
-              <ConstructionSiteSelect
-                clientId={selectedClient}
-                value={selectedSite}
-                onChange={(site) => {
-                  setSelectedSite(site?.id || '');
-                  setConstructionSite(site?.name || '');
-                  setLocation(site?.location || '');
-                }}
-                onLocationChange={setLocation}
-                className="w-full"
-              />
+              <label htmlFor="construction-site" className="block text-sm font-medium text-gray-700 mb-1">Obra</label>
+              <div className="flex space-x-2 items-center">
+                {clientSites.length > 0 ? (
+                  <Select.Root
+                    value={selectedSite}
+                    onValueChange={(value) => {
+                      setSelectedSite(value);
+                      const site = clientSites.find(s => s.id === value);
+                      if (site) {
+                        setConstructionSite(site.name);
+                        if (site.latitude && site.longitude) {
+                          setSiteCoordinates({
+                            lat: site.latitude,
+                            lng: site.longitude
+                          });
+                        }
+                      }
+                    }}
+                  >
+                    <Select.Trigger
+                      id="construction-site"
+                      className="w-full p-2.5 bg-white border border-gray-300 rounded-lg flex items-center justify-between text-sm shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 data-[placeholder]:text-gray-500"
+                      aria-label="Obra"
+                    >
+                      <Select.Value placeholder="Seleccionar Obra" />
+                      <Select.Icon>
+                        <ChevronDownIcon className="h-4 w-4 text-gray-500" />
+                      </Select.Icon>
+                    </Select.Trigger>
+                    <Select.Portal>
+                      <Select.Content className="overflow-hidden bg-white rounded-md shadow-lg border">
+                        <Select.ScrollUpButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
+                          <ChevronUpIcon />
+                        </Select.ScrollUpButton>
+                        <Select.Viewport className="p-1">
+                          {clientSites.map((site) => (
+                            <Select.Item
+                              key={site.id}
+                              value={site.id}
+                              className="relative flex items-center h-8 py-2 pl-7 pr-2 text-sm rounded select-none hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
+                            >
+                              <Select.ItemText>{site.name}</Select.ItemText>
+                              <Select.ItemIndicator className="absolute left-1 inline-flex items-center justify-center">
+                                <CheckIcon className="h-4 w-4" />
+                              </Select.ItemIndicator>
+                            </Select.Item>
+                          ))}
+                        </Select.Viewport>
+                        <Select.ScrollDownButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
+                          <ChevronDownIcon />
+                        </Select.ScrollDownButton>
+                      </Select.Content>
+                    </Select.Portal>
+                  </Select.Root>
+                ) : (
+                  <input
+                    type="text"
+                    id="construction-site"
+                    value={constructionSite}
+                    onChange={(e) => setConstructionSite(e.target.value)}
+                    placeholder="Nombre de la obra"
+                    className="w-full p-2.5 bg-white border border-gray-300 rounded-lg text-sm shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  />
+                )}
+                
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateSiteDialog(true);
+                    setEnableMapForSite(true);
+                  }}
+                  className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow-xs flex items-center justify-center"
+                  aria-label="Crear nueva obra"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                </button>
+              </div>
             </div>
           )}
 
@@ -968,7 +1100,7 @@ export default function QuoteBuilder() {
             disabled={isLoading}
           >
             <svg className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
             </svg>
             Limpiar Borrador
           </button>
@@ -1111,6 +1243,65 @@ export default function QuoteBuilder() {
           </div>
         </div>
       )}
+
+      {/* Client Creation Dialog */}
+      <Dialog open={showCreateClientDialog} onOpenChange={setShowCreateClientDialog}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+          <DialogTitle>Crear Nuevo Cliente</DialogTitle>
+          <ClientCreationForm
+            onClientCreated={handleClientCreated}
+            onCancel={() => setShowCreateClientDialog(false)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Construction Site Creation Dialog */}
+      <Dialog 
+        open={showCreateSiteDialog} 
+        onOpenChange={(open) => {
+          setShowCreateSiteDialog(open);
+          // If opening the dialog, trigger a resize event after a small delay
+          // to ensure Google Maps renders correctly
+          if (open) {
+            // Trigger multiple resize events to ensure the map renders
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 500);
+            setTimeout(() => window.dispatchEvent(new Event('resize')), 1000);
+            // Log the state
+            console.log('Opening site creation dialog with Google Maps');
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[700px] w-[90vw] max-h-[90vh] overflow-y-auto p-4">
+          <DialogTitle>Crear Nueva Obra</DialogTitle>
+          {selectedClient ? (
+            <>
+              {/* Show debug info */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="bg-blue-50 p-2 mb-4 text-sm">
+                  <p>Google Maps API cargada: {typeof google !== 'undefined' && google.maps ? 'Sí' : 'No'}</p>
+                  <p>API Key presente: {!!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? 'Sí' : 'No'}</p>
+                </div>
+              )}
+              <ConstructionSiteForm
+                clientId={selectedClient}
+                onSiteCreated={handleSiteCreated}
+                onCancel={() => setShowCreateSiteDialog(false)}
+              />
+            </>
+          ) : (
+            <div className="p-4 text-center">
+              <p>Por favor, selecciona un cliente primero.</p>
+              <button
+                onClick={() => setShowCreateSiteDialog(false)}
+                className="mt-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md"
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

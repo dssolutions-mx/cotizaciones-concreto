@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
-import { GoogleMap, StandaloneSearchBox, Marker } from '@react-google-maps/api';
+import { GoogleMap, Marker } from '@react-google-maps/api';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,10 +25,13 @@ interface GoogleMapSelectorProps {
 export default function GoogleMapSelector({
   initialPosition,
   onSelectLocation,
-  height = '500px', // Increased default height
+  height = '300px',
   className = '',
   readOnly = false,
 }: GoogleMapSelectorProps) {
+  // State for component mounted status
+  const [isMounted, setIsMounted] = useState(false);
+  
   // State for map center and marker position
   const [center, setCenter] = useState(initialPosition || DEFAULT_MAP_CENTER);
   const [markerPosition, setMarkerPosition] = useState<{ lat: number; lng: number } | null>(
@@ -39,9 +42,14 @@ export default function GoogleMapSelector({
   const [manualLat, setManualLat] = useState(initialPosition?.lat?.toString() || '');
   const [manualLng, setManualLng] = useState(initialPosition?.lng?.toString() || '');
   
-  // Refs for search box and map
-  const searchBoxRef = useRef<google.maps.places.SearchBox | null>(null);
+  // Ref for map
   const mapRef = useRef<google.maps.Map | null>(null);
+
+  // Set mounted state
+  useEffect(() => {
+    setIsMounted(true);
+    return () => setIsMounted(false);
+  }, []);
 
   // Update coordinates when initialPosition changes
   useEffect(() => {
@@ -72,36 +80,6 @@ export default function GoogleMapSelector({
     setManualLat(newPosition.lat.toString());
     setManualLng(newPosition.lng.toString());
     onSelectLocation(newPosition.lat, newPosition.lng);
-  }, [onSelectLocation, readOnly]);
-
-  // Handler for search box places changed
-  const handlePlacesChanged = useCallback(() => {
-    if (!searchBoxRef.current || readOnly) return;
-    
-    const places = searchBoxRef.current.getPlaces();
-    if (places && places.length > 0) {
-      const place = places[0];
-      const location = place.geometry?.location;
-      
-      if (location) {
-        const newPosition = {
-          lat: location.lat(),
-          lng: location.lng()
-        };
-        
-        setCenter(newPosition);
-        setMarkerPosition(newPosition);
-        setManualLat(newPosition.lat.toString());
-        setManualLng(newPosition.lng.toString());
-        onSelectLocation(newPosition.lat, newPosition.lng);
-        
-        // Pan the map to the selected location
-        if (mapRef.current) {
-          mapRef.current.panTo(location);
-          mapRef.current.setZoom(15);
-        }
-      }
-    }
   }, [onSelectLocation, readOnly]);
 
   // Handler for manually updating coordinates
@@ -138,7 +116,7 @@ export default function GoogleMapSelector({
     }
   }, [manualLat, manualLng, onSelectLocation]);
 
-  // Handler for map load
+  // Handler for map load with more debugging
   const onMapLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
     
@@ -148,21 +126,36 @@ export default function GoogleMapSelector({
       map.setZoom(15);
     }
     
-    // Force redraw the map to fix rendering issues in dialogs
-    setTimeout(() => {
-      google.maps.event.trigger(map, 'resize');
-    }, 100);
+    // Force multiple resizes to ensure map is properly displayed
+    const resizeMap = () => {
+      if (mapRef.current) {
+        google.maps.event.trigger(mapRef.current, 'resize');
+      }
+    };
+
+    // Inicial y con retrasos para asegurar carga completa
+    resizeMap();
+    [100, 300, 600, 1000].forEach(delay => {
+      setTimeout(resizeMap, delay);
+    });
   }, [initialPosition]);
 
-  // Handler for search box load
-  const onSearchBoxLoad = useCallback((searchBox: google.maps.places.SearchBox) => {
-    searchBoxRef.current = searchBox;
+  // Add resize event listener
+  useEffect(() => {
+    const handleResize = () => {
+      if (mapRef.current) {
+        google.maps.event.trigger(mapRef.current, 'resize');
+      }
+    };
+    
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   return (
     <div className={`google-map-container ${className}`}>
       {/* Coordinate input fields */}
-      <div className="coordinate-inputs flex flex-wrap gap-2 mb-4">
+      <div className="coordinate-inputs flex flex-wrap gap-2 mb-3">
         <div className="w-full sm:w-auto flex-1">
           <Label htmlFor="latitude" className="text-sm font-medium mb-1 block">
             Latitud
@@ -205,9 +198,20 @@ export default function GoogleMapSelector({
       </div>
 
       {/* Google Map */}
-      <div style={{ height, width: '100%' }} className="relative rounded-lg overflow-hidden border border-gray-200 shadow-md">
+      <div 
+        style={{ 
+          height, 
+          width: '100%',
+          minHeight: '300px'
+        }} 
+        className="relative rounded-lg overflow-hidden border border-gray-200 shadow-md"
+      >
         <GoogleMap
-          mapContainerStyle={mapContainerStyle}
+          mapContainerStyle={{
+            width: '100%',
+            height: '100%',
+            minHeight: '300px'
+          }}
           center={center}
           zoom={15}
           onClick={handleMapClick}
@@ -217,21 +221,27 @@ export default function GoogleMapSelector({
             mapTypeControl: true,
             fullscreenControl: true,
             zoomControl: true,
+            clickableIcons: false, // Avoid clicking on POIs accidentally
           }}
         >
-          {/* Search Box */}
-          {!readOnly && (
-            <StandaloneSearchBox onLoad={onSearchBoxLoad} onPlacesChanged={handlePlacesChanged}>
-              <input
-                type="text"
-                placeholder="🔍 Buscar ubicación..."
-                className="search-box w-full md:w-2/3 p-3 rounded-lg shadow-lg absolute top-4 left-1/2 transform -translate-x-1/2 z-10 bg-white bg-opacity-95 border border-gray-300 text-gray-700 font-medium"
-              />
-            </StandaloneSearchBox>
+          {markerPosition && (
+            <Marker 
+              position={markerPosition} 
+              draggable={!readOnly}
+              onDragEnd={(e) => {
+                if (e.latLng) {
+                  const newPos = {
+                    lat: e.latLng.lat(),
+                    lng: e.latLng.lng()
+                  };
+                  setMarkerPosition(newPos);
+                  setManualLat(newPos.lat.toString());
+                  setManualLng(newPos.lng.toString());
+                  onSelectLocation(newPos.lat, newPos.lng);
+                }
+              }}
+            />
           )}
-
-          {/* Using regular Marker for now, since AdvancedMarkerElement isn't supported in the version we're using */}
-          {markerPosition && <Marker position={markerPosition} />}
         </GoogleMap>
       </div>
     </div>

@@ -461,6 +461,27 @@ export async function canUserApproveOrder(orderId: string) {
   }
 }
 
+export async function cancelOrder(orderId: string) {
+  try {
+    // Update order status to cancelled
+    const { data, error } = await supabase
+      .from('orders')
+      .update({ 
+        order_status: 'cancelled',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', orderId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error in cancelOrder:', error);
+    throw error;
+  }
+}
+
 const orderService = {
   createOrder,
   getOrders,
@@ -474,7 +495,8 @@ const orderService = {
   rejectCreditByValidator,
   getOrdersForManagerValidation,
   getRejectedOrders,
-  canUserApproveOrder
+  canUserApproveOrder,
+  cancelOrder
 };
 
 export default orderService; 

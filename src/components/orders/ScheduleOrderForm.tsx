@@ -167,25 +167,57 @@ export default function ScheduleOrderForm({
   
   // Load approved quotes when client and site are selected
   useEffect(() => {
-    const loadQuotes = async () => {
-      if (!selectedClientId || !selectedConstructionSiteId) return;
-      
+    if (!selectedClientId || !selectedConstructionSiteId || !selectedConstructionSite?.name) {
+      setAvailableQuotes([]); // Clear quotes if client or site changes
+      setSelectedProducts([]);
+      return;
+    }
+    
+    const loadActiveQuote = async () => {
       try {
         setIsLoading(true);
-        const { data, error } = await supabase
+        setError(null);
+        
+        console.log(`Fetching active price for Client: ${selectedClientId}, Site: ${selectedConstructionSite.name}`);
+        
+        // 1. Find the active product price for this client and site
+        const { data: activePrice, error: activePriceError } = await supabase
+          .from('product_prices')
+          .select('quote_id')
+          .eq('client_id', selectedClientId)
+          .eq('construction_site', selectedConstructionSite.name)
+          .eq('is_active', true)
+          .maybeSingle(); // Expect at most one active price
+          
+        if (activePriceError) {
+          console.error("Error fetching active product price:", activePriceError);
+          throw activePriceError;
+        }
+        
+        if (!activePrice || !activePrice.quote_id) {
+          console.log('No active price/quote found for this client/site.');
+          setAvailableQuotes([]);
+          setSelectedProducts([]);
+          setIsLoading(false);
+          return;
+        }
+        
+        console.log(`Found active price linked to Quote ID: ${activePrice.quote_id}`);
+        
+        // 2. Fetch the specific quote linked to the active price
+        const { data: quoteData, error: quoteError } = await supabase
           .from('quotes')
           .select(`
-            id, 
+            id,
             quote_number,
-            status,
-            quote_details (
+            quote_details(
               id,
-              recipe_id,
               volume,
               final_price,
               pump_service,
               pump_price,
-              recipes:recipe_id (
+              recipe_id,
+              recipes:recipe_id(
                 recipe_code,
                 strength_fc,
                 placement_type,
@@ -193,72 +225,92 @@ export default function ScheduleOrderForm({
               )
             )
           `)
-          .eq('client_id', selectedClientId)
-          .eq('status', 'APPROVED');
-        
-        if (error) throw error;
-        
-        // Transform data to our format
-        const quotes: Quote[] = data.map(quote => ({
-          id: quote.id,
-          quoteNumber: quote.quote_number,
-          totalAmount: 0, // Will be calculated below
-          products: quote.quote_details.map((detail: any) => {
-            // Use type assertion to handle nested recipe data
-            const recipeData = detail.recipes as {
-              recipe_code?: string;
-              strength_fc?: number;
-              placement_type?: string;
-              max_aggregate_size?: number;
-            };
-            return {
-              id: recipeData?.recipe_code || 'Unknown', // Using recipe code as ID for display
-              quoteDetailId: detail.id,
-              recipeCode: recipeData?.recipe_code || 'Unknown',
-              strength: recipeData?.strength_fc || 0,
-              placementType: recipeData?.placement_type || '',
-              maxAggregateSize: recipeData?.max_aggregate_size || 0,
-              volume: detail.volume,
-              unitPrice: detail.final_price,
-              pumpService: detail.pump_service,
-              pumpPrice: detail.pump_price
-            };
-          })
-        }));
-        
-        // Calculate total amount for each quote
-        quotes.forEach(quote => {
-          quote.totalAmount = quote.products.reduce(
+          .eq('id', activePrice.quote_id)
+          .eq('status', 'APPROVED') // Ensure the linked quote is still approved
+          .single(); // Fetch the single quote
+          
+        if (quoteError) {
+          console.error("Error fetching the linked quote:", quoteError);
+          // If the quote is not found or not approved, treat as no active quote
+          if (quoteError.code === 'PGRST116') { // Resource Not Found
+             console.warn(`Linked Quote ID ${activePrice.quote_id} not found or not approved.`);
+             setAvailableQuotes([]);
+             setSelectedProducts([]);
+          } else {
+             throw quoteError;
+          }
+        } else if (quoteData) {
+          console.log('Successfully fetched linked quote:', quoteData);
+          
+          // 3. Format the single quote for the form
+          const formattedQuote: Quote = {
+            id: quoteData.id,
+            quoteNumber: quoteData.quote_number,
+            totalAmount: 0, // Will be calculated below
+            products: quoteData.quote_details.map((detail: any) => {
+              const recipeData = detail.recipes as {
+                recipe_code?: string;
+                strength_fc?: number;
+                placement_type?: string;
+                max_aggregate_size?: number;
+              };
+              return {
+                id: recipeData?.recipe_code || 'Unknown',
+                quoteDetailId: detail.id,
+                recipeCode: recipeData?.recipe_code || 'Unknown',
+                strength: recipeData?.strength_fc || 0,
+                placementType: recipeData?.placement_type || '',
+                maxAggregateSize: recipeData?.max_aggregate_size || 0,
+                volume: detail.volume,
+                unitPrice: detail.final_price,
+                pumpService: detail.pump_service,
+                pumpPrice: detail.pump_price,
+                scheduledVolume: 0, // Initialize scheduled volume
+                pumpVolume: 0      // Initialize pump volume
+              };
+            })
+          };
+          
+          // Calculate total amount
+          formattedQuote.totalAmount = formattedQuote.products.reduce(
             (sum, product) => sum + product.volume * product.unitPrice, 
             0
           );
-        });
-        
-        setAvailableQuotes(quotes);
-        
-        // Si hay un ID de cotización preseleccionada, seleccionar sus productos automáticamente
-        if (preSelectedQuoteId && preSelectedQuoteId !== '') {
-          const selectedQuote = quotes.find(q => q.id === preSelectedQuoteId);
-          if (selectedQuote) {
-            setSelectedProducts(selectedQuote.products.map(p => ({
+          
+          setAvailableQuotes([formattedQuote]);
+          console.log('Set available quote:', [formattedQuote]);
+          
+          // If preSelectedQuoteId matches, auto-select products
+          if (preSelectedQuoteId && preSelectedQuoteId === formattedQuote.id) {
+            setSelectedProducts(formattedQuote.products.map(p => ({
               ...p,
               scheduledVolume: p.volume,
               pumpVolume: p.pumpService ? p.volume : 0
             })));
+            console.log('Auto-selected products for preSelectedQuoteId:', selectedProducts);
+          } else {
+             setSelectedProducts([]); // Clear selection if quote changed
           }
+        } else {
+           // Handle case where quoteData is null after successful query (shouldn't happen with .single() unless error ignored)
+           console.warn('Quote data was unexpectedly null after fetch.');
+           setAvailableQuotes([]);
+           setSelectedProducts([]);
         }
-        // Si no hay cotización preseleccionada pero hay cotizaciones disponibles, no hacer nada especial,
-        // el usuario podrá seleccionar los productos manualmente
+
       } catch (err) {
-        console.error('Error loading quotes:', err);
-        setError('No se pudieron cargar las cotizaciones aprobadas. Por favor, intente nuevamente.');
+        console.error('Error loading active quote:', err);
+        setError('No se pudo cargar la cotización activa. Verifique los precios o intente nuevamente.');
+        setAvailableQuotes([]);
+        setSelectedProducts([]);
       } finally {
         setIsLoading(false);
       }
     };
     
-    loadQuotes();
-  }, [selectedClientId, selectedConstructionSiteId, preSelectedQuoteId]);
+    loadActiveQuote();
+    // Ensure all dependencies are included and the array size is stable
+  }, [selectedClientId, selectedConstructionSiteId, selectedConstructionSite?.name, preSelectedQuoteId]);
   
   // Filter clients based on search query
   const filteredClients = clients.filter(client => 
@@ -665,7 +717,6 @@ export default function ScheduleOrderForm({
                             <input 
                               type="number"
                               min="0.1"
-                              max={product.volume}
                               step="0.1"
                               value={selectedProduct?.scheduledVolume || 0}
                               onChange={(e) => handleVolumeChange(product.quoteDetailId, parseFloat(e.target.value))}

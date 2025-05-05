@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import { Copy } from 'lucide-react';
+import { toast } from 'sonner';
 
 // Define una interfaz para editar la orden
 interface EditableOrderData {
@@ -72,6 +73,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [hasRemisiones, setHasRemisiones] = useState<boolean>(false);
   const [remisionesData, setRemisionesData] = useState<any[]>([]);
   const [copySuccess, setCopySuccess] = useState<boolean>(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   
   // Calculate allowed recipe IDs
   const allowedRecipeIds = useMemo(() => {
@@ -83,13 +86,20 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     return Array.from(new Set(ids)); 
   }, [order]);
   
-  // Check if user has the Dosificador role - moved up before canEditOrder
+  // Check if user has the Dosificador role
   const isDosificador = profile?.role === 'DOSIFICADOR' as UserRole;
   
-  // Determine if the order can be edited
+  // Determine if the order can be edited: Not allowed if completed, cancelled, or by Dosificador
   const canEditOrder = order && 
-    (order.credit_status !== 'approved' && order.order_status !== 'validated') &&
-    !isDosificador; // Dosificador cannot edit orders
+    order.order_status !== 'completed' && 
+    order.order_status !== 'cancelled' &&
+    !isDosificador;
+  
+  // Check if order can be cancelled (any status but must not have remisiones)
+  const canCancelOrder = order && 
+    order.order_status !== 'cancelled' && 
+    !hasRemisiones && 
+    !isDosificador;
   
   // Check if user is a credit validator or manager
   const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
@@ -326,8 +336,9 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       await orderService.updateOrder(orderId, orderUpdate);
       
-      // Actualizar los productos si han cambiado
-      if (editedOrder.products && editedOrder.products.length > 0) {
+      // Actualizar los productos si han cambiado y la orden está en estado 'created'
+      if (editedOrder.products && editedOrder.products.length > 0 && order.order_status === 'created') {
+        console.log('Order status is created, attempting to update items...');
         const updates = editedOrder.products.map(product => {
           const originalProduct = order.products.find(p => p.id === product.id);
           
@@ -335,6 +346,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           if (originalProduct && 
               (originalProduct.volume !== product.volume || 
                originalProduct.pump_volume !== product.pump_volume)) {
+             console.log(`Updating item ${product.id} - Volume: ${product.volume}, Pump Volume: ${product.pump_volume}`);
             return orderService.updateOrderItem(product.id, {
               volume: product.volume,
               pump_volume: product.pump_volume,
@@ -346,11 +358,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         });
         
         await Promise.all(updates);
+      } else {
+          console.log(`Skipping item update. Status: ${order.order_status}`);
       }
       
       // Reload order details after saving
       await loadOrderDetails();
       setIsEditing(false);
+      toast.success('Los cambios se guardaron correctamente');
     } catch (err) {
       console.error('Error saving order changes:', err);
       setError('Error al guardar los cambios. Por favor, intente nuevamente.');
@@ -468,6 +483,24 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       product => product.has_empty_truck_charge === true || product.product_type === 'VACÍO DE OLLA'
     ) || false;
   }, [order?.products]);
+
+  async function handleCancelOrder() {
+    if (!order) return;
+    
+    try {
+      setIsCancelling(true);
+      await orderService.cancelOrder(orderId);
+      // Reload order details after cancelling
+      await loadOrderDetails();
+      setShowConfirmCancel(false);
+      toast.success('Orden cancelada exitosamente');
+    } catch (err) {
+      console.error('Error cancelling order:', err);
+      setError('Error al cancelar la orden. Por favor, intente nuevamente.');
+    } finally {
+      setIsCancelling(false);
+    }
+  }
 
   if (loading) {
     return <div className="flex justify-center p-4">Cargando detalles de la orden...</div>;
@@ -728,16 +761,26 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       </dd>
                     </div>
                   </dl>
-                  {canEditOrder && !isEditing && (
-                    <div className="mt-6">
+                  {/* Order actions buttons */}
+                  <div className="px-4 py-5 sm:px-6 bg-gray-50 border-t flex flex-wrap gap-2">
+                    {canEditOrder && !isEditing && order.order_status !== 'cancelled' && (
                       <button
                         onClick={handleEditClick}
                         className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-xs text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                       >
                         Editar Orden
                       </button>
-                    </div>
-                  )}
+                    )}
+                    
+                    {canCancelOrder && !isEditing && order.order_status !== 'cancelled' && (
+                      <button
+                        onClick={() => setShowConfirmCancel(true)}
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-xs text-white bg-red-600 hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                      >
+                        Cancelar Orden
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <div className="px-4 py-5 sm:px-6 bg-gray-50">
@@ -797,7 +840,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                               <input
                                 type="number"
                                 value={
-                                  editedOrder.products.find(p => p.id === product.id)?.volume || 0
+                                  (editedOrder.products.find(p => p.id === product.id)?.volume || 0)
                                 }
                                 onChange={(e) =>
                                   handleProductVolumeChange(
@@ -805,9 +848,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                     parseFloat(e.target.value) || 0
                                   )
                                 }
-                                className="block w-20 ml-auto text-right shadow-xs focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md"
+                                className="block w-20 ml-auto text-right shadow-xs focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
                                 min="0"
                                 step="0.01"
+                                disabled={!isEditing || order.credit_status === 'approved' || order.order_status !== 'created'}
                               />
                             ) : (
                               product.volume.toFixed(2)
@@ -821,6 +865,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                           </td>
                         </tr>
                       ))}
+                      {/* Pump volume, only shown if any product has pump service */}
                       {order.products?.some(p => p.has_pump_service) && (
                         <tr className="bg-gray-50">
                           <td
@@ -834,7 +879,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                               <input
                                 type="number"
                                 value={
-                                  (editedOrder.products.find(p => p.pump_volume !== undefined)?.pump_volume || 0)
+                                  (editedOrder.products.find(p => p.id === order.products.find(p => p.has_pump_service)?.id)?.pump_volume || 0)
                                 }
                                 onChange={(e) =>
                                   handlePumpVolumeChange(
@@ -842,9 +887,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                     parseFloat(e.target.value) || 0
                                   )
                                 }
-                                className="block w-20 ml-auto text-right shadow-xs focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md"
+                                className="block w-20 ml-auto text-right shadow-xs focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
                                 min="0"
                                 step="0.01"
+                                disabled={!isEditing || order.credit_status === 'approved' || order.order_status !== 'created'}
                               />
                             ) : (
                               (order.products.find(p => p.has_pump_service)?.pump_volume || 0).toFixed(2)
@@ -875,20 +921,101 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 </div>
 
                 {isEditing && (
-                  <div className="px-4 py-3 bg-gray-50 text-right sm:px-6">
-                    <button
-                      onClick={handleCancelEdit}
-                      className="inline-flex justify-center py-2 px-4 border border-gray-300 shadow-xs text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500 mr-3"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      onClick={handleSaveChanges}
-                      disabled={isSaving}
-                      className="inline-flex justify-center py-2 px-4 border border-transparent shadow-xs text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                    >
-                      {isSaving ? 'Guardando...' : 'Guardar Cambios'}
-                    </button>
+                  <div className="mt-6 space-y-5">
+                    {order.order_status !== 'created' && (
+                      <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+                        <div className="flex">
+                          <div className="ml-3">
+                            <p className="text-sm text-yellow-700">
+                              La orden ya ha sido aprobada. Solo puedes cambiar la fecha y hora de entrega, los requisitos especiales 
+                              y si requiere factura. El volumen no se puede modificar.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label htmlFor="delivery_date" className="block text-sm font-medium text-gray-700 mb-1">
+                          Fecha de Entrega
+                        </label>
+                        <input
+                          type="date"
+                          name="delivery_date"
+                          id="delivery_date"
+                          value={editedOrder?.delivery_date || ''}
+                          onChange={handleInputChange}
+                          min={format(new Date(), 'yyyy-MM-dd')}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2"
+                        />
+                      </div>
+                      
+                      <div>
+                        <label htmlFor="delivery_time" className="block text-sm font-medium text-gray-700 mb-1">
+                          Hora de Entrega
+                        </label>
+                        <input
+                          type="time"
+                          name="delivery_time"
+                          id="delivery_time"
+                          value={editedOrder?.delivery_time || ''}
+                          onChange={handleInputChange}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2"
+                        />
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="flex items-center space-x-2">
+                        <input
+                          type="checkbox"
+                          name="requires_invoice"
+                          checked={editedOrder?.requires_invoice || false}
+                          onChange={(e) => {
+                            if (!editedOrder) return;
+                            setEditedOrder({
+                              ...editedOrder,
+                              requires_invoice: e.target.checked
+                            });
+                          }}
+                          className="h-4 w-4 text-green-600 rounded border-gray-300"
+                        />
+                        <span className="text-sm text-gray-700">Requiere factura</span>
+                      </label>
+                    </div>
+                    
+                    <div>
+                      <label htmlFor="special_requirements" className="block text-sm font-medium text-gray-700 mb-1">
+                        Requisitos Especiales
+                      </label>
+                      <textarea
+                        name="special_requirements"
+                        id="special_requirements"
+                        rows={3}
+                        value={editedOrder?.special_requirements || ''}
+                        onChange={handleInputChange}
+                        className="w-full rounded-md border border-gray-300 px-3 py-2"
+                      />
+                    </div>
+                    
+                    <div className="flex justify-end space-x-2">
+                      <button
+                        type="button"
+                        onClick={handleCancelEdit}
+                        className="px-4 py-2 border border-gray-300 rounded-md shadow-xs text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveChanges}
+                        disabled={isSaving}
+                        className="px-4 py-2 border border-transparent rounded-md shadow-xs text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                      >
+                        {isSaving ? 'Guardando...' : 'Guardar Cambios'}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1000,6 +1127,34 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           </div>
         </div>
       )}
+
+      {/* Cancel order confirmation dialog */}
+      <Dialog open={showConfirmCancel} onOpenChange={setShowConfirmCancel}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Cancelación</DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas cancelar esta orden? Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowConfirmCancel(false)}
+              disabled={isCancelling}
+            >
+              No, Mantener
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCancelOrder}
+              disabled={isCancelling}
+            >
+              {isCancelling ? 'Cancelando...' : 'Sí, Cancelar Orden'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

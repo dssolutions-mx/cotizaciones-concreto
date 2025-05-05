@@ -30,7 +30,33 @@ export default function GoogleMapWrapper({ children, className = '' }: GoogleMap
   // Only run on client-side to avoid SSR issues
   useEffect(() => {
     setIsClient(true);
+    console.log('GoogleMapWrapper mounted, API key present:', !!GOOGLE_MAPS_API_KEY);
   }, []);
+
+  // Debug map loading status
+  useEffect(() => {
+    console.log('Google Maps loading status:', { isClient, isLoaded, hasError: !!loadError });
+    
+    // Fix for modal rendering - trigger resize events
+    if (isLoaded && isClient) {
+      const triggerResize = () => {
+        window.dispatchEvent(new Event('resize'));
+      };
+      
+      // Trigger multiple resize events to ensure proper rendering
+      triggerResize();
+      const timeouts = [
+        setTimeout(triggerResize, 100),
+        setTimeout(triggerResize, 300),
+        setTimeout(triggerResize, 500),
+        setTimeout(triggerResize, 1000)
+      ];
+      
+      return () => {
+        timeouts.forEach(clearTimeout);
+      };
+    }
+  }, [isLoaded, isClient, loadError]);
 
   // For debugging
   useEffect(() => {

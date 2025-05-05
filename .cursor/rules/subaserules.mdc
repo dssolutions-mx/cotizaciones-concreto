@@ -1,5 +1,5 @@
 ---
-description: for setting up anything related to supabase
+description: SUPABASE CLIENT
 globs: 
 alwaysApply: false
 ---
