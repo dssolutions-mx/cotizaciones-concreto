@@ -13,6 +13,7 @@ import {
   Bell, 
   ExternalLink 
 } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Componentes
 import { 
@@ -538,9 +539,71 @@ const PendingQuotesList = ({ isLoading }: ChartProps) => {
 
 // Create a DashboardContent component to be wrapped in Suspense
 function DashboardContent() {
-  // Use the main dashboard hook for summary metrics
-  const { dashboardData, isLoading, isError } = useDashboardData();
-  
+  const { profile } = useAuth();
+  const { dashboardData, isLoading: isLoadingDashboard } = useDashboardData();
+  const { quotesData, pendingQuotes, isLoading: isLoadingQuotes } = useQuotesData();
+  const { salesData, isLoading: isLoadingSales } = useSalesData();
+  const { recipeData, isLoading: isLoadingRecipes } = useRecipeData();
+  const { recentActivity, notifications, isLoading: isLoadingActivity } = useActivityData();
+
+  // Add dosificador quick access component
+  const DosificadorQuickAccess = () => {
+    if (profile?.role === 'DOSIFICADOR') {
+      return (
+        <div className="col-span-full mb-6">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+            <h2 className="text-xl font-semibold text-blue-800 mb-4">Acceso Rápido para Dosificadores</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Link 
+                href="/orders" 
+                className="flex items-center gap-2 p-4 bg-white rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors"
+              >
+                <Clock className="h-5 w-5 text-blue-600" />
+                <span className="font-medium">Ver Pedidos del Día</span>
+              </Link>
+              <Link 
+                href="/orders?tab=calendar" 
+                className="flex items-center gap-2 p-4 bg-white rounded-lg border border-blue-200 hover:bg-blue-100 transition-colors"
+              >
+                <Clock className="h-5 w-5 text-blue-600" />
+                <span className="font-medium">Calendario de Pedidos</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  // Main metrics
+  const metrics = [
+    {
+      title: "Cotizaciones del Mes",
+      value: dashboardData?.metrics?.monthlyQuotes || 0,
+      growth: dashboardData?.metrics?.quoteGrowth || 0,
+      icon: <FileText className="h-6 w-6 text-green-500" />
+    },
+    {
+      title: "Venta Mensual (m³)",
+      value: dashboardData?.metrics?.monthlySales || 0,
+      growth: dashboardData?.metrics?.salesGrowth || 0,
+      icon: <TrendingUp className="h-6 w-6 text-green-500" />
+    },
+    {
+      title: "Clientes Activos",
+      value: dashboardData?.metrics?.activeClients || 0,
+      growth: dashboardData?.metrics?.clientGrowth || 0,
+      icon: <Users className="h-6 w-6 text-green-500" />
+    },
+    {
+      title: "Recetas Activas",
+      value: dashboardData?.metrics?.activeRecipes || 0,
+      growth: undefined,
+      icon: <Beaker className="h-6 w-6 text-green-500" />
+    }
+  ];
+
   // Animations for container
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -553,7 +616,7 @@ function DashboardContent() {
   };
 
   // Error handling
-  if (isError) {
+  if (isLoadingDashboard || isLoadingQuotes || isLoadingSales || isLoadingRecipes || isLoadingActivity) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -568,8 +631,6 @@ function DashboardContent() {
       </div>
     );
   }
-
-  // Loading state is handled by each component with skeleton loaders
 
   return (
     <div className="p-6">
@@ -597,37 +658,16 @@ function DashboardContent() {
         initial="hidden"
         animate="visible"
       >
-        <MetricsCard 
-          title="Cotizaciones del Mes"
-          value={dashboardData?.metrics?.monthlyQuotes || 0}
-          growth={dashboardData?.metrics?.quoteGrowth || 0}
-          icon={<FileText className="h-6 w-6 text-green-500" />}
-          isLoading={isLoading}
-        />
-        
-        <MetricsCard 
-          title="Venta Mensual (m³)"
-          value={dashboardData?.metrics?.monthlySales || 0}
-          growth={dashboardData?.metrics?.salesGrowth || 0}
-          icon={<TrendingUp className="h-6 w-6 text-green-500" />}
-          isLoading={isLoading}
-        />
-        
-        <MetricsCard 
-          title="Clientes Activos"
-          value={dashboardData?.metrics?.activeClients || 0}
-          growth={dashboardData?.metrics?.clientGrowth || 0}
-          icon={<Users className="h-6 w-6 text-green-500" />}
-          isLoading={isLoading}
-        />
-        
-        <MetricsCard 
-          title="Recetas Activas"
-          value={dashboardData?.metrics?.activeRecipes || 0}
-          growth={undefined}
-          icon={<Beaker className="h-6 w-6 text-green-500" />}
-          isLoading={isLoading}
-        />
+        {metrics.map((metric, index) => (
+          <MetricsCard 
+            key={index}
+            title={metric.title}
+            value={metric.value}
+            growth={metric.growth}
+            icon={metric.icon}
+            isLoading={isLoadingDashboard}
+          />
+        ))}
       </motion.div>
 
       {/* Charts section with progressive loading */}
@@ -640,7 +680,7 @@ function DashboardContent() {
           transition={{ delay: 0.1 }}
         >
           <h2 className="text-lg font-semibold text-gray-800 mb-4 @lg:text-xl">Ventas Mensuales de Concreto (m³)</h2>
-          <SalesChart isLoading={isLoading} />
+          <SalesChart isLoading={isLoadingSales} />
         </motion.div>
 
         {/* Gráfica de estado de cotizaciones */}
@@ -651,7 +691,7 @@ function DashboardContent() {
           transition={{ delay: 0.15 }}
         >
           <h2 className="text-lg font-semibold text-gray-800 mb-4 @lg:text-xl">Estado de Cotizaciones</h2>
-          <QuotesChart isLoading={isLoading} />
+          <QuotesChart isLoading={isLoadingQuotes} />
         </motion.div>
       </div>
 
@@ -664,7 +704,7 @@ function DashboardContent() {
           transition={{ delay: 0.2 }}
         >
           <h2 className="text-lg font-semibold text-gray-800 mb-4 @lg:text-xl">Distribución por Tipo de Concreto</h2>
-          <RecipeChart isLoading={isLoading} />
+          <RecipeChart isLoading={isLoadingRecipes} />
         </motion.div>
 
         {/* Actividad reciente */}
@@ -680,7 +720,7 @@ function DashboardContent() {
               Ver Todo <ExternalLink className="h-4 w-4 ml-1" />
             </Link>
           </div>
-          <ActivityList isLoading={isLoading} />
+          <ActivityList isLoading={isLoadingActivity} />
         </motion.div>
       </div>
 
@@ -694,13 +734,13 @@ function DashboardContent() {
         >
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-gray-800 @lg:text-xl">Notificaciones</h2>
-            {!isLoading && (
+            {!isLoadingDashboard && (
               <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
                 {dashboardData?.newNotificationsCount || 0} nuevas
               </span>
             )}
           </div>
-          <NotificationList isLoading={isLoading} />
+          <NotificationList isLoading={isLoadingActivity} />
           <button className="mt-4 w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors">
             Ver todas las notificaciones
           </button>
@@ -719,9 +759,11 @@ function DashboardContent() {
               Ver Todas <ExternalLink className="h-4 w-4 ml-1" />
             </Link>
           </div>
-          <PendingQuotesList isLoading={isLoading} />
+          <PendingQuotesList isLoading={isLoadingQuotes} />
         </motion.div>
       </div>
+
+      <DosificadorQuickAccess />
     </div>
   );
 }

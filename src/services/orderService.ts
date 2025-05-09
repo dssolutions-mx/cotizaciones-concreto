@@ -482,6 +482,34 @@ export async function cancelOrder(orderId: string) {
   }
 }
 
+export async function getOrdersForDosificador() {
+  // Fetch orders relevant for DOSIFICADOR role (read-only access)
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select(`
+        id, 
+        order_number, 
+        delivery_date, 
+        delivery_time,
+        construction_site,
+        total_amount,
+        order_status,
+        credit_status,
+        clients:clients(id, business_name, client_code)
+      `)
+      // Use only active status orders
+      .in('order_status', ['CREATED', 'VALIDATED', 'SCHEDULED']) 
+      .order('delivery_date', { ascending: true });
+    
+    if (error) throw error;
+    return data as unknown as OrderWithClient[];
+  } catch (err) {
+    console.error('Error fetching orders for dosificador:', err);
+    return []; // Return empty array instead of throwing to prevent page crash
+  }
+}
+
 const orderService = {
   createOrder,
   getOrders,
@@ -496,7 +524,8 @@ const orderService = {
   getOrdersForManagerValidation,
   getRejectedOrders,
   canUserApproveOrder,
-  cancelOrder
+  cancelOrder,
+  getOrdersForDosificador
 };
 
 export default orderService; 

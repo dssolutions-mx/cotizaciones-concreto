@@ -7,6 +7,7 @@ import orderService from '@/services/orderService';
 import { OrderWithClient, OrderStatus, CreditStatus } from '@/types/orders';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import Link from 'next/link';
 
 interface OrdersListProps {
   filterStatus?: string;
@@ -202,12 +203,21 @@ export default function OrdersList({
         endDate: undefined
       };
       
-      const data = await orderService.getOrders(
-        statusFilter || filterStatus, 
-        undefined,
-        dateRange,
-        creditStatusFilter
-      );
+      let data;
+      
+      // Use special function for DOSIFICADOR role
+      if (isDosificador) {
+        const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
+        data = await getOrdersForDosificador();
+      } else {
+        data = await orderService.getOrders(
+          statusFilter || filterStatus, 
+          undefined,
+          dateRange,
+          creditStatusFilter
+        );
+      }
+      
       setOrders(data);
 
       // Preparar fechas de referencia
@@ -323,7 +333,7 @@ export default function OrdersList({
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, creditStatusFilter, filterStatus]);
+  }, [statusFilter, creditStatusFilter, filterStatus, isDosificador]);
 
   useEffect(() => {
     loadOrders();
@@ -347,6 +357,21 @@ export default function OrdersList({
   if (loading && orders.length === 0) {
     return <div className="flex justify-center p-4">Cargando órdenes...</div>;
   }
+
+  // Special message for DOSIFICADOR role
+  const DosificadorInfo = () => {
+    if (isDosificador) {
+      return (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <h3 className="text-lg font-semibold text-blue-800">Bienvenido, Dosificador</h3>
+          <p className="text-blue-600">
+            Aquí puedes ver los pedidos programados. Utiliza las pestañas para cambiar entre vista de lista y calendario.
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   if (error) {
     return <div className="text-red-500 p-4">{error}</div>;
@@ -373,86 +398,71 @@ export default function OrdersList({
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {!isDosificador && onCreateOrder && (
-        <div className="flex justify-end mb-4">
+  // Empty state handling
+  if (Object.keys(groupedOrders).length === 0 && !loading) {
+    return (
+      <div className="text-center p-12 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="text-gray-400 mb-4">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+        </div>
+        <h3 className="text-lg font-medium text-gray-900">No se encontraron pedidos</h3>
+        <p className="mt-2 text-sm text-gray-500">
+          {filterStatus ? 
+            `No hay pedidos con el estado "${filterStatus}".` :
+            'No hay pedidos disponibles en este momento.'
+          }
+        </p>
+        {onCreateOrder && (
           <button
             onClick={handleCreateOrderClick}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-            </svg>
-            Crear Orden
+            Crear Pedido
           </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Add DOSIFICADOR info message */}
+      <DosificadorInfo />
+      
+      {Object.keys(groupedOrders).map(groupKey => (
+        <div key={groupKey} className="bg-white rounded-lg overflow-hidden shadow-md">
+          <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+            <h3 className="text-lg font-medium text-gray-900">
+              {groupedOrders[groupKey].formattedDate}
+            </h3>
+          </div>
+          <div className="divide-y divide-gray-200">
+            {groupedOrders[groupKey].orders.map(order => (
+              <OrderCard 
+                key={order.id} 
+                order={order} 
+                onClick={() => handleOrderClick(order.id)} 
+                groupKey={groupKey}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      
+      {maxItems && Object.values(groupedOrders).reduce((total, group) => total + group.orders.length, 0) >= maxItems && (
+        <div className="text-center mt-4">
+          <Link href="/orders">
+            <a className="inline-flex items-center text-blue-600 hover:text-blue-800">
+              Ver todos los pedidos
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-1" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+              </svg>
+            </a>
+          </Link>
         </div>
       )}
-      
-      {Object.keys(groupedOrders)
-        // Ordenar los grupos según su prioridad
-        .sort((a, b) => {
-          const order = ['hoy', 'ayer', 'mañana', 'esta-semana', 'proxima-semana', 'otro-mes', 'pasado'];
-          return order.indexOf(a) - order.indexOf(b);
-        })
-        .map(groupKey => {
-          let headerStyle = "bg-gray-50";
-          let headerTextStyle = "text-gray-900";
-          
-          // Asignar estilos según el grupo
-          switch(groupKey) {
-            case 'pasado':
-              headerStyle = "bg-red-50";
-              headerTextStyle = "text-red-900";
-              break;
-            case 'ayer':
-              headerStyle = "bg-amber-50";
-              headerTextStyle = "text-amber-900";
-              break;
-            case 'hoy':
-              headerStyle = "bg-blue-100";
-              headerTextStyle = "text-blue-900";
-              break;
-            case 'mañana':
-              headerStyle = "bg-green-100";
-              headerTextStyle = "text-green-900";
-              break;
-            case 'esta-semana':
-              headerStyle = "bg-purple-50";
-              headerTextStyle = "text-purple-900";
-              break;
-            case 'proxima-semana':
-              headerStyle = "bg-indigo-50";
-              headerTextStyle = "text-indigo-900";
-              break;
-            default:
-              headerStyle = "bg-gray-50";
-              headerTextStyle = "text-gray-900";
-          }
-          
-          return (
-            <div key={groupKey} className="bg-white rounded-lg shadow-sm overflow-hidden mb-4">
-              <div className={`p-4 border-b ${headerStyle}`}>
-                <h3 className={`text-lg font-medium ${headerTextStyle}`}>
-                  {groupedOrders[groupKey].formattedDate}
-                </h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  {groupedOrders[groupKey].orders.length} pedido{groupedOrders[groupKey].orders.length !== 1 ? 's' : ''}
-                </p>
-              </div>
-              <div className="divide-y divide-gray-200">
-                {groupedOrders[groupKey].orders.map(order => (
-                  <OrderCard 
-                    key={order.id} 
-                    order={order}
-                    groupKey={groupKey}
-                    onClick={() => handleOrderClick(order.id)} 
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })}
     </div>
   );
 } 

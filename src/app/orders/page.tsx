@@ -145,8 +145,10 @@ function OrdersContent() {
 
 export default function OrdersPage() {
   return (
-    <Suspense fallback={<div className="p-12 text-center">Cargando pedidos...</div>}>
-      <OrdersContent />
-    </Suspense>
+    <RoleGuard allowedRoles={['DOSIFICADOR', 'SALES_AGENT', 'CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER']}>
+      <Suspense fallback={<div className="p-12 text-center">Cargando pedidos...</div>}>
+        <OrdersContent />
+      </Suspense>
+    </RoleGuard>
   );
 } 

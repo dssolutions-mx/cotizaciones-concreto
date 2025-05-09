@@ -150,6 +150,26 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(dashboardUrl);
   }
 
+  // Debug log for orders page access
+  if (pathname.startsWith('/orders')) {
+    console.log(`Middleware: User accessing orders page. User: ${user?.email}`);
+    
+    // Get user role if available
+    if (user) {
+      try {
+        const { data: profileData } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single();
+        
+        console.log(`Middleware: User role for orders access: ${profileData?.role}`);
+      } catch (err) {
+        console.error('Error fetching user role in middleware:', err);
+      }
+    }
+  }
+
   // Return the original response (with updated cookies/headers from Supabase client)
   return response;
 }

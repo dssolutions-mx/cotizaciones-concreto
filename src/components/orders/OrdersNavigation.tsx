@@ -17,9 +17,18 @@ import {
   MixerHorizontalIcon,
 } from '@radix-ui/react-icons';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Define Tab types for better management
 type OrderTab = 'list' | 'calendar' | 'credit' | 'rejected';
+
+// Define the tab item type
+interface TabItem {
+  id: OrderTab;
+  label: string;
+  icon: React.ElementType;
+  badge?: number;
+}
 
 /**
  * Fetches the count of orders pending validation from the API
@@ -45,6 +54,8 @@ export default function OrdersNavigation() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { profile } = useAuth();
+  
   // Default to 'list' if no tab param or invalid value
   const currentTab = (searchParams.get('tab') as OrderTab) || 'list';
   const estadoFilter = searchParams.get('estado') || 'todos';
@@ -97,17 +108,38 @@ export default function OrdersNavigation() {
   const statuses = ['todos', 'creada', 'aprobada', 'en_validacion', 'rechazada'];
   const creditStatuses = ['todos', 'aprobado', 'pendiente', 'rechazado'];
 
-  const tabs: { id: OrderTab; label: string; icon: React.ElementType; badge?: number }[] = [
+  // Define base tabs that everyone should see
+  const baseTabs: TabItem[] = [
     { id: 'list', label: 'Listado', icon: ListBulletIcon },
     { id: 'calendar', label: 'Calendario', icon: CalendarIcon },
-    { 
-      id: 'credit', 
-      label: 'Validación', 
-      icon: CheckCircledIcon, 
-      badge: isLoading ? undefined : pendingValidationCount 
-    },
-    { id: 'rejected', label: 'Rechazadas', icon: CrossCircledIcon },
   ];
+  
+  // Define additional tabs based on role
+  const creditTab: TabItem = { 
+    id: 'credit', 
+    label: 'Validación', 
+    icon: CheckCircledIcon, 
+    badge: isLoading ? undefined : pendingValidationCount 
+  };
+  
+  const rejectedTab: TabItem = { 
+    id: 'rejected', 
+    label: 'Rechazadas', 
+    icon: CrossCircledIcon 
+  };
+  
+  // Determine which tabs to show based on user role
+  let tabs: TabItem[] = [...baseTabs];
+  
+  if (profile) {
+    if (['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER'].includes(profile.role)) {
+      tabs.push(creditTab);
+    }
+    
+    if (['EXECUTIVE', 'PLANT_MANAGER'].includes(profile.role)) {
+      tabs.push(rejectedTab);
+    }
+  }
 
   // Helper to format display values for filters
   const formatDisplayValue = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
