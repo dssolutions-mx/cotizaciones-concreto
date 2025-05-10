@@ -9,11 +9,13 @@ import RoleIndicator from '@/components/ui/RoleIndicator';
 import * as XLSX from 'xlsx-js-style';
 import { recipeService } from '@/lib/supabase/recipes';
 import { calculateBasePrice } from '@/lib/utils/priceCalculator';
-import { FileDown } from 'lucide-react';
+import { FileDown, Plus, Upload } from 'lucide-react';
+import { AddRecipeModal } from '@/components/recipes/AddRecipeModal';
 
 export default function RecipesPage() {
   const { hasRole } = useAuth();
   const [isExporting, setIsExporting] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const exportRecipeBasePrices = async () => {
     try {
@@ -97,6 +99,11 @@ export default function RecipesPage() {
     }
   };
 
+  const handleRecipeAdded = () => {
+    // This will trigger a refetch in the RecipeList component
+    window.location.reload();
+  };
+
   return (
     <div className="container mx-auto p-4 bg-white rounded-lg">
       <div className="flex justify-between items-center mb-6">
@@ -115,16 +122,29 @@ export default function RecipesPage() {
             {isExporting ? 'Exportando...' : 'Exportar Precios Base'}
           </RoleProtectedButton>
           
-          {/* Show upload button only to QUALITY_TEAM and EXECUTIVE */}
+          {/* Add Individual Recipe Button */}
+          <RoleProtectedButton
+            allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
+            onClick={() => setIsModalOpen(true)}
+            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 inline-flex items-center gap-2"
+            showDisabled={true}
+            disabledMessage="Solo el equipo de calidad y ejecutivos pueden agregar recetas"
+          >
+            <Plus size={18} />
+            Agregar Receta
+          </RoleProtectedButton>
+          
+          {/* Upload Excel Button */}
           <RoleProtectedButton
             allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
             onClick={() => {}} // Link handles the navigation
-            className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 inline-flex items-center"
+            className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600 inline-flex items-center gap-2"
             showDisabled={true}
-            disabledMessage="Solo el equipo de calidad y ejecutivos pueden cargar nuevas recetas"
+            disabledMessage="Solo el equipo de calidad y ejecutivos pueden cargar recetas por Excel"
           >
-            <Link href="/recipes/upload">
-              Cargar Nueva Receta
+            <Link href="/recipes/upload" className="inline-flex items-center gap-2">
+              <Upload size={18} />
+              Cargar Excel
             </Link>
           </RoleProtectedButton>
           
@@ -137,6 +157,13 @@ export default function RecipesPage() {
           )}
         </div>
       </div>
+      
+      {/* Add Recipe Modal */}
+      <AddRecipeModal 
+        isOpen={isModalOpen} 
+        onClose={() => setIsModalOpen(false)} 
+        onSuccess={handleRecipeAdded}
+      />
       
       {/* Pass hasEditPermission prop to RecipeList */}
       <RecipeList hasEditPermission={hasRole(['QUALITY_TEAM', 'EXECUTIVE'])} />
