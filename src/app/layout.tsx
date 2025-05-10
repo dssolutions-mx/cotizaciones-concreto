@@ -104,7 +104,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
   }
 
   // Determinar los elementos de navegación basados en el rol
-  const navItems = [];
+  const navItems: Array<{ href: string; label: string; IconComponent: React.ElementType; }> = [];
 
   // Añadir elementos de menú basados en el rol
   if (profile) {
@@ -175,6 +175,12 @@ function Navigation({ children }: { children: React.ReactNode }) {
       navItems.push({ href: '/admin/users', label: 'Usuarios', IconComponent: UserCog });
     }
   }
+
+  // Define preferred items for mobile bottom navigation
+  const preferredBottomNavOrder = ['/orders', '/clients', '/quotes', '/finanzas'];
+  const mobileBottomNavItems = preferredBottomNavOrder
+    .map(href => navItems.find(item => item.href === href))
+    .filter(item => item !== undefined) as typeof navItems;
 
   return (
     <div className="flex min-h-screen">
@@ -275,7 +281,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Contenido principal */}
-      <main className="flex-1 bg-gray-100 p-4 md:p-6 overflow-y-auto pb-16 md:pb-6">
+      <main className="flex-1 bg-gray-100 p-4 md:p-6 overflow-y-auto pb-24 md:pb-6">
         {/* Header móvil */}
         <div className="md:hidden flex items-center justify-between mb-4">
           <Link href="/dashboard">
@@ -320,7 +326,9 @@ function Navigation({ children }: { children: React.ReactNode }) {
         </div>
         
         {/* Añadir el indicador de estado de autenticación */}
-        <AuthStatusIndicator />
+        <div className="hidden md:block">
+          <AuthStatusIndicator />
+        </div>
         
         {/* Menú móvil desplegable */}
         {mobileMenuOpen && (
@@ -346,22 +354,83 @@ function Navigation({ children }: { children: React.ReactNode }) {
               <div className="mt-6">
                 {navItems.map((item, index) => {
                   const Icon = item.IconComponent;
+                  const isCurrentItemActive = item.href === '/finanzas' 
+                    ? isFinanzasRoute 
+                    : item.href === '/quality'
+                    ? isQualityRoute
+                    : pathname === item.href;
+
                   return (
-                    <Link 
-                      key={`mobile-full-${index}`}
-                      href={item.href}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={`flex items-center py-3 px-4 rounded-lg mb-2 ${
-                        pathname === item.href 
-                          ? "bg-green-500 text-white" 
-                          : "bg-gray-100 text-gray-700 active:bg-gray-200"
-                      }`}
-                    >
-                      <span className="text-xl mr-3">
-                        {Icon && <Icon size={20} />}
-                      </span>
-                      <span className="text-lg">{item.label}</span>
-                    </Link>
+                    <React.Fragment key={`mobile-full-${index}`}>
+                      <Link 
+                        href={item.href}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={`flex items-center py-3 px-4 rounded-lg mb-1 ${
+                          isCurrentItemActive 
+                            ? "bg-green-500 text-white" 
+                            : "bg-gray-100 text-gray-700 active:bg-gray-200"
+                        }`}
+                      >
+                        <span className="text-xl mr-3">
+                          {Icon && <Icon size={20} />}
+                        </span>
+                        <span className="text-lg">{item.label}</span>
+                      </Link>
+                      
+                      {/* Render Finanzas submenu in mobile if active */}
+                      {item.href === '/finanzas' && isFinanzasRoute && (
+                        <div className="pl-8 mb-2 space-y-1">
+                          {finanzasSubMenuItems.map((subItem, subIndex) => {
+                            const SubIcon = subItem.IconComponent;
+                            const isSubItemActive = pathname === subItem.href;
+                            return (
+                              <Link
+                                key={`mobile-finanzas-sub-${subIndex}`}
+                                href={subItem.href}
+                                onClick={() => setMobileMenuOpen(false)}
+                                className={`flex items-center py-2 px-3 rounded-md text-sm ${
+                                  isSubItemActive
+                                    ? "bg-green-400 text-white"
+                                    : "bg-gray-50 text-gray-600 active:bg-gray-100"
+                                }`}
+                              >
+                                <span className="mr-2.5">
+                                  {SubIcon && <SubIcon size={16} />}
+                                </span>
+                                {subItem.title}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                      
+                      {/* Render Quality submenu in mobile if active */}
+                      {item.href === '/quality' && isQualityRoute && (
+                        <div className="pl-8 mb-2 space-y-1">
+                          {qualitySubMenuItems.map((subItem, subIndex) => {
+                            const SubIcon = subItem.IconComponent;
+                            const isSubItemActive = pathname === subItem.href;
+                            return (
+                              <Link
+                                key={`mobile-quality-sub-${subIndex}`}
+                                href={subItem.href}
+                                onClick={() => setMobileMenuOpen(false)}
+                                className={`flex items-center py-2 px-3 rounded-md text-sm ${
+                                  isSubItemActive
+                                    ? "bg-green-400 text-white"
+                                    : "bg-gray-50 text-gray-600 active:bg-gray-100"
+                                }`}
+                              >
+                                <span className="mr-2.5">
+                                  {SubIcon && <SubIcon size={16} />}
+                                </span>
+                                {subItem.title}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </div>
@@ -379,30 +448,34 @@ function Navigation({ children }: { children: React.ReactNode }) {
       {/* Menú móvil mejorado (barra inferior) */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white shadow-lg z-10 border-t">
         <div className="flex justify-around items-center">
-          {navItems.slice(0, 5).map((item, index) => {
-            const isActive = pathname === item.href;
+          {mobileBottomNavItems.map((item, index) => {
             const Icon = item.IconComponent;
+            // Adjusted active state logic for bottom navigation
+            const currentItemIsActive = item.href === '/finanzas' 
+              ? isFinanzasRoute 
+              : (pathname === item.href || pathname?.startsWith(item.href + '/'));
+
             return (
               <Link 
                 key={`mobile-nav-${index}`}
                 href={item.href}
                 className={`flex flex-col items-center py-2 px-1 relative mobile-nav-item ${
-                  isActive 
+                  currentItemIsActive 
                     ? "text-green-500 active" 
                     : "text-gray-600 hover:text-gray-800 active:text-green-400"
                 }`}
                 aria-label={item.label}
               >
-                {isActive && (
+                {currentItemIsActive && (
                   <span className="absolute top-0 left-0 right-0 h-0.5 bg-green-500 mobile-nav-indicator" />
                 )}
                 <span className="text-xl mb-0.5 transform transition-transform active:scale-90">
                   {Icon && <Icon size={22} />}
                 </span>
-                <span className={`text-xs ${isActive ? "font-medium" : ""}`}>
+                <span className={`text-xs ${currentItemIsActive ? "font-medium" : ""}`}>
                   {item.label}
                 </span>
-                {isActive && (
+                {currentItemIsActive && (
                   <span className="absolute -bottom-0.5 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 bg-green-500 rounded-full mobile-nav-indicator" />
                 )}
               </Link>
@@ -411,7 +484,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         </div>
         {/* Botón de acción flotante - Crear nueva cotización */}
         <div className="fixed right-4 bottom-16 md:hidden">
-          <Link href="/quotes/new">
+          <Link href="/quotes?tab=create">
             <button 
               className="bg-green-500 hover:bg-green-600 active:bg-green-700 
                         text-white rounded-full p-3 shadow-lg transform 

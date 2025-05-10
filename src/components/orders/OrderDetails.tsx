@@ -51,6 +51,13 @@ interface OrderDetailsProps {
   orderId: string;
 }
 
+const formatCurrency = (amount: number) => {
+  return new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN'
+  }).format(amount);
+};
+
 export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -502,6 +509,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     }
   }
 
+  // Add this function to check if financial info should be shown
+  const shouldShowFinancialInfo = () => {
+    return !isDosificador;
+  };
+
   if (loading) {
     return <div className="flex justify-center p-4">Cargando detalles de la orden...</div>;
   }
@@ -528,69 +540,37 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           {/* ... existing buttons ... */}
           
           {/* Payment Button with Dialog */}
-          {order?.client_id && (
-            <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-              <DialogTrigger asChild>
-                <RoleProtectedSection
-                  allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
-                >
+          {shouldShowFinancialInfo() && (
+            <RoleProtectedSection allowedRoles={['SALES_AGENT', 'EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}>
+              <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+                <DialogTrigger asChild>
                   <Button 
-                    variant="success"
-                    className="font-medium"
+                    variant="outline" 
+                    className="ml-2"
                     onClick={() => setIsPaymentDialogOpen(true)}
                   >
-                    <svg 
-                      xmlns="http://www.w3.org/2000/svg" 
-                      className="h-4 w-4 mr-2" 
-                      viewBox="0 0 24 24" 
-                      fill="none" 
-                      stroke="currentColor" 
-                      strokeWidth="2" 
-                      strokeLinecap="round" 
-                      strokeLinejoin="round"
-                    >
-                      <rect x="2" y="5" width="20" height="14" rx="2" />
-                      <line x1="2" y1="10" x2="22" y2="10" />
-                    </svg>
                     Registrar Pago
                   </Button>
-                </RoleProtectedSection>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-[650px]">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2 text-xl">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-600" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                    </svg>
-                    Registrar Pago
-                  </DialogTitle>
-                  <DialogDescription className="text-base mt-2">
-                    Registre un pago para la orden #{order.order_number} del cliente <span className="font-medium">{order.client?.business_name}</span>
-                    {order.construction_site && (
-                      <span> - Obra: <span className="font-medium">{order.construction_site}</span></span>
-                    )}
-                  </DialogDescription>
-                </DialogHeader>
-                
-                <div className="border-t border-gray-100 my-4"></div>
-                
-                {loadingSites ? (
-                  <div className="py-8 text-center flex flex-col items-center justify-center">
-                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500 mb-3"></div>
-                    <p>Cargando información de obras...</p>
-                  </div>
-                ) : (
-                  <PaymentForm
-                    clientId={order.client_id}
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Registrar Pago para Cliente</DialogTitle>
+                    <DialogDescription>
+                      Ingrese los detalles del pago para {order.client.business_name}
+                    </DialogDescription>
+                  </DialogHeader>
+                  
+                  <PaymentForm 
+                    clientId={order.client_id} 
                     sites={clientSites}
                     onSuccess={handlePaymentSuccess}
                     onCancel={() => setIsPaymentDialogOpen(false)}
-                    defaultConstructionSite={order.construction_site}
+                    defaultConstructionSite={order.construction_site || ''}
                     currentBalance={currentClientBalance}
                   />
-                )}
-              </DialogContent>
-            </Dialog>
+                </DialogContent>
+              </Dialog>
+            </RoleProtectedSection>
           )}
         </div>
       </div>
@@ -681,10 +661,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               <div className="mt-6 bg-white shadow-sm overflow-hidden sm:rounded-lg">
                 <div className="px-4 py-5 sm:px-6 bg-gray-50">
                   <h3 className="text-lg leading-6 font-medium text-gray-900">Estado de la Orden</h3>
-                  {order.credit_status === 'pending' && (
+                  {shouldShowFinancialInfo() && (
                     <div className="mt-4 border-t pt-4">
                       <h4 className="text-sm font-medium text-gray-700 mb-2">Balance Actual del Cliente</h4>
-                      <ClientBalanceSummary clientId={order.client_id} />
+                      <ClientBalanceSummary 
+                        clientId={order.client_id}
+                      />
                     </div>
                   )}
                   <div className="mt-4 flex flex-col sm:flex-row sm:justify-between">
@@ -787,138 +769,50 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   <h3 className="text-lg leading-6 font-medium text-gray-900">Productos</h3>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          Producto
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          Tipo
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          Volumen (m³)
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          Precio Unitario
-                        </th>
-                        <th
-                          scope="col"
-                          className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-                        >
-                          Total
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {order.products?.map((product) => (
-                        <tr key={product.id}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {product.description}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {product.product_type === 'VACÍO DE OLLA' 
-                              ? 'Vacío de Olla' 
-                              : product.has_pump_service 
-                                ? 'Concreto + Bombeo' 
-                                : 'Concreto'}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                            {isEditing && editedOrder?.products ? (
-                              <input
-                                type="number"
-                                value={
-                                  (editedOrder.products.find(p => p.id === product.id)?.volume || 0)
-                                }
-                                onChange={(e) =>
-                                  handleProductVolumeChange(
-                                    product.id,
-                                    parseFloat(e.target.value) || 0
-                                  )
-                                }
-                                className="block w-20 ml-auto text-right shadow-xs focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                min="0"
-                                step="0.01"
-                                disabled={!isEditing || order.credit_status === 'approved' || order.order_status !== 'created'}
-                              />
-                            ) : (
-                              product.volume.toFixed(2)
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                            ${product.unit_price.toFixed(2)}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                            ${product.total_price.toFixed(2)}
-                          </td>
-                        </tr>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[200px]">Producto</TableHead>
+                        <TableHead>Volumen</TableHead>
+                        <TableHead>Servicio de Bomba</TableHead>
+                        {shouldShowFinancialInfo() && (
+                          <>
+                            <TableHead className="text-right">Precio Unitario</TableHead>
+                            <TableHead className="text-right">Precio Total</TableHead>
+                          </>
+                        )}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {order.products.map((product) => (
+                        <TableRow key={product.id}>
+                          <TableCell className="font-medium">{product.product_type}</TableCell>
+                          <TableCell>{product.volume} m³</TableCell>
+                          <TableCell>
+                            {product.has_pump_service ? 
+                              `Sí - ${product.pump_volume} m³` : 
+                              'No'}
+                          </TableCell>
+                          {shouldShowFinancialInfo() && (
+                            <>
+                              <TableCell className="text-right">{formatCurrency(product.unit_price)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(product.total_price)}</TableCell>
+                            </>
+                          )}
+                        </TableRow>
                       ))}
-                      {/* Pump volume, only shown if any product has pump service */}
-                      {order.products?.some(p => p.has_pump_service) && (
-                        <tr className="bg-gray-50">
-                          <td
-                            colSpan={2}
-                            className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900"
-                          >
-                            Bombeo
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                            {isEditing && editedOrder?.products ? (
-                              <input
-                                type="number"
-                                value={
-                                  (editedOrder.products.find(p => p.id === order.products.find(p => p.has_pump_service)?.id)?.pump_volume || 0)
-                                }
-                                onChange={(e) =>
-                                  handlePumpVolumeChange(
-                                    order.products.find(p => p.has_pump_service)?.id || '',
-                                    parseFloat(e.target.value) || 0
-                                  )
-                                }
-                                className="block w-20 ml-auto text-right shadow-xs focus:ring-green-500 focus:border-green-500 sm:text-sm border-gray-300 rounded-md disabled:bg-gray-100 disabled:cursor-not-allowed"
-                                min="0"
-                                step="0.01"
-                                disabled={!isEditing || order.credit_status === 'approved' || order.order_status !== 'created'}
-                              />
-                            ) : (
-                              (order.products.find(p => p.has_pump_service)?.pump_volume || 0).toFixed(2)
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">
-                            ${order.products.find(p => p.has_pump_service)?.pump_price?.toFixed(2) || '0.00'}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                            ${((order.products.find(p => p.has_pump_service)?.pump_price || 0) * 
-                                (order.products.find(p => p.has_pump_service)?.pump_volume || 0)).toFixed(2)}
-                          </td>
-                        </tr>
-                      )}
-                      <tr className="bg-gray-100">
-                        <td
-                          colSpan={4}
-                          className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 text-right"
-                        >
-                          Total de la Orden:
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 text-right">
-                          ${order.total_amount?.toFixed(2)}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
+
+                {shouldShowFinancialInfo() && (
+                  <div className="flex justify-end mt-4">
+                    <div className="text-right">
+                      <p className="text-sm text-gray-500">Total:</p>
+                      <p className="text-xl font-bold">{formatCurrency(order.total_amount)}</p>
+                    </div>
+                  </div>
+                )}
 
                 {isEditing && (
                   <div className="mt-6 space-y-5">

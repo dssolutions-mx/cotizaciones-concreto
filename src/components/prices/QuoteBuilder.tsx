@@ -594,7 +594,7 @@ export default function QuoteBuilder() {
           </div>
         </div>
         <div className="flex-1 overflow-hidden p-6 @container">
-          <div className="h-full overflow-y-auto pr-2 pb-2" style={{ maxHeight: 'calc(70vh - 110px)' }}>
+          <div className="h-full overflow-y-auto pr-2 pb-2 max-h-[50vh] md:max-h-[calc(70vh-110px)]">
             {Object.keys(groupedRecipes).length === 0 ? (
               <div className="p-8 text-center text-gray-500">
                 {recipeSearch ? (
