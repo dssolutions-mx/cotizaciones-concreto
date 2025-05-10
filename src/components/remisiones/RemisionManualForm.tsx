@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Define Recipe type inline if import is problematic
 interface Recipe {
@@ -49,6 +50,7 @@ const MATERIAL_NAMES: Record<string, string> = {
 };
 
 export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeIds }: RemisionManualFormProps) {
+  const { profile } = useAuth();
   const [tipoRemision, setTipoRemision] = useState<'CONCRETO' | 'BOMBEO'>('BOMBEO');
   const [formData, setFormData] = useState({
     remisionNumber: '',
@@ -68,10 +70,33 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
     const fetchRecipes = async () => {
       if (!allowedRecipeIds || allowedRecipeIds.length === 0) {
         setRecipes([]); // No allowed recipes for this order
+        setLoadingRecipes(false); // Ensure loading is stopped
         return;
       }
+
       setLoadingRecipes(true);
+
+      // --- Caching Logic Start ---
+      const sortedAllowedRecipeIds = [...allowedRecipeIds].sort().join(',');
+      const cacheKey = `recipes_cache_${sortedAllowedRecipeIds}`;
+
       try {
+        const cachedDataString = sessionStorage.getItem(cacheKey);
+        if (cachedDataString) {
+          const cachedRecipes = JSON.parse(cachedDataString);
+          setRecipes(cachedRecipes);
+          setLoadingRecipes(false);
+          console.log('Loaded recipes from session cache.');
+          return; // Loaded from cache, no need to fetch
+        }
+      } catch (cacheError) {
+        console.warn('Error reading recipes from session cache:', cacheError);
+        // Proceed to fetch if cache read fails
+      }
+      // --- Caching Logic End ---
+
+      try {
+        console.log('Fetching recipes from Supabase...');
         const { data, error } = await supabase
           .from('recipes')
           .select('id, recipe_code')
@@ -79,7 +104,19 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
           .order('recipe_code');
 
         if (error) throw error;
-        setRecipes(data || []);
+        
+        const fetchedRecipes = data || [];
+        setRecipes(fetchedRecipes);
+
+        // --- Caching Logic Start (Write to cache) ---
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(fetchedRecipes));
+          console.log('Stored recipes to session cache.');
+        } catch (cacheWriteError) {
+          console.warn('Error writing recipes to session cache:', cacheWriteError);
+        }
+        // --- Caching Logic End (Write to cache) ---
+
       } catch (error: any) {
         showError('Error al cargar las recetas permitidas: ' + error.message);
         setRecipes([]); // Set to empty on error
@@ -179,21 +216,29 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       
       const volumen = parseFloat(formData.volumen) || 0;
       
+      // Prepare the base payload for the remision
+      const remisionPayload: any = {
+        order_id: orderId,
+        remision_number: formData.remisionNumber,
+        fecha: formData.fecha,
+        hora_carga: new Date().toISOString().split('T')[1].split('.')[0],
+        volumen_fabricado: volumen,
+        conductor: formData.conductor || null,
+        unidad: formData.unidad || null,
+        recipe_id: tipoRemision === 'CONCRETO' ? formData.recipeId : null,
+        tipo_remision: tipoRemision,
+        designacion_ehe: tipoRemision === 'CONCRETO' ? await getRecipeCode(formData.recipeId) : null,
+      };
+
+      // Add created_by if user is available
+      if (profile?.id) {
+        remisionPayload.created_by = profile.id;
+      }
+      
       // 1. Insert the main remision record
       const { data: remisionData, error: remisionError } = await supabase
         .from('remisiones')
-        .insert({
-          order_id: orderId,
-          remision_number: formData.remisionNumber,
-          fecha: formData.fecha,
-          hora_carga: new Date().toISOString().split('T')[1].split('.')[0],
-          volumen_fabricado: volumen,
-          conductor: formData.conductor || null,
-          unidad: formData.unidad || null, // Updated from matricula to unidad
-          recipe_id: tipoRemision === 'CONCRETO' ? formData.recipeId : null,
-          tipo_remision: tipoRemision,
-          designacion_ehe: tipoRemision === 'CONCRETO' ? await getRecipeCode(formData.recipeId) : null
-        })
+        .insert(remisionPayload) // Use the constructed payload
         .select('id')
         .single();
 

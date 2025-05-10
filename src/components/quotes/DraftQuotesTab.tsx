@@ -200,7 +200,7 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
             business_name: clientData.business_name,
             client_code: clientData.client_code
           } : null,
-          quote_details: quote.quote_details.map(detail => {
+          quote_details: quote.quote_details.map((detail: SupabaseQuoteDetail) => {
             // Handle recipe data properly like in ApprovedQuotesTab
             const recipeData = Array.isArray(detail.recipes) 
               ? detail.recipes[0] 
@@ -221,7 +221,7 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
                 max_aggregate_size: recipeData.max_aggregate_size,
                 slump: recipeData.slump,
                 age_days: recipeData.age_days,
-                notes: recipeData.recipe_versions?.find(version => version.is_current)?.notes
+                notes: recipeData.recipe_versions?.find((version: {is_current: boolean, notes: string}) => version.is_current)?.notes
               } : null
             };
           })
@@ -479,6 +479,45 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
     setEditingQuoteDetails(updatedDetails);
   };
 
+  // Add deleteQuote function
+  const deleteQuote = async (quoteId: string) => {
+    try {
+      // Confirm deletion with the user
+      if (!confirm("¿Estás seguro de que deseas eliminar esta cotización? Esta acción no se puede deshacer.")) {
+        return;
+      }
+
+      // Delete all related quote_details first
+      const { error: detailsError } = await supabase
+        .from('quote_details')
+        .delete()
+        .eq('quote_id', quoteId);
+
+      if (detailsError) {
+        throw new Error(`Error al eliminar detalles de la cotización: ${detailsError.message}`);
+      }
+
+      // Then delete the quote itself
+      const { error } = await supabase
+        .from('quotes')
+        .delete()
+        .eq('id', quoteId);
+
+      if (error) {
+        throw new Error(`Error al eliminar cotización: ${error.message}`);
+      }
+
+      // Refresh the list
+      fetchDraftQuotes();
+      onDataSaved?.();
+      alert('Cotización eliminada correctamente');
+    } catch (error: unknown) {
+      console.error('Error deleting quote:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      alert(`Error al eliminar cotización: ${errorMessage}`);
+    }
+  };
+
   return (
     <div className="p-6">
       {/* Search and Filter Controls */}
@@ -665,7 +704,16 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
                               <svg className="h-4 w-4 mr-1.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                               </svg>
-                              Aprobar
+                              Enviar a aprobación
+                            </button>
+                            <button
+                              onClick={() => deleteQuote(quote.id)}
+                              className="inline-flex items-center justify-center px-3 py-1.5 border border-transparent bg-red-600 rounded-md text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            >
+                              <svg className="h-4 w-4 mr-1.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                              Eliminar
                             </button>
                           </div>
                         </div>
@@ -755,7 +803,7 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
             <Dialog.Content className="fixed inset-0 flex justify-center items-center z-50 p-4">
               <div className="bg-white rounded-xl shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in duration-200">
                 <Dialog.Title className="p-6 border-b border-gray-200 flex justify-between items-center">
-                  <h2 className="text-xl font-bold text-gray-800">Detalles de Cotización</h2>
+                  <div className="text-xl font-bold text-gray-800">Detalles de Cotización</div>
                   <Dialog.Close className="text-gray-500 hover:text-gray-700 focus:outline-none" aria-label="Cerrar">
                     <Cross2Icon className="h-5 w-5" />
                   </Dialog.Close>
@@ -845,7 +893,7 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
                             <td className="px-4 py-3">
                               <input 
                                 type="number" 
-                                value={detail.margin * 100 || ''}
+                                value={Math.round(detail.margin * 10000) / 100}
                                 onChange={(e) => {
                                   if (e.target.value === '') {
                                     updateQuoteDetailMargin(index, 0);
@@ -863,7 +911,7 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
                                   updateQuoteDetailMargin(index, Math.max(4, value));
                                 }}
                                 placeholder="4%"
-                                step="0.1"
+                                step="0.01"
                                 className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                               />
                             </td>
@@ -904,6 +952,20 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
                       <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
                     </svg>
                     Enviar a Aprobación
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (confirm("¿Estás seguro de que deseas eliminar esta cotización? Esta acción no se puede deshacer.")) {
+                        deleteQuote(selectedQuote.id);
+                        closeQuoteDetails();
+                      }
+                    }}
+                    className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                  >
+                    <svg className="h-4 w-4 me-1.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Eliminar
                   </button>
                 </div>
               </div>

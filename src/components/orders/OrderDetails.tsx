@@ -950,17 +950,19 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             )}
           </div>
 
-          <div className="mt-6 border-t pt-6">
-            <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
-            
-            <OrderDetailsBalance
-              orderId={orderId}
-              clientId={order.client_id}
-              constructionSite={order.construction_site}
-            />
-            
-            {renderOrderActions()}
-          </div>
+          {shouldShowFinancialInfo() && (
+            <div className="mt-6 border-t pt-6">
+              <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
+              
+              <OrderDetailsBalance
+                orderId={orderId}
+                clientId={order.client_id}
+                constructionSite={order.construction_site}
+              />
+              
+              {renderOrderActions()}
+            </div>
+          )}
         </>
       ) : (
         <div className="text-center py-12">

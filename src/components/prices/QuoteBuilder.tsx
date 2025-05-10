@@ -474,7 +474,9 @@ export default function QuoteBuilder() {
   // Update validityDate when date is selected
   useEffect(() => {
     if (selectedDate) {
-      setValidityDate(format(selectedDate, 'yyyy-MM-dd'));
+      // Create a new date in local timezone at midnight to avoid timezone shifts
+      const localDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+      setValidityDate(format(localDate, 'yyyy-MM-dd'));
     }
   }, [selectedDate]);
 
@@ -1016,7 +1018,7 @@ export default function QuoteBuilder() {
                   disabled={isLoading}
                 >
                   <span className={validityDate ? 'text-gray-900' : 'text-gray-500'}>
-                    {validityDate ? format(new Date(validityDate), 'dd/MM/yyyy') : 'Seleccionar fecha'}
+                    {validityDate ? format(new Date(validityDate + 'T00:00:00'), 'dd/MM/yyyy') : 'Seleccionar fecha'}
                   </span>
                   <CalendarIcon className="h-4 w-4 text-gray-500" />
                 </button>
@@ -1168,14 +1170,10 @@ export default function QuoteBuilder() {
                     <input 
                       type="number" 
                       value={product.basePrice} 
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        updateProductDetails(index, { 
-                          basePrice: isNaN(value) ? 0 : value 
-                        });
-                      }}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-                      disabled={isLoading}
+                      readOnly
+                      className="w-full p-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-600"
+                      title="El precio base se calcula automáticamente según la receta"
+                      disabled={true}
                     />
                   </div>
                   <div>
