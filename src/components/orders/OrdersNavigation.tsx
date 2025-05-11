@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, memo } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,12 +15,13 @@ import {
   CrossCircledIcon,
   ListBulletIcon,
   MixerHorizontalIcon,
+  PlusIcon,
 } from '@radix-ui/react-icons';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 
 // Define Tab types for better management
-type OrderTab = 'list' | 'calendar' | 'credit' | 'rejected';
+type OrderTab = 'list' | 'calendar' | 'credit' | 'rejected' | 'create';
 
 // Define the tab item type
 interface TabItem {
@@ -28,6 +29,15 @@ interface TabItem {
   label: string;
   icon: React.ElementType;
   badge?: number;
+}
+
+// Define props for better type safety
+interface OrdersNavigationProps {
+  currentTab?: OrderTab;
+  estadoFilter?: string;
+  creditoFilter?: string;
+  onTabChange?: (tab: OrderTab) => void;
+  onFilterChange?: (type: 'estado' | 'credito', value: string) => void;
 }
 
 /**
@@ -50,104 +60,239 @@ async function fetchPendingValidationCount(): Promise<number> {
   }
 }
 
-export default function OrdersNavigation() {
+// Use memo to prevent unnecessary re-renders
+const OrdersNavigation = memo(function OrdersNavigation({
+  currentTab: externalCurrentTab,
+  estadoFilter: externalEstadoFilter,
+  creditoFilter: externalCreditoFilter,
+  onTabChange,
+  onFilterChange
+}: OrdersNavigationProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { profile } = useAuth();
   
-  // Default to 'list' if no tab param or invalid value
-  const currentTab = (searchParams.get('tab') as OrderTab) || 'list';
-  const estadoFilter = searchParams.get('estado') || 'todos';
-  const creditoFilter = searchParams.get('credito') || 'todos';
+  // Use refs for initial values to avoid re-renders
+  const currentTab = React.useMemo(() => 
+    externalCurrentTab || (searchParams.get('tab') as OrderTab) || 'list', 
+    [externalCurrentTab, searchParams]
+  );
+  
+  const estadoFilter = React.useMemo(() => 
+    externalEstadoFilter || searchParams.get('estado') || 'todos',
+    [externalEstadoFilter, searchParams]
+  );
+  
+  const creditoFilter = React.useMemo(() => 
+    externalCreditoFilter || searchParams.get('credito') || 'todos',
+    [externalCreditoFilter, searchParams]
+  );
   
   // State for pending validation count
   const [pendingValidationCount, setPendingValidationCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   
-  // Fetch the validation count when component mounts
+  // Fetch the validation count when component mounts - use stable callback
+  const getCount = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const count = await fetchPendingValidationCount();
+      setPendingValidationCount(count);
+    } catch (err) {
+      console.error('Failed to load validation count:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+  
   useEffect(() => {
-    const getCount = async () => {
+    let isMounted = true;
+    
+    const fetchData = async () => {
       try {
-        setIsLoading(true);
         const count = await fetchPendingValidationCount();
-        setPendingValidationCount(count);
+        if (isMounted) {
+          setPendingValidationCount(count);
+          setIsLoading(false);
+        }
       } catch (err) {
         console.error('Failed to load validation count:', err);
-      } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
     };
     
-    getCount();
-  }, []);
+    fetchData();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Empty dependency array to run only on mount
 
-  const navigate = (tab: OrderTab) => {
-    const params = new URLSearchParams(searchParams);
-    params.set('tab', tab);
-    // Preserve existing filters when changing tabs
-    params.set('estado', estadoFilter);
-    params.set('credito', creditoFilter);
-    router.push(`${pathname}?${params.toString()}`);
-  };
-
-  const handleFilterChange = (type: 'estado' | 'credito', value: string) => {
-    const params = new URLSearchParams(searchParams);
-    // Ensure the current tab is preserved when changing filters
-    params.set('tab', currentTab);
-    params.set(type, value);
-    // Reset the other filter if needed, or keep it - depends on desired UX
-    // Example: Keep other filter when one changes
-    if (type === 'estado') params.set('credito', creditoFilter);
-    else params.set('estado', estadoFilter);
-    router.push(`${pathname}?${params.toString()}`);
-  };
-
-  // Example statuses and credit statuses (replace with actual data sources)
-  // TODO: Fetch or define these centrally
-  const statuses = ['todos', 'creada', 'aprobada', 'en_validacion', 'rechazada'];
-  const creditStatuses = ['todos', 'aprobado', 'pendiente', 'rechazado'];
-
-  // Define base tabs that everyone should see
-  const baseTabs: TabItem[] = [
-    { id: 'list', label: 'Listado', icon: ListBulletIcon },
-    { id: 'calendar', label: 'Calendario', icon: CalendarIcon },
-  ];
-  
-  // Define additional tabs based on role
-  const creditTab: TabItem = { 
-    id: 'credit', 
-    label: 'Validación', 
-    icon: CheckCircledIcon, 
-    badge: isLoading ? undefined : pendingValidationCount 
-  };
-  
-  const rejectedTab: TabItem = { 
-    id: 'rejected', 
-    label: 'Rechazadas', 
-    icon: CrossCircledIcon 
-  };
-  
-  // Determine which tabs to show based on user role
-  let tabs: TabItem[] = [...baseTabs];
-  
-  if (profile) {
-    if (['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER'].includes(profile.role)) {
-      tabs.push(creditTab);
+  // Memoize callback functions to prevent re-creation on each render
+  const navigate = useCallback((tab: OrderTab) => {
+    if (onTabChange) {
+      onTabChange(tab);
+      return;
     }
     
-    if (['EXECUTIVE', 'PLANT_MANAGER'].includes(profile.role)) {
-      tabs.push(rejectedTab);
-    }
-  }
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', tab);
+    params.set('estado', estadoFilter);
+    params.set('credito', creditoFilter);
+    
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [onTabChange, searchParams, estadoFilter, creditoFilter, router, pathname]);
 
-  // Helper to format display values for filters
-  const formatDisplayValue = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const handleFilterChange = useCallback((type: 'estado' | 'credito', value: string) => {
+    if (onFilterChange) {
+      onFilterChange(type, value);
+      return;
+    }
+    
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('tab', currentTab);
+    params.set(type, value);
+    
+    if (type === 'estado') params.set('credito', creditoFilter);
+    else params.set('estado', estadoFilter);
+    
+    router.push(`${pathname}?${params.toString()}`, { scroll: false });
+  }, [onFilterChange, searchParams, currentTab, estadoFilter, creditoFilter, router, pathname]);
+
+  // Example statuses and credit statuses (replace with actual data sources)
+  // Move these outside component or memoize them
+  const statuses = React.useMemo(() => 
+    ['todos', 'creada', 'aprobada', 'en_validacion', 'rechazada'], 
+    []
+  );
+  
+  const creditStatuses = React.useMemo(() => 
+    ['todos', 'aprobado', 'pendiente', 'rechazado'], 
+    []
+  );
+
+  // Define base tabs that everyone should see - memoize to prevent unnecessary re-renders
+  const baseTabs = React.useMemo<TabItem[]>(() => [
+    { id: 'list', label: 'Listado', icon: ListBulletIcon },
+    { id: 'calendar', label: 'Calendario', icon: CalendarIcon },
+  ], []);
+  
+  // Define additional tabs based on role - memoize with dependencies
+  const additionalTabs = React.useMemo<TabItem[]>(() => {
+    const tabs: TabItem[] = [];
+    
+    const creditTab: TabItem = { 
+      id: 'credit', 
+      label: 'Validación', 
+      icon: CheckCircledIcon, 
+      badge: isLoading ? undefined : pendingValidationCount 
+    };
+    
+    const rejectedTab: TabItem = { 
+      id: 'rejected', 
+      label: 'Rechazadas', 
+      icon: CrossCircledIcon 
+    };
+    
+    if (profile) {
+      if (['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER'].includes(profile.role)) {
+        tabs.push(creditTab);
+      }
+      
+      if (['EXECUTIVE', 'PLANT_MANAGER'].includes(profile.role)) {
+        tabs.push(rejectedTab);
+      }
+    }
+    
+    return tabs;
+  }, [profile, isLoading, pendingValidationCount]);
+  
+  // Combine all tabs - memoize to prevent unnecessary calculations
+  const tabs = React.useMemo<TabItem[]>(() => 
+    [...baseTabs, ...additionalTabs], 
+    [baseTabs, additionalTabs]
+  );
+  
+  // Check if the user can create orders - memoize to prevent recalculation
+  const canCreateOrders = React.useMemo(() => 
+    profile && profile.role !== 'DOSIFICADOR',
+    [profile]
+  );
+
+  // Helper to format display values for filters - memoize for performance
+  const formatDisplayValue = useCallback((value: string) => 
+    value.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+    []
+  );
+
+  const handleClearFilters = useCallback(() => {
+    if (onFilterChange) {
+      onFilterChange('estado', 'todos');
+      onFilterChange('credito', 'todos');
+    } else {
+      const params = new URLSearchParams(searchParams);
+      params.set('tab', currentTab);
+      params.set('estado', 'todos');
+      params.set('credito', 'todos');
+      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+    }
+  }, [onFilterChange, searchParams, currentTab, router, pathname]);
+
+  // Memoize dropdown elements to prevent re-renders
+  const estadoFilterValue = React.useMemo(() => 
+    formatDisplayValue(statuses.find(s => s === estadoFilter) || 'Todos'),
+    [formatDisplayValue, statuses, estadoFilter]
+  );
+
+  const creditoFilterValue = React.useMemo(() => 
+    formatDisplayValue(creditStatuses.find(c => c === creditoFilter) || 'Todos'),
+    [formatDisplayValue, creditStatuses, creditoFilter]
+  );
+
+  // DropdownMenu wrapper component to prevent update loops
+  const StableDropdownMenu = memo(function StableDropdownMenu({ 
+    label, 
+    value, 
+    options, 
+    currentValue, 
+    onSelect 
+  }: { 
+    label: string; 
+    value: string; 
+    options: string[]; 
+    currentValue: string; 
+    onSelect: (value: string) => void; 
+  }) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+           <Button variant="outline" size="sm" className="flex items-center gap-1.5 whitespace-nowrap">
+              {label}: {value}
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 opacity-50"><path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
+           </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          {options.map((option) => (
+            <DropdownMenuItem
+               key={option}
+               onSelect={() => onSelect(option)}
+               className={cn(currentValue === option && 'bg-accent text-accent-foreground', 'cursor-pointer')}
+             >
+              {formatDisplayValue(option)}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  });
 
   return (
     <div className="space-y-4">
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200 dark:border-gray-700">
+      {/* Tab Navigation with Create Order Button */}
+      <div className="border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
         <nav className="-mb-px flex space-x-2 sm:space-x-4 overflow-x-auto" aria-label="Tabs">
           {tabs.map((tab) => (
             <button
@@ -183,6 +328,17 @@ export default function OrdersNavigation() {
             </button>
           ))}
         </nav>
+        
+        {/* Create Order button */}
+        {canCreateOrders && (
+          <Button 
+            onClick={() => navigate('create')}
+            className="bg-green-600 hover:bg-green-700 text-white"
+          >
+            <PlusIcon className="mr-2 h-4 w-4" />
+            Crear Orden
+          </Button>
+        )}
       </div>
 
       {/* Filters - Only show when 'list' tab is active */}
@@ -192,60 +348,30 @@ export default function OrdersNavigation() {
              <MixerHorizontalIcon className="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
              Filtros:
            </div>
-          {/* Estado Filter */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-               <Button variant="outline" size="sm" className="flex items-center gap-1.5 whitespace-nowrap">
-                  Estado: {formatDisplayValue(statuses.find(s => s === estadoFilter) || 'Todos')}
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 opacity-50"><path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
-               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {statuses.map((status) => (
-                <DropdownMenuItem
-                   key={status}
-                   onSelect={() => handleFilterChange('estado', status)}
-                   className={cn(estadoFilter === status && 'bg-accent text-accent-foreground', 'cursor-pointer')}
-                 >
-                  {formatDisplayValue(status)}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Estado Filter - Use the stable dropdown component */}
+          <StableDropdownMenu
+            label="Estado"
+            value={estadoFilterValue}
+            options={statuses}
+            currentValue={estadoFilter}
+            onSelect={(value) => handleFilterChange('estado', value)}
+          />
 
-          {/* Crédito Filter */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-               <Button variant="outline" size="sm" className="flex items-center gap-1.5 whitespace-nowrap">
-                 Crédito: {formatDisplayValue(creditStatuses.find(c => c === creditoFilter) || 'Todos')}
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 opacity-50"><path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
-               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-               {creditStatuses.map((status) => (
-                 <DropdownMenuItem
-                   key={status}
-                   onSelect={() => handleFilterChange('credito', status)}
-                   className={cn(creditoFilter === status && 'bg-accent text-accent-foreground', 'cursor-pointer')}
-                  >
-                   {formatDisplayValue(status)}
-                 </DropdownMenuItem>
-               ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Crédito Filter - Use the stable dropdown component */}
+          <StableDropdownMenu
+            label="Crédito"
+            value={creditoFilterValue}
+            options={creditStatuses}
+            currentValue={creditoFilter}
+            onSelect={(value) => handleFilterChange('credito', value)}
+          />
 
           {/* Clear Filters Button */}
            {(estadoFilter !== 'todos' || creditoFilter !== 'todos') && (
              <Button
                variant="ghost"
                size="sm"
-               onClick={() => {
-                 const params = new URLSearchParams(searchParams);
-                 params.set('tab', currentTab);
-                 params.set('estado', 'todos');
-                 params.set('credito', 'todos');
-                 router.push(`${pathname}?${params.toString()}`);
-               }}
+               onClick={handleClearFilters}
                className="text-muted-foreground hover:text-foreground"
              >
                Limpiar Filtros
@@ -255,4 +381,6 @@ export default function OrdersNavigation() {
       )}
     </div>
   );
-} 
+});
+
+export default OrdersNavigation;

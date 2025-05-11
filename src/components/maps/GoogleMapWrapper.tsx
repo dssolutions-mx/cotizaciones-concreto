@@ -31,11 +31,32 @@ export default function GoogleMapWrapper({ children, className = '' }: GoogleMap
   useEffect(() => {
     setIsClient(true);
     console.log('GoogleMapWrapper mounted, API key present:', !!GOOGLE_MAPS_API_KEY);
+    
+    // Add detailed logging for API key issues
+    if (!GOOGLE_MAPS_API_KEY) {
+      console.error('Google Maps API key is missing! Please check your .env.local file.');
+    } else if (GOOGLE_MAPS_API_KEY.length < 10) {
+      console.error('Google Maps API key appears to be invalid or too short:', GOOGLE_MAPS_API_KEY);
+    }
   }, []);
 
   // Debug map loading status
   useEffect(() => {
     console.log('Google Maps loading status:', { isClient, isLoaded, hasError: !!loadError });
+    
+    // Check for common Google Maps errors
+    if (loadError) {
+      console.error('Google Maps API loading error details:', loadError);
+      
+      // Check for specific error types
+      if (loadError.message && loadError.message.includes('API key')) {
+        console.error('Google Maps API key error detected. Please check your API key configuration.');
+      } else if (loadError.message && loadError.message.includes('script')) {
+        console.error('Google Maps script loading error. This might be a network issue or a problem with the API URL.');
+      } else if (loadError.message && loadError.message.includes('library')) {
+        console.error('Google Maps library error. Make sure the requested libraries are correct.');
+      }
+    }
     
     // Fix for modal rendering - trigger resize events
     if (isLoaded && isClient) {
@@ -76,13 +97,50 @@ export default function GoogleMapWrapper({ children, className = '' }: GoogleMap
     );
   }
   
-  // Handle load error
+  // Handle load error with more detailed diagnostics
   if (loadError) {
+    // Log detailed error information for debugging
+    console.error('Google Maps API loading error details:', {
+      error: loadError,
+      message: loadError.message,
+      stack: loadError.stack,
+      name: loadError.name
+    });
+    
+    // Check for common Google Maps errors
+    let errorMessage = 'Error al cargar el mapa';
+    if (loadError.message) {
+      if (loadError.message.includes('API key')) {
+        errorMessage = 'Error de clave API. Verifique su archivo .env.local';
+        console.error('⚠️ Google Maps API key error detected. Check that your API key is correct and has the proper permissions enabled.');
+      } else if (loadError.message.includes('script')) {
+        errorMessage = 'Error de carga de script. Verifique su conexión a internet';
+        console.error('⚠️ Google Maps script loading error. This might be a network issue or a problem with the API URL.');
+      }
+    }
+    
+    // Get more information about any network issues
+    if (window.navigator && window.navigator.onLine === false) {
+      errorMessage = 'Sin conexión a internet. Reconecte y recargue la página';
+      console.error('⚠️ The device appears to be offline. Check internet connection.');
+    }
+
     return (
       <div className={`w-full h-full flex items-center justify-center bg-gray-100 rounded-lg ${className}`}>
         <div className="text-center p-4">
-          <p className="text-red-600 font-medium">Error al cargar el mapa</p>
-          <p className="text-gray-600 text-sm mt-2">Por favor, recarga la página o verifica tu conexión.</p>
+          <p className="text-red-600 font-medium">{errorMessage}</p>
+          <p className="text-gray-600 text-sm mt-2">
+            {loadError.message ? `Detalles: ${loadError.message.slice(0, 100)}...` : 'Por favor, recarga la página o verifica tu conexión.'}
+          </p>
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-4 p-3 bg-gray-200 rounded text-xs text-left overflow-auto max-h-32">
+              <p className="font-bold">Información de depuración:</p>
+              <p>API Key presente: {!!GOOGLE_MAPS_API_KEY ? 'Sí' : 'No'}</p>
+              <p>Longitud de API Key: {GOOGLE_MAPS_API_KEY?.length || 0}</p>
+              <p>Environment: {process.env.NODE_ENV}</p>
+              <p>Online status: {window.navigator.onLine ? 'Online' : 'Offline'}</p>
+            </div>
+          )}
         </div>
       </div>
     );

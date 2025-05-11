@@ -163,6 +163,7 @@ export const clientService = {
         .from('construction_sites')
         .select('*')
         .eq('client_id', clientId)
+        .eq('is_active', true)
         .order('name');
 
       if (error) throw error;

@@ -181,31 +181,34 @@ export default function ScheduleOrderForm({
         console.log(`Fetching active price for Client: ${selectedClientId}, Site: ${selectedConstructionSite.name}`);
         
         // 1. Find the active product price for this client and site
-        const { data: activePrice, error: activePriceError } = await supabase
+        const { data: activePrices, error: activePriceError } = await supabase
           .from('product_prices')
           .select('quote_id')
           .eq('client_id', selectedClientId)
           .eq('construction_site', selectedConstructionSite.name)
-          .eq('is_active', true)
-          .maybeSingle(); // Expect at most one active price
+          .eq('is_active', true);
           
         if (activePriceError) {
-          console.error("Error fetching active product price:", activePriceError);
+          console.error("Error fetching active product prices:", activePriceError);
           throw activePriceError;
         }
         
-        if (!activePrice || !activePrice.quote_id) {
-          console.log('No active price/quote found for this client/site.');
+        if (!activePrices || activePrices.length === 0) {
+          console.log('No active prices/quotes found for this client/site.');
           setAvailableQuotes([]);
           setSelectedProducts([]);
           setIsLoading(false);
           return;
         }
         
-        console.log(`Found active price linked to Quote ID: ${activePrice.quote_id}`);
+        console.log(`Found ${activePrices.length} active prices for this client/site`);
         
-        // 2. Fetch the specific quote linked to the active price
-        const { data: quoteData, error: quoteError } = await supabase
+        // Get unique quote IDs
+        const uniqueQuoteIds = Array.from(new Set(activePrices.map(price => price.quote_id)));
+        console.log('Unique quote IDs:', uniqueQuoteIds);
+        
+        // 2. Fetch all quotes linked to active prices
+        const { data: quotesData, error: quotesError } = await supabase
           .from('quotes')
           .select(`
             id,
@@ -225,24 +228,26 @@ export default function ScheduleOrderForm({
               )
             )
           `)
-          .eq('id', activePrice.quote_id)
-          .eq('status', 'APPROVED') // Ensure the linked quote is still approved
-          .single(); // Fetch the single quote
+          .in('id', uniqueQuoteIds)
+          .eq('status', 'APPROVED'); // Ensure the linked quotes are still approved
           
-        if (quoteError) {
-          console.error("Error fetching the linked quote:", quoteError);
-          // If the quote is not found or not approved, treat as no active quote
-          if (quoteError.code === 'PGRST116') { // Resource Not Found
-             console.warn(`Linked Quote ID ${activePrice.quote_id} not found or not approved.`);
-             setAvailableQuotes([]);
-             setSelectedProducts([]);
-          } else {
-             throw quoteError;
-          }
-        } else if (quoteData) {
-          console.log('Successfully fetched linked quote:', quoteData);
-          
-          // 3. Format the single quote for the form
+        if (quotesError) {
+          console.error("Error fetching the linked quotes:", quotesError);
+          throw quotesError;
+        }
+        
+        if (!quotesData || quotesData.length === 0) {
+          console.log('No approved quotes found for the active prices.');
+          setAvailableQuotes([]);
+          setSelectedProducts([]);
+          setIsLoading(false);
+          return;
+        }
+        
+        console.log('Successfully fetched linked quotes:', quotesData);
+        
+        // 3. Format the quotes for the form
+        const formattedQuotes: Quote[] = quotesData.map(quoteData => {
           const formattedQuote: Quote = {
             id: quoteData.id,
             quoteNumber: quoteData.quote_number,
@@ -277,27 +282,24 @@ export default function ScheduleOrderForm({
             0
           );
           
-          setAvailableQuotes([formattedQuote]);
-          console.log('Set available quote:', [formattedQuote]);
-          
-          // If preSelectedQuoteId matches, auto-select products
-          if (preSelectedQuoteId && preSelectedQuoteId === formattedQuote.id) {
-            setSelectedProducts(formattedQuote.products.map(p => ({
+          return formattedQuote;
+        });
+        
+        setAvailableQuotes(formattedQuotes);
+        console.log('Set available quotes:', formattedQuotes);
+        
+        // If preSelectedQuoteId matches any of the quotes, auto-select products
+        if (preSelectedQuoteId) {
+          const selectedQuote = formattedQuotes.find(quote => quote.id === preSelectedQuoteId);
+          if (selectedQuote) {
+            setSelectedProducts(selectedQuote.products.map(p => ({
               ...p,
               scheduledVolume: p.volume,
               pumpVolume: p.pumpService ? p.volume : 0
             })));
-            console.log('Auto-selected products for preSelectedQuoteId:', selectedProducts);
-          } else {
-             setSelectedProducts([]); // Clear selection if quote changed
+            console.log('Auto-selected products for preSelectedQuoteId:', preSelectedQuoteId);
           }
-        } else {
-           // Handle case where quoteData is null after successful query (shouldn't happen with .single() unless error ignored)
-           console.warn('Quote data was unexpectedly null after fetch.');
-           setAvailableQuotes([]);
-           setSelectedProducts([]);
         }
-
       } catch (err) {
         console.error('Error loading active quote:', err);
         setError('No se pudo cargar la cotización activa. Verifique los precios o intente nuevamente.');
@@ -467,68 +469,22 @@ export default function ScheduleOrderForm({
       
       // Create order
       const result = await orderService.createOrder(orderData, emptyTruckData);
+      
       console.log('Order created successfully:', result);
       
+      // Show success message
+      alert('¡Orden creada con éxito!');
+      
+      // Call onOrderCreated callback if provided
       if (onOrderCreated) {
         onOrderCreated();
       } else {
-        // Ensure we're using the correct parameter for redirecting
-        router.push('/orders?showOrdersList=true');
+        // Redirect to orders page
+        router.push('/orders');
       }
-    } catch (err: unknown) {
+    } catch (err) {
       console.error('Error creating order:', err);
-      
-      // Handle different types of errors with specific messages
-      let errorMessage = 'Error al crear la orden';
-      let isAuthError = false;
-      
-      if (err instanceof Error) {
-        if (err.message.includes('authentication') || err.message.includes('auth') || err.message.includes('no autenticado')) {
-          errorMessage = 'Error de autenticación. Por favor, vuelva a iniciar sesión e intente nuevamente.';
-          isAuthError = true;
-        } else if (err.message.includes('not-null')) {
-          errorMessage = 'Faltan datos requeridos. Por favor, verifique los campos e intente nuevamente.';
-        } else {
-          errorMessage = err.message;
-        }
-      }
-      
-      // Check if the error has a Supabase error code
-      const errorWithCode = err as { code?: string };
-      if (errorWithCode.code) {
-        if (errorWithCode.code === '23502') { // not-null constraint violation
-          errorMessage = 'Faltan datos requeridos en el formulario.';
-        } else if (errorWithCode.code === '23503') { // foreign key constraint violation
-          errorMessage = 'La referencia a otro registro no es válida.';
-        } else if (errorWithCode.code === '42703') { // undefined column
-          errorMessage = 'Error en la estructura de datos. Contacte al administrador.';
-        } else if (errorWithCode.code === 'PGRST301') { // JWT expired
-          errorMessage = 'Su sesión ha expirado. Por favor, vuelva a iniciar sesión.';
-          isAuthError = true;
-        }
-      }
-      
-      setError(`Error al crear la orden: ${errorMessage}`);
-      
-      // Show retry button for authentication errors
-      if (isAuthError) {
-        // Add retry button to the error message
-        setError(prev => `${prev} 
-          <button id="retryOrderCreation" class="ml-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
-            Intentar nuevamente
-          </button>`);
-        
-        // Add event listener for retry button after rendering
-        setTimeout(() => {
-          const retryButton = document.getElementById('retryOrderCreation');
-          if (retryButton) {
-            retryButton.addEventListener('click', (e) => {
-              e.preventDefault();
-              handleCreateOrder(e as unknown as React.FormEvent);
-            });
-          }
-        }, 100);
-      }
+      setError('Error al crear la orden. Por favor, intente nuevamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -642,59 +598,70 @@ export default function ScheduleOrderForm({
     <div className="bg-white rounded-lg border shadow-xs p-6">
       <h2 className="text-xl font-semibold mb-4">Crear Orden</h2>
       
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-md mb-4">
-          {error}
-        </div>
-      )}
-      
-      <div className="mb-4">
-        <p className="text-gray-600">
-          Cliente: {clients.find(c => c.id === selectedClientId)?.business_name}
-        </p>
-        <p className="text-gray-600">
-          Obra: {constructionSites.find(s => s.id === selectedConstructionSiteId)?.name}
-        </p>
-      </div>
-      
-      {isLoading ? (
-        <div className="flex justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500"></div>
-        </div>
-      ) : availableQuotes.length === 0 ? (
-        <div className="py-8 text-center">
-          <p className="text-gray-600 mb-4">
-            No hay cotizaciones aprobadas para este cliente y obra.
+      <div className="space-y-6">
+        <h3 className="text-xl font-semibold">Seleccione los productos para el pedido</h3>
+        
+        <div className="mb-4">
+          <p className="text-gray-600">
+            Cliente: {clients.find(c => c.id === selectedClientId)?.business_name}
           </p>
-          <button
-            onClick={() => setCurrentStep(2)}
-            className="px-4 py-2 border border-gray-300 rounded-md shadow-xs text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
-          >
-            Seleccionar otra obra
-          </button>
+          <p className="text-gray-600">
+            Obra: {constructionSites.find(s => s.id === selectedConstructionSiteId)?.name}
+          </p>
         </div>
-      ) : (
+        
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-md mb-4">
+            {error}
+          </div>
+        )}
+        
+        {isLoading ? (
+          <div className="flex justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-green-500"></div>
+          </div>
+        ) : (
         <form onSubmit={handleCreateOrder} className="space-y-6">
           {/* Product selection */}
-          <div className="bg-gray-50 p-4 rounded-lg border">
-            <h3 className="font-medium mb-3">Seleccionar Productos</h3>
-            
-            <div className="overflow-x-auto">
-              <table className="min-w-full bg-white border">
-                <thead className="bg-gray-100">
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Seleccionar
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Código
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Resistencia
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Tipo de colocación
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Volumen Cotizado
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Volumen a Programar
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Precio Unitario
+                  </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Servicio de Bombeo
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {availableQuotes.length === 0 ? (
                   <tr>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">Seleccionar</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">Código</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">Resistencia</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">Tipo de Colocación</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">Volumen Disponible</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">Volumen a Entregar</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">Precio Unitario</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-600">Bombeo</th>
+                    <td colSpan={8} className="px-4 py-4 text-center text-sm text-gray-500">
+                      No hay cotizaciones activas disponibles para este cliente y sitio de construcción.
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {availableQuotes.flatMap(quote => 
+                ) : (
+                  availableQuotes.flatMap(quote => 
                     quote.products.map((product) => {
                       const isSelected = selectedProducts.some(p => p.quoteDetailId === product.quoteDetailId);
                       const selectedProduct = selectedProducts.find(p => p.quoteDetailId === product.quoteDetailId);
@@ -709,7 +676,10 @@ export default function ScheduleOrderForm({
                               className="h-4 w-4 text-green-600 rounded border-gray-300"
                             />
                           </td>
-                          <td className="px-4 py-2">{product.recipeCode}</td>
+                          <td className="px-4 py-2">
+                            <span className="font-medium">{product.recipeCode}</span>
+                            <div className="text-xs text-gray-500">Cotización: {quote.quoteNumber}</div>
+                          </td>
                           <td className="px-4 py-2">{product.strength} kg/cm²</td>
                           <td className="px-4 py-2">{product.placementType}</td>
                           <td className="px-4 py-2">{product.volume} m³</td>
@@ -746,126 +716,134 @@ export default function ScheduleOrderForm({
                         </tr>
                       );
                     })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  )
+                )}
+              </tbody>
+            </table>
           </div>
-          
+
+          {/* Empty truck charge option - only show if products are selected */}
+          {selectedProducts.length > 0 && (
+            <div className="bg-gray-50 p-4 rounded-lg border mt-4">
+              <div className="flex items-center mb-3">
+                <input 
+                  id="emptyTruckCharge"
+                  type="checkbox"
+                  checked={hasEmptyTruckCharge}
+                  onChange={(e) => setHasEmptyTruckCharge(e.target.checked)}
+                  className="h-4 w-4 text-green-600 rounded border-gray-300"
+                />
+                <label htmlFor="emptyTruckCharge" className="ml-2 block text-sm font-medium text-gray-700">
+                  Agregar cargo por vacío de olla
+                </label>
+              </div>
+              
+              {hasEmptyTruckCharge && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+                  <div>
+                    <label htmlFor="emptyTruckVolume" className="block text-sm font-medium text-gray-700 mb-1">
+                      Volumen a cobrar (m³)
+                    </label>
+                    <input 
+                      id="emptyTruckVolume"
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      value={emptyTruckVolume}
+                      onChange={(e) => setEmptyTruckVolume(parseFloat(e.target.value))}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="emptyTruckPrice" className="block text-sm font-medium text-gray-700 mb-1">
+                      Precio por m³
+                    </label>
+                    <input 
+                      id="emptyTruckPrice"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={emptyTruckPrice}
+                      onChange={(e) => setEmptyTruckPrice(parseFloat(e.target.value))}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Delivery information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
-              <label htmlFor="deliveryDate" className="block text-sm font-medium mb-1">
-                Fecha de Entrega
-              </label>
-              <input
-                id="deliveryDate"
-                type="date"
-                value={deliveryDate}
-                onChange={(e) => setDeliveryDate(e.target.value)}
-                min={format(tomorrow, 'yyyy-MM-dd')}
-                required
-                className="w-full rounded-md border border-gray-300 px-3 py-2"
-              />
-            </div>
-            
-            <div>
-              <label htmlFor="deliveryTime" className="block text-sm font-medium mb-1">
-                Hora de Entrega
-              </label>
-              <input
-                id="deliveryTime"
-                type="time"
-                value={deliveryTime}
-                onChange={(e) => setDeliveryTime(e.target.value)}
-                required
-                className="w-full rounded-md border border-gray-300 px-3 py-2"
-              />
-            </div>
-          </div>
-          
-          {/* Empty truck charge */}
-          <div className="bg-gray-50 p-4 rounded-lg border">
-            <div className="flex items-center mb-3">
-              <input
-                id="hasEmptyTruckCharge"
-                type="checkbox"
-                checked={hasEmptyTruckCharge}
-                onChange={(e) => setHasEmptyTruckCharge(e.target.checked)}
-                className="h-4 w-4 text-green-600 rounded border-gray-300"
-              />
-              <label htmlFor="hasEmptyTruckCharge" className="ml-2 block text-sm font-medium">
-                Incluir Cargo por Vacío de Olla
-              </label>
-            </div>
-            
-            {hasEmptyTruckCharge && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
+              <h3 className="font-medium mb-3">Información de Entrega</h3>
+              
+              <div className="space-y-4">
                 <div>
-                  <label htmlFor="emptyTruckVolume" className="block text-sm font-medium mb-1">
-                    Volumen de Vacío de Olla (m³)
+                  <label htmlFor="deliveryDate" className="block text-sm font-medium mb-1">
+                    Fecha de Entrega
                   </label>
                   <input
-                    id="emptyTruckVolume"
-                    type="number"
-                    min="0.1"
-                    step="0.1"
-                    value={emptyTruckVolume}
-                    onChange={(e) => setEmptyTruckVolume(parseFloat(e.target.value))}
-                    required={hasEmptyTruckCharge}
+                    id="deliveryDate"
+                    type="date"
+                    value={deliveryDate}
+                    onChange={(e) => setDeliveryDate(e.target.value)}
+                    min={format(tomorrow, 'yyyy-MM-dd')}
+                    required
                     className="w-full rounded-md border border-gray-300 px-3 py-2"
                   />
                 </div>
                 
                 <div>
-                  <label htmlFor="emptyTruckPrice" className="block text-sm font-medium mb-1">
-                    Precio por m³
+                  <label htmlFor="deliveryTime" className="block text-sm font-medium mb-1">
+                    Hora de Entrega
                   </label>
                   <input
-                    id="emptyTruckPrice"
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={emptyTruckPrice}
-                    onChange={(e) => setEmptyTruckPrice(parseFloat(e.target.value))}
-                    required={hasEmptyTruckCharge}
+                    id="deliveryTime"
+                    type="time"
+                    value={deliveryTime}
+                    onChange={(e) => setDeliveryTime(e.target.value)}
+                    required
                     className="w-full rounded-md border border-gray-300 px-3 py-2"
                   />
                 </div>
               </div>
-            )}
+            </div>
+            
+            <div>
+              <h3 className="font-medium mb-3">Opciones Adicionales</h3>
+              
+              <div className="space-y-4">
+                <div className="flex items-center">
+                  <input
+                    id="requiresInvoice"
+                    type="checkbox"
+                    checked={requiresInvoice}
+                    onChange={(e) => setRequiresInvoice(e.target.checked)}
+                    className="h-4 w-4 text-green-600 rounded border-gray-300"
+                  />
+                  <label htmlFor="requiresInvoice" className="ml-2 block text-sm">
+                    Requiere Factura
+                  </label>
+                </div>
+                
+                <div>
+                  <label htmlFor="specialRequirements" className="block text-sm font-medium mb-1">
+                    Requisitos Especiales (opcional)
+                  </label>
+                  <textarea
+                    id="specialRequirements"
+                    value={specialRequirements}
+                    onChange={(e) => setSpecialRequirements(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    placeholder="Ingrese cualquier requisito especial para esta orden..."
+                  />
+                </div>
+              </div>
+            </div>
           </div>
           
-          {/* Invoice requirement */}
-          <div className="flex items-center">
-            <input
-              id="requiresInvoice"
-              type="checkbox"
-              checked={requiresInvoice}
-              onChange={(e) => setRequiresInvoice(e.target.checked)}
-              className="h-4 w-4 text-green-600 rounded border-gray-300"
-            />
-            <label htmlFor="requiresInvoice" className="ml-2 block text-sm">
-              Requiere Factura
-            </label>
-          </div>
-          
-          {/* Special requirements */}
-          <div>
-            <label htmlFor="specialRequirements" className="block text-sm font-medium mb-1">
-              Requisitos Especiales (opcional)
-            </label>
-            <textarea
-              id="specialRequirements"
-              value={specialRequirements}
-              onChange={(e) => setSpecialRequirements(e.target.value)}
-              rows={3}
-              className="w-full rounded-md border border-gray-300 px-3 py-2"
-              placeholder="Ingrese cualquier requisito especial para esta orden..."
-            />
-          </div>
-          
-          {/* Total amount */}
           <div className="bg-gray-50 p-4 rounded-lg border">
             <p className="text-lg font-semibold">
               Total: ${calculateTotalAmount().toFixed(2)}
@@ -891,7 +869,8 @@ export default function ScheduleOrderForm({
             </button>
           </div>
         </form>
-      )}
+        )}
+      </div>
     </div>
   );
   

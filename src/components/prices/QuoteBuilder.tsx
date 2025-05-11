@@ -20,7 +20,7 @@ import 'react-day-picker/dist/style.css';
 import { useDebouncedCallback } from 'use-debounce';
 import ClientCreationForm from '@/components/clients/ClientCreationForm';
 import ConstructionSiteForm from '@/components/clients/ConstructionSiteForm';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 
 interface Client {
   id: string;
@@ -533,10 +533,17 @@ export default function QuoteBuilder() {
 
   // Handle new site creation
   const handleSiteCreated = (siteId: string, siteName: string) => {
-    // Add the new site to the list
+    // Add the new site to the list with proper formatting
     setClientSites(prev => [
       ...prev,
-      { id: siteId, name: siteName, latitude: siteCoordinates.lat, longitude: siteCoordinates.lng }
+      { 
+        id: siteId, 
+        name: siteName, 
+        latitude: siteCoordinates.lat, 
+        longitude: siteCoordinates.lng,
+        is_active: true, // Ensure the site is marked as active
+        location: location // Populate location field
+      }
     ]);
     
     // Select the newly created site
@@ -546,8 +553,8 @@ export default function QuoteBuilder() {
     // Close the dialog
     setShowCreateSiteDialog(false);
     
-    // Debug log
-    console.log('Site created with coordinates:', siteCoordinates);
+    // Log successful creation
+    console.log('Site created successfully with ID:', siteId, 'and coordinates:', siteCoordinates);
   };
 
   // Handle map coordinates selection
@@ -863,6 +870,7 @@ export default function QuoteBuilder() {
                       const site = clientSites.find(s => s.id === value);
                       if (site) {
                         setConstructionSite(site.name);
+                        setLocation(site.location);
                         if (site.latitude && site.longitude) {
                           setSiteCoordinates({
                             lat: site.latitude,
@@ -1261,17 +1269,42 @@ export default function QuoteBuilder() {
           // If opening the dialog, trigger a resize event after a small delay
           // to ensure Google Maps renders correctly
           if (open) {
-            // Trigger multiple resize events to ensure the map renders
-            setTimeout(() => window.dispatchEvent(new Event('resize')), 200);
-            setTimeout(() => window.dispatchEvent(new Event('resize')), 500);
-            setTimeout(() => window.dispatchEvent(new Event('resize')), 1000);
-            // Log the state
             console.log('Opening site creation dialog with Google Maps');
+            
+            // Clear existing coordinates when opening the dialog
+            setSiteCoordinates({ lat: null, lng: null });
+            
+            // More robust approach with multiple resize events
+            const triggerResize = () => {
+              window.dispatchEvent(new Event('resize'));
+              console.log('Resize event triggered for map initialization');
+            };
+            
+            // Trigger multiple resize events with increasing delays
+            const timeouts = [
+              setTimeout(triggerResize, 200),
+              setTimeout(triggerResize, 500),
+              setTimeout(triggerResize, 800),
+              setTimeout(triggerResize, 1200),
+              setTimeout(() => {
+                triggerResize();
+                console.log('Final resize event triggered for map');
+              }, 1500)
+            ];
+            
+            // Return cleanup function that will run if the component unmounts
+            return () => {
+              console.log('Cleaning up resize timeouts');
+              timeouts.forEach(clearTimeout);
+            };
           }
         }}
       >
         <DialogContent className="sm:max-w-[700px] w-[90vw] max-h-[90vh] overflow-y-auto p-4">
           <DialogTitle>Crear Nueva Obra</DialogTitle>
+          <DialogDescription>
+            Completa los detalles de la nueva obra y selecciona su ubicación en el mapa.
+          </DialogDescription>
           {selectedClient ? (
             <>
               {/* Show debug info */}

@@ -5,6 +5,7 @@ import { clientService } from '@/lib/supabase/clients';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import dynamic from 'next/dynamic';
+import { GmpPlaceSelectEventDetail, GmpPlaceResult } from '@/types/google.maps';
 
 // Dynamically import map component with no SSR
 const GoogleMapSelector = dynamic(
@@ -27,195 +28,220 @@ interface ConstructionSiteFormProps {
 const LocationSearchBox = ({ onSelectLocation }: { onSelectLocation: (lat: number, lng: number, address?: string) => void }) => {
   const [searchText, setSearchText] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [suggestions, setSuggestions] = useState<google.maps.places.AutocompletePrediction[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const suggestionsRef = useRef<HTMLDivElement>(null);
-  const autocompleteService = useRef<google.maps.places.AutocompleteService | null>(null);
-  const placesService = useRef<google.maps.places.PlacesService | null>(null);
-  const sessionToken = useRef<google.maps.places.AutocompleteSessionToken | null>(null);
 
-  // Inicializar servicios de Google cuando el componente se monta
+  // Store the event handler in a ref to ensure it's stable for add/removeEventListener
+  const handlePlaceSelectCallbackRef = useRef<((event: Event) => void) | null>(null);
+  const handleErrorCallbackRef = useRef<((event: Event) => void) | null>(null);
+
   useEffect(() => {
+    const checkGoogleMapsStatus = () => {
+      // Check if Google Maps is available
+      if (!window.google) {
+        console.error('Google Maps API is not available (window.google is undefined)');
+        return false;
+      }
+      
+      // Check if Google Maps Maps module is available
+      if (!window.google.maps) {
+        console.error('Google Maps Maps module is not available (window.google.maps is undefined)');
+        return false;
+      }
+      
+      // Check if Google Maps Places module is available
+      if (!window.google.maps.places) {
+        console.error('Google Maps Places API is not available (window.google.maps.places is undefined)');
+        return false;
+      }
+      
+      return true;
+    };
+    
+    const initializeServices = () => {
+      try {
+        if (!checkGoogleMapsStatus()) return false;
+        return true;
+      } catch (error) {
+        console.error('Error during simplified Google Maps services check:', error);
+        toast.error('Error al inicializar servicios de Google Maps. Intente recargar la página.');
+        return false;
+      }
+    };
+
     if (window.google && window.google.maps && window.google.maps.places) {
-      autocompleteService.current = new window.google.maps.places.AutocompleteService();
-      // Necesitamos un elemento del DOM para inicializar el PlacesService
-      const placesDiv = document.createElement('div');
-      placesService.current = new window.google.maps.places.PlacesService(placesDiv);
-      sessionToken.current = new window.google.maps.places.AutocompleteSessionToken();
+      initializeServices();
+    } else {
+      const retryTimes = [500, 1500, 3000, 6000];
+      const timeouts = retryTimes.map((delay, index) => {
+        return setTimeout(() => {
+          if (initializeServices()) {
+             timeouts.slice(index + 1).forEach(clearTimeout);
+          }
+        }, delay);
+      });
+      return () => timeouts.forEach(clearTimeout);
+    }
+  }, []);
+  
+  // Handler for the PlaceAutocompleteElement's 'gmp-select' event
+  const handlePlaceSelect = useCallback(async (event: Event) => {
+    const placeEvent = event as Event & { placePrediction?: any };
+    const placePrediction = placeEvent.placePrediction;
+
+    if (!placePrediction) {
+      console.warn('[LocationSearchBox] No placePrediction found on gmp-select event.', event);
+      return;
+    }
+
+    setIsSearching(true);
+
+    try {
+      const place = placePrediction.toPlace(); 
+      await place.fetchFields({ fields: ['location', 'displayName', 'formattedAddress', 'id', 'viewport'] });
+
+      let lat: number | undefined;
+      let lng: number | undefined;
+
+      if (place.location) {
+        // Check if lat/lng are methods (google.maps.LatLng) or properties
+        if (typeof place.location.lat === 'function' && typeof place.location.lng === 'function') {
+          lat = place.location.lat();
+          lng = place.location.lng();
+        } else if (typeof (place.location as any).lat === 'number' && typeof (place.location as any).lng === 'number') {
+          // Fallback if they are direct numeric properties (less common for official Place object after fetchFields)
+          lat = (place.location as any).lat;
+          lng = (place.location as any).lng;
+        }
+      }
+
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        // Prioritize formattedAddress for the location field.
+        // displayName can be a fallback if formattedAddress is not available.
+        const addressString = place.formattedAddress || place.displayName;
+        
+        setSearchText(addressString || ''); 
+        onSelectLocation(lat, lng, addressString); // Pass the prioritized address
+        toast.success(`Ubicación seleccionada: ${addressString || 'Ubicación sin nombre'}`);
+      } else {
+        toast.error('No se pudo obtener la ubicación detallada del lugar seleccionado.');
+        console.error('[LocationSearchBox] Place object missing valid location (lat/lng) after fetchFields. No fallback implemented.', place);
+      }
+    } catch (error) {
+      console.error('[LocationSearchBox] Error processing place selection or fetching fields:', error);
+      toast.error('Error al procesar la selección del lugar.');
+    } finally {
+      setIsSearching(false);
+    }
+  }, [onSelectLocation]);
+
+  // Update the ref when handlePlaceSelect (and its dependencies) changes.
+  useEffect(() => {
+    handlePlaceSelectCallbackRef.current = handlePlaceSelect;
+  }, [handlePlaceSelect]);
+
+  // Error handler for PlaceAutocompleteElement
+  const handleError = useCallback((event: Event) => {
+    const customErrorEvent = event as CustomEvent<{ message: string; code?: string }>;
+    console.error('Error from PlaceAutocompleteElement:', customErrorEvent.detail);
+    toast.error(`Error en el buscador: ${customErrorEvent.detail?.message || 'Error desconocido'}`);
+  }, []);
+
+  useEffect(() => {
+    handleErrorCallbackRef.current = handleError;
+  }, [handleError]);
+
+  // Check if the custom element is defined
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.customElements) {
+      const isDefined = window.customElements.get('gmp-place-autocomplete');
+    } else {
     }
   }, []);
 
-  // Cerrar sugerencias cuando se hace clic fuera
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (suggestionsRef.current && !suggestionsRef.current.contains(event.target as Node) && 
-          inputRef.current && !inputRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
-
-  // Búsqueda de sugerencias mientras se escribe
-  const searchSuggestions = useCallback((text: string) => {
-    if (!text.trim() || !autocompleteService.current || !sessionToken.current) return;
-
-    setIsSearching(true);
-    autocompleteService.current.getPlacePredictions(
-      {
-        input: text,
-        sessionToken: sessionToken.current,
-      },
-      (predictions, status) => {
-        if (status === google.maps.places.PlacesServiceStatus.OK && predictions && predictions.length > 0) {
-          setSuggestions(predictions);
-          setShowSuggestions(true);
-        } else {
-          setSuggestions([]);
+  // Callback ref for the PlaceAutocompleteElement
+  const autocompleteElementRefCallback = useCallback((node: HTMLElement | null) => {
+    if (node) {
+      const placeSelectHandler = (event: Event) => {
+        if (handlePlaceSelectCallbackRef.current) {
+          handlePlaceSelectCallbackRef.current(event);
         }
-        setIsSearching(false);
-      }
-    );
-  }, []);
-
-  // Manejar cambios en el input con debounce
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      if (searchText.trim().length > 2) {
-        searchSuggestions(searchText);
-      } else {
-        setSuggestions([]);
-        setShowSuggestions(false);
-      }
-    }, 300);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [searchText, searchSuggestions]);
-
-  // Manejar selección de un lugar
-  const handleSelectPlace = useCallback((placeId: string, description: string) => {
-    if (!placesService.current || !sessionToken.current) return;
-
-    setIsSearching(true);
-    placesService.current.getDetails(
-      {
-        placeId: placeId,
-        fields: ['geometry', 'formatted_address'],
-        sessionToken: sessionToken.current
-      },
-      (place, status) => {
-        if (status === google.maps.places.PlacesServiceStatus.OK && place && place.geometry && place.geometry.location) {
-          const lat = place.geometry.location.lat();
-          const lng = place.geometry.location.lng();
-          
-          // Actualizar el valor del input
-          setSearchText(place.formatted_address || description);
-          
-          // Cerrar sugerencias
-          setShowSuggestions(false);
-          
-          // Llamar al callback con la ubicación
-          onSelectLocation(lat, lng, place.formatted_address);
-          
-          // Generar un nuevo token para la siguiente búsqueda
-          sessionToken.current = new google.maps.places.AutocompleteSessionToken();
-          
-          toast.success(`Ubicación seleccionada: ${place.formatted_address}`);
-        } else {
-          toast.error("No se pudo obtener la ubicación seleccionada.");
+      };
+      
+      const errorHandler = (event: Event) => {
+        if (handleErrorCallbackRef.current) {
+          handleErrorCallbackRef.current(event);
         }
-        setIsSearching(false);
-      }
-    );
-  }, [onSelectLocation]);
+      };
+
+      node.addEventListener('gmp-select', placeSelectHandler);
+      node.addEventListener('gmp-error', errorHandler);
+
+      return () => {
+        node.removeEventListener('gmp-select', placeSelectHandler);
+        node.removeEventListener('gmp-error', errorHandler);
+      };
+    } else {
+    }
+  }, []);
 
   return (
     <div className="mb-3">
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label htmlFor="location-search-input" className="block text-sm font-medium text-gray-700 mb-1">
         Buscar ubicación
       </label>
       <div className="relative">
-        <div className="flex shadow-sm">
-          <div className="relative flex-grow flex items-center">
-            <input
-              ref={inputRef}
-              type="text"
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              placeholder="Buscar dirección o lugar..."
-              className="w-full p-2.5 pl-10 border border-r-0 border-gray-300 rounded-l-md focus:ring-2 focus:ring-green-500 focus:border-green-500"
-              onFocus={() => {
-                if (suggestions.length > 0) {
-                  setShowSuggestions(true);
-                }
-              }}
-            />
-            <svg 
-              className="absolute left-3 top-3 h-4 w-4 text-gray-400"
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" 
-              />
-            </svg>
-            {isSearching && (
-              <svg className="absolute right-3 top-3 animate-spin h-4 w-4 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (suggestions.length === 1) {
-                handleSelectPlace(suggestions[0].place_id, suggestions[0].description);
-              } else if (suggestions.length > 0) {
-                setShowSuggestions(true);
-              }
-            }}
-            disabled={isSearching || !searchText.trim()}
-            className="px-4 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-r-md border border-green-600 transition-colors"
+        {/* Replace the input with the PlaceAutocompleteElement */}
+        {/* Ensure types are augmented for gmp-place-autocomplete */}
+        <gmp-place-autocomplete 
+          ref={autocompleteElementRefCallback}
+          id="location-search-input" 
+          class="w-full p-2.5 pl-10 border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-green-500 focus-within:border-green-500 shadow-sm"
+          placeholder="Buscar dirección o lugar..."
+          requested-fields="id,displayName,formattedAddress,location"
+          country-codes="MX"
+          place-types="address"
+          location-bias="rectangle:14.0,-118.0,33.0,-86.0" // Example bias for Mexico, adjust as needed
           >
-            <span>Buscar</span>
-          </button>
-        </div>
-
-        {/* Dropdown de sugerencias */}
-        {showSuggestions && suggestions.length > 0 && (
-          <div 
-            ref={suggestionsRef}
-            className="absolute z-50 mt-1 w-full bg-white rounded-md shadow-lg max-h-60 overflow-auto border border-gray-200"
-          >
-            <ul className="py-1">
-              {suggestions.map((suggestion) => (
-                <li 
-                  key={suggestion.place_id}
-                  className="px-4 py-2 hover:bg-green-50 cursor-pointer flex items-start border-b border-gray-100 last:border-b-0"
-                  onClick={() => handleSelectPlace(suggestion.place_id, suggestion.description)}
-                >
-                  <span className="text-sm text-gray-800">{suggestion.description}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {/* Slotted input removed */}
+        </gmp-place-autocomplete>
+        
+        {/* Icons and other elements might need to be positioned relative to the new web component */}
+        <svg 
+          className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none"
+          fill="none" 
+          viewBox="0 0 24 24" 
+          stroke="currentColor"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" 
+          />
+        </svg>
+        {isSearching && (
+          <svg className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin h-4 w-4 text-green-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
         )}
       </div>
-      <p className="mt-1 text-xs text-gray-500">
-        Comienza a escribir para ver sugerencias o selecciona directamente en el mapa
-      </p>
+      <div className="mt-1 text-xs flex justify-between items-center">
+        <p className="text-gray-500">
+          Comienza a escribir para ver sugerencias o selecciona directamente en el mapa
+        </p>
+        
+        <a 
+          href="https://www.google.com/maps" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          className="text-blue-600 hover:underline ml-1 inline-flex items-center"
+        >
+          <svg className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+          </svg>
+          Google Maps
+        </a>
+      </div>
     </div>
   );
 };
@@ -242,9 +268,7 @@ export default function ConstructionSiteForm({
   // Set mounted state when component mounts
   useEffect(() => {
     setIsMounted(true);
-    console.log('ConstructionSiteForm mounted, checking Google Maps availability');
     
-    // Force window resize events to help render the map
     const triggerResize = () => window.dispatchEvent(new Event('resize'));
     
     // Trigger resizes at different intervals
@@ -254,7 +278,6 @@ export default function ConstructionSiteForm({
       setTimeout(triggerResize, 1000),
       setTimeout(() => {
         triggerResize();
-        console.log('Final resize event triggered');
       }, 1500)
     ];
     
@@ -282,27 +305,28 @@ export default function ConstructionSiteForm({
   };
 
   // Handler for map location selection
-  const handleLocationSelect = (lat: number, lng: number) => {
-    setSiteData(prev => ({
-      ...prev,
-      latitude: lat,
-      longitude: lng
-    }));
-  };
-
-  // Handler para el componente de búsqueda
-  const handleSearchBoxSelect = (lat: number, lng: number, address?: string) => {
-    // Actualizar las coordenadas
-    handleLocationSelect(lat, lng);
-    
-    // Si tenemos una dirección formateada, actualizar el campo de ubicación si está vacío
-    if (address && !siteData.location.trim()) {
-      setSiteData(prev => ({
+  const handleLocationSelect = useCallback((lat: number, lng: number) => {
+    setSiteData(prev => {
+      const newState = {
         ...prev,
-        location: address
-      }));
+        latitude: lat,
+        longitude: lng
+      };
+      return newState;
+    });
+  }, []); // Empty dependency array makes it stable
+
+  // Handler para el componente de búsqueda - now memoized
+  const handleSearchBoxSelect = useCallback((lat: number, lng: number, address?: string) => {
+    handleLocationSelect(lat, lng); // handleLocationSelect is now stable
+    
+    if (address) {
+      setSiteData(prevSiteData => {
+        // Always update location with the address from search
+        return { ...prevSiteData, location: address };
+      });
     }
-  };
+  }, [handleLocationSelect]); // Dependency on stable handleLocationSelect
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -329,14 +353,36 @@ export default function ConstructionSiteForm({
         }
       );
       
-      if (createError) throw createError;
-      if (!createdSite) throw new Error('No se recibieron datos de la obra creada');
+      if (createError) {
+        console.error('Error from Supabase when creating site:', createError);
+        if (createdSite) {
+          toast.success('Obra creada exitosamente');
+          onSiteCreated(createdSite.id, siteData.name);
+          return;
+        }
+        throw createError;
+      }
+      
+      if (!createdSite) {
+        throw new Error('No se recibieron datos de la obra creada');
+      }
       
       toast.success('Obra creada exitosamente');
       onSiteCreated(createdSite.id, siteData.name);
     } catch (err: any) {
       console.error('Error creating construction site:', err);
       setError(err.message || 'Error al crear la obra');
+      
+      try {
+        const checkSites = await clientService.getClientSites(clientId);
+        const possiblyCreatedSite = checkSites.find(site => site.name === siteData.name);
+        if (possiblyCreatedSite) {
+          toast.success('La obra parece haberse creado correctamente a pesar del error.');
+          onSiteCreated(possiblyCreatedSite.id, siteData.name);
+        }
+      } catch (checkError) {
+        console.error('Error checking if site was created:', checkError);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -460,13 +506,25 @@ export default function ConstructionSiteForm({
               Busca una ubicación y luego haz clic en el mapa para ajustar las coordenadas exactas
             </p>
             
-            {/* Componente de búsqueda de ubicaciones */}
-            <LocationSearchBox onSelectLocation={handleSearchBoxSelect} />
+            {/* Componente de búsqueda de ubicaciones - Render only when isMounted is true */}
+            {isMounted ? (
+              <LocationSearchBox onSelectLocation={handleSearchBoxSelect} />
+            ) : (
+              <div className="h-[50px] flex items-center justify-center bg-gray-50 rounded-md border border-gray-200 mb-3">
+                <p className="text-sm text-gray-500">Cargando buscador de ubicaciones...</p>
+              </div>
+            )}
+
+            {/* Log values just before rendering the map, ensuring it doesn't render void */}
+            {((): null => {
+              return null;
+            })()}
 
             <div className="h-[350px] rounded-md overflow-hidden border border-gray-300 shadow-sm">
               {isMounted ? (
                 <GoogleMapWrapper>
                   <GoogleMapSelector 
+                    key={siteData.latitude && siteData.longitude ? `${siteData.latitude}-${siteData.longitude}` : 'map-no-location'} 
                     onSelectLocation={handleLocationSelect} 
                     height="350px"
                     initialPosition={siteData.latitude && siteData.longitude ? 

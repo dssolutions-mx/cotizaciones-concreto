@@ -9,6 +9,15 @@ import { OrderWithClient, OrderStatus, CreditStatus, OrderItem } from '@/types/o
 import { useAuth } from '@/contexts/AuthContext';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
 import { supabase } from '@/lib/supabase';
+import { CalendarIcon, MixerHorizontalIcon } from '@radix-ui/react-icons';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 type ViewType = 'day' | 'week' | 'month';
 
@@ -30,8 +39,16 @@ interface OrdersCalendarViewProps {
 
 export default function OrdersCalendarView({ statusFilter, creditStatusFilter }: OrdersCalendarViewProps) {
   const { preferences, updatePreferences } = useOrderPreferences();
-  const [currentDate, setCurrentDate] = useState(() => {
-    return preferences.calendarDate ? new Date(preferences.calendarDate) : new Date();
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    if (preferences.calendarDate) {
+      try {
+        return parseISO(preferences.calendarDate);
+      } catch (e) {
+        console.error('Error parsing saved date', e);
+        return new Date();
+      }
+    }
+    return new Date();
   });
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [viewType, setViewType] = useState<ViewType>(() => preferences.calendarViewType || 'week');
@@ -44,12 +61,16 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   const { profile } = useAuth();
   
   useEffect(() => {
-    const savedData = {
-      calendarViewType: viewType,
-      calendarDate: currentDate.toISOString()
-    };
-    updatePreferences(savedData);
-  }, [viewType, currentDate]);
+    if (preferences.calendarViewType !== viewType) {
+      updatePreferences({ calendarViewType: viewType });
+    }
+  }, [viewType, preferences.calendarViewType, updatePreferences]);
+
+  useEffect(() => {
+    updatePreferences({ 
+      calendarDate: currentDate.toISOString() 
+    });
+  }, [currentDate, updatePreferences]);
 
   useEffect(() => {
     if (preferences.lastScrollPosition && calendarRef.current) {

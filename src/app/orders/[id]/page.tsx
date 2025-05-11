@@ -1,12 +1,17 @@
-import OrderDetailClient from '@/components/orders/OrderDetailClient'; // Corrected import path
+import OrderDetailClient from '@/components/orders/OrderDetailClient';
 
+// Define the proper type for dynamic route params
 interface OrderDetailPageProps {
-  params: { id: string };
+  params: Promise<{
+    id: string;
+  }>;
 }
 
-// Make the component async to properly handle params
+// Ensure component is async and properly awaits params
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
-  const { id } = params; // Now correctly accessed in an async context
+  // Properly await the params object before accessing its properties
+  const resolvedParams = await params;
+  const { id } = resolvedParams;
   
   // Pass the ID to the client component responsible for fetching and displaying details
   return <OrderDetailClient orderId={id} />;
