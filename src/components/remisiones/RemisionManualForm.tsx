@@ -160,11 +160,14 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
 
       if (materialsError) throw materialsError;
 
+      // Get current volume
+      const volume = parseFloat(formData.volumen) || 0;
+
       // Set initial state for manual materials based on theoretical ones
       const initialMaterials: ManualMaterial[] = (materialsData || []).map((mat, index) => ({
         id: `mat-${index}-${Date.now()}`, // Unique ID
         material_type: mat.material_type,
-        cantidad_real: 0, // Default real quantity to 0
+        cantidad_real: volume > 0 ? mat.quantity * volume : 0, // Prepopulate with theoretical total
         cantidad_teorica: mat.quantity,
       }));
       setManualMaterials(initialMaterials);
@@ -173,7 +176,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       showError('Error al cargar materiales teóricos: ' + error.message);
       setManualMaterials([]);
     }
-  }, [tipoRemision]); // Rerun when tipoRemision changes
+  }, [tipoRemision, formData.volumen]); // Added formData.volumen to dependency array
 
   // Effect to fetch materials when recipeId changes
   useEffect(() => {
@@ -315,8 +318,9 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         prev.map(mat => ({
           ...mat,
           // The base theoretical value stays the same (per m³), 
-          // but we show the total theoretical amount in the UI
-          cantidad_teorica_total: (mat.cantidad_teorica || 0) * volume
+          // but we update both the total theoretical amount and real amount
+          cantidad_teorica_total: (mat.cantidad_teorica || 0) * volume,
+          cantidad_real: (mat.cantidad_teorica || 0) * volume, // Update real amount to match theoretical total
         }))
       );
     }

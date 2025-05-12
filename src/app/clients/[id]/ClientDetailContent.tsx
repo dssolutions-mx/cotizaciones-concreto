@@ -32,6 +32,7 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { toast } from "sonner";
 // Import for map components
 import dynamic from 'next/dynamic';
+import { Badge } from "@/components/ui/badge";
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -712,6 +713,20 @@ function OrderDetailModal({
   const totalConcreteVolume = concreteRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
   const totalPumpVolume = pumpRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
 
+  // Agrupar remisiones de concreto por receta
+  const concreteByRecipe = concreteRemisiones.reduce<Record<string, { volume: number; count: number }>>((acc, remision) => {
+    const recipeCode = remision.recipe?.recipe_code || 'Sin receta';
+    if (!acc[recipeCode]) {
+      acc[recipeCode] = {
+        volume: 0,
+        count: 0
+      };
+    }
+    acc[recipeCode].volume += remision.volumen_fabricado || 0;
+    acc[recipeCode].count += 1;
+    return acc;
+  }, {});
+
   // Verificar si hay remisiones de concreto
   const hasRemisiones = concreteRemisiones.length > 0;
 
@@ -784,6 +799,18 @@ function OrderDetailModal({
                   <CardTitle className="text-base">Productos (Basados en Remisiones)</CardTitle>
                 </CardHeader>
                 <CardContent>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {Object.entries(concreteByRecipe).map(([recipe, data]) => (
+                      <Badge key={recipe} variant="outline" className="bg-blue-50">
+                        {recipe}: {data.volume.toFixed(2)} m³
+                      </Badge>
+                    ))}
+                    {pumpRemisiones.length > 0 && (
+                      <Badge variant="outline" className="bg-green-50">
+                        Bombeo: {totalPumpVolume.toFixed(2)} m³
+                      </Badge>
+                    )}
+                  </div>
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -804,17 +831,6 @@ function OrderDetailModal({
                           <TableCell className="text-right">{(remision.volumen_fabricado || 0).toFixed(2)}</TableCell>
                         </TableRow>
                       ))}
-                      {/* Mostrar fila de totales si hay más de una remisión */}
-                      {concreteRemisiones.length > 1 && (
-                        <TableRow className="bg-gray-50 font-medium">
-                          <TableCell colSpan={3} className="text-right">
-                            Total:
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {totalConcreteVolume.toFixed(2)}
-                          </TableCell>
-                        </TableRow>
-                      )}
                     </TableBody>
                   </Table>
                 </CardContent>

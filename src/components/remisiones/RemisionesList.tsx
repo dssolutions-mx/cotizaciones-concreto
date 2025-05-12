@@ -14,9 +14,20 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
+import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 interface RemisionesListProps {
   orderId: string;
@@ -187,6 +198,9 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedRemisionId, setExpandedRemisionId] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [remisionToDelete, setRemisionToDelete] = useState<any | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Helper function to safely format dates without timezone issues
   const formatDateSafely = (dateStr: string): string => {
@@ -242,6 +256,20 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
   const totalConcreteVolume = concreteRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
   const totalPumpVolume = pumpRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
   
+  // Agrupar remisiones de concreto por receta
+  const concreteByRecipe = concreteRemisiones.reduce<Record<string, { volume: number; count: number }>>((acc, remision) => {
+    const recipeCode = remision.recipe?.recipe_code || 'Sin receta';
+    if (!acc[recipeCode]) {
+      acc[recipeCode] = {
+        volume: 0,
+        count: 0
+      };
+    }
+    acc[recipeCode].volume += remision.volumen_fabricado;
+    acc[recipeCode].count += 1;
+    return acc;
+  }, {});
+
   const toggleExpand = (remisionId: string) => {
     setExpandedRemisionId(prevId => (prevId === remisionId ? null : remisionId));
   };
@@ -249,6 +277,50 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
   const handleAdditionalProductUpdate = () => {
     console.log("Additional product updated, potentially refresh needed");
     fetchRemisiones();
+  };
+  
+  const handleDeleteClick = (remision: any) => {
+    setRemisionToDelete(remision);
+    setDeleteDialogOpen(true);
+  };
+  
+  const confirmDelete = async () => {
+    if (!remisionToDelete) return;
+    
+    setIsDeleting(true);
+    try {
+      // First delete any related remision_materiales
+      await supabase
+        .from('remision_materiales')
+        .delete()
+        .eq('remision_id', remisionToDelete.id);
+      
+      // Then delete any related productos_adicionales
+      await supabase
+        .from('remision_productos_adicionales')
+        .delete()
+        .eq('remision_id', remisionToDelete.id);
+      
+      // Finally delete the remision
+      const { error } = await supabase
+        .from('remisiones')
+        .delete()
+        .eq('id', remisionToDelete.id);
+      
+      if (error) throw error;
+      
+      toast.success(`Remisión ${remisionToDelete.remision_number} eliminada correctamente`);
+      
+      // Refresh the list
+      fetchRemisiones();
+    } catch (err: any) {
+      console.error('Error eliminando remisión:', err);
+      toast.error(`Error al eliminar remisión: ${err.message || 'Error desconocido'}`);
+    } finally {
+      setIsDeleting(false);
+      setDeleteDialogOpen(false);
+      setRemisionToDelete(null);
+    }
   };
   
   if (loading) {
@@ -292,11 +364,14 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
           <CardTitle>Remisiones Registradas</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex justify-between items-center mb-4">
-            <div className="text-sm">
-              <Badge variant="outline" className="mr-2 bg-blue-50">
-                Concreto: {totalConcreteVolume.toFixed(2)} m³
-              </Badge>
+          <div className="flex flex-col gap-2 mb-4">
+            <div className="text-sm font-medium">Remisiones Registradas</div>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(concreteByRecipe).map(([recipe, data]) => (
+                <Badge key={recipe} variant="outline" className="bg-blue-50">
+                  {recipe}: {data.volume.toFixed(2)} m³
+                </Badge>
+              ))}
               <Badge variant="outline" className="bg-green-50">
                 Bombeo: {totalPumpVolume.toFixed(2)} m³
               </Badge>
@@ -316,6 +391,7 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                       <TableHead>Unidad</TableHead>
                       <TableHead>Receta</TableHead>
                       <TableHead className="text-right">Volumen</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -335,10 +411,22 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                           <TableCell>{remision.unidad || '-'}</TableCell>
                           <TableCell>{remision.recipe?.recipe_code || 'N/A'}</TableCell>
                           <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                          <TableCell className="text-right">
+                            <div onClick={(e) => e.stopPropagation()}>
+                              <RoleProtectedButton
+                                allowedRoles={'EXECUTIVE'}
+                                onClick={() => handleDeleteClick(remision)}
+                                className="p-1.5 rounded text-red-600 hover:bg-red-50"
+                                title="Eliminar remisión"
+                              >
+                                <Trash2 size={16} />
+                              </RoleProtectedButton>
+                            </div>
+                          </TableCell>
                         </TableRow>
                         {expandedRemisionId === remision.id && (
                           <TableRow>
-                            <TableCell colSpan={6} className="p-0">
+                            <TableCell colSpan={7} className="p-0">
                               <div className="p-4 bg-gray-50 border-t">
                                 <h4 className="text-sm font-semibold mb-3">Detalles y Productos Adicionales</h4>
                                 <RemisionProductosAdicionalesList 
@@ -373,6 +461,7 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                       <TableHead>Conductor</TableHead>
                       <TableHead>Unidad</TableHead>
                       <TableHead className="text-right">Volumen</TableHead>
+                      <TableHead className="text-right">Acciones</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -385,6 +474,16 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                         <TableCell>{remision.conductor || '-'}</TableCell>
                         <TableCell>{remision.unidad || '-'}</TableCell>
                         <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                        <TableCell className="text-right">
+                          <RoleProtectedButton
+                            allowedRoles={'EXECUTIVE'}
+                            onClick={() => handleDeleteClick(remision)}
+                            className="p-1.5 rounded text-red-600 hover:bg-red-50"
+                            title="Eliminar remisión"
+                          >
+                            <Trash2 size={16} />
+                          </RoleProtectedButton>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -394,6 +493,34 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
           )}
         </CardContent>
       </Card>
+      
+      {/* Confirmation Dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Eliminación</DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas eliminar la remisión {remisionToDelete?.remision_number}? Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Eliminando...' : 'Eliminar Remisión'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

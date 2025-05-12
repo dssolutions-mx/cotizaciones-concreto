@@ -97,13 +97,38 @@ export default function RemisionPdfExtractor({ onDataExtracted, bulk = false }: 
       pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
       
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      
+      // Set a timeout to prevent hanging on problematic PDFs
+      const pdfLoadPromise = pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('PDF loading timeout')), 10000); // 10 second timeout
+      });
+      
+      // Race between loading and timeout
+      const pdf = await Promise.race([pdfLoadPromise, timeoutPromise]) as any;
+      
+      if (!pdf || !pdf.numPages) {
+        console.error('Invalid PDF structure in file:', file.name);
+        return null;
+      }
       
       // Obtener texto de la primera página
       const page = await pdf.getPage(1);
       const textContent = await page.getTextContent();
+      
+      if (!textContent || !textContent.items || textContent.items.length === 0) {
+        console.error('No text content found in PDF:', file.name);
+        return null;
+      }
+      
       const pageText = textContent.items.map((item: any) => item.str).join(' ');
-      console.log("Full PDF Text:", pageText);
+      
+      if (!pageText.trim()) {
+        console.error('Extracted text is empty in PDF:', file.name);
+        return null;
+      }
+      
+      console.log(`Processing file ${file.name} - Text length: ${pageText.length} chars`);
       
       // Extraer los datos específicos según los patrones del PDF
       const remisionNumber = extractRemisionNumber(pageText);
@@ -115,10 +140,7 @@ export default function RemisionPdfExtractor({ onDataExtracted, bulk = false }: 
       const materiales = extractMaterialesExactos(pageText);
       const hora = extractHora(pageText);
       
-      console.log("Extracted Data Raw:", { remisionNumber, fecha, volumenFabricado, matricula, conductor, recipeCode, materiales });
-      
-      // Datos extraídos
-      return {
+      const extractedData = {
         remisionNumber: remisionNumber,
         fecha: fecha,
         hora: hora,
@@ -129,8 +151,21 @@ export default function RemisionPdfExtractor({ onDataExtracted, bulk = false }: 
         materiales: materiales
       };
       
+      // Log extraction success/failure for debugging
+      const missingFields = Object.entries(extractedData)
+        .filter(([key, value]) => key !== 'materiales' && (!value || value === ''))
+        .map(([key]) => key);
+      
+      if (missingFields.length > 0) {
+        console.warn(`File ${file.name} - Missing fields: ${missingFields.join(', ')}`);
+      } else {
+        console.log(`File ${file.name} - Successfully extracted all fields`);
+      }
+      
+      return extractedData;
+      
     } catch (error) {
-      console.error('Error al extraer datos del PDF:', error, file.name);
+      console.error(`Error extracting data from ${file.name}:`, error);
       return null;
     }
   };
@@ -165,21 +200,60 @@ export default function RemisionPdfExtractor({ onDataExtracted, bulk = false }: 
       setIsExtracting(true);
       setErrorMessage(null);
       
-      const extractedDataArray: ExtractedRemisionData[] = [];
+      const extractedDataArray: (ExtractedRemisionData & { _fileInfo?: { name: string; size: number } })[] = [];
+      const totalFiles = files.length;
       
-      for (let i = 0; i < files.length; i++) {
-        setProcessingProgress(Math.floor((i / files.length) * 100));
+      for (let i = 0; i < totalFiles; i++) {
+        // Update progress at beginning of each iteration
+        setProcessingProgress(Math.floor((i / totalFiles) * 100));
         
-        const data = await extractDataFromPdf(files[i]);
-        if (data) {
-          extractedDataArray.push(data);
+        try {
+          const data = await extractDataFromPdf(files[i]);
+          
+          if (data) {
+            // Verify essential data is present
+            if (!data.remisionNumber) {
+              console.warn(`File ${files[i].name}: Could not extract remision number`);
+            }
+            
+            if (!data.fecha) {
+              console.warn(`File ${files[i].name}: Could not extract date`);
+            }
+            
+            // Add file info for debugging
+            const dataWithFileInfo = {
+              ...data,
+              _fileInfo: {
+                name: files[i].name,
+                size: files[i].size
+              }
+            };
+            
+            extractedDataArray.push(dataWithFileInfo);
+          } else {
+            console.error(`Failed to extract data from ${files[i].name}`);
+          }
+        } catch (fileError) {
+          console.error(`Error processing file ${files[i].name}:`, fileError);
+          // Continue with next file instead of stopping the entire process
         }
+        
+        // Brief pause to allow UI to update and not block main thread
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
       
+      // Final progress update
       setProcessingProgress(100);
       
+      // Clean up preview URL to free memory
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      
       if (extractedDataArray.length > 0) {
-        onDataExtracted(extractedDataArray);
+        // Strip the _fileInfo before passing to parent component
+        const cleanedData = extractedDataArray.map(({ _fileInfo, ...rest }) => rest);
+        onDataExtracted(cleanedData);
       } else {
         setErrorMessage('No se pudieron procesar ninguno de los PDFs seleccionados.');
       }
@@ -189,7 +263,8 @@ export default function RemisionPdfExtractor({ onDataExtracted, bulk = false }: 
       setErrorMessage('Error al procesar los PDFs. Por favor, verifica que los archivos sean válidos.');
     } finally {
       setIsExtracting(false);
-      setProcessingProgress(0);
+      // Reset progress after a short delay to show 100% completion
+      setTimeout(() => setProcessingProgress(0), 500);
     }
   };
   

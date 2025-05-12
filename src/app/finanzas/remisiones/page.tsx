@@ -298,6 +298,20 @@ export default function RemisionesPorCliente() {
   const totalConcreteVolume = concreteRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
   const totalPumpVolume = pumpRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
   
+  // Group concrete remisiones by recipe
+  const concreteByRecipe = concreteRemisiones.reduce<Record<string, { volume: number; count: number }>>((acc, remision) => {
+    const recipeCode = remision.recipe?.recipe_code || 'Sin receta';
+    if (!acc[recipeCode]) {
+      acc[recipeCode] = {
+        volume: 0,
+        count: 0
+      };
+    }
+    acc[recipeCode].volume += remision.volumen_fabricado;
+    acc[recipeCode].count += 1;
+    return acc;
+  }, {});
+  
   // Handle date range change
   const handleDateRangeChange = (range: DateRange | undefined) => {
     if (range && range.from && range.to) {
@@ -426,7 +440,7 @@ export default function RemisionesPorCliente() {
             <Tabs defaultValue="concrete" className="w-full">
               <TabsList className="grid w-full grid-cols-2 mb-4">
                 <TabsTrigger value="concrete">
-                  Concreto ({concreteRemisiones.length}) - {totalConcreteVolume.toFixed(2)} m³
+                  Concreto ({concreteRemisiones.length})
                 </TabsTrigger>
                 <TabsTrigger value="pump">
                   Bombeo ({pumpRemisiones.length}) - {totalPumpVolume.toFixed(2)} m³
@@ -434,6 +448,13 @@ export default function RemisionesPorCliente() {
               </TabsList>
               
               <TabsContent value="concrete">
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {Object.entries(concreteByRecipe).map(([recipe, data]) => (
+                    <Badge key={recipe} variant="outline" className="bg-blue-50">
+                      {recipe}: {data.volume.toFixed(2)} m³
+                    </Badge>
+                  ))}
+                </div>
                 <div className="overflow-x-auto border rounded-md">
                   <Table>
                     <TableHeader>

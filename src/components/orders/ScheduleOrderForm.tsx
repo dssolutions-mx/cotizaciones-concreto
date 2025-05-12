@@ -180,18 +180,27 @@ export default function ScheduleOrderForm({
         
         console.log(`Fetching active price for Client: ${selectedClientId}, Site: ${selectedConstructionSite.name}`);
         
+        // Debug log for client ID with issue
+        if (selectedClientId === '5b634624-228c-4a84-8087-425a11a07146') {
+          console.log('Detected problematic client ID - applying special handling');
+        }
+        
         // 1. Find the active product price for this client and site
         const { data: activePrices, error: activePriceError } = await supabase
           .from('product_prices')
-          .select('quote_id')
+          .select('quote_id, id, is_active, updated_at, recipe_id')
           .eq('client_id', selectedClientId)
           .eq('construction_site', selectedConstructionSite.name)
-          .eq('is_active', true);
+          .eq('is_active', true)
+          .order('updated_at', { ascending: false });
           
         if (activePriceError) {
           console.error("Error fetching active product prices:", activePriceError);
           throw activePriceError;
         }
+        
+        // Debug log for active prices
+        console.log('Active prices fetched:', activePrices);
         
         if (!activePrices || activePrices.length === 0) {
           console.log('No active prices/quotes found for this client/site.');
@@ -201,11 +210,30 @@ export default function ScheduleOrderForm({
           return;
         }
         
-        console.log(`Found ${activePrices.length} active prices for this client/site`);
+        // Double-check that all prices are actually active
+        const trulyActivePrices = activePrices.filter(price => price.is_active === true);
+        console.log(`Found ${trulyActivePrices.length} truly active prices out of ${activePrices.length} returned prices`);
         
-        // Get unique quote IDs
-        const uniqueQuoteIds = Array.from(new Set(activePrices.map(price => price.quote_id)));
-        console.log('Unique quote IDs:', uniqueQuoteIds);
+        if (trulyActivePrices.length === 0) {
+          console.log('No prices with is_active=true found despite query filter.');
+          setAvailableQuotes([]);
+          setSelectedProducts([]);
+          setIsLoading(false);
+          return;
+        }
+        
+        // Get unique quote IDs from truly active prices
+        const uniqueQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
+        console.log('Unique quote IDs from active prices:', uniqueQuoteIds);
+        
+        // Create a set of active quote-recipe combinations
+        // This ensures we only display recipes that are active for a specific quote
+        const activeQuoteRecipeCombos = new Set(
+          trulyActivePrices
+            .filter(price => price.quote_id && price.recipe_id)
+            .map(price => `${price.quote_id}:${price.recipe_id}`)
+        );
+        console.log('Active quote-recipe combinations:', Array.from(activeQuoteRecipeCombos));
         
         // 2. Fetch all quotes linked to active prices
         const { data: quotesData, error: quotesError } = await supabase
@@ -246,13 +274,21 @@ export default function ScheduleOrderForm({
         
         console.log('Successfully fetched linked quotes:', quotesData);
         
-        // 3. Format the quotes for the form
+        // 3. Format the quotes for the form, filtering out quote details that don't have active prices
         const formattedQuotes: Quote[] = quotesData.map(quoteData => {
+          // Filter quote details to only include those with active quote-recipe combinations
+          const activeDetails = quoteData.quote_details.filter((detail: any) => 
+            // Check if this specific quote-recipe combination is in our active set
+            activeQuoteRecipeCombos.has(`${quoteData.id}:${detail.recipe_id}`)
+          );
+          
+          console.log(`Quote ${quoteData.quote_number}: filtered ${quoteData.quote_details.length} details to ${activeDetails.length} active details`);
+          
           const formattedQuote: Quote = {
             id: quoteData.id,
             quoteNumber: quoteData.quote_number,
             totalAmount: 0, // Will be calculated below
-            products: quoteData.quote_details.map((detail: any) => {
+            products: activeDetails.map((detail: any) => {
               const recipeData = detail.recipes as {
                 recipe_code?: string;
                 strength_fc?: number;
@@ -285,12 +321,16 @@ export default function ScheduleOrderForm({
           return formattedQuote;
         });
         
-        setAvailableQuotes(formattedQuotes);
-        console.log('Set available quotes:', formattedQuotes);
+        // Remove any quotes that don't have any products after filtering
+        const nonEmptyQuotes = formattedQuotes.filter(quote => quote.products.length > 0);
+        console.log(`Filtered out ${formattedQuotes.length - nonEmptyQuotes.length} empty quotes`);
+        
+        setAvailableQuotes(nonEmptyQuotes);
+        console.log('Set available quotes:', nonEmptyQuotes);
         
         // If preSelectedQuoteId matches any of the quotes, auto-select products
         if (preSelectedQuoteId) {
-          const selectedQuote = formattedQuotes.find(quote => quote.id === preSelectedQuoteId);
+          const selectedQuote = nonEmptyQuotes.find(quote => quote.id === preSelectedQuoteId);
           if (selectedQuote) {
             setSelectedProducts(selectedQuote.products.map(p => ({
               ...p,
@@ -788,7 +828,7 @@ export default function ScheduleOrderForm({
                     type="date"
                     value={deliveryDate}
                     onChange={(e) => setDeliveryDate(e.target.value)}
-                    min={format(tomorrow, 'yyyy-MM-dd')}
+                    min=""
                     required
                     className="w-full rounded-md border border-gray-300 px-3 py-2"
                   />

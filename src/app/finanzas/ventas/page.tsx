@@ -504,6 +504,20 @@ export default function VentasDashboard() {
   const concreteRemisiones = filteredRemisiones.filter(r => r.tipo_remision === 'CONCRETO');
   const pumpRemisiones = filteredRemisiones.filter(r => r.tipo_remision === 'BOMBEO');
   
+  // Group concrete remisiones by recipe
+  const concreteByRecipe = concreteRemisiones.reduce<Record<string, { volume: number; count: number }>>((acc, remision) => {
+    const recipeCode = remision.recipe?.recipe_code || 'Sin receta';
+    if (!acc[recipeCode]) {
+      acc[recipeCode] = {
+        volume: 0,
+        count: 0
+      };
+    }
+    acc[recipeCode].volume += remision.volumen_fabricado || 0;
+    acc[recipeCode].count += 1;
+    return acc;
+  }, {});
+
   // Handle search input change
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchTerm(e.target.value);
@@ -1120,25 +1134,36 @@ export default function VentasDashboard() {
                   {/* Product Type Breakdown */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     {/* Concrete */}
-                    <Card>
-                      <CardHeader className="pb-2">
-                        <CardTitle className="text-base">CONCRETO PREMEZCLADO</CardTitle>
-                      </CardHeader>
-                      <CardContent className="pt-0">
-                        <div className="text-3xl font-bold mb-2">
-                          {summaryMetrics.concreteVolume.toFixed(1)}
-                        </div>
-                        <p className="text-sm text-muted-foreground">Volumen (m³)</p>
-                      </CardContent>
-                      <CardFooter className="pt-0 border-t">
-                        <div className="w-full">
-                          <span className="text-sm text-muted-foreground">SubTotal</span>
-                          <div className="text-lg font-semibold">
-                            ${formatNumberWithUnits(summaryMetrics.concreteAmount)}
-                          </div>
-                        </div>
-                      </CardFooter>
-                    </Card>
+                    <Card className="overflow-hidden border-0 shadow-md">
+                        <CardHeader className="p-3 pb-1 bg-gradient-to-r from-blue-50 to-blue-100 border-b">
+                            <CardTitle className="text-sm font-semibold text-blue-700">CONCRETO PREMEZCLADO</CardTitle>
+                        </CardHeader>
+                         <CardContent className='p-3'>
+                             <div className="flex justify-between items-start mb-2">
+                                 <div>
+                                     <div className="text-2xl font-bold text-slate-800">
+                                         {summaryMetrics.concreteVolume.toFixed(1)}
+                                     </div>
+                                    <p className="text-xs text-slate-500 font-medium">Volumen (m³)</p>
+                                </div>
+                                 <div>
+                                     <div className="text-2xl font-bold text-slate-800">
+                                         ${summaryMetrics.weightedConcretePrice.toFixed(2)}
+                                     </div>
+                                    <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
+                              {Object.entries(concreteByRecipe)
+                                .sort(([, a], [, b]) => b.volume - a.volume)
+                                .map(([recipe, data]) => (
+                                  <Badge key={recipe} variant="outline" className="bg-blue-50 text-xs">
+                                    {recipe}: {data.volume.toFixed(1)} m³
+                                  </Badge>
+                                ))}
+                            </div>
+                        </CardContent>
+                     </Card>
                     
                     {/* Pumping */}
                     <Card>
@@ -1587,18 +1612,29 @@ export default function VentasDashboard() {
                         <CardHeader className="p-3 pb-1 bg-gradient-to-r from-blue-50 to-blue-100 border-b">
                             <CardTitle className="text-sm font-semibold text-blue-700">CONCRETO PREMEZCLADO</CardTitle>
                         </CardHeader>
-                         <CardContent className='p-3 flex justify-between items-start'>
-                             <div>
-                                 <div className="text-2xl font-bold text-slate-800">
-                                     {summaryMetrics.concreteVolume.toFixed(1)}
-                                 </div>
-                                <p className="text-xs text-slate-500 font-medium">Volumen (m³)</p>
+                         <CardContent className='p-3'>
+                             <div className="flex justify-between items-start mb-2">
+                                 <div>
+                                     <div className="text-2xl font-bold text-slate-800">
+                                         {summaryMetrics.concreteVolume.toFixed(1)}
+                                     </div>
+                                    <p className="text-xs text-slate-500 font-medium">Volumen (m³)</p>
+                                </div>
+                                 <div>
+                                     <div className="text-2xl font-bold text-slate-800">
+                                         ${summaryMetrics.weightedConcretePrice.toFixed(2)}
+                                     </div>
+                                    <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                </div>
                             </div>
-                             <div>
-                                 <div className="text-2xl font-bold text-slate-800">
-                                     ${summaryMetrics.weightedConcretePrice.toFixed(2)}
-                                 </div>
-                                <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                            <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
+                              {Object.entries(concreteByRecipe)
+                                .sort(([, a], [, b]) => b.volume - a.volume)
+                                .map(([recipe, data]) => (
+                                  <Badge key={recipe} variant="outline" className="bg-blue-50 text-xs">
+                                    {recipe}: {data.volume.toFixed(1)} m³
+                                  </Badge>
+                                ))}
                             </div>
                         </CardContent>
                      </Card>

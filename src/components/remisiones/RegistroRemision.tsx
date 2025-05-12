@@ -9,6 +9,25 @@ import RemisionManualForm from './RemisionManualForm';
 import { useAuth } from '@/contexts/AuthContext';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FileUp } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+
+// Material type mapping from VerificationModal
+const MATERIAL_TYPE_MAP: Record<string, string> = {
+  'cement': 'CPC 40',
+  'water': 'AGUA 1',
+  'gravel': 'GRAVA BASALTO 20mm',
+  'gravel40mm': 'GRAVA BASALTO 40mm',
+  'volcanicSand': 'ARENA BLANCA',
+  'basalticSand': 'ARENA TRITURADA',
+  'additive1': '800 MX',
+  'additive2': 'ADITIVO 2'
+};
+
+// Reverse mapping to convert display names back to DB types
+const REVERSE_MATERIAL_TYPE_MAP: Record<string, string> = {};
+Object.entries(MATERIAL_TYPE_MAP).forEach(([key, value]) => {
+  REVERSE_MATERIAL_TYPE_MAP[value] = key;
+});
 
 interface ExtractedRemisionData {
   remisionNumber: string;
@@ -39,7 +58,11 @@ export default function RegistroRemision({
   const [extractedData, setExtractedData] = useState<ExtractedRemisionData | null>(null);
   const [isVerificationModalOpen, setIsVerificationModalOpen] = useState(false);
   const [bulkUploadComplete, setBulkUploadComplete] = useState(false);
-  const [bulkUploadResult, setBulkUploadResult] = useState({ success: 0, failed: 0 });
+  const [bulkUploadResult, setBulkUploadResult] = useState({ 
+    success: 0, 
+    failed: 0,
+    errors: [] as {remision: string; error: string}[]
+  });
   const { profile } = useAuth();
   
   // Solo permitir a dosificadores y roles superiores
@@ -77,48 +100,160 @@ export default function RegistroRemision({
     // Process all remisiones without showing verification modal
     let successCount = 0;
     let failedCount = 0;
+    const errors: {remision: string; error: string}[] = [];
     
     // Process each remision
     for (const remisionData of dataArray) {
       try {
-        // Call the same API that VerificationModal would call to save the remision
-        const { error } = await fetch('/api/quality/remisiones', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            order_id: orderId,
-            remision_number: remisionData.remisionNumber,
-            fecha: remisionData.fecha,
-            hora: remisionData.hora,
-            volumen_fabricado: parseFloat(remisionData.volumenFabricado),
-            matricula: remisionData.matricula,
-            conductor: remisionData.conductor,
-            tipo_remision: 'CONCRETO',
-            recipe_id: remisionData.recipeCode,
-            materiales: remisionData.materiales.map((m) => ({
-              tipo: m.tipo,
-              dosificado_real: m.dosificadoReal,
-              dosificado_teorico: m.dosificadoTeorico
-            }))
-          }),
-        }).then(res => res.json());
-        
-        if (error) {
+        // Skip remisiones with empty fields - prevent server errors
+        if (!remisionData.remisionNumber || !remisionData.fecha || !remisionData.volumenFabricado) {
           failedCount++;
-          console.error('Error saving remision:', error);
-        } else {
-          successCount++;
+          errors.push({
+            remision: remisionData.remisionNumber || 'Sin número',
+            error: 'Datos incompletos en el PDF'
+          });
+          continue;
         }
+
+        // Validate volume format
+        const volume = parseFloat(remisionData.volumenFabricado.replace(',', '.'));
+        if (isNaN(volume)) {
+          failedCount++;
+          errors.push({
+            remision: remisionData.remisionNumber,
+            error: 'Formato de volumen inválido'
+          });
+          continue;
+        }
+        
+        // 1. Find recipe_id based on recipeCode
+        const { data: recipeData, error: recipeError } = await supabase
+          .from('recipes')
+          .select('id')
+          .eq('recipe_code', remisionData.recipeCode)
+          .single();
+
+        if (recipeError || !recipeData) {
+          failedCount++;
+          errors.push({
+            remision: remisionData.remisionNumber,
+            error: `Código de receta "${remisionData.recipeCode}" no encontrado`
+          });
+          continue;
+        }
+        
+        const recipeId = recipeData.id;
+
+        // Formatear fecha para PostgreSQL (YYYY-MM-DD)
+        const dateParts = remisionData.fecha.split('/');
+        const formattedDate = dateParts.length === 3 
+          ? `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`
+          : null;
+        
+        // Ensure hora is in HH:MM:SS format if needed, default to HH:MM if correct
+        const formattedHora = remisionData.hora.includes(':') ? remisionData.hora.padEnd(8, ':00') : null;
+        
+        if (!formattedDate) {
+          failedCount++;
+          errors.push({
+            remision: remisionData.remisionNumber,
+            error: 'Formato de fecha inválido'
+          });
+          continue;
+        }
+        
+        // Get current user ID
+        const { data: { user } } = await supabase.auth.getUser();
+        const userId = user?.id;
+        
+        // Create the payload with all required fields
+        const remisionPayload = {
+          order_id: orderId,
+          remision_number: remisionData.remisionNumber,
+          fecha: formattedDate,
+          hora_carga: formattedHora,
+          volumen_fabricado: volume,
+          conductor: remisionData.conductor,
+          unidad: remisionData.matricula,
+          recipe_id: recipeId,
+          created_by: userId,
+          tipo_remision: 'CONCRETO',
+          designacion_ehe: remisionData.recipeCode
+        };
+        
+        console.log(`Procesando remisión ${remisionData.remisionNumber} con Supabase`);
+        
+        // Insertar remisión
+        const { data: remision, error: remisionError } = await supabase
+          .from('remisiones')
+          .insert(remisionPayload)
+          .select()
+          .single();
+        
+        if (remisionError) {
+          failedCount++;
+          errors.push({
+            remision: remisionData.remisionNumber,
+            error: remisionError.message || 'Error al guardar la remisión'
+          });
+          console.error('Error inserting remision:', remisionError);
+          continue;
+        }
+        
+        // Insertar materiales
+        if (remisionData.materiales && remisionData.materiales.length > 0) {
+          // Filter out empty material types 
+          const validMateriales = remisionData.materiales.filter(mat => mat.tipo.trim() !== '');
+          
+          // Create materials data using the DB material types, not the display names
+          const materialesData = validMateriales.map(material => {
+            // Try to find the material type code from reverse mapping, or use the display name if not found
+            const materialTypeCode = REVERSE_MATERIAL_TYPE_MAP[material.tipo] || material.tipo;
+            
+            return {
+              remision_id: remision.id,
+              material_type: materialTypeCode, // Use the code for DB storage
+              cantidad_real: material.dosificadoReal,
+              cantidad_teorica: material.dosificadoTeorico
+            };
+          });
+          
+          const { error: materialesError } = await supabase
+            .from('remision_materiales')
+            .insert(materialesData);
+          
+          if (materialesError) {
+            // We consider this a partial success with warning
+            errors.push({
+              remision: remisionData.remisionNumber,
+              error: `Remisión guardada pero error en materiales: ${materialesError.message}`
+            });
+            console.error('Error inserting materials:', materialesError);
+          }
+        }
+        
+        successCount++;
+        
+        // Add a small delay between requests to prevent overwhelming the server
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
       } catch (error) {
         failedCount++;
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        errors.push({
+          remision: remisionData.remisionNumber || 'Sin número',
+          error: errorMessage
+        });
         console.error('Error processing remision:', error);
       }
     }
     
     // Update UI to show results
-    setBulkUploadResult({ success: successCount, failed: failedCount });
+    setBulkUploadResult({ 
+      success: successCount, 
+      failed: failedCount,
+      errors: errors
+    });
     setBulkUploadComplete(true);
     
     // Refresh the remisiones list
@@ -134,7 +269,7 @@ export default function RegistroRemision({
   
   const resetBulkUploadStatus = () => {
     setBulkUploadComplete(false);
-    setBulkUploadResult({ success: 0, failed: 0 });
+    setBulkUploadResult({ success: 0, failed: 0, errors: [] });
   };
   
   return (
@@ -193,6 +328,19 @@ export default function RegistroRemision({
                           <li className="text-red-700">{bulkUploadResult.failed} remisiones con errores</li>
                         )}
                       </ul>
+                      
+                      {bulkUploadResult.errors.length > 0 && (
+                        <div className="mt-4">
+                          <p className="font-medium text-red-700">Detalle de errores:</p>
+                          <div className="max-h-60 overflow-y-auto mt-2 p-2 bg-red-50 rounded border border-red-200">
+                            {bulkUploadResult.errors.map((err, idx) => (
+                              <div key={idx} className="text-sm mb-1 pb-1 border-b border-red-100">
+                                <span className="font-medium">Remisión {err.remision}:</span> {err.error}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </AlertDescription>
                 </Alert>
