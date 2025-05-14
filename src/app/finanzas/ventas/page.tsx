@@ -218,7 +218,41 @@ export default function VentasDashboard() {
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
         
-        // 1. Fetch orders in the date range
+        // 1. Fetch remisiones directly by their fecha field
+        const { data: remisiones, error: remisionesError } = await supabase
+          .from('remisiones')
+          .select(`
+            *,
+            recipe:recipes(recipe_code, strength_fc),
+            order:orders(
+              id,
+              order_number,
+              delivery_date,
+              client_id,
+              construction_site,
+              requires_invoice,
+              clients:clients(business_name)
+            )
+          `)
+          .gte('fecha', formattedStartDate)
+          .lte('fecha', formattedEndDate)
+          .order('fecha', { ascending: false });
+        
+        if (remisionesError) throw remisionesError;
+        
+        // Extract order IDs from remisiones
+        const orderIdsFromRemisiones = remisiones?.map(r => r.order_id).filter(Boolean) || [];
+        const uniqueOrderIds = Array.from(new Set(orderIdsFromRemisiones));
+        
+        if (uniqueOrderIds.length === 0) {
+          setSalesData([]);
+          setRemisionesData([]);
+          setLoading(false);
+          return;
+        }
+        
+        // 2. Fetch all relevant orders (even those without remisiones in the date range)
+        // This ensures we have orders for "vacío de olla" charges
         const { data: orders, error: ordersError } = await supabase
           .from('orders')
           .select(`
@@ -230,8 +264,7 @@ export default function VentasDashboard() {
             requires_invoice,
             clients:clients(business_name)
           `)
-          .gte('delivery_date', formattedStartDate)
-          .lte('delivery_date', formattedEndDate)
+          .in('id', uniqueOrderIds)
           .not('order_status', 'eq', 'cancelled');
         
         if (ordersError) throw ordersError;
@@ -264,7 +297,7 @@ export default function VentasDashboard() {
         uniqueClients.sort((a, b) => a.name.localeCompare(b.name));
         setClients(uniqueClients);
         
-        // 2. Fetch order items (products) for these orders
+        // 3. Fetch order items (products) for these orders
         const orderIds = orders.map(order => order.id);
         const { data: orderItems, error: itemsError } = await supabase
           .from('order_items')
@@ -273,24 +306,7 @@ export default function VentasDashboard() {
         
         if (itemsError) throw itemsError;
         
-        // 3. Fetch remisiones for these orders
-        const { data: remisiones, error: remisionesError } = await supabase
-          .from('remisiones')
-          .select(`
-            *,
-            recipe:recipes(recipe_code, strength_fc),
-            order:orders(
-              client_id,
-              order_number,
-              clients:clients(business_name)
-            )
-          `)
-          .in('order_id', orderIds)
-          .order('fecha', { ascending: false });
-        
-        if (remisionesError) throw remisionesError;
-        
-        // Extract unique values for filters
+        // Extract unique values for filters from remisiones
         const uniqueResistances = Array.from(new Set(remisiones?.map(r => r.recipe?.strength_fc?.toString()).filter(Boolean) as string[] || [])).sort();
         const uniqueTipos = Array.from(new Set(remisiones?.map(r => r.tipo_remision).filter(Boolean) as string[] || [])).sort();
         const uniqueProductCodes = Array.from(new Set(remisiones?.map(r => r.recipe?.recipe_code).filter(Boolean) as string[] || [])).sort();

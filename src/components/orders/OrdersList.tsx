@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import orderService from '@/services/orderService';
@@ -8,6 +8,8 @@ import { OrderWithClient, OrderStatus, CreditStatus } from '@/types/orders';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
+
+type AmountFilter = 'all' | 'final' | 'preliminary';
 
 interface OrdersListProps {
   filterStatus?: string;
@@ -220,17 +222,24 @@ export default function OrdersList({
   creditStatusFilter,
   clientFilter
 }: OrdersListProps) {
-  const [orders, setOrders] = useState<OrderWithClient[]>([]);
+  // Estados para los datos originales y los filtros
+  const [allOrders, setAllOrders] = useState<OrderWithClient[]>([]);
+  const [filteredOrders, setFilteredOrders] = useState<OrderWithClient[]>([]);
   const [groupedOrders, setGroupedOrders] = useState<GroupedOrders>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Estados para los filtros
   const [searchClient, setSearchClient] = useState(clientFilter || '');
+  const [amountFilter, setAmountFilter] = useState<AmountFilter>('all');
+  
   const router = useRouter();
   const { profile } = useAuth();
   
   // Check if user is a dosificador
   const isDosificador = profile?.role === 'DOSIFICADOR';
 
+  // Función para cargar los datos iniciales (se ejecuta solo cuando cambian los parámetros externos)
   const loadOrders = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -257,162 +266,206 @@ export default function OrdersList({
         );
       }
       
-      // Filtrar por cliente si existe un filtro
-      if (searchClient) {
-        data = data.filter((order: OrderWithClient) => {
-          const clientName = order.clients.business_name.toLowerCase();
-          const clientCode = order.clients.client_code?.toLowerCase() || '';
-          const searchTerm = searchClient.toLowerCase();
-          return clientName.includes(searchTerm) || clientCode.includes(searchTerm);
-        });
-      }
-      
-      setOrders(data);
-
-      // Preparar fechas de referencia
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      
-      const dayBeforeYesterday = new Date(today);
-      dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
-
-      const tomorrow = new Date(today);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      
-      // Objeto para agrupar las órdenes
-      const grouped: GroupedOrders = {};
-      
-      // Grupos prioritarios
-      const priorityGroups = {
-        'mañana': {
-          date: 'mañana',
-          formattedDate: 'MAÑANA',
-          orders: [] as OrderWithClient[],
-          isExpanded: true,
-          priority: 4
-        },
-        'hoy': {
-          date: 'hoy',
-          formattedDate: 'HOY',
-          orders: [] as OrderWithClient[],
-          isExpanded: true,
-          priority: 3
-        },
-        'ayer': {
-          date: 'ayer',
-          formattedDate: 'AYER',
-          orders: [] as OrderWithClient[],
-          isExpanded: true,
-          priority: 2
-        },
-        'anteayer': {
-          date: 'anteayer',
-          formattedDate: 'ANTEAYER',
-          orders: [] as OrderWithClient[],
-          isExpanded: true,
-          priority: 1
-        }
-      };
-
-      // Clasificar cada orden en su grupo correspondiente
-      data.forEach(order => {
-        if (!order.delivery_date) return;
-        
-        // Convertir formato YYYY-MM-DD a un objeto Date de manera segura
-        const parts = order.delivery_date.split('-');
-        if (parts.length !== 3) return; // Si no tiene el formato esperado, saltar
-        
-        const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1; // Los meses en JS van de 0-11
-        const day = parseInt(parts[2], 10);
-        
-        const orderDate = new Date(year, month, day);
-        orderDate.setHours(0, 0, 0, 0);
-        
-        // Determinar a qué grupo pertenece
-        if (orderDate.getTime() === yesterday.getTime()) {
-          priorityGroups['ayer'].orders.push(order);
-        } else if (orderDate.getTime() === dayBeforeYesterday.getTime()) {
-          priorityGroups['anteayer'].orders.push(order);
-        } else if (orderDate.getTime() === today.getTime()) {
-          priorityGroups['hoy'].orders.push(order);
-        } else if (orderDate.getTime() === tomorrow.getTime()) {
-          priorityGroups['mañana'].orders.push(order);
-        } else {
-          // Agrupar por fecha específica para el resto de órdenes
-          const dateKey = format(orderDate, 'yyyy-MM-dd');
-          const formattedDateString = format(orderDate, 'EEEE d MMMM', { locale: es });
-          const capitalizedDate = formattedDateString.charAt(0).toUpperCase() + formattedDateString.slice(1);
-          
-          if (!grouped[dateKey]) {
-            grouped[dateKey] = {
-              date: dateKey,
-              formattedDate: capitalizedDate,
-              orders: [],
-              isExpanded: false
-            };
-          }
-          
-          grouped[dateKey].orders.push(order);
-        }
-      });
-      
-      // Ordenar órdenes dentro de cada grupo por hora de entrega
-      Object.values(priorityGroups).forEach(group => {
-        group.orders.sort((a, b) => {
-          if (!a.delivery_time || !b.delivery_time) return 0;
-          return a.delivery_time.localeCompare(b.delivery_time);
-        });
-      });
-      
-      // Ordenar órdenes dentro de los grupos específicos por día
-      Object.values(grouped).forEach(group => {
-        group.orders.sort((a, b) => {
-          if (!a.delivery_time || !b.delivery_time) return 0;
-          return a.delivery_time.localeCompare(b.delivery_time);
-        });
-      });
-      
-      // Agregar solo los grupos prioritarios que tienen órdenes
-      Object.entries(priorityGroups).forEach(([key, group]) => {
-        if (group.orders.length > 0) {
-          grouped[key] = group;
-        }
-      });
-      
-      // Ordenar el objeto agrupado según prioridad
-      const orderedGroups = Object.entries(grouped)
-        .sort(([keyA, groupA], [keyB, groupB]) => {
-          // Primero por prioridad (si existe)
-          if (groupA.priority && groupB.priority) {
-            return groupA.priority - groupB.priority;
-          }
-          if (groupA.priority) return -1;
-          if (groupB.priority) return 1;
-          
-          // Luego por fecha para los grupos no prioritarios (orden descendente - más reciente primero)
-          return keyB.localeCompare(keyA);
-        })
-        .reduce((acc, [key, value]) => {
-          acc[key] = value;
-          return acc;
-        }, {} as GroupedOrders);
-      
-      setGroupedOrders(orderedGroups);
+      // Guardar los datos originales sin filtrar
+      setAllOrders(data);
     } catch (err) {
       console.error('Error loading orders:', err);
       setError('Error al cargar los pedidos. Por favor, intente nuevamente.');
     } finally {
       setLoading(false);
     }
-  }, [statusFilter, creditStatusFilter, filterStatus, isDosificador, searchClient]);
+  }, [statusFilter, creditStatusFilter, filterStatus, isDosificador]);
 
+  // Función para aplicar filtros a los datos
+  const applyFilters = useCallback(() => {
+    if (allOrders.length === 0) return;
+    
+    let result = [...allOrders];
+    
+    // Filtrar por cliente
+    if (searchClient) {
+      const searchTerm = searchClient.toLowerCase();
+      result = result.filter(order => {
+        const clientName = order.clients.business_name.toLowerCase();
+        const clientCode = order.clients.client_code?.toLowerCase() || '';
+        return clientName.includes(searchTerm) || clientCode.includes(searchTerm);
+      });
+    }
+    
+    // Filtrar por tipo de monto
+    if (amountFilter !== 'all') {
+      result = result.filter(order => {
+        const finalAmount = (order as any).final_amount;
+        const hasFinalAmount = finalAmount !== undefined && finalAmount !== null;
+        
+        if (amountFilter === 'final') {
+          return hasFinalAmount;
+        } else if (amountFilter === 'preliminary') {
+          return !hasFinalAmount;
+        }
+        return true;
+      });
+    }
+    
+    setFilteredOrders(result);
+  }, [allOrders, searchClient, amountFilter]);
+
+  // Función para agrupar las órdenes por fecha
+  const groupOrdersByDate = useCallback(() => {
+    if (filteredOrders.length === 0) {
+      setGroupedOrders({});
+      return;
+    }
+    
+    // Preparar fechas de referencia
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const dayBeforeYesterday = new Date(today);
+    dayBeforeYesterday.setDate(dayBeforeYesterday.getDate() - 2);
+
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    
+    // Objeto para agrupar las órdenes
+    const grouped: GroupedOrders = {};
+    
+    // Grupos prioritarios
+    const priorityGroups = {
+      'mañana': {
+        date: 'mañana',
+        formattedDate: 'Mañana',
+        orders: [] as OrderWithClient[],
+        isExpanded: true,
+        priority: 1
+      },
+      'hoy': {
+        date: 'hoy',
+        formattedDate: 'Hoy',
+        orders: [] as OrderWithClient[],
+        isExpanded: true,
+        priority: 2
+      },
+      'ayer': {
+        date: 'ayer',
+        formattedDate: 'Ayer',
+        orders: [] as OrderWithClient[],
+        isExpanded: true,
+        priority: 3
+      },
+      'anteayer': {
+        date: 'anteayer',
+        formattedDate: 'Anteayer',
+        orders: [] as OrderWithClient[],
+        isExpanded: true,
+        priority: 4
+      }
+    };
+
+    // Clasificar cada orden en su grupo correspondiente
+    filteredOrders.forEach(order => {
+      if (!order.delivery_date) return;
+      
+      // Convertir formato YYYY-MM-DD a un objeto Date de manera segura
+      const parts = order.delivery_date.split('-');
+      if (parts.length !== 3) return; // Si no tiene el formato esperado, saltar
+      
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1; // Los meses en JS van de 0-11
+      const day = parseInt(parts[2], 10);
+      
+      const orderDate = new Date(year, month, day);
+      orderDate.setHours(0, 0, 0, 0);
+      
+      // Determinar a qué grupo pertenece
+      if (orderDate.getTime() === yesterday.getTime()) {
+        priorityGroups['ayer'].orders.push(order);
+      } else if (orderDate.getTime() === dayBeforeYesterday.getTime()) {
+        priorityGroups['anteayer'].orders.push(order);
+      } else if (orderDate.getTime() === today.getTime()) {
+        priorityGroups['hoy'].orders.push(order);
+      } else if (orderDate.getTime() === tomorrow.getTime()) {
+        priorityGroups['mañana'].orders.push(order);
+      } else {
+        // Agrupar por fecha específica para el resto de órdenes
+        const dateKey = format(orderDate, 'yyyy-MM-dd');
+        const formattedDateString = format(orderDate, 'EEEE d MMMM', { locale: es });
+        const capitalizedDate = formattedDateString.charAt(0).toUpperCase() + formattedDateString.slice(1);
+        
+        if (!grouped[dateKey]) {
+          grouped[dateKey] = {
+            date: dateKey,
+            formattedDate: capitalizedDate,
+            orders: [],
+            isExpanded: false
+          };
+        }
+        
+        grouped[dateKey].orders.push(order);
+      }
+    });
+    
+    // Ordenar órdenes dentro de cada grupo por hora de entrega
+    Object.values(priorityGroups).forEach(group => {
+      group.orders.sort((a, b) => {
+        if (!a.delivery_time || !b.delivery_time) return 0;
+        return a.delivery_time.localeCompare(b.delivery_time);
+      });
+    });
+    
+    // Ordenar órdenes dentro de los grupos específicos por día
+    Object.values(grouped).forEach(group => {
+      group.orders.sort((a, b) => {
+        if (!a.delivery_time || !b.delivery_time) return 0;
+        return a.delivery_time.localeCompare(b.delivery_time);
+      });
+    });
+    
+    // Agregar solo los grupos prioritarios que tienen órdenes
+    Object.entries(priorityGroups).forEach(([key, group]) => {
+      if (group.orders.length > 0) {
+        grouped[key] = group;
+      }
+    });
+    
+    // Ordenar el objeto agrupado según prioridad
+    const orderedGroups = Object.entries(grouped)
+      .sort(([keyA, groupA], [keyB, groupB]) => {
+        // Primero por prioridad (si existe)
+        if (groupA.priority && groupB.priority) {
+          return groupA.priority - groupB.priority;
+        }
+        if (groupA.priority) return -1;
+        if (groupB.priority) return 1;
+        
+        // Luego por fecha para los grupos no prioritarios (orden descendente - más reciente primero)
+        return keyB.localeCompare(keyA);
+      })
+      .reduce((acc, [key, value]) => {
+        acc[key] = value;
+        return acc;
+      }, {} as GroupedOrders);
+    
+    setGroupedOrders(orderedGroups);
+  }, [filteredOrders]);
+
+  // Cargar datos iniciales cuando cambian los parámetros externos
   useEffect(() => {
     loadOrders();
   }, [loadOrders]);
+  
+  // Aplicar filtros cuando cambia cualquier filtro o los datos
+  useEffect(() => {
+    applyFilters();
+  }, [applyFilters, allOrders, searchClient, amountFilter]);
+  
+  // Agrupar los datos cuando cambian los datos filtrados
+  useEffect(() => {
+    groupOrdersByDate();
+  }, [groupOrdersByDate, filteredOrders]);
 
   // Actualizar el filtro de cliente cuando cambia el prop
   useEffect(() => {
@@ -421,6 +474,7 @@ export default function OrdersList({
     }
   }, [clientFilter]);
 
+  // Handlers de eventos
   function handleOrderClick(id: string) {
     if (onOrderClick) {
       onOrderClick(id);
@@ -430,9 +484,8 @@ export default function OrdersList({
   }
 
   function handleCreateOrderClick() {
-    // Llamar a la función onCreateOrder proporcionada por el padre
     if (onCreateOrder) {
-      onCreateOrder(''); // Pasamos una cadena vacía, el componente padre manejará esto
+      onCreateOrder('');
     }
   }
 
@@ -455,10 +508,15 @@ export default function OrdersList({
 
   function handleClientSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
-    loadOrders();
+    // No es necesario hacer nada aquí, ya que los filtros se aplican automáticamente
   }
 
-  if (loading && orders.length === 0) {
+  function handleAmountFilterChange(value: AmountFilter) {
+    setAmountFilter(value);
+  }
+
+  // Indicador de carga
+  if (loading && allOrders.length === 0) {
     return <div className="flex justify-center p-4">Cargando órdenes...</div>;
   }
 
@@ -486,8 +544,47 @@ export default function OrdersList({
       {/* Add DOSIFICADOR info message */}
       <DosificadorInfo />
       
-      {/* Filtro de cliente */}
+      {/* Filtros */}
       <div className="bg-white rounded-lg overflow-hidden shadow-sm p-4 border border-gray-200">
+        <div className="mb-4">
+          <h3 className="text-sm font-medium text-gray-700 mb-2">Filtrar por tipo de monto:</h3>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => handleAmountFilterChange('all')}
+              className={`px-3 py-1.5 text-sm rounded-md ${
+                amountFilter === 'all' 
+                  ? 'bg-blue-100 text-blue-800 border border-blue-300' 
+                  : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+              }`}
+            >
+              Todos
+            </button>
+            <button
+              type="button"
+              onClick={() => handleAmountFilterChange('final')}
+              className={`px-3 py-1.5 text-sm rounded-md ${
+                amountFilter === 'final' 
+                  ? 'bg-green-100 text-green-800 border border-green-300' 
+                  : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+              }`}
+            >
+              Con monto final
+            </button>
+            <button
+              type="button"
+              onClick={() => handleAmountFilterChange('preliminary')}
+              className={`px-3 py-1.5 text-sm rounded-md ${
+                amountFilter === 'preliminary' 
+                  ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
+                  : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
+              }`}
+            >
+              Solo preliminares
+            </button>
+          </div>
+        </div>
+        
         <form onSubmit={handleClientSearchSubmit} className="flex flex-wrap gap-2">
           <div className="flex-1 min-w-[200px]">
             <input
@@ -507,10 +604,7 @@ export default function OrdersList({
           {searchClient && (
             <button
               type="button"
-              onClick={() => {
-                setSearchClient('');
-                setTimeout(() => loadOrders(), 0);
-              }}
+              onClick={() => setSearchClient('')}
               className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
             >
               Limpiar
@@ -519,7 +613,20 @@ export default function OrdersList({
         </form>
       </div>
       
-      {orders.length === 0 ? (
+      {/* Contador de resultados con información de filtro */}
+      {!loading && (
+        <div className="text-sm text-gray-600 px-1">
+          {filteredOrders.length} {filteredOrders.length === 1 ? 'orden' : 'órdenes'} {
+            amountFilter === 'final' 
+              ? 'con monto final' 
+              : amountFilter === 'preliminary' 
+                ? 'con monto preliminar' 
+                : ''
+          } {searchClient ? `para "${searchClient}"` : ''}
+        </div>
+      )}
+      
+      {filteredOrders.length === 0 ? (
         <div className="text-center p-12 bg-gray-50 rounded-lg border border-gray-200">
           <div className="text-gray-400 mb-4">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -528,11 +635,15 @@ export default function OrdersList({
           </div>
           <h3 className="text-lg font-medium text-gray-900">No se encontraron pedidos</h3>
           <p className="mt-2 text-sm text-gray-500">
-            {searchClient ? 
-              `No hay pedidos para el cliente "${searchClient}".` :
-              filterStatus ? 
-                `No hay pedidos con el estado "${filterStatus}".` :
-                'No hay pedidos disponibles en este momento.'
+            {amountFilter !== 'all' ? 
+              amountFilter === 'final' ? 
+                'No hay pedidos con monto final registrado' : 
+                'No hay pedidos con sólo monto preliminar' :
+              searchClient ? 
+                `No hay pedidos para el cliente "${searchClient}".` :
+                filterStatus ? 
+                  `No hay pedidos con el estado "${filterStatus}".` :
+                  'No hay pedidos disponibles en este momento.'
             }
           </p>
           {!isDosificador && onCreateOrder && (
@@ -591,7 +702,7 @@ export default function OrdersList({
             );
           })}
           
-          {maxItems && Object.values(groupedOrders).reduce((total, group) => total + group.orders.length, 0) >= maxItems && (
+          {maxItems && filteredOrders.length >= maxItems && (
             <div className="text-center mt-4">
               <Link href="/orders">
                 <span className="inline-flex items-center text-blue-600 hover:text-blue-800 cursor-pointer">
