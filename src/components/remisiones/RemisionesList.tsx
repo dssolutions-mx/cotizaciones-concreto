@@ -198,6 +198,7 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedRemisionId, setExpandedRemisionId] = useState<string | null>(null);
+  const [expandedRecipes, setExpandedRecipes] = useState<Record<string, boolean>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [remisionToDelete, setRemisionToDelete] = useState<any | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -226,15 +227,20 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
           materiales:remision_materiales(*)
         `)
         .eq('order_id', orderId)
-        .order('fecha', { ascending: false });
+        .order('fecha', { ascending: true });
       
       if (error) throw error;
       
-      setRemisiones(data || []);
+      // Sort by remision_number in ascending order
+      const sortedData = [...(data || [])].sort((a, b) => {
+        return a.remision_number.localeCompare(b.remision_number, undefined, { numeric: true });
+      });
+      
+      setRemisiones(sortedData);
       
       // Call the callback if provided to notify parent component about the data
       if (onRemisionesLoaded) {
-        onRemisionesLoaded(data || []);
+        onRemisionesLoaded(sortedData || []);
       }
     } catch (err: any) {
       console.error('Error cargando remisiones:', err);
@@ -256,7 +262,17 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
   const totalConcreteVolume = concreteRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
   const totalPumpVolume = pumpRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
   
-  // Agrupar remisiones de concreto por receta
+  // Group concrete remisiones by recipe code for display
+  const recipeGroups = concreteRemisiones.reduce<Record<string, any[]>>((acc, remision) => {
+    const recipeCode = remision.recipe?.recipe_code || 'Sin receta';
+    if (!acc[recipeCode]) {
+      acc[recipeCode] = [];
+    }
+    acc[recipeCode].push(remision);
+    return acc;
+  }, {});
+  
+  // Agrupar remisiones de concreto por receta (for summary badges)
   const concreteByRecipe = concreteRemisiones.reduce<Record<string, { volume: number; count: number }>>((acc, remision) => {
     const recipeCode = remision.recipe?.recipe_code || 'Sin receta';
     if (!acc[recipeCode]) {
@@ -272,6 +288,13 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
 
   const toggleExpand = (remisionId: string) => {
     setExpandedRemisionId(prevId => (prevId === remisionId ? null : remisionId));
+  };
+  
+  const toggleRecipeExpand = (recipeCode: string) => {
+    setExpandedRecipes(prev => ({
+      ...prev,
+      [recipeCode]: !prev[recipeCode]
+    }));
   };
   
   const handleAdditionalProductUpdate = () => {
@@ -381,71 +404,88 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
           {concreteRemisiones.length > 0 && (
             <div className="mb-6">
               <h3 className="text-base font-medium mb-3">Remisiones de Concreto</h3>
-              <div className="overflow-x-auto border rounded-md">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>№ Remisión</TableHead>
-                      <TableHead>Fecha</TableHead>
-                      <TableHead>Conductor</TableHead>
-                      <TableHead>Unidad</TableHead>
-                      <TableHead>Receta</TableHead>
-                      <TableHead className="text-right">Volumen</TableHead>
-                      <TableHead className="text-right">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {concreteRemisiones.map((remision) => (
-                      <React.Fragment key={remision.id}>
-                        <TableRow onClick={() => toggleExpand(remision.id)} className="cursor-pointer hover:bg-gray-50">
-                          <TableCell>
-                            <button className="flex items-center text-blue-600 hover:text-blue-800">
-                              {expandedRemisionId === remision.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                              <span className="ml-1 font-medium">{remision.remision_number}</span>
-                            </button>
-                          </TableCell>
-                          <TableCell>
-                            {formatDateSafely(remision.fecha)}
-                          </TableCell>
-                          <TableCell>{remision.conductor || '-'}</TableCell>
-                          <TableCell>{remision.unidad || '-'}</TableCell>
-                          <TableCell>{remision.recipe?.recipe_code || 'N/A'}</TableCell>
-                          <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
-                          <TableCell className="text-right">
-                            <div onClick={(e) => e.stopPropagation()}>
-                              <RoleProtectedButton
-                                allowedRoles={'EXECUTIVE'}
-                                onClick={() => handleDeleteClick(remision)}
-                                className="p-1.5 rounded text-red-600 hover:bg-red-50"
-                                title="Eliminar remisión"
-                              >
-                                <Trash2 size={16} />
-                              </RoleProtectedButton>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                        {expandedRemisionId === remision.id && (
+              
+              {/* Recipe groups */}
+              {Object.entries(recipeGroups).map(([recipeCode, recipeRemisiones]) => (
+                <div key={recipeCode} className="mb-4">
+                  <div 
+                    onClick={() => toggleRecipeExpand(recipeCode)} 
+                    className="flex items-center bg-gray-100 p-3 rounded-t-md cursor-pointer border"
+                  >
+                    {expandedRecipes[recipeCode] ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                    <span className="ml-2 font-medium">{recipeCode}</span>
+                    <span className="ml-2 text-gray-600">
+                      ({recipeRemisiones.length} remisiones, {concreteByRecipe[recipeCode].volume.toFixed(2)} m³)
+                    </span>
+                  </div>
+                  
+                  {expandedRecipes[recipeCode] && (
+                    <div className="overflow-x-auto border border-t-0 rounded-b-md">
+                      <Table>
+                        <TableHeader>
                           <TableRow>
-                            <TableCell colSpan={7} className="p-0">
-                              <div className="p-4 bg-gray-50 border-t">
-                                <h4 className="text-sm font-semibold mb-3">Detalles y Productos Adicionales</h4>
-                                <RemisionProductosAdicionalesList 
-                                  remisionId={remision.id} 
-                                  onProductDelete={handleAdditionalProductUpdate} 
-                                />
-                                <RemisionProductoAdicionalForm 
-                                  remisionId={remision.id} 
-                                  onSuccess={handleAdditionalProductUpdate} 
-                                />
-                              </div>
-                            </TableCell>
+                            <TableHead>№ Remisión</TableHead>
+                            <TableHead>Fecha</TableHead>
+                            <TableHead>Conductor</TableHead>
+                            <TableHead>Unidad</TableHead>
+                            <TableHead className="text-right">Volumen</TableHead>
+                            <TableHead className="text-right">Acciones</TableHead>
                           </TableRow>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                        </TableHeader>
+                        <TableBody>
+                          {recipeRemisiones.map((remision) => (
+                            <React.Fragment key={remision.id}>
+                              <TableRow onClick={() => toggleExpand(remision.id)} className="cursor-pointer hover:bg-gray-50">
+                                <TableCell>
+                                  <button className="flex items-center text-blue-600 hover:text-blue-800">
+                                    {expandedRemisionId === remision.id ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                    <span className="ml-1 font-medium">{remision.remision_number}</span>
+                                  </button>
+                                </TableCell>
+                                <TableCell>
+                                  {formatDateSafely(remision.fecha)}
+                                </TableCell>
+                                <TableCell>{remision.conductor || '-'}</TableCell>
+                                <TableCell>{remision.unidad || '-'}</TableCell>
+                                <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                                <TableCell className="text-right">
+                                  <div onClick={(e) => e.stopPropagation()}>
+                                    <RoleProtectedButton
+                                      allowedRoles={'EXECUTIVE'}
+                                      onClick={() => handleDeleteClick(remision)}
+                                      className="p-1.5 rounded text-red-600 hover:bg-red-50"
+                                      title="Eliminar remisión"
+                                    >
+                                      <Trash2 size={16} />
+                                    </RoleProtectedButton>
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                              {expandedRemisionId === remision.id && (
+                                <TableRow>
+                                  <TableCell colSpan={6} className="p-0">
+                                    <div className="p-4 bg-gray-50 border-t">
+                                      <h4 className="text-sm font-semibold mb-3">Detalles y Productos Adicionales</h4>
+                                      <RemisionProductosAdicionalesList 
+                                        remisionId={remision.id} 
+                                        onProductDelete={handleAdditionalProductUpdate} 
+                                      />
+                                      <RemisionProductoAdicionalForm 
+                                        remisionId={remision.id} 
+                                        onSuccess={handleAdditionalProductUpdate} 
+                                      />
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </React.Fragment>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
           

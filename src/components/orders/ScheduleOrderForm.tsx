@@ -742,7 +742,7 @@ export default function ScheduleOrderForm({
                                 {isSelected && (
                                   <input 
                                     type="number"
-                                    min="0.1"
+                                    min="0"
                                     step="0.1"
                                     value={selectedProduct?.pumpVolume || 0}
                                     onChange={(e) => handlePumpVolumeChange(product.quoteDetailId, parseFloat(e.target.value))}

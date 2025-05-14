@@ -6,6 +6,8 @@ import { clientService } from '@/lib/supabase/clients';
 import { orderService } from '@/lib/supabase/orders';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import PaymentForm from '@/components/clients/PaymentForm';
+import BalanceAdjustmentModal from '@/components/clients/BalanceAdjustmentModal';
+import { BalanceAdjustmentHistory } from '@/components/clients/BalanceAdjustmentHistory';
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,6 +26,7 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { subMonths } from 'date-fns';
 // Import types from the new file
 import { Client, ConstructionSite as BaseConstructionSite, ClientPayment, ClientBalance } from '@/types/client';
@@ -962,6 +965,8 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   const [error, setError] = useState<string | null>(null);
   // Dialog state for payment form
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  // Dialog state for balance adjustment
+  const [isBalanceAdjustmentDialogOpen, setIsBalanceAdjustmentDialogOpen] = useState(false);
   // Order detail modal state
   const [isOrderDetailModalOpen, setIsOrderDetailModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -1032,6 +1037,16 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
     return formatDate(dateString, 'PP');
   };
 
+  // Handlers for balance adjustment
+  const handleBalanceAdjustmentOpen = () => {
+    setIsBalanceAdjustmentDialogOpen(true);
+  };
+
+  const handleBalanceAdjustmentComplete = () => {
+    setIsBalanceAdjustmentDialogOpen(false);
+    loadData(); // Refresh data after adjustment
+  };
+
   if (loading) {
     return <div className="p-4">Cargando detalles del cliente...</div>;
   }
@@ -1073,11 +1088,24 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
         </div>
 
         <div className="lg:col-span-2">
-           <ClientPaymentsList payments={payments} />
+          <Tabs defaultValue="payments" className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="payments">Pagos</TabsTrigger>
+              <TabsTrigger value="adjustments">Ajustes de Saldo</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="payments">
+              <ClientPaymentsList payments={payments} />
+            </TabsContent>
+            
+            <TabsContent value="adjustments">
+              <BalanceAdjustmentHistory clientId={clientId} />
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
 
-      {/* Payment registration button with Dialog */}
+      {/* Payment and Balance Adjustment buttons */}
       {balances.length > 0 && (
         <section className="mt-6">
           <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
@@ -1107,6 +1135,28 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
               />
             </DialogContent>
           </Dialog>
+          
+          {/* Balance Adjustment Button */}
+          <RoleProtectedButton
+            allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
+            onClick={handleBalanceAdjustmentOpen}
+            className="mt-4 ml-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
+          >
+            Ajustar Saldo
+          </RoleProtectedButton>
+          
+          {/* Balance Adjustment Modal */}
+          {client && (
+            <BalanceAdjustmentModal
+              isOpen={isBalanceAdjustmentDialogOpen}
+              onClose={() => setIsBalanceAdjustmentDialogOpen(false)}
+              clientId={clientId}
+              clientName={client.business_name}
+              clientBalance={currentTotalBalance}
+              clientSites={sites.map(site => ({ id: site.id, name: site.name }))}
+              onAdjustmentComplete={handleBalanceAdjustmentComplete}
+            />
+          )}
         </section>
       )}
 

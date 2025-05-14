@@ -2,7 +2,6 @@ import { supabase as browserClient } from './client';
 import { handleError } from '@/utils/errorHandler';
 import { clientService } from './clients'; // Import client service to get client data
 import { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '@/types/supabase';
 
 // Define a type for the client balance record with joined client data
 interface ClientBalanceWithClient {
@@ -35,6 +34,25 @@ interface BalanceDataResponse {
 interface ClientPayment {
   client_id: string;
   payment_date: string;
+}
+
+// Add interface for payment data
+interface PaymentData {
+  client_id: string;
+  amount: number;
+  payment_date: string;
+  payment_method: string;
+  reference_number?: string | null;
+  notes?: string | null;
+  construction_site?: string | null;
+}
+
+// Add interface for payment response
+interface PaymentResponse {
+  success: boolean;
+  message?: string;
+  data?: any;
+  error?: any;
 }
 
 // New interface for the dashboard data
@@ -94,7 +112,7 @@ export const financialService = {
   async getFinancialDashboardData(
     startDate: string, 
     endDate: string, 
-    client?: SupabaseClient<Database>,
+    client?: SupabaseClient<any>,
     useCache: boolean = true
   ): Promise<FinancialDashboardData> {
     try {
@@ -158,11 +176,73 @@ export const financialService = {
   },
 
   /**
+   * Register a new payment for a client and update their balance
+   * @param paymentData Payment data containing client ID, amount, and other details
+   * @param client Optional Supabase client instance
+   * @returns Object indicating success/failure with message
+   */
+  async registerPayment(paymentData: PaymentData, client?: SupabaseClient<any>): Promise<PaymentResponse> {
+    const supabase = client || browserClient;
+    try {
+      // Validate essential data
+      if (!paymentData.client_id) {
+        return { success: false, message: 'ID de cliente requerido' };
+      }
+      
+      if (!paymentData.amount || paymentData.amount <= 0) {
+        return { success: false, message: 'El monto del pago debe ser mayor que cero' };
+      }
+      
+      // Get user ID for audit
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { success: false, message: 'No se pudo determinar el usuario actual. Por favor, inicie sesión nuevamente.' };
+      }
+      
+      // Add the created_by field to payment data
+      const paymentWithMetadata = {
+        ...paymentData,
+        created_by: user.id,
+        construction_site: paymentData.construction_site || null
+      };
+      
+      // Insert the payment record
+      const { data: insertedPayment, error: insertError } = await supabase
+        .from('client_payments')
+        .insert(paymentWithMetadata)
+        .select()
+        .single();
+      
+      if (insertError) {
+        throw insertError;
+      }
+      
+      // Call RPC to update balance automatically
+      // This assumes balance update is handled by a trigger or separate function
+      // If you need to manually update the balance, you would do it here
+      
+      return {
+        success: true,
+        message: 'Pago registrado exitosamente',
+        data: insertedPayment
+      };
+    } catch (error) {
+      const errorMessage = handleError(error, 'registerPayment');
+      console.error('Error registering payment:', error);
+      return {
+        success: false,
+        message: errorMessage,
+        error
+      };
+    }
+  },
+
+  /**
    * Get the total outstanding balance across all clients
    * @param client Optional Supabase client instance (server or browser)
    * @returns The total outstanding balance
    */
-  async getTotalOutstandingBalance(client?: SupabaseClient<Database>) {
+  async getTotalOutstandingBalance(client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
       // Optimized query - select only what we need
@@ -191,7 +271,7 @@ export const financialService = {
    * @param client Optional Supabase client instance (server or browser)
    * @returns The total payment amount and count
    */
-  async getTotalPaymentsReceived(startDate: string, endDate?: string, client?: SupabaseClient<Database>) {
+  async getTotalPaymentsReceived(startDate: string, endDate?: string, client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
       // IMPORTANT: We must get all payments regardless of construction_site
@@ -228,7 +308,7 @@ export const financialService = {
    * @param client Optional Supabase client instance (server or browser)
    * @returns The count of pending credit orders
    */
-  async getPendingCreditOrdersCount(client?: SupabaseClient<Database>) {
+  async getPendingCreditOrdersCount(client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
       const { count, error } = await supabase
@@ -250,7 +330,7 @@ export const financialService = {
    * @param client Optional Supabase client instance (server or browser)
    * @returns Count of clients with balances > 0
    */
-  async getOverdueClientsCount(client?: SupabaseClient<Database>) {
+  async getOverdueClientsCount(client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
       // Optimized query
@@ -276,7 +356,7 @@ export const financialService = {
    * @param client Optional Supabase client instance (server or browser)
    * @returns An array of client balance data with extra information
    */
-  async getClientBalancesForTable(client?: SupabaseClient<Database>) {
+  async getClientBalancesForTable(client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
       // Fetch client balances with proper join syntax for clients table
@@ -352,7 +432,7 @@ export const financialService = {
    * Use getClientBalancesForTable() instead
    * @param client Optional Supabase client instance (server or browser)
    */
-  async getClientBalancesForTableAlternative(client?: SupabaseClient<Database>) {
+  async getClientBalancesForTableAlternative(client?: SupabaseClient<any>) {
     return this.getClientBalancesForTable(client);
   },
 
@@ -362,7 +442,7 @@ export const financialService = {
    * @param client Optional Supabase client instance (server or browser)
    * @returns The client's balance information
    */
-  async getClientBalance(clientId: string, client?: SupabaseClient<Database>) {
+  async getClientBalance(clientId: string, client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
       const { data, error } = await supabase
@@ -397,7 +477,7 @@ export const financialService = {
    * @param client Optional Supabase client instance (server or browser)
    * @returns An object containing general and site-specific balances
    */
-  async getAllClientBalances(clientId: string, client?: SupabaseClient<Database>) {
+  async getAllClientBalances(clientId: string, client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
       const { data, error } = await supabase
@@ -424,7 +504,7 @@ export const financialService = {
    * @param client Optional Supabase client instance (server or browser)
    * @returns Array of payment records
    */
-  async getClientPaymentHistory(clientId: string, limit?: number, client?: SupabaseClient<Database>) {
+  async getClientPaymentHistory(clientId: string, limit?: number, client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
       let query = supabase
@@ -450,7 +530,7 @@ export const financialService = {
    * For debugging - create test balance records if none exist
    * @param client Optional Supabase client instance (server or browser)
    */
-  async createTestBalanceRecords(client?: SupabaseClient<Database>) {
+  async createTestBalanceRecords(client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
       // First, check if there are any records

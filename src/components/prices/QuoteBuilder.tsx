@@ -1178,10 +1178,14 @@ export default function QuoteBuilder() {
                     <input 
                       type="number" 
                       value={product.basePrice} 
-                      readOnly
-                      className="w-full p-2 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed text-gray-600"
-                      title="El precio base se calcula automáticamente según la receta"
-                      disabled={true}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value);
+                        updateProductDetails(index, { 
+                          basePrice: isNaN(value) ? 0 : value 
+                        });
+                      }}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
+                      title="Edita el precio base para ajustar el precio final"
                     />
                   </div>
                   <div>

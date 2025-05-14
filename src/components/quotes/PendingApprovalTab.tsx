@@ -230,6 +230,7 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
             const { error } = await supabase
               .from('quote_details')
               .update({
+                base_price: detail.base_price,
                 final_price: detail.final_price,
                 profit_margin: detail.profit_margin * 100, // Convert to percentage
                 pump_service: detail.pump_service,
@@ -289,6 +290,7 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
             const { error } = await supabase
               .from('quote_details')
               .update({
+                base_price: detail.base_price,
                 final_price: detail.final_price,
                 profit_margin: detail.profit_margin * 100, // Convert to percentage
                 pump_service: detail.pump_service,
@@ -378,6 +380,40 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
     setEditingQuoteDetails(updatedDetails);
   };
 
+  // Function to update base price directly
+  const updateQuoteDetailBasePrice = (detailIndex: number, newBasePrice: number) => {
+    const updatedDetails = [...editingQuoteDetails];
+    const detail = updatedDetails[detailIndex];
+    
+    // Recalculate margin based on new base price and existing final price
+    const newMargin = detail.final_price / newBasePrice - 1;
+    
+    updatedDetails[detailIndex] = {
+      ...detail,
+      base_price: newBasePrice,
+      profit_margin: newMargin
+    };
+
+    setEditingQuoteDetails(updatedDetails);
+  };
+
+  // Function to update final price directly
+  const updateQuoteDetailFinalPrice = (detailIndex: number, newFinalPrice: number) => {
+    const updatedDetails = [...editingQuoteDetails];
+    const detail = updatedDetails[detailIndex];
+    
+    // Recalculate margin based on new final price and existing base price
+    const newMargin = newFinalPrice / detail.base_price - 1;
+    
+    updatedDetails[detailIndex] = {
+      ...detail,
+      final_price: newFinalPrice,
+      profit_margin: newMargin
+    };
+
+    setEditingQuoteDetails(updatedDetails);
+  };
+
   // Function to update pump service for the entire quote
   const updateQuotePumpService = (pumpService: boolean, pumpPrice: number | null = null) => {
     const updatedDetails = [...editingQuoteDetails].map(detail => ({
@@ -408,6 +444,7 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
         const { error } = await supabase
           .from('quote_details')
           .update({
+            base_price: detail.base_price,
             final_price: detail.final_price,
             profit_margin: detail.profit_margin * 100, // Convert to percentage
             pump_service: detail.pump_service,
@@ -748,7 +785,23 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
                               <td className="px-4 py-3">{detail.recipe?.placement_type || 'Sin tipo'}</td>
                               <td className="px-4 py-3">{detail.recipe?.strength_fc || 'N/A'} fc</td>
                               <td className="px-4 py-3">{detail.volume} m³</td>
-                              <td className="px-4 py-3">${detail.base_price.toFixed(2)}</td>
+                              <td className="px-4 py-3">
+                                <input 
+                                  type="number" 
+                                  value={detail.base_price.toFixed(2)}
+                                  onChange={(e) => {
+                                    if (e.target.value === '') {
+                                      updateQuoteDetailBasePrice(index, 0);
+                                      return;
+                                    }
+                                    const value = parseFloat(e.target.value);
+                                    if (!isNaN(value)) updateQuoteDetailBasePrice(index, value);
+                                  }}
+                                  placeholder="0.00"
+                                  step="0.01"
+                                  className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                />
+                              </td>
                               <td className="px-4 py-3">
                                 <input 
                                   type="number" 
