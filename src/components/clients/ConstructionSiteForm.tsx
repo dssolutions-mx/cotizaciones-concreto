@@ -20,7 +20,7 @@ const GoogleMapWrapper = dynamic(
 
 interface ConstructionSiteFormProps {
   clientId: string;
-  onSiteCreated: (siteId: string, siteName: string) => void;
+  onSiteCreated: (siteId: string, siteName: string, siteLocation?: string, siteLat?: number, siteLng?: number) => void;
   onCancel: () => void;
 }
 
@@ -357,18 +357,54 @@ export default function ConstructionSiteForm({
         console.error('Error from Supabase when creating site:', createError);
         if (createdSite) {
           toast.success('Obra creada exitosamente');
-          onSiteCreated(createdSite.id, siteData.name);
+          onSiteCreated(
+            createdSite.id, 
+            siteData.name, 
+            siteData.location, 
+            siteData.latitude || undefined, 
+            siteData.longitude || undefined
+          );
           return;
         }
         throw createError;
       }
       
       if (!createdSite) {
+        console.log('No createdSite data received but also no error. Attempting to verify creation...');
+        
+        // Try to retrieve the site that might have been created
+        try {
+          const recentSites = await clientService.getClientSites(clientId);
+          const newSite = recentSites.find(site => site.name === siteData.name);
+          
+          if (newSite) {
+            console.log('Site was found in database despite missing response data:', newSite);
+            toast.success('Obra creada exitosamente');
+            onSiteCreated(
+              newSite.id, 
+              siteData.name, 
+              newSite.location || siteData.location, 
+              newSite.latitude || siteData.latitude || undefined, 
+              newSite.longitude || siteData.longitude || undefined
+            );
+            return;
+          }
+        } catch (verifyError) {
+          console.error('Error verifying site creation:', verifyError);
+        }
+        
+        // If we still can't find the site, throw the original error
         throw new Error('No se recibieron datos de la obra creada');
       }
       
       toast.success('Obra creada exitosamente');
-      onSiteCreated(createdSite.id, siteData.name);
+      onSiteCreated(
+        createdSite.id, 
+        siteData.name, 
+        siteData.location, 
+        siteData.latitude || undefined, 
+        siteData.longitude || undefined
+      );
     } catch (err: any) {
       console.error('Error creating construction site:', err);
       setError(err.message || 'Error al crear la obra');
@@ -378,7 +414,13 @@ export default function ConstructionSiteForm({
         const possiblyCreatedSite = checkSites.find(site => site.name === siteData.name);
         if (possiblyCreatedSite) {
           toast.success('La obra parece haberse creado correctamente a pesar del error.');
-          onSiteCreated(possiblyCreatedSite.id, siteData.name);
+          onSiteCreated(
+            possiblyCreatedSite.id, 
+            siteData.name,
+            possiblyCreatedSite.location,
+            possiblyCreatedSite.latitude || undefined,
+            possiblyCreatedSite.longitude || undefined
+          );
         }
       } catch (checkError) {
         console.error('Error checking if site was created:', checkError);

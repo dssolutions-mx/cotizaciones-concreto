@@ -88,8 +88,8 @@ export default function QuoteBuilder() {
   const [selectedSite, setSelectedSite] = useState<string>('');
   const [constructionSite, setConstructionSite] = useState('');
   const [location, setLocation] = useState('');
-  const [validityDate, setValidityDate] = useState('');
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined);
+  const [validityDate, setValidityDate] = useState(format(new Date(2025, 7, 31), 'yyyy-MM-dd')); // Default date
+  const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date(2025, 7, 31)); // Default date
   const [isLoading, setIsLoading] = useState(false);
   const [expandedStrengths, setExpandedStrengths] = useState<number[]>([]);
   const [expandedTypes, setExpandedTypes] = useState<string[]>([]);
@@ -144,6 +144,7 @@ export default function QuoteBuilder() {
 
     // Debug Google Maps API Key
     console.log('Google Maps API Key set?', !!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY);
+    // Default date is now set in useState initialization
   }, []);
 
   // Load client history when client is selected
@@ -177,8 +178,8 @@ export default function QuoteBuilder() {
         setSelectedSite(draftData.selectedSite || '');
         setConstructionSite(draftData.constructionSite || '');
         setLocation(draftData.location || '');
-        setValidityDate(draftData.validityDate || '');
-        setSelectedDate(draftData.selectedDate ? new Date(draftData.selectedDate) : undefined);
+        setValidityDate(draftData.validityDate || format(new Date(2025, 7, 31), 'yyyy-MM-dd'));
+        setSelectedDate(draftData.selectedDate ? new Date(draftData.selectedDate) : new Date(2025, 7, 31));
         setIncludePumpService(draftData.includePumpService || false);
         setPumpServicePrice(draftData.pumpServicePrice || 0);
         setIncludesVAT(draftData.includesVAT || false);
@@ -532,29 +533,37 @@ export default function QuoteBuilder() {
   };
 
   // Handle new site creation
-  const handleSiteCreated = (siteId: string, siteName: string) => {
+  const handleSiteCreated = (siteId: string, siteName: string, siteLocation?: string, siteLat?: number, siteLng?: number) => {
     // Add the new site to the list with proper formatting
     setClientSites(prev => [
       ...prev,
       { 
         id: siteId, 
         name: siteName, 
-        latitude: siteCoordinates.lat, 
-        longitude: siteCoordinates.lng,
+        latitude: siteLat ?? null, 
+        longitude: siteLng ?? null,
         is_active: true, // Ensure the site is marked as active
-        location: location // Populate location field
+        location: siteLocation ?? '' // Populate location field, ensure it's a string
       }
     ]);
     
     // Select the newly created site
     setSelectedSite(siteId);
     setConstructionSite(siteName);
+    if (siteLocation) {
+      setLocation(siteLocation); // Auto-fill location
+    }
+    if (siteLat && siteLng) {
+      setSiteCoordinates({ lat: siteLat, lng: siteLng });
+    } else {
+      setSiteCoordinates({ lat: null, lng: null}); // Clear if not provided
+    }
     
     // Close the dialog
     setShowCreateSiteDialog(false);
     
     // Log successful creation
-    console.log('Site created successfully with ID:', siteId, 'and coordinates:', siteCoordinates);
+    console.log('Site created successfully with ID:', siteId, 'Name:', siteName, 'Location:', siteLocation, 'Coords:', { lat: siteLat, lng: siteLng });
   };
 
   // Handle map coordinates selection
@@ -860,7 +869,7 @@ export default function QuoteBuilder() {
 
           {selectedClient && (
             <div>
-              <label htmlFor="construction-site" className="block text-sm font-medium text-gray-700 mb-1">Obra</label>
+              <label htmlFor="construction-site-display" className="block text-sm font-medium text-gray-700 mb-1">Obra</label>
               <div className="flex space-x-2 items-center">
                 {clientSites.length > 0 ? (
                   <Select.Root
@@ -870,18 +879,20 @@ export default function QuoteBuilder() {
                       const site = clientSites.find(s => s.id === value);
                       if (site) {
                         setConstructionSite(site.name);
-                        setLocation(site.location);
+                        setLocation(site.location || ''); // Ensure location is set, fallback to empty string
                         if (site.latitude && site.longitude) {
                           setSiteCoordinates({
                             lat: site.latitude,
                             lng: site.longitude
                           });
+                        } else {
+                          setSiteCoordinates({ lat: null, lng: null });
                         }
                       }
                     }}
                   >
                     <Select.Trigger
-                      id="construction-site"
+                      id="construction-site-select" // Changed ID for clarity
                       className="w-full p-2.5 bg-white border border-gray-300 rounded-lg flex items-center justify-between text-sm shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 data-[placeholder]:text-gray-500"
                       aria-label="Obra"
                     >
@@ -916,14 +927,9 @@ export default function QuoteBuilder() {
                     </Select.Portal>
                   </Select.Root>
                 ) : (
-                  <input
-                    type="text"
-                    id="construction-site"
-                    value={constructionSite}
-                    onChange={(e) => setConstructionSite(e.target.value)}
-                    placeholder="Nombre de la obra"
-                    className="w-full p-2.5 bg-white border border-gray-300 rounded-lg text-sm shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                  />
+                  <div id="construction-site-display" className="w-full p-2.5 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700 shadow-sm min-h-[38px] flex items-center">
+                    {constructionSite || <span className="text-gray-500">No hay obras, cree una nueva.</span>}
+                  </div>
                 )}
                 
                 <button
@@ -952,7 +958,7 @@ export default function QuoteBuilder() {
               onChange={(e) => setLocation(e.target.value)}
               className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
               placeholder="Dirección o coordenadas"
-              disabled={isLoading}
+              disabled={isLoading || !!selectedSite} // Disable if a site is selected from dropdown or isLoading
             />
           </div>
 
@@ -1320,7 +1326,7 @@ export default function QuoteBuilder() {
               )}
               <ConstructionSiteForm
                 clientId={selectedClient}
-                onSiteCreated={handleSiteCreated}
+                onSiteCreated={(id: string, name: string, loc?: string, lat?: number, lng?: number) => handleSiteCreated(id, name, loc, lat, lng)}
                 onCancel={() => setShowCreateSiteDialog(false)}
               />
             </>

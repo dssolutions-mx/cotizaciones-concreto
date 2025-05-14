@@ -386,14 +386,95 @@ export default function VentasDashboard() {
     return filtered;
   }, [remisionesData, clientFilter, searchTerm, layoutType, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, salesData]);
   
+  // Create virtual remisiones entries for "vacío de olla" orders so they appear in the list
+  const filteredRemisionesWithVacioDeOlla = useMemo(() => {
+    // Start with the regular filtered remisiones
+    const combinedRemisiones = [...filteredRemisiones];
+    
+    // Get orders that match current filters
+    let filteredOrders = [...salesData];
+    
+    // Apply client filter to orders
+    if (clientFilter && clientFilter !== 'all') {
+      filteredOrders = filteredOrders.filter(order => order.client_id === clientFilter);
+    }
+    
+    // Create virtual remisiones for vacío de olla
+    filteredOrders.forEach(order => {
+      // Find vacío de olla items
+      const emptyTruckItem = order.items?.find(
+        (item: any) => 
+          item.product_type === 'VACÍO DE OLLA' ||
+          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
+          item.has_empty_truck_charge === true
+      );
+      
+      if (emptyTruckItem) {
+        // Create a virtual remision object for this vacío de olla item
+        const virtualRemision = {
+          id: `vacio-${order.id}-${emptyTruckItem.id}`, // Generate a unique ID
+          remision_number: `V-${order.order_number}`, // Prefix with V for Vacío
+          order_id: order.id,
+          fecha: order.delivery_date, // Use the order's delivery date
+          tipo_remision: 'VACÍO DE OLLA',
+          volumen_fabricado: parseFloat(emptyTruckItem.empty_truck_volume) || parseFloat(emptyTruckItem.volume) || 1,
+          recipe: { recipe_code: 'SER001' }, // Standard code for vacío de olla
+          order: {
+            client_id: order.client_id,
+            order_number: order.order_number,
+            clients: order.clients,
+            requires_invoice: order.requires_invoice
+          },
+          // Flag this as a virtual remision
+          isVirtualVacioDeOlla: true,
+          // Store the original order item for reference
+          originalOrderItem: emptyTruckItem
+        };
+        
+        // Apply search filter if needed
+        if (searchTerm) {
+          const term = searchTerm.toLowerCase();
+          const matchesSearch = 
+            virtualRemision.remision_number.toLowerCase().includes(term) ||
+            order.order_number.toLowerCase().includes(term) ||
+            (order.clientName && order.clientName.toLowerCase().includes(term)) ||
+            'VACÍO DE OLLA'.toLowerCase().includes(term) ||
+            'SER001'.includes(term);
+          
+          if (!matchesSearch) {
+            return; // Skip if doesn't match search
+          }
+        }
+        
+        // Apply tipo filter if needed in PowerBI layout
+        if (layoutType === 'powerbi' && tipoFilter && tipoFilter !== 'all' && tipoFilter !== 'VACÍO DE OLLA') {
+          return; // Skip if filtered by tipo and not matching
+        }
+        
+        // Apply efectivo/fiscal filter if needed in PowerBI layout
+        if (layoutType === 'powerbi' && efectivoFiscalFilter && efectivoFiscalFilter !== 'all') {
+          const requiresInvoice = efectivoFiscalFilter === 'fiscal';
+          if (order.requires_invoice !== requiresInvoice) {
+            return; // Skip if doesn't match efectivo/fiscal filter
+          }
+        }
+        
+        // Add the virtual remision to the combined list
+        combinedRemisiones.push(virtualRemision);
+      }
+    });
+    
+    return combinedRemisiones;
+  }, [filteredRemisiones, salesData, clientFilter, searchTerm, layoutType, tipoFilter, efectivoFiscalFilter]);
+  
   // Calculate summary metrics
   const summaryMetrics = useMemo(() => {
     // Initialize results
     const result = {
       concreteVolume: 0,
       pumpVolume: 0,
-      emptyTruckVolume: 0,
-      totalVolume: 0,
+      emptyTruckVolume: 0, // This will represent a count of "vacio de olla" services
+      totalVolume: 0, // This will be sum of m³ for concrete/pump + count for empty truck
       concreteAmount: 0,
       pumpAmount: 0,
       emptyTruckAmount: 0,
@@ -407,62 +488,124 @@ export default function VentasDashboard() {
       resistanceTooltip: ''
     };
     
-    // Calculate based on filtered remisiones
+    // Process remisiones (Concrete, Bombeo)
     filteredRemisiones.forEach(remision => {
       const volume = remision.volumen_fabricado || 0;
       let price = 0;
-      
-      // Get matching order item to find the price
-      const order = salesData.find(o => o.id === remision.order_id);
-      const orderItems = order?.items || [];
+      const orderForRemision = salesData.find(o => o.id === remision.order_id);
+      const orderItemsForRemision = orderForRemision?.items || [];
       const recipeCode = remision.recipe?.recipe_code;
-      
-      // Find the right order item based on product type - add type annotation
-      const orderItem = orderItems.find((item: any) => {
+
+      // Find the right order item for this remision, EXCLUDING "Vacío de Olla" types
+      const orderItemForRemision = orderItemsForRemision.find((item: any) => {
+        // Explicitly skip if this item looks like a "Vacío de Olla" charge
+        if (
+          item.product_type === 'VACÍO DE OLLA' ||
+          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
+          (recipeCode === 'SER001' && (item.product_type === recipeCode || item.has_empty_truck_charge)) || // If remision itself is SER001
+          item.has_empty_truck_charge === true
+        ) {
+          return false;
+        }
+        // Match pump service
         if (remision.tipo_remision === 'BOMBEO' && item.has_pump_service) {
           return true;
         }
-        return item.product_type === recipeCode || 
-          (item.recipe_id && item.recipe_id.toString() === recipeCode);
+        // Match concrete product by recipe code
+        if (remision.tipo_remision !== 'BOMBEO' && (item.product_type === recipeCode || (item.recipe_id && item.recipe_id.toString() === recipeCode))) {
+          return true;
+        }
+        return false;
       });
       
-      if (orderItem) {
+      if (orderItemForRemision) {
         if (remision.tipo_remision === 'BOMBEO') {
-          price = orderItem.pump_price || 0;
+          price = orderItemForRemision.pump_price || 0;
           result.pumpVolume += volume;
           result.pumpAmount += price * volume;
-        } else if (recipeCode === 'SER001' || orderItem.product_type === 'VACÍO DE OLLA') {
-          price = orderItem.unit_price || 0;
-          result.emptyTruckVolume += 1; // Count as units, not volume
-          result.emptyTruckAmount += price;
-        } else {
-          price = orderItem.unit_price || 0;
+        } else { // Assumed to be CONCRETO if not BOMBEO and not empty truck
+          price = orderItemForRemision.unit_price || 0;
           result.concreteVolume += volume;
           result.concreteAmount += price * volume;
         }
-        
-        // Track cash vs invoice amounts
-        const requiresInvoice = order?.requires_invoice || false;
-        if (requiresInvoice) {
-          result.invoiceAmount += price * (remision.tipo_remision === 'BOMBEO' ? volume : 
-            recipeCode === 'SER001' ? 1 : volume);
+
+        // Add to cash or invoice amount based on the order's requirement
+        if (orderForRemision?.requires_invoice) {
+          result.invoiceAmount += price * volume;
         } else {
-          result.cashAmount += price * (remision.tipo_remision === 'BOMBEO' ? volume : 
-            recipeCode === 'SER001' ? 1 : volume);
+          result.cashAmount += price * volume;
         }
       }
     });
     
-    // Calculate totals
+    // Process "Vacío de Olla" charges from filteredOrders that match current client filter
+    let filteredOrders = [...salesData];
+    
+    // Apply client filter to orders
+    if (clientFilter && clientFilter !== 'all') {
+      filteredOrders = filteredOrders.filter(order => order.client_id === clientFilter);
+    }
+    
+    // Now process vacío de olla items from filtered orders
+    filteredOrders.forEach(order => {
+      // Find the "Vacío de Olla" item in the order
+      const emptyTruckItem = order.items?.find(
+        (item: any) => 
+          item.product_type === 'VACÍO DE OLLA' ||
+          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
+          item.has_empty_truck_charge === true
+      );
+      
+      if (emptyTruckItem) {
+        // For "vacío de olla" items, use the values directly from the order_item
+        // First, get the volume - ensure we're handling numeric types correctly
+        const volumeAmount = 
+          parseFloat(emptyTruckItem.empty_truck_volume) || 
+          parseFloat(emptyTruckItem.volume) || 
+          1;
+        
+        // For the amount, prefer to use the pre-calculated total_price if available
+        let chargeAmount;
+        if (emptyTruckItem.total_price) {
+          // If total_price is available, use it directly (ensure it's a number)
+          chargeAmount = parseFloat(emptyTruckItem.total_price);
+          // In this case, we don't multiply by volume since total_price already includes that
+          result.emptyTruckAmount += chargeAmount;
+        } else {
+          // Otherwise calculate from unit_price * volume
+          const unitPrice = 
+            parseFloat(emptyTruckItem.unit_price) || 
+            parseFloat(emptyTruckItem.empty_truck_price) || 
+            0;
+          chargeAmount = unitPrice * volumeAmount;
+          result.emptyTruckAmount += chargeAmount;
+        }
+        
+        // Add the volume to the total regardless
+        result.emptyTruckVolume += volumeAmount;
+        
+        // Add to cash or invoice amount based on the order's requirement
+        if (order.requires_invoice) {
+          result.invoiceAmount += chargeAmount;
+        } else {
+          result.cashAmount += chargeAmount;
+        }
+      }
+    });
+    
+    // Part 3: Calculate totals
+    // totalVolume aggregates m³ and service counts. This might need clarification if "Total Volume" should only be m³.
+    // For now, including service counts in totalVolume as per previous structure.
     result.totalVolume = result.concreteVolume + result.pumpVolume + result.emptyTruckVolume;
     result.totalAmount = result.concreteAmount + result.pumpAmount + result.emptyTruckAmount;
     
-    // Calculate Weighted Prices
+    // Part 4: Calculate Weighted Prices
     result.weightedConcretePrice = result.concreteVolume > 0 ? result.concreteAmount / result.concreteVolume : 0;
     result.weightedPumpPrice = result.pumpVolume > 0 ? result.pumpAmount / result.pumpVolume : 0;
-    result.weightedEmptyTruckPrice = result.emptyTruckVolume > 0 ? result.emptyTruckAmount / result.emptyTruckVolume : 0; // Note: emptyTruckVolume is units
+    // Calculate weighted price per cubic meter for empty truck service
+    result.weightedEmptyTruckPrice = result.emptyTruckVolume > 0 ? result.emptyTruckAmount / result.emptyTruckVolume : 0;
 
-    // Placeholder for Weighted Resistance
+    // Part 5: Weighted Resistance (remains based on filteredRemisiones for concrete)
     let totalWeightedResistanceSum = 0;
     let totalConcreteVolumeForResistance = 0;
     const resistanceTooltipNotes: string[] = [];
@@ -475,12 +618,9 @@ export default function VentasDashboard() {
 
         if (typeof resistance === 'number' && volume > 0) {
           let adjustedResistance = resistance;
-          let isMR = false;
-          // TODO: Check for 'mr' note logic here. Assuming it might be in recipe_code or similar for now.
-          // Example placeholder: Check if recipe code contains 'MR'
+          // Check if recipe code contains 'MR'
           if (remision.recipe?.recipe_code?.toUpperCase().includes('MR')) {
              adjustedResistance = resistance / 0.13;
-             isMR = true;
              if (!resistanceTooltipNotes.includes(`Resistencias "MR" divididas por 0.13`)) {
                 resistanceTooltipNotes.push(`Resistencias "MR" divididas por 0.13`);
              }
@@ -495,14 +635,17 @@ export default function VentasDashboard() {
     result.weightedResistance = totalConcreteVolumeForResistance > 0
       ? totalWeightedResistanceSum / totalConcreteVolumeForResistance
       : 0;
-    result.resistanceTooltip = resistanceTooltipNotes.join('; '); // Store tooltip content
+    result.resistanceTooltip = resistanceTooltipNotes.join('; ');
 
     return result;
-  }, [filteredRemisiones, salesData]);
+  }, [filteredRemisiones, salesData, clientFilter]);
   
-  // Group remisiones by type
-  const concreteRemisiones = filteredRemisiones.filter(r => r.tipo_remision === 'CONCRETO');
-  const pumpRemisiones = filteredRemisiones.filter(r => r.tipo_remision === 'BOMBEO');
+  // Use the enhanced list with vacío de olla items in the remisiones tab
+  const concreteRemisiones = filteredRemisionesWithVacioDeOlla.filter(r => 
+    r.tipo_remision === 'CONCRETO' || 
+    (r.isVirtualVacioDeOlla && r.tipo_remision === 'VACÍO DE OLLA')
+  );
+  const pumpRemisiones = filteredRemisionesWithVacioDeOlla.filter(r => r.tipo_remision === 'BOMBEO');
   
   // Group concrete remisiones by recipe
   const concreteByRecipe = concreteRemisiones.reduce<Record<string, { volume: number; count: number }>>((acc, remision) => {
@@ -1193,9 +1336,9 @@ export default function VentasDashboard() {
                       </CardHeader>
                       <CardContent className="pt-0">
                         <div className="text-3xl font-bold mb-2">
-                          {summaryMetrics.emptyTruckVolume.toFixed(0)} 
+                          {summaryMetrics.emptyTruckVolume.toFixed(1)} 
                         </div>
-                        <p className="text-sm text-muted-foreground">Unidades</p>
+                        <p className="text-sm text-muted-foreground">Volumen (m³)</p>
                       </CardContent>
                       <CardFooter className="pt-0 border-t">
                         <div className="w-full">
@@ -1241,20 +1384,60 @@ export default function VentasDashboard() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {filteredRemisiones.length === 0 ? (
+                          {filteredRemisionesWithVacioDeOlla.length === 0 ? (
                             <TableRow>
                               <TableCell colSpan={9} className="text-center py-4">
                                 No se encontraron remisiones
                               </TableCell>
                             </TableRow>
                           ) : (
-                            filteredRemisiones.map((remision, index) => {
+                            filteredRemisionesWithVacioDeOlla.map((remision, index) => {
                               // Find the order for this remision
                               const order = salesData.find(o => o.id === remision.order_id);
+                              
+                              // Handle differently for virtual vacío de olla entries
+                              if (remision.isVirtualVacioDeOlla) {
+                                const orderItem = remision.originalOrderItem;
+                                const price = parseFloat(orderItem.unit_price) || parseFloat(orderItem.empty_truck_price) || 0;
+                                const volume = parseFloat(orderItem.empty_truck_volume) || parseFloat(orderItem.volume) || 1;
+                                const subtotal = parseFloat(orderItem.total_price) || (price * volume);
+                                
+                                // Format date from order delivery_date
+                                const date = order?.delivery_date ? 
+                                  new Date(order.delivery_date) : 
+                                  new Date();
+                                const formattedDate = isValid(date) ? 
+                                  format(date, 'dd/MM/yyyy', { locale: es }) : 
+                                  'Fecha inválida';
+                                
+                                return (
+                                  <TableRow key={`${remision.id}-${index}`} className="bg-amber-50/30">
+                                    <TableCell className="font-medium">
+                                      <div className="flex items-center">
+                                        <span>{remision.remision_number}</span>
+                                        {order?.requires_invoice ? 
+                                          <Badge variant="outline" className="ml-2 bg-blue-50 text-blue-700 hover:bg-blue-50">Fiscal</Badge> : 
+                                          <Badge variant="outline" className="ml-2 bg-green-50 text-green-700 hover:bg-green-50">Efectivo</Badge>
+                                        }
+                                      </div>
+                                    </TableCell>
+                                    <TableCell>{remision.tipo_remision}</TableCell>
+                                    <TableCell>{formattedDate}</TableCell>
+                                    <TableCell>{order?.clientName || remision.order?.clients?.business_name || 'N/A'}</TableCell>
+                                    <TableCell>SER001</TableCell>
+                                    <TableCell>VACIO DE OLLA</TableCell>
+                                    <TableCell className="text-right">{volume.toFixed(1)}</TableCell>
+                                    <TableCell className="text-right">${price.toFixed(2)}</TableCell>
+                                    <TableCell className="text-right">${subtotal.toFixed(2)}</TableCell>
+                                  </TableRow>
+                                );
+                              }
+                              
+                              // Original code for regular remisiones
                               const orderItems = order?.items || [];
                               const recipeCode = remision.recipe?.recipe_code;
                               
-                              // Find the right order item based on product type - add type annotation
+                              // Find the right order item based on product type
                               const orderItem = orderItems.find((item: any) => {
                                 if (remision.tipo_remision === 'BOMBEO' && item.has_pump_service) {
                                   return true;
@@ -1321,7 +1504,7 @@ export default function VentasDashboard() {
                               );
                             })
                           )}
-                          {filteredRemisiones.length > 0 && (
+                          {filteredRemisionesWithVacioDeOlla.length > 0 && (
                             <TableRow>
                               <TableCell colSpan={6} className="font-semibold text-right">
                                 Total
@@ -1666,7 +1849,7 @@ export default function VentasDashboard() {
                         <CardContent className='p-3 flex justify-between items-start'>
                             <div>
                                 <div className="text-2xl font-bold text-slate-800">
-                                     {summaryMetrics.emptyTruckVolume.toFixed(0)}
+                                     {summaryMetrics.emptyTruckVolume.toFixed(1)}
                                 </div>
                                 <p className="text-xs text-slate-500 font-medium">Volumen (m³)</p>
                             </div>
