@@ -46,15 +46,12 @@ export default function MuestreosPage() {
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   
-  // Filtros - initializing with a more flexible date range
-  const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: subMonths(new Date(), 1),
-    to: new Date()
-  });
+  // Filtros - sin fecha por defecto
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [searchQuery, setSearchQuery] = useState('');
   const [planta, setPlanta] = useState<string>('todas');
   const [clasificacion, setClasificacion] = useState<string>('todas');
-  const [tipoMuestreo, setTipoMuestreo] = useState<string>('todos');
+  const [estadoMuestreo, setEstadoMuestreo] = useState<string>('todos');
   
   // Opciones de ordenación
   const [sortBy, setSortBy] = useState<string>('fecha');
@@ -111,11 +108,23 @@ export default function MuestreosPage() {
       });
     }
     
-    // Filtrar por tipo de muestreo
-    if (tipoMuestreo && tipoMuestreo !== 'todos') {
-      // Since tipo_muestreo is not in the MuestreoWithRelations type, we'll comment this out
-      // filtered = filtered.filter(m => m.tipo_muestreo === tipoMuestreo);
-      // This property isn't available in the current schema, so we'll skip this filter
+    // Filtrar por estado del muestreo
+    if (estadoMuestreo && estadoMuestreo !== 'todos') {
+      filtered = filtered.filter(m => {
+        if (!m.muestras || m.muestras.length === 0) return false;
+        
+        switch (estadoMuestreo) {
+          case 'completado':
+            return m.muestras.every(muestra => muestra.estado === 'ENSAYADO');
+          case 'en-proceso':
+            return m.muestras.some(muestra => muestra.estado === 'ENSAYADO') && 
+                   !m.muestras.every(muestra => muestra.estado === 'ENSAYADO');
+          case 'pendiente':
+            return m.muestras.every(muestra => muestra.estado === 'PENDIENTE');
+          default:
+            return true;
+        }
+      });
     }
     
     // Ordenar resultados
@@ -150,7 +159,7 @@ export default function MuestreosPage() {
 
   useEffect(() => {
     applyFilters();
-  }, [searchQuery, planta, clasificacion, tipoMuestreo, sortBy, sortDirection]);
+  }, [searchQuery, planta, clasificacion, estadoMuestreo, sortBy, sortDirection]);
 
   const handleDateRangeChange = (range: DateRange | undefined) => {
     setDateRange(range);
@@ -173,7 +182,7 @@ export default function MuestreosPage() {
     setSearchQuery('');
     setPlanta('todas');
     setClasificacion('todas');
-    setTipoMuestreo('todos');
+    setEstadoMuestreo('todos');
     setDateRange(undefined);
   };
 
@@ -195,8 +204,12 @@ export default function MuestreosPage() {
   // Clasificaciones
   const clasificaciones = ['FC', 'MR'];
   
-  // Tipos de muestreo
-  const tiposMuestreo = ['CONTROL', 'VERIFICACION', 'INVESTIGACION'];
+  // Estados de muestreo
+  const estadosMuestreo = [
+    { id: 'completado', label: 'Completado' },
+    { id: 'en-proceso', label: 'En Proceso' },
+    { id: 'pendiente', label: 'Pendiente' }
+  ];
 
   if (!hasAccess) {
     return (
@@ -300,15 +313,15 @@ export default function MuestreosPage() {
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="tipo-muestreo">Tipo de Muestreo</Label>
-                <Select value={tipoMuestreo} onValueChange={setTipoMuestreo}>
+                <Label htmlFor="estado-muestreo">Estado</Label>
+                <Select value={estadoMuestreo} onValueChange={setEstadoMuestreo}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Todos los tipos" />
+                    <SelectValue placeholder="Todos los estados" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="todos">Todos los tipos</SelectItem>
-                    {tiposMuestreo.map(t => (
-                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    <SelectItem value="todos">Todos los estados</SelectItem>
+                    {estadosMuestreo.map(estado => (
+                      <SelectItem key={estado.id} value={estado.id}>{estado.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -399,12 +412,12 @@ export default function MuestreosPage() {
             <FileText className="h-12 w-12 text-gray-300 mb-2" />
             <h3 className="text-lg font-medium text-gray-900 mb-1">No se encontraron muestreos</h3>
             <p className="text-gray-500 mb-4">
-              {searchQuery || planta !== 'todas' || clasificacion !== 'todas' || tipoMuestreo !== 'todos'
+              {searchQuery || planta !== 'todas' || clasificacion !== 'todas' || estadoMuestreo !== 'todos' || dateRange
                 ? 'No hay muestreos que coincidan con los filtros seleccionados.'
-                : 'No hay muestreos registrados en el rango de fechas seleccionado.'}
+                : 'No hay muestreos registrados.'}
             </p>
             
-            {(searchQuery || planta !== 'todas' || clasificacion !== 'todas' || tipoMuestreo !== 'todos' || dateRange) && (
+            {(searchQuery || planta !== 'todas' || clasificacion !== 'todas' || estadoMuestreo !== 'todos' || dateRange) && (
               <Button variant="outline" onClick={clearFilters}>
                 Limpiar Todos los Filtros
               </Button>
