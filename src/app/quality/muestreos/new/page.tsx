@@ -44,7 +44,10 @@ import {
   StepsContent,
   StepsItem,
 } from "@/components/ui/steps";
-import { AlertTriangle, CalendarIcon, ChevronLeft, Loader2, Save, Truck, User, Package, Droplets, Upload } from 'lucide-react';
+import {
+  AlertTriangle, CalendarIcon, ChevronLeft, Loader2, Save, Truck, User, Package, Droplets,
+  Upload, Search, Filter, CalendarDays
+} from 'lucide-react';
 import RemisionesPicker from '@/components/quality/RemisionesPicker';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -56,6 +59,10 @@ import { getOrders } from '@/services/orderService';
 import { supabase } from '@/lib/supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { formatDate, createSafeDate } from '@/lib/utils';
+import { Badge } from "@/components/ui/badge";
+import { DatePickerWithRange } from "@/components/ui/date-range-picker";
+import { addDays, parseISO } from "date-fns";
+import { DateRange } from "react-day-picker";
 
 // Validation schema for the form
 const muestreoFormSchema = z.object({
@@ -84,6 +91,17 @@ const muestreoFormSchema = z.object({
 });
 
 type MuestreoFormValues = z.infer<typeof muestreoFormSchema>;
+
+// Helper function to adjust date for timezone issues
+const adjustDateForTimezone = (dateInput: string | Date) => {
+  if (!dateInput) return null;
+  
+  const date = typeof dateInput === 'string' ? new Date(dateInput) : dateInput;
+  
+  // Create a new date with timezone offset correction
+  const correctedDate = new Date(date.getTime() + date.getTimezoneOffset() * 60000);
+  return correctedDate;
+};
 
 export async function createMuestreoWithSamples(data: MuestreoFormValues & { created_by?: string }) {
   try {
@@ -385,13 +403,23 @@ export default function NuevoMuestreoPage() {
   const { profile } = useAuth();
   const [activeStep, setActiveStep] = useState(0);
   const [orders, setOrders] = useState<any[]>([]);
+  const [filteredOrders, setFilteredOrders] = useState<any[]>([]);
   const [remisiones, setRemisiones] = useState<any[]>([]);
+  const [filteredRemisiones, setFilteredRemisiones] = useState<any[]>([]);
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const [selectedRemision, setSelectedRemision] = useState<any>(null);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
   const [isLoadingRemisiones, setIsLoadingRemisiones] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // Search and filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [remisionSearchTerm, setRemisionSearchTerm] = useState('');
+  
+  // Add state for storing previous filter state
+  const [previousStep, setPreviousStep] = useState<number | null>(null);
   
   // Initialize form with default values
   const form = useForm<MuestreoFormValues>({
@@ -414,18 +442,28 @@ export default function NuevoMuestreoPage() {
     const loadOrders = async () => {
       setIsLoadingOrders(true);
       try {
-        // No usar fetchOrders con 'ACTIVE' que no existe
-        // Obtener todas las órdenes y filtrar manualmente
-        const data = await getOrders();
+        // Using a subquery to only include orders that have remisiones of type CONCRETO
+        const { data, error } = await supabase
+          .from('orders')
+          .select(`
+            *,
+            clients:client_id(business_name),
+            remisiones!inner(id, tipo_remision, remision_number)
+          `)
+          .in('order_status', ['created', 'validated', 'scheduled'])
+          .eq('remisiones.tipo_remision', 'CONCRETO')
+          .order('delivery_date', { ascending: false });
         
-        // Filtramos las órdenes con un estado válido (no completadas ni canceladas)
-        const filteredOrders = data?.filter(order => 
-          order.order_status !== 'cancelled' && 
-          order.order_status !== 'completed'
-        ) || [];
+        if (error) throw error;
         
-        console.log('Órdenes cargadas:', filteredOrders.length, filteredOrders.map(o => o.order_status));
-        setOrders(filteredOrders);
+        // Remove duplicate orders (an order may have multiple remisiones)
+        const uniqueOrders = Array.from(
+          new Map(data.map(order => [order.id, order])).values()
+        );
+        
+        console.log('Órdenes con remisiones cargadas:', uniqueOrders.length);
+        setOrders(uniqueOrders);
+        setFilteredOrders(uniqueOrders);
       } catch (error) {
         console.error('Error loading orders:', error);
       } finally {
@@ -435,6 +473,42 @@ export default function NuevoMuestreoPage() {
     
     loadOrders();
   }, []);
+
+  // Filter orders when search term or date range changes
+  useEffect(() => {
+    if (!orders.length) return;
+    
+    let result = [...orders];
+    
+    // Apply date filter with timezone adjustment
+    if (dateRange?.from && dateRange?.to) {
+      result = result.filter(order => {
+        if (!order.delivery_date) return false;
+        const orderDate = adjustDateForTimezone(order.delivery_date);
+        return orderDate && orderDate >= dateRange.from! && orderDate <= dateRange.to!;
+      });
+    }
+    
+    // Apply search filter with enhanced remision search
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      result = result.filter(order => {
+        // Check standard order fields
+        const orderMatches = (order.order_number && order.order_number.toString().includes(searchLower)) ||
+          (order.clients?.business_name && order.clients.business_name.toLowerCase().includes(searchLower)) ||
+          (order.construction_site && order.construction_site.toLowerCase().includes(searchLower));
+
+        // Check remisiones
+        const remisionMatches = order.remisiones && order.remisiones.some((remision: { remision_number?: string | number }) => 
+          remision.remision_number && remision.remision_number.toString().includes(searchLower)
+        );
+        
+        return orderMatches || remisionMatches;
+      });
+    }
+    
+    setFilteredOrders(result);
+  }, [orders, searchTerm, dateRange]);
 
   // Cargar remisiones cuando se selecciona una orden
   useEffect(() => {
@@ -467,8 +541,22 @@ export default function NuevoMuestreoPage() {
           construction_name: remision.orders?.construction_site || 'N/A'
         })) || [];
         
-        console.log('Remisiones cargadas:', remisionesWithClientInfo.length, remisionesWithClientInfo);
+        console.log('Remisiones cargadas:', remisionesWithClientInfo.length);
         setRemisiones(remisionesWithClientInfo);
+        
+        // Apply search term immediately if it exists
+        if (remisionSearchTerm) {
+          const searchLower = remisionSearchTerm.toLowerCase();
+          const filtered = remisionesWithClientInfo.filter(remision => 
+            (remision.remision_number && remision.remision_number.toString().includes(searchLower)) ||
+            (remision.client_name && remision.client_name.toLowerCase().includes(searchLower)) ||
+            (remision.construction_name && remision.construction_name.toLowerCase().includes(searchLower)) ||
+            (remision.recipe?.recipe_code && remision.recipe.recipe_code.toLowerCase().includes(searchLower))
+          );
+          setFilteredRemisiones(filtered);
+        } else {
+          setFilteredRemisiones(remisionesWithClientInfo);
+        }
       } catch (error) {
         console.error('Error loading remisiones:', error);
       } finally {
@@ -477,12 +565,47 @@ export default function NuevoMuestreoPage() {
     };
     
     loadRemisiones();
-  }, [selectedOrder]);
+  }, [selectedOrder, remisionSearchTerm]);
 
+  // Filter remisiones when search term changes
+  useEffect(() => {
+    if (!remisiones.length) return;
+    
+    if (!remisionSearchTerm) {
+      setFilteredRemisiones(remisiones);
+      return;
+    }
+    
+    const searchLower = remisionSearchTerm.toLowerCase();
+    const filtered = remisiones.filter(remision => 
+      (remision.remision_number && remision.remision_number.toString().includes(searchLower)) ||
+      (remision.client_name && remision.client_name.toLowerCase().includes(searchLower)) ||
+      (remision.construction_name && remision.construction_name.toLowerCase().includes(searchLower)) ||
+      (remision.recipe?.recipe_code && remision.recipe.recipe_code.toLowerCase().includes(searchLower))
+    );
+    
+    setFilteredRemisiones(filtered);
+  }, [remisiones, remisionSearchTerm]);
+
+  // Modify the active step change handling to preserve filters
+  const handleStepChange = (newStep: number) => {
+    // Store the previous step before changing
+    setPreviousStep(activeStep);
+    setActiveStep(newStep);
+  };
+
+  // Update the handleOrderSelected function to pass search term to remisiones
   const handleOrderSelected = (orderId: string) => {
     setSelectedOrder(orderId);
     setSelectedRemision(null);
-    setActiveStep(1); // Avanzar al siguiente paso
+    
+    // Pass the search term from order filter to remisiones filter if it exists
+    if (searchTerm) {
+      setRemisionSearchTerm(searchTerm);
+    }
+    
+    // Navigate to the next step
+    handleStepChange(1);
   };
 
   const handleRemisionSelected = (remision: any) => {
@@ -497,18 +620,81 @@ export default function NuevoMuestreoPage() {
         form.setValue('planta', remision.planta);
       }
       
-      setActiveStep(2); // Avanzar al siguiente paso
+      // Set the fecha_muestreo from the remision fecha
+      if (remision.fecha) {
+        // Parse the date string to a Date object for the form
+        // Use explicit year/month/day creation to avoid timezone issues
+        const [year, month, day] = remision.fecha.split('-').map((num: string) => parseInt(num, 10));
+        // Create date with local timezone (month is 0-indexed in JS Date)
+        const fechaDate = new Date(year, month - 1, day, 12, 0, 0);
+        form.setValue('fecha_muestreo', fechaDate);
+      }
+      
+      // Advance to the next step automatically
+      handleStepChange(2);
     }
   };
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setDateRange(undefined);
+    setFilteredOrders(orders);
+  };
+
+  const resetRemisionFilters = () => {
+    setRemisionSearchTerm('');
+    setFilteredRemisiones(remisiones);
+  };
+
+  // Group orders by delivery date - completely rewritten for clarity
+  const groupedOrders = React.useMemo(() => {
+    const groups: Record<string, any[]> = {};
+    
+    filteredOrders.forEach(order => {
+      if (!order.delivery_date) {
+        // Handle orders without delivery date
+        const key = 'Sin fecha de entrega';
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(order);
+        return;
+      }
+      
+      // Apply timezone correction to get the correct local date
+      const correctedDate = adjustDateForTimezone(order.delivery_date);
+      if (!correctedDate) return;
+      
+      // Format as YYYY-MM-DD for grouping key
+      const key = formatDate(correctedDate, 'yyyy-MM-dd');
+      
+      if (!groups[key]) {
+        groups[key] = [];
+      }
+      
+      groups[key].push(order);
+    });
+    
+    return groups;
+  }, [filteredOrders]);
 
   const onSubmit = async (data: MuestreoFormValues) => {
     try {
       setIsSubmitting(true);
       setSubmitError(null);
       
+      // Ensure we're using the remision date if available
+      let finalData = { ...data };
+      if (selectedRemision?.fecha) {
+        // Try to ensure date format consistency by creating a new Date from the fecha string
+        // Use explicit year/month/day creation to avoid timezone issues
+        const [year, month, day] = selectedRemision.fecha.split('-').map((num: string) => parseInt(num, 10));
+        // Create date with local timezone (month is 0-indexed in JS Date)
+        const remisionDate = new Date(year, month - 1, day, 12, 0, 0);
+        finalData.fecha_muestreo = remisionDate;
+      }
+      
       // Create muestreo and associated samples
       const muestreoId = await createMuestreoWithSamples({
-        ...data,
+        ...finalData,
         created_by: profile?.id,
       });
       
@@ -561,7 +747,7 @@ export default function NuevoMuestreoPage() {
         </p>
       </div>
       
-      <Steps value={activeStep} onChange={setActiveStep}>
+      <Steps value={activeStep} onChange={handleStepChange}>
         <StepsItem title="Seleccionar Orden" description="Elige la orden de concreto">
           <StepsContent className="py-4">
             <Card>
@@ -570,6 +756,65 @@ export default function NuevoMuestreoPage() {
                 <CardDescription>
                   Elige la orden para la que deseas crear el muestreo
                 </CardDescription>
+                
+                {/* Search and Filter UI */}
+                <div className="mt-4 space-y-4">
+                  <div className="flex flex-col md:flex-row gap-3">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+                      <Input
+                        type="text"
+                        placeholder="Buscar por cliente, obra, número de orden o remisión"
+                        className="pl-9"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    
+                    <div className="flex-shrink-0">
+                      <DatePickerWithRange
+                        value={dateRange}
+                        onChange={setDateRange}
+                        className="w-auto"
+                      />
+                    </div>
+                    
+                    <Button 
+                      variant="outline" 
+                      className="flex-shrink-0"
+                      onClick={resetFilters}
+                    >
+                      Limpiar filtros
+                    </Button>
+                  </div>
+                  
+                  {(searchTerm || dateRange?.from) && (
+                    <div className="flex flex-wrap gap-2">
+                      {searchTerm && (
+                        <Badge variant="outline" className="bg-gray-100">
+                          Búsqueda: {searchTerm}
+                          <button 
+                            className="ml-1 hover:text-destructive" 
+                            onClick={() => setSearchTerm('')}
+                          >
+                            ×
+                          </button>
+                        </Badge>
+                      )}
+                      {dateRange?.from && dateRange?.to && (
+                        <Badge variant="outline" className="bg-gray-100">
+                          Fecha: {formatDate(dateRange.from, 'dd/MM/yyyy')} - {formatDate(dateRange.to, 'dd/MM/yyyy')}
+                          <button 
+                            className="ml-1 hover:text-destructive" 
+                            onClick={() => setDateRange(undefined)}
+                          >
+                            ×
+                          </button>
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {isLoadingOrders ? (
@@ -577,60 +822,82 @@ export default function NuevoMuestreoPage() {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     <span className="ml-2">Cargando órdenes...</span>
                   </div>
-                ) : orders.length === 0 ? (
+                ) : filteredOrders.length === 0 ? (
                   <div className="text-center p-8 bg-gray-50 rounded-lg">
                     <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium mb-2">No hay órdenes disponibles</h3>
                     <p className="text-gray-500 max-w-md mx-auto">
-                      No se encontraron órdenes activas con remisiones disponibles.
+                      No se encontraron órdenes activas con los filtros seleccionados.
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {orders.map((order) => (
-                      <Card 
-                        key={order.id}
-                        className={cn(
-                          "cursor-pointer transition-all hover:border-primary",
-                          selectedOrder === order.id && "border-primary ring-2 ring-primary ring-opacity-50"
-                        )}
-                        onClick={() => handleOrderSelected(order.id)}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-center gap-3 mb-2">
-                            <div className="bg-primary-50 p-2 rounded-full">
-                              <Package className="h-5 w-5 text-primary" />
-                            </div>
-                            <div>
-                              <h4 className="font-semibold">{order.order_number || `Orden #${order.id.substring(0, 8)}`}</h4>
-                              <p className="text-sm text-gray-500">
-                                {formatDate(new Date(order.created_at), 'dd/MM/yyyy')}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="space-y-1 mt-3">
-                            <p className="text-sm"><span className="font-medium">Cliente:</span> {order.clients?.business_name || 'N/A'}</p>
-                            <p className="text-sm"><span className="font-medium">Obra:</span> {order.construction_site || 'N/A'}</p>
-                            <p className="text-sm"><span className="font-medium">Monto:</span> {new Intl.NumberFormat('es-MX', {
-                              style: 'currency',
-                              currency: 'MXN'
-                            }).format(order.total_amount || 0)}</p>
-                            <div className="mt-2">
-                              <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${
-                                order.order_status === 'validated' ? 'bg-green-500 text-white' :
-                                order.order_status === 'created' ? 'bg-blue-500 text-white' :
-                                order.order_status === 'scheduled' ? 'bg-purple-500 text-white' :
-                                'bg-gray-500 text-white'
-                              }`}>
-                                {order.order_status === 'validated' ? 'Validada' :
-                                 order.order_status === 'created' ? 'Creada' :
-                                 order.order_status === 'scheduled' ? 'Programada' : 
-                                 order.order_status}
-                              </span>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                  <div className="space-y-6">
+                    {Object.entries(groupedOrders).map(([date, ordersGroup]) => (
+                      <div key={date} className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <CalendarDays className="h-4 w-4 text-gray-500" />
+                          <h3 className="font-medium text-lg">
+                            {date === 'Sin fecha de entrega' ? date : 
+                              (() => {
+                                // Parse the date parts directly to avoid timezone issues
+                                const [year, month, day] = date.split('-').map(num => parseInt(num, 10));
+                                // Create date with explicit year, month (0-indexed), and day
+                                const headerDate = new Date(year, month - 1, day, 12, 0, 0);
+                                return format(headerDate, "EEEE d 'de' MMMM, yyyy", { locale: es });
+                              })()}
+                          </h3>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {ordersGroup.map((order) => (
+                            <Card 
+                              key={order.id}
+                              className={cn(
+                                "cursor-pointer transition-all hover:border-primary",
+                                selectedOrder === order.id && "border-primary ring-2 ring-primary ring-opacity-50"
+                              )}
+                              onClick={() => handleOrderSelected(order.id)}
+                            >
+                              <CardContent className="p-4">
+                                <div className="flex items-center gap-3 mb-2">
+                                  <div className="bg-primary-50 p-2 rounded-full">
+                                    <Package className="h-5 w-5 text-primary" />
+                                  </div>
+                                  <div>
+                                    <h4 className="font-semibold">{order.order_number || `Orden #${order.id.substring(0, 8)}`}</h4>
+                                    <p className="text-sm text-gray-500">
+                                      Entrega: {order.delivery_date 
+                                        ? formatDate(adjustDateForTimezone(order.delivery_date) || new Date(), 'dd/MM/yyyy') 
+                                        : 'Sin fecha'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="space-y-1 mt-3">
+                                  <p className="text-sm"><span className="font-medium">Cliente:</span> {order.clients?.business_name || 'N/A'}</p>
+                                  <p className="text-sm"><span className="font-medium">Obra:</span> {order.construction_site || 'N/A'}</p>
+                                  <p className="text-sm"><span className="font-medium">Monto:</span> {new Intl.NumberFormat('es-MX', {
+                                    style: 'currency',
+                                    currency: 'MXN'
+                                  }).format(order.total_amount || 0)}</p>
+                                  <div className="mt-2">
+                                    <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${
+                                      order.order_status === 'validated' ? 'bg-green-500 text-white' :
+                                      order.order_status === 'created' ? 'bg-blue-500 text-white' :
+                                      order.order_status === 'scheduled' ? 'bg-purple-500 text-white' :
+                                      'bg-gray-500 text-white'
+                                    }`}>
+                                      {order.order_status === 'validated' ? 'Validada' :
+                                       order.order_status === 'created' ? 'Creada' :
+                                       order.order_status === 'scheduled' ? 'Programada' : 
+                                       order.order_status}
+                                    </span>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -643,7 +910,7 @@ export default function NuevoMuestreoPage() {
                   Cancelar
                 </Button>
                 <Button 
-                  onClick={() => setActiveStep(1)}
+                  onClick={() => handleStepChange(1)}
                   disabled={!selectedOrder || isLoadingOrders}
                 >
                   Continuar
@@ -661,6 +928,30 @@ export default function NuevoMuestreoPage() {
                 <CardDescription>
                   Elige la remisión para la que deseas crear el muestreo
                 </CardDescription>
+                
+                {/* Remisiones Search UI */}
+                <div className="mt-4">
+                  <div className="flex gap-3">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-500" />
+                      <Input
+                        type="text"
+                        placeholder="Buscar por remisión, cliente o receta"
+                        className="pl-9"
+                        value={remisionSearchTerm}
+                        onChange={(e) => setRemisionSearchTerm(e.target.value)}
+                      />
+                    </div>
+                    
+                    <Button 
+                      variant="outline" 
+                      className="flex-shrink-0"
+                      onClick={resetRemisionFilters}
+                    >
+                      Limpiar
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 {isLoadingRemisiones ? (
@@ -668,17 +959,17 @@ export default function NuevoMuestreoPage() {
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
                     <span className="ml-2">Cargando remisiones...</span>
                   </div>
-                ) : remisiones.length === 0 ? (
+                ) : filteredRemisiones.length === 0 ? (
                   <div className="text-center p-8 bg-gray-50 rounded-lg">
                     <Truck className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium mb-2">No hay remisiones disponibles</h3>
                     <p className="text-gray-500 max-w-md mx-auto">
-                      No se encontraron remisiones disponibles para esta orden.
+                      No se encontraron remisiones disponibles para esta orden o con los filtros seleccionados.
                     </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {remisiones.map((remision) => (
+                    {filteredRemisiones.map((remision) => (
                       <Card 
                         key={remision.id}
                         className={cn(
@@ -695,7 +986,7 @@ export default function NuevoMuestreoPage() {
                             <div>
                               <h4 className="font-semibold">Remisión #{remision.remision_number}</h4>
                               <p className="text-sm text-gray-500">
-                                {formatDate(new Date(remision.fecha), 'dd/MM/yyyy')}
+                                {remision.fecha ? formatDate(adjustDateForTimezone(remision.fecha) || new Date(), 'dd/MM/yyyy') : 'Sin fecha'}
                               </p>
                             </div>
                           </div>
@@ -719,12 +1010,12 @@ export default function NuevoMuestreoPage() {
               <CardFooter className="justify-between">
                 <Button 
                   variant="outline" 
-                  onClick={() => setActiveStep(0)}
+                  onClick={() => handleStepChange(0)}
                 >
                   Atrás
                 </Button>
                 <Button 
-                  onClick={() => setActiveStep(2)}
+                  onClick={() => handleStepChange(2)}
                   disabled={!selectedRemision || isLoadingRemisiones}
                 >
                   Continuar
@@ -808,7 +1099,7 @@ export default function NuevoMuestreoPage() {
                       <div className="flex justify-center">
                         <Button 
                           variant="outline"
-                          onClick={() => setActiveStep(1)}
+                          onClick={() => handleStepChange(1)}
                           size="sm"
                         >
                           Cambiar Remisión
@@ -840,7 +1131,9 @@ export default function NuevoMuestreoPage() {
                             name="fecha_muestreo"
                             render={({ field }) => (
                               <FormItem className="flex flex-col">
-                                <FormLabel>Fecha de Muestreo</FormLabel>
+                                <FormLabel>
+                                  Fecha de Muestreo 
+                                </FormLabel>
                                 <Popover>
                                   <PopoverTrigger asChild>
                                     <FormControl>
@@ -848,7 +1141,8 @@ export default function NuevoMuestreoPage() {
                                         variant="outline"
                                         className={cn(
                                           "w-full pl-3 text-left font-normal",
-                                          !field.value && "text-muted-foreground"
+                                          !field.value && "text-muted-foreground",
+                                          selectedRemision?.fecha && "border-blue-300 bg-blue-50"
                                         )}
                                       >
                                         {field.value ? (
@@ -1082,7 +1376,7 @@ export default function NuevoMuestreoPage() {
                           <Button 
                             type="button" 
                             variant="outline"
-                            onClick={() => setActiveStep(1)}
+                            onClick={() => handleStepChange(1)}
                           >
                             Atrás
                           </Button>

@@ -113,6 +113,18 @@ export default function NuevoEnsayoPage() {
       const data = await fetchMuestraById(id);
       setMuestra(data);
       
+      // Set fecha_ensayo to fecha_programada_ensayo if available
+      if (data?.fecha_programada_ensayo) {
+        try {
+          const programmedDate = new Date(data.fecha_programada_ensayo);
+          if (!isNaN(programmedDate.getTime())) {
+            form.setValue('fecha_ensayo', programmedDate);
+          }
+        } catch (error) {
+          console.error('Error parsing fecha_programada_ensayo:', error);
+        }
+      }
+      
     } catch (err) {
       console.error('Error fetching muestra details:', err);
       setError('Error al cargar los detalles de la muestra');
@@ -128,27 +140,34 @@ export default function NuevoEnsayoPage() {
     
     // Calculate resistencia_calculada based on sample type and area
     if (muestra) {
-      let area = 0;
+      let resistencia = 0;
       
-      // Default to standard cylinder area (15 cm diameter)
+      // Calculate resistance based on specimen type
       if (muestra.tipo_muestra === 'CILINDRO') {
         // Area of a 15 cm diameter cylinder in cm²
-        area = Math.PI * 7.5 * 7.5;
+        const area = Math.PI * 7.5 * 7.5;
+        
+        // Default to standard compression test
+        const isMRTest = false; // MR test type not currently tracked in data model
+        
+        resistencia = value / area;
+        
+        // If it's an MR test through a cylinder, multiply by 0.13
+        if (isMRTest) {
+          resistencia = resistencia * 0.13;
+        }
       } else if (muestra.tipo_muestra === 'VIGA') {
-        // For beams, assume standard 15x15 cm cross section
-        area = 15 * 15;
+        // For beams, use the simplified formula: 45 * carga / 3375
+        resistencia = (45 * value) / 3375;
       }
       
-      if (area > 0) {
-        const resistencia = value / area;
-        form.setValue('resistencia_calculada', parseFloat(resistencia.toFixed(2)));
-        
-        // Calculate porcentaje_cumplimiento if we have recipe strength info
-        const targetStrength = muestra.muestreo?.remision?.recipe?.strength_fc || 0;
-        if (targetStrength > 0) {
-          const porcentaje = (resistencia / targetStrength) * 100;
-          form.setValue('porcentaje_cumplimiento', parseFloat(porcentaje.toFixed(2)));
-        }
+      form.setValue('resistencia_calculada', parseFloat(resistencia.toFixed(3)));
+      
+      // Calculate porcentaje_cumplimiento if we have recipe strength info
+      const targetStrength = muestra.muestreo?.remision?.recipe?.strength_fc || 0;
+      if (targetStrength > 0) {
+        const porcentaje = (resistencia / targetStrength) * 100;
+        form.setValue('porcentaje_cumplimiento', parseFloat(porcentaje.toFixed(2)));
       }
     }
   };
@@ -380,8 +399,24 @@ export default function NuevoEnsayoPage() {
                                 <Input 
                                   type="date" 
                                   {...field}
-                                  value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : ''}
-                                  onChange={(e) => field.onChange(new Date(e.target.value))}
+                                  value={field.value instanceof Date && !isNaN(field.value.getTime()) 
+                                    ? field.value.toISOString().split('T')[0] 
+                                    : ''}
+                                  onChange={(e) => {
+                                    try {
+                                      const date = new Date(e.target.value);
+                                      // Validate the date before setting it
+                                      if (!isNaN(date.getTime())) {
+                                        field.onChange(date);
+                                      } else {
+                                        console.warn("Invalid date entered:", e.target.value);
+                                        field.onChange(undefined);
+                                      }
+                                    } catch (error) {
+                                      console.error("Error parsing date:", error);
+                                      field.onChange(undefined);
+                                    }
+                                  }}
                                 />
                               </FormControl>
                               <FormMessage />
@@ -433,7 +468,7 @@ export default function NuevoEnsayoPage() {
                                 />
                               </FormControl>
                               <FormDescription>
-                                Calculada automáticamente
+                                
                               </FormDescription>
                               <FormMessage />
                             </FormItem>

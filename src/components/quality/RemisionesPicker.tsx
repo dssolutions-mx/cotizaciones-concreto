@@ -30,7 +30,7 @@ interface RemisionData {
 }
 
 interface RemisionesPickerProps {
-  onRemisionSelected: (remisionId: string) => void;
+  onRemisionSelected: (remision: RemisionData) => void;
 }
 
 export default function RemisionesPicker({ onRemisionSelected }: RemisionesPickerProps) {
@@ -105,10 +105,6 @@ export default function RemisionesPicker({ onRemisionSelected }: RemisionesPicke
     setSearchTerm(e.target.value);
   };
   
-  const handleRemisionClick = (remisionId: string) => {
-    onRemisionSelected(remisionId);
-  };
-  
   return (
     <Card className="w-full">
       <CardHeader>
@@ -151,7 +147,10 @@ export default function RemisionesPicker({ onRemisionSelected }: RemisionesPicke
             <div
               key={remision.id}
               className="border rounded-md p-3 hover:bg-gray-50 cursor-pointer transition-colors"
-              onClick={() => handleRemisionClick(remision.id)}
+              onClick={() => {
+                console.log('Selected remision with fecha:', remision.fecha);
+                onRemisionSelected(remision);
+              }}
             >
               <div className="flex justify-between">
                 <div className="font-medium">Remisión #{remision.remision_number}</div>

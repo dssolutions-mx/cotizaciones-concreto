@@ -44,6 +44,13 @@ export function EnsayoForm({
     porcentajeCumplimiento: 0
   });
 
+  // For debugging
+  useEffect(() => {
+    if (muestraData) {
+      console.log('Muestra data:', muestraData);
+    }
+  }, [muestraData]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
@@ -103,11 +110,49 @@ export function EnsayoForm({
   };
 
   const calculateAge = (dateString: string): number => {
-    const muestreoDate = new Date(muestraData?.muestreo_id || Date.now());
-    const testDate = new Date(dateString);
-    const diffTime = Math.abs(testDate.getTime() - muestreoDate.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
+    try {
+      if (!dateString) {
+        console.warn("Missing fecha_programada_ensayo in calculateAge");
+        return recipeData?.edad_garantia || 0;
+      }
+      
+      if (!muestraData) {
+        console.warn("Missing muestraData in calculateAge");
+        return recipeData?.edad_garantia || 0;
+      }
+      
+      // Use current date as fallback if we don't have muestreo data
+      const now = new Date();
+      
+      // Parse test date
+      const testDate = new Date(dateString);
+      if (isNaN(testDate.getTime())) {
+        console.warn("Invalid test date in calculateAge:", dateString);
+        return recipeData?.edad_garantia || 0;
+      }
+      
+      // For safety, validate the testDate is valid
+      const isValidDate = !isNaN(testDate.getTime());
+      if (!isValidDate) {
+        console.warn("Invalid date detected in calculateAge", { testDate, dateString });
+        return recipeData?.edad_garantia || 0;
+      }
+      
+      // Calculate difference in days between current date and test date
+      const diffTime = Math.abs(testDate.getTime() - now.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      console.log("Age calculation:", { 
+        testDate: testDate.toISOString(),
+        now: now.toISOString(),
+        diffDays
+      });
+      
+      return diffDays;
+    } catch (error) {
+      console.error("Error calculating age:", error);
+      return recipeData?.edad_garantia || 0;
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -135,15 +180,23 @@ export function EnsayoForm({
     setLoading(true);
     
     try {
+      // Create current date and validate it
+      const currentDate = new Date();
+      if (isNaN(currentDate.getTime())) {
+        throw new Error("Invalid date generated");
+      }
+      
       // Create test record
-      const ensayoData: Partial<Ensayo> = {
+      const ensayoData = {
         muestra_id: muestraId,
-        fecha_ensayo: new Date().toISOString(),
+        fecha_ensayo: currentDate.toISOString(),
         carga_kg: cargaKg,
         resistencia_calculada: calculatedValues.resistenciaCalculada,
         porcentaje_cumplimiento: calculatedValues.porcentajeCumplimiento,
         observaciones: formData.observaciones || undefined
       };
+      
+      console.log("Submitting ensayo data:", ensayoData);
       
       const ensayo = await createEnsayo(ensayoData);
       
@@ -204,7 +257,19 @@ export function EnsayoForm({
                 <div>
                   <span className="text-sm font-medium text-muted-foreground">Fecha programada:</span>
                   <p className="text-sm">
-                    {format(new Date(muestraData.fecha_programada_ensayo), 'dd/MM/yyyy')}
+                    {muestraData.fecha_programada_ensayo ? 
+                      (() => {
+                        try {
+                          const date = new Date(muestraData.fecha_programada_ensayo);
+                          return isNaN(date.getTime()) 
+                            ? 'Fecha inválida' 
+                            : format(date, 'dd/MM/yyyy');
+                        } catch (e) {
+                          console.error("Error formatting date:", e);
+                          return 'Error en fecha';
+                        }
+                      })() 
+                      : 'No disponible'}
                   </p>
                 </div>
                 <div>

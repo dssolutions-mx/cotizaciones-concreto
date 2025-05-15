@@ -46,15 +46,15 @@ export default function MuestreosPage() {
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   
-  // Filtros
-  const [dateRange, setDateRange] = useState<DateRange>({
+  // Filtros - initializing with a more flexible date range
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: subMonths(new Date(), 1),
     to: new Date()
   });
   const [searchQuery, setSearchQuery] = useState('');
-  const [planta, setPlanta] = useState<string>('');
-  const [clasificacion, setClasificacion] = useState<string>('');
-  const [tipoMuestreo, setTipoMuestreo] = useState<string>('');
+  const [planta, setPlanta] = useState<string>('todas');
+  const [clasificacion, setClasificacion] = useState<string>('todas');
+  const [tipoMuestreo, setTipoMuestreo] = useState<string>('todos');
   
   // Opciones de ordenación
   const [sortBy, setSortBy] = useState<string>('fecha');
@@ -67,8 +67,8 @@ export default function MuestreosPage() {
         setError(null);
         
         const data = await fetchMuestreos({
-          fechaDesde: dateRange.from,
-          fechaHasta: dateRange.to
+          fechaDesde: dateRange?.from,
+          fechaHasta: dateRange?.to
         });
         setMuestreos(data);
         applyFilters(data);
@@ -98,12 +98,12 @@ export default function MuestreosPage() {
     }
     
     // Filtrar por planta
-    if (planta) {
+    if (planta && planta !== 'todas') {
       filtered = filtered.filter(m => m.planta === planta);
     }
     
     // Filtrar por clasificación
-    if (clasificacion) {
+    if (clasificacion && clasificacion !== 'todas') {
       filtered = filtered.filter(m => {
         // Determinar clasificación basada en notas de receta
         const recipeNotes = m.remision?.recipe?.recipe_versions?.[0]?.notes || '';
@@ -112,7 +112,7 @@ export default function MuestreosPage() {
     }
     
     // Filtrar por tipo de muestreo
-    if (tipoMuestreo) {
+    if (tipoMuestreo && tipoMuestreo !== 'todos') {
       // Since tipo_muestreo is not in the MuestreoWithRelations type, we'll comment this out
       // filtered = filtered.filter(m => m.tipo_muestreo === tipoMuestreo);
       // This property isn't available in the current schema, so we'll skip this filter
@@ -153,9 +153,7 @@ export default function MuestreosPage() {
   }, [searchQuery, planta, clasificacion, tipoMuestreo, sortBy, sortDirection]);
 
   const handleDateRangeChange = (range: DateRange | undefined) => {
-    if (range?.from && range?.to) {
-      setDateRange(range);
-    }
+    setDateRange(range);
   };
 
   const handleRowClick = (id: string) => {
@@ -173,9 +171,10 @@ export default function MuestreosPage() {
 
   const clearFilters = () => {
     setSearchQuery('');
-    setPlanta('');
-    setClasificacion('');
-    setTipoMuestreo('');
+    setPlanta('todas');
+    setClasificacion('todas');
+    setTipoMuestreo('todos');
+    setDateRange(undefined);
   };
 
   const renderSortIcon = (field: string) => {
@@ -277,7 +276,7 @@ export default function MuestreosPage() {
                     <SelectValue placeholder="Todas las plantas" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todas las plantas</SelectItem>
+                    <SelectItem value="todas">Todas las plantas</SelectItem>
                     {plantas.map(p => (
                       <SelectItem key={p} value={p}>{p}</SelectItem>
                     ))}
@@ -292,7 +291,7 @@ export default function MuestreosPage() {
                     <SelectValue placeholder="Todas las clasificaciones" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todas las clasificaciones</SelectItem>
+                    <SelectItem value="todas">Todas las clasificaciones</SelectItem>
                     {clasificaciones.map(c => (
                       <SelectItem key={c} value={c}>{c}</SelectItem>
                     ))}
@@ -307,7 +306,7 @@ export default function MuestreosPage() {
                     <SelectValue placeholder="Todos los tipos" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Todos los tipos</SelectItem>
+                    <SelectItem value="todos">Todos los tipos</SelectItem>
                     {tiposMuestreo.map(t => (
                       <SelectItem key={t} value={t}>{t}</SelectItem>
                     ))}
@@ -400,14 +399,14 @@ export default function MuestreosPage() {
             <FileText className="h-12 w-12 text-gray-300 mb-2" />
             <h3 className="text-lg font-medium text-gray-900 mb-1">No se encontraron muestreos</h3>
             <p className="text-gray-500 mb-4">
-              {searchQuery || planta || clasificacion || tipoMuestreo
+              {searchQuery || planta !== 'todas' || clasificacion !== 'todas' || tipoMuestreo !== 'todos'
                 ? 'No hay muestreos que coincidan con los filtros seleccionados.'
                 : 'No hay muestreos registrados en el rango de fechas seleccionado.'}
             </p>
             
-            {(searchQuery || planta || clasificacion || tipoMuestreo) && (
+            {(searchQuery || planta !== 'todas' || clasificacion !== 'todas' || tipoMuestreo !== 'todos' || dateRange) && (
               <Button variant="outline" onClick={clearFilters}>
-                Limpiar Filtros
+                Limpiar Todos los Filtros
               </Button>
             )}
           </CardContent>
@@ -499,14 +498,10 @@ export default function MuestreosPage() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRowClick(muestreo.id as string);
-                      }}
-                    >
+                    <Button variant="ghost" size="icon" onClick={(e) => {
+                      e.stopPropagation();
+                      handleRowClick(muestreo.id as string);
+                    }}>
                       <ChevronRight className="h-4 w-4" />
                     </Button>
                   </TableCell>

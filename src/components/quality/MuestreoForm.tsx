@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,8 @@ interface MuestreoFormProps {
 
 interface RemisionData {
   id: string;
+  fecha: string;
+  remision_number: string;
   recipe: {
     recipe_code: string;
     recipe_versions?: Array<{
@@ -36,6 +38,7 @@ interface RecipeVersion {
 export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
   const { toast } = useToast();
   const [remisionId, setRemisionId] = useState<string | null>(null);
+  const [remisionDate, setRemisionDate] = useState<string | null>(null);
   const [recipeDetails, setRecipeDetails] = useState<{ code: string; clasificacion: 'FC' | 'MR'; edadGarantia: number } | null>(null);
   const [formData, setFormData] = useState({
     planta: 'P1' as 'P1' | 'P2' | 'P3' | 'P4',
@@ -47,6 +50,11 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
   });
   const [loading, setLoading] = useState(false);
   const [showRemisionPicker, setShowRemisionPicker] = useState(true);
+
+  // Add an effect to log when remisionDate changes
+  useEffect(() => {
+    console.log('remisionDate state updated:', remisionDate);
+  }, [remisionDate]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -63,8 +71,36 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
     }));
   };
 
-  const handleRemisionSelected = async (id: string) => {
-    setRemisionId(id);
+  const handleRemisionSelected = async (remision: any) => {
+    console.log('MuestreoForm - Selected remision object:', remision);
+    console.log('MuestreoForm - Fecha type and value:', typeof remision.fecha, remision.fecha);
+    console.log('MuestreoForm - All remision keys:', Object.keys(remision));
+    
+    // Store the remision ID
+    setRemisionId(remision.id);
+    
+    // Store the remision date from the received object
+    if (remision.fecha) {
+      console.log('Found remision fecha:', remision.fecha);
+      setRemisionDate(remision.fecha);
+    } else {
+      // Try to find the date field with a different name
+      const possibleDateField = remision.date || remision.created_at || remision.delivery_date;
+      console.log('No direct fecha field, checking alternatives:', { 
+        date: remision.date, 
+        created_at: remision.created_at,
+        delivery_date: remision.delivery_date
+      });
+      
+      if (possibleDateField) {
+        console.log('Using alternative date field:', possibleDateField);
+        setRemisionDate(possibleDateField);
+      } else {
+        console.log('No fecha field in remision object, using current date');
+        setRemisionDate(new Date().toISOString().split('T')[0]);
+      }
+    }
+    
     setLoading(true);
     
     try {
@@ -78,7 +114,7 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
             recipe_versions(*)
           )
         `)
-        .eq('id', id)
+        .eq('id', remision.id)
         .single();
         
       if (error) throw error;
@@ -107,6 +143,7 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
         variant: "destructive",
       });
       setRemisionId(null);
+      setRemisionDate(null);
     } finally {
       setLoading(false);
     }
@@ -133,9 +170,20 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
       return;
     }
     
+    if (!remisionDate) {
+      toast({
+        title: "Advertencia",
+        description: "No se encontró la fecha de la remisión, se usará la fecha actual",
+        variant: "default",
+      });
+    }
+    
     setLoading(true);
     
     try {
+      // Log the remision date before submission
+      console.log('Submitting with remision date:', remisionDate);
+      
       // Create muestreo record
       const muestreoData: Partial<Muestreo> = {
         remision_id: remisionId,
@@ -144,8 +192,10 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
         masa_unitaria: parseFloat(formData.masaUnitaria) || 0,
         temperatura_ambiente: parseFloat(formData.temperaturaAmbiente) || 0,
         temperatura_concreto: parseFloat(formData.temperaturaConcreto) || 0,
-        fecha_muestreo: new Date().toISOString().split('T')[0],
+        fecha_muestreo: remisionDate || new Date().toISOString().split('T')[0],
       };
+      
+      console.log('Final muestreo data being sent:', muestreoData);
       
       // Create the muestreo first
       const result = await createMuestreo(muestreoData);
@@ -191,6 +241,7 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
 
   const resetRemision = () => {
     setRemisionId(null);
+    setRemisionDate(null);
     setRecipeDetails(null);
     setShowRemisionPicker(true);
   };
@@ -297,6 +348,31 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
                   required
                 />
               </div>
+              
+              {remisionDate && (
+                <div className="space-y-2 col-span-2">
+                  <Label htmlFor="fechaMuestreo">Fecha de muestreo (de la remisión)</Label>
+                  <div className="p-3 border-2 border-blue-300 rounded-md bg-blue-50 text-blue-900 font-medium flex items-center justify-between">
+                    <span>{remisionDate}</span>
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        console.log('Manual date reset triggered');
+                        // Allow manual reset/change if needed for testing
+                        const newDate = prompt('Enter a date (YYYY-MM-DD):', remisionDate);
+                        if (newDate) {
+                          console.log('Manually changing date to:', newDate);
+                          setRemisionDate(newDate);
+                        }
+                      }}
+                    >
+                      Editar fecha
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
             
             {recipeDetails && (
@@ -323,6 +399,18 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
               <Button type="submit" disabled={loading}>
                 {loading ? 'Guardando...' : 'Guardar muestreo'}
               </Button>
+            </div>
+            
+            {/* Dev debugging section - remove in production */}
+            <div className="mt-4 p-4 border border-dashed border-gray-300 rounded bg-gray-50">
+              <details>
+                <summary className="cursor-pointer text-sm text-gray-500 font-medium">Debug info</summary>
+                <div className="mt-2 text-xs font-mono whitespace-pre overflow-x-auto">
+                  <p><strong>remisionId:</strong> {remisionId}</p>
+                  <p><strong>remisionDate:</strong> {remisionDate}</p>
+                  <p><strong>formData:</strong> {JSON.stringify(formData, null, 2)}</p>
+                </div>
+              </details>
             </div>
           </form>
         )}
