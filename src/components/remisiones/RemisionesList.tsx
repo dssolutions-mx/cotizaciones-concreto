@@ -151,7 +151,9 @@ export const formatRemisionesForAccounting = (
     const dateFormatted = formatDateString(remision.fecha);
     
     // Get product code from recipe code if available
-    const productCode = remision.recipe?.recipe_code || "PRODUCTO";
+    const productCode = remision.recipe?.recipe_code 
+      ? remision.recipe.recipe_code.replace(/-/g, '') 
+      : "PRODUCTO";
     
     // Get price for this product
     const productPrice = findProductPrice(productCode);

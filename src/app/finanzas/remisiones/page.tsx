@@ -10,7 +10,7 @@ import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-wi
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Check, Copy, FileDown, ChevronDown, ChevronRight } from 'lucide-react';
+import { Check, Copy, FileDown, ChevronDown, ChevronRight, Search, X } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { supabase } from '@/lib/supabase';
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +18,20 @@ import { Label } from "@/components/ui/label";
 import { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
 import { clientService } from '@/lib/supabase/clients';
 import { formatCurrency } from '@/lib/utils';
+import { 
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 // Helper function to safely format dates
 const formatDateSafely = (dateStr: string): string => {
@@ -32,7 +46,10 @@ const formatDateSafely = (dateStr: string): string => {
 
 export default function RemisionesPorCliente() {
   const [clients, setClients] = useState<any[]>([]);
+  const [filteredClients, setFilteredClients] = useState<any[]>([]);
+  const [clientsWithRemisiones, setClientsWithRemisiones] = useState<string[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [clientSearchTerm, setClientSearchTerm] = useState<string>('');
   const [selectedSite, setSelectedSite] = useState<string>('todos');
   const [clientSites, setClientSites] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<DateRange>({
@@ -41,6 +58,7 @@ export default function RemisionesPorCliente() {
   });
   const [remisiones, setRemisiones] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingClients, setLoadingClients] = useState(false);
   const [filteredRemisiones, setFilteredRemisiones] = useState<any[]>([]);
   const [expandedRemisionId, setExpandedRemisionId] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
@@ -48,20 +66,114 @@ export default function RemisionesPorCliente() {
   const [searchTerm, setSearchTerm] = useState('');
   const [totalVolume, setTotalVolume] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
+  const [clientComboboxOpen, setClientComboboxOpen] = useState(false);
   
-  // Load clients on component mount
-  useEffect(() => {
-    async function loadClients() {
-      try {
-        const clientsData = await clientService.getAllClients();
-        setClients(clientsData);
-      } catch (error) {
-        console.error('Error loading clients:', error);
+  // Load clients based on date range
+  const loadClientsWithRemisiones = useCallback(async () => {
+    if (!dateRange.from || !dateRange.to) return;
+    
+    setLoadingClients(true);
+    try {
+      // Format dates for Supabase query
+      const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
+      const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
+      
+      // First get all remisiones within the date range
+      const { data: remisionesInRange, error: remisionesError } = await supabase
+        .from('remisiones')
+        .select('order_id')
+        .gte('fecha', formattedStartDate)
+        .lte('fecha', formattedEndDate);
+      
+      if (remisionesError) throw remisionesError;
+      
+      if (!remisionesInRange || remisionesInRange.length === 0) {
+        setClientsWithRemisiones([]);
+        setFilteredClients([]);
+        setLoadingClients(false);
+        return;
       }
+      
+      // Get unique order IDs
+      const orderIds = Array.from(new Set(remisionesInRange.map(r => r.order_id)));
+      
+      // Get orders with those IDs to find client IDs
+      const { data: orders, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, client_id')
+        .in('id', orderIds);
+      
+      if (ordersError) throw ordersError;
+      
+      if (!orders || orders.length === 0) {
+        setClientsWithRemisiones([]);
+        setFilteredClients([]);
+        setLoadingClients(false);
+        return;
+      }
+      
+      // Get unique client IDs
+      const clientIds = Array.from(new Set(orders.map(order => order.client_id)));
+      setClientsWithRemisiones(clientIds);
+      
+      // Get client details for those IDs
+      const allClients = await clientService.getAllClients();
+      
+      // Filter to only clients with remisiones in the date range
+      const relevantClients = allClients.filter(client => 
+        clientIds.includes(client.id)
+      );
+      
+      setClients(allClients);
+      setFilteredClients(relevantClients);
+    } catch (error) {
+      console.error('Error loading clients with remisiones:', error);
+      setFilteredClients([]);
+    } finally {
+      setLoadingClients(false);
+    }
+  }, [dateRange]);
+  
+  // Load clients with remisiones when date range changes
+  useEffect(() => {
+    loadClientsWithRemisiones();
+  }, [loadClientsWithRemisiones]);
+  
+  // Filter clients based on search term
+  useEffect(() => {
+    if (!clientSearchTerm) {
+      // If no search term, show all clients with remisiones in date range
+      const relevantClients = clients.filter(client => 
+        clientsWithRemisiones.includes(client.id)
+      );
+      setFilteredClients(relevantClients);
+      return;
     }
     
-    loadClients();
-  }, []);
+    // Filter by search term within clients that have remisiones
+    const searchTerm = clientSearchTerm.toLowerCase().trim();
+    
+    const filtered = clients.filter(client => {
+      // Only include clients with remisiones
+      if (!clientsWithRemisiones.includes(client.id)) return false;
+      
+      // Get all searchable text fields from the client
+      const businessName = (client.business_name || '').toLowerCase();
+      const clientName = (client.name || '').toLowerCase();
+      const contactNames = client.contacts?.map((c: any) => (c.name || '').toLowerCase()) || [];
+      const contactEmails = client.contacts?.map((c: any) => (c.email || '').toLowerCase()) || [];
+      
+      // Simple contains match - this works better for Spanish names with prefixes
+      return (
+        businessName.includes(searchTerm) || 
+        clientName.includes(searchTerm) || 
+        contactNames.some((name: string) => name.includes(searchTerm)) || 
+        contactEmails.some((email: string) => email.includes(searchTerm))
+      );
+    });
+    
+    setFilteredClients(filtered);
+  }, [clients, clientSearchTerm, clientsWithRemisiones]);
   
   // Load client construction sites when a client is selected
   useEffect(() => {
@@ -222,9 +334,10 @@ export default function RemisionesPorCliente() {
   }, [selectedSite, searchTerm]);
   
   // Handle client change
-  const handleClientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedClientId(e.target.value);
+  const handleClientSelect = (clientId: string) => {
+    setSelectedClientId(clientId);
     setSelectedSite('todos');
+    setClientComboboxOpen(false);
   };
   
   // Handle site change
@@ -244,6 +357,19 @@ export default function RemisionesPorCliente() {
     }
   }, [fetchRemisiones, selectedClientId]);
   
+  // Handle date range change
+  const handleDateRangeChange = (range: DateRange | undefined) => {
+    if (range && range.from && range.to) {
+      setDateRange(range);
+      if (selectedClientId) {
+        // Clear selected client if date range changes
+        setSelectedClientId('');
+        setRemisiones([]);
+        setFilteredRemisiones([]);
+      }
+    }
+  };
+  
   // Toggle remision details expansion
   const toggleExpand = (remisionId: string) => {
     setExpandedRemisionId(expandedRemisionId === remisionId ? null : remisionId);
@@ -257,7 +383,9 @@ export default function RemisionesPorCliente() {
       // Get first remision to determine requirements
       const firstRemision = filteredRemisiones[0];
       const requiresInvoice = firstRemision.requires_invoice || false;
-      const constructionSite = selectedSite === 'todos' ? '' : selectedSite;
+      
+      // Always use construction site from remision's order, regardless of filter selection
+      const constructionSite = firstRemision.construction_site || '';
       
       // Check if any order has empty truck charge AND there are actual remisiones for that order
       // We only want to include empty truck if we have concrete remisiones for this
@@ -312,12 +440,8 @@ export default function RemisionesPorCliente() {
     return acc;
   }, {});
   
-  // Handle date range change
-  const handleDateRangeChange = (range: DateRange | undefined) => {
-    if (range && range.from && range.to) {
-      setDateRange(range);
-    }
-  };
+  // Get selected client display info
+  const selectedClient = clients.find(c => c.id === selectedClientId);
   
   return (
     <div className="container mx-auto p-6">
@@ -329,23 +453,109 @@ export default function RemisionesPorCliente() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            {/* Date Range Picker */}
+            <div className="flex flex-col">
+              <Label>Rango de Fechas</Label>
+              <DateRangePickerWithPresets 
+                dateRange={dateRange} 
+                onDateRangeChange={handleDateRangeChange}
+                className="mt-1"
+              />
+            </div>
+            
             {/* Client Selection */}
-            <div>
+            <div className="space-y-2">
               <Label htmlFor="client">Cliente</Label>
-              <select
-                id="client"
-                value={selectedClientId}
-                onChange={handleClientChange}
-                className="w-full p-2 border border-gray-300 rounded-md mt-1"
-              >
-                <option value="">Seleccionar Cliente</option>
-                {clients.map(client => (
-                  <option key={client.id} value={client.id}>
-                    {client.business_name}
-                  </option>
-                ))}
-              </select>
+              
+              <Popover open={clientComboboxOpen} onOpenChange={setClientComboboxOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={clientComboboxOpen}
+                    className="w-full justify-between"
+                    disabled={loadingClients}
+                  >
+                    {loadingClients ? (
+                      <span className="text-gray-400">Cargando clientes...</span>
+                    ) : selectedClient ? (
+                      <span className="truncate">{selectedClient.business_name}</span>
+                    ) : (
+                      <span className="text-gray-400">Seleccionar cliente con remisiones...</span>
+                    )}
+                    <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" style={{ width: "var(--radix-popover-trigger-width)" }}>
+                  <div className="relative">
+                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar cliente..."
+                      className="pl-8 h-9 rounded-none border-0 border-b focus-visible:ring-0"
+                      value={clientSearchTerm}
+                      onChange={(e) => setClientSearchTerm(e.target.value)}
+                    />
+                  </div>
+                  <Command>
+                    <CommandList className="max-h-64 overflow-auto py-2">
+                      <CommandEmpty>
+                        {loadingClients 
+                          ? "Cargando clientes..." 
+                          : "No se encontraron clientes"}
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {clients
+                          .filter(client => {
+                            // Filter out clients without remisiones
+                            if (!clientsWithRemisiones.includes(client.id)) return false;
+                            
+                            // If no search term, include all clients with remisiones
+                            if (!clientSearchTerm) return true;
+                            
+                            // Search logic - simple substring match on business name
+                            const search = clientSearchTerm.toLowerCase();
+                            const businessName = (client.business_name || '').toLowerCase();
+                            const clientName = (client.name || '').toLowerCase();
+                            
+                            return businessName.includes(search) || 
+                                   clientName.includes(search);
+                          })
+                          .map((client) => (
+                            <CommandItem
+                              key={client.id}
+                              value={client.id}
+                              onSelect={() => handleClientSelect(client.id)}
+                              className="cursor-pointer"
+                            >
+                              <div className="flex flex-col">
+                                <span>{client.business_name}</span>
+                                {client.name && client.name !== client.business_name && (
+                                  <span className="text-xs text-gray-500">{client.name}</span>
+                                )}
+                              </div>
+                            </CommandItem>
+                          ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              
+              {selectedClientId && (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="text-xs mt-1 h-auto p-0"
+                  onClick={() => {
+                    setSelectedClientId('');
+                    setRemisiones([]);
+                    setFilteredRemisiones([]);
+                  }}
+                >
+                  <X className="h-3 w-3 mr-1" /> Limpiar selección
+                </Button>
+              )}
             </div>
             
             {/* Site Selection */}
@@ -366,16 +576,6 @@ export default function RemisionesPorCliente() {
                 ))}
               </select>
             </div>
-            
-            {/* Date Range Picker */}
-            <div className="flex flex-col">
-              <Label>Rango de Fechas</Label>
-              <DateRangePickerWithPresets 
-                dateRange={dateRange} 
-                onDateRangeChange={handleDateRangeChange}
-                className="mt-1"
-              />
-            </div>
           </div>
           
           {/* Search and Action Bar */}
@@ -388,20 +588,9 @@ export default function RemisionesPorCliente() {
                 onChange={handleSearchChange}
                 className="pl-9"
               />
-              <svg
+              <Search
                 className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                />
-              </svg>
+              />
             </div>
             
             <div className="flex items-center gap-2 self-end">
