@@ -21,7 +21,7 @@ import {
   Save, 
   FileText, 
   Calculator, 
-  FileImage
+  FileSpreadsheet
 } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDate, createSafeDate } from '@/lib/utils';
@@ -45,6 +45,8 @@ import {
   FormMessage,
 } from '@/components/ui/form';
 import { Switch } from '@/components/ui/switch';
+import { SrFileViewer } from '@/components/quality/SrFileViewer';
+import { extractMaxForce } from '@/utils/sr3Parser';
 
 // Validation schema for the form
 const ensayoFormSchema = z.object({
@@ -59,7 +61,7 @@ const ensayoFormSchema = z.object({
     .min(0, 'La resistencia debe ser un número positivo'),
   porcentaje_cumplimiento: z.number()
     .min(0, 'El porcentaje debe ser un número positivo'),
-  tiene_evidencias: z.boolean().default(false),
+  tiene_evidencias: z.boolean(),
   observaciones: z.string().optional(),
 });
 
@@ -84,6 +86,7 @@ export default function NuevoEnsayoPage() {
   const form = useForm<EnsayoFormValues>({
     resolver: zodResolver(ensayoFormSchema),
     defaultValues: {
+      muestra_id: muestraId || '',
       fecha_ensayo: new Date(),
       carga_kg: 0,
       resistencia_calculada: 0,
@@ -176,6 +179,58 @@ export default function NuevoEnsayoPage() {
   const handleFilesSelected = (files: File[]) => {
     setSelectedFiles(files);
     form.setValue('tiene_evidencias', files.length > 0);
+    
+    // If we have files and they are .sr3 format
+    if (files.length > 0 && files[0].name.toLowerCase().endsWith('.sr3')) {
+      // Process the first SR3 file and extract data
+      processSr3FileData(files[0]);
+    }
+  };
+
+  // Process SR3 file to extract test data
+  const processSr3FileData = async (file: File) => {
+    try {
+      // First attempt to read as text
+      const reader = new FileReader();
+      let fileProcessed = false;
+      
+      reader.onload = async (event) => {
+        if (event.target?.result) {
+          try {
+            const content = event.target.result as string;
+            
+            // Use our utility to extract the maximum force
+            const maxForce = extractMaxForce(content);
+            
+            // Only update if we found a valid force
+            if (maxForce && maxForce > 0) {
+              // Update form with the extracted maximum force
+              form.setValue('carga_kg', maxForce);
+              
+              // Trigger the carga_kg change handler to calculate resistencia
+              handleCargaChange(maxForce);
+              fileProcessed = true;
+            } else if (!fileProcessed) {
+              // If we couldn't extract data as text, try as binary (if appropriate)
+              if (file.size > 0 && (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(content.substring(0, 1000)))) {
+                console.log('SR3 file appears to be binary, special processing may be required');
+              }
+            }
+          } catch (err) {
+            console.error('Error processing SR3 file content:', err);
+          }
+        }
+      };
+      
+      reader.onerror = (error) => {
+        console.error('Error reading SR3 file:', error);
+      };
+      
+      reader.readAsText(file);
+    } catch (error) {
+      console.error('Error processing SR3 file:', error);
+      // Don't show error to user, just log it
+    }
   };
 
   // Handle form submission
@@ -249,6 +304,7 @@ export default function NuevoEnsayoPage() {
             variant="outline" 
             onClick={() => router.push('/quality/ensayos')}
             className="mb-4"
+            type="button"
           >
             <ChevronLeft className="mr-2 h-4 w-4" />
             Volver a Ensayos
@@ -260,7 +316,7 @@ export default function NuevoEnsayoPage() {
             <AlertTriangle className="h-12 w-12 text-yellow-500 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Error</h3>
             <p className="text-gray-600 mb-4">{error}</p>
-            <Button onClick={() => router.push('/quality/ensayos')}>
+            <Button onClick={() => router.push('/quality/ensayos')} type="button">
               Volver a Ensayos Pendientes
             </Button>
           </CardContent>
@@ -276,6 +332,7 @@ export default function NuevoEnsayoPage() {
           variant="outline" 
           onClick={() => router.push('/quality/ensayos')}
           className="mb-4"
+          type="button"
         >
           <ChevronLeft className="mr-2 h-4 w-4" />
           Volver a Ensayos
@@ -387,7 +444,18 @@ export default function NuevoEnsayoPage() {
                   </div>
                 ) : (
                   <Form {...form}>
-                    <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                    <form 
+                      onSubmit={form.handleSubmit(onSubmit)} 
+                      className="space-y-6"
+                      onClick={(e) => {
+                        // Prevent clicks on the form from submitting it unless they're on the submit button
+                        if ((e.target as HTMLElement).tagName !== 'BUTTON' || 
+                            !(e.target as HTMLButtonElement).type || 
+                            (e.target as HTMLButtonElement).type !== 'submit') {
+                          e.stopPropagation();
+                        }
+                      }}
+                    >
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <FormField
                           control={form.control}
@@ -526,9 +594,9 @@ export default function NuevoEnsayoPage() {
                                 />
                               </FormControl>
                               <div className="space-y-0.5">
-                                <FormLabel>Incluir evidencia fotográfica</FormLabel>
+                                <FormLabel>Incluir archivos de la máquina de ensayo</FormLabel>
                                 <FormDescription>
-                                  Agrega fotos del espécimen ensayado
+                                  Agrega los archivos .sr3 generados por la máquina de ensayo
                                 </FormDescription>
                               </div>
                             </FormItem>
@@ -538,15 +606,25 @@ export default function NuevoEnsayoPage() {
                         {form.watch('tiene_evidencias') && (
                           <div className="border border-dashed rounded-md p-4">
                             <h3 className="text-sm font-medium flex items-center gap-2 mb-3">
-                              <FileImage className="h-4 w-4 text-blue-500" />
-                              Evidencia fotográfica
+                              <FileSpreadsheet className="h-4 w-4 text-blue-500" />
+                              Archivos de resultados de la máquina
                             </h3>
                             <FileUploader
-                              accept=".jpg,.jpeg,.png"
+                              accept=".sr3"
                               maxFiles={5}
-                              maxSize={5 * 1024 * 1024} // 5MB
+                              maxSize={10 * 1024 * 1024} // 10MB
                               onFilesSelected={handleFilesSelected}
                             />
+                            
+                            {selectedFiles.length > 0 && selectedFiles[0].name.toLowerCase().endsWith('.sr3') && (
+                              <div className="mt-4">
+                                <div className="mb-2 flex justify-between items-center">
+                                  <div className="text-sm text-gray-500">Vista previa de resultados</div>
+                                </div>
+                                
+                                <SrFileViewer file={selectedFiles[0]} />
+                              </div>
+                            )}
                           </div>
                         )}
                         
@@ -610,7 +688,7 @@ export default function NuevoEnsayoPage() {
             <FileText className="h-12 w-12 text-gray-300 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Muestra no encontrada</h3>
             <p className="text-gray-600 mb-4">No se encontró la muestra con el ID especificado.</p>
-            <Button onClick={() => router.push('/quality/ensayos')}>
+            <Button onClick={() => router.push('/quality/ensayos')} type="button">
               Volver a Ensayos Pendientes
             </Button>
           </CardContent>
