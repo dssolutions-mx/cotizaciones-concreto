@@ -60,10 +60,25 @@ const verifyJWT = async (token: string) => {
 };
 
 export async function GET(request: Request) {
+  console.log('[process] Processing credit action request');
+  
   try {
+    // Check if we have Supabase credentials
+    if (!supabaseUrl || !supabaseServiceKey) {
+      console.error('[process] Missing Supabase credentials:', { hasUrl: !!supabaseUrl, hasKey: !!supabaseServiceKey });
+      return NextResponse.json({ error: 'Configuration error - missing Supabase credentials' }, { status: 500 });
+    }
+    
+    if (!JWT_SECRET) {
+      console.error('[process] Missing JWT secret');
+      return NextResponse.json({ error: 'Configuration error - missing JWT secret' }, { status: 500 });
+    }
+    
     // Get the token from the URL
     const { searchParams } = new URL(request.url);
     const token = searchParams.get('token');
+    
+    console.log('[process] Received request with token:', token ? 'Present' : 'Missing');
 
     if (!token) {
       return NextResponse.json({ error: 'Token no proporcionado' }, { status: 400 });
@@ -72,15 +87,21 @@ export async function GET(request: Request) {
     // Verify the JWT
     const payload = await verifyJWT(token);
     if (!payload) {
+      console.error('[process] Invalid or expired token');
       return NextResponse.json({ error: 'Token inválido o expirado' }, { status: 401 });
     }
+    
+    console.log('[process] Token verified successfully');
 
     // Extract the data from the payload
     const { data } = payload;
     const { orderId, action, recipientEmail } = data;
+    
+    console.log('[process] Token data:', { orderId, action, recipientEmail });
 
     // Validate token structure
     if (!orderId || !action || !recipientEmail) {
+      console.error('[process] Invalid token format - missing required fields');
       return NextResponse.json({ error: 'Formato de token inválido' }, { status: 400 });
     }
 
@@ -95,9 +116,34 @@ export async function GET(request: Request) {
       .eq('recipient_email', recipientEmail)
       .single();
 
-    if (tokenError || !tokenRecord) {
+    // Initialize variable to store alternative tokens
+    let alternativeTokens = null;
+
+    if (tokenError) {
+      console.error('[process] Token database validation error:', tokenError);
+      
+      // Try a more permissive search if email format might be different
+      const { data: orderTokens, error: orderTokensError } = await supabase
+        .from('credit_action_tokens')
+        .select('*')
+        .eq('order_id', orderId);
+        
+      if (!orderTokensError && orderTokens && orderTokens.length > 0) {
+        console.log('[process] Found tokens for order with different email format');
+        // Store alternative tokens for later use
+        alternativeTokens = orderTokens;
+      } else {
+        console.error('[process] No tokens found for order:', orderTokensError);
+        return NextResponse.json({ error: 'Token no encontrado en la base de datos' }, { status: 404 });
+      }
+    }
+
+    if (!tokenRecord && (!alternativeTokens || alternativeTokens.length === 0)) {
+      console.error('[process] Token record not found');
       return NextResponse.json({ error: 'Token no encontrado en la base de datos' }, { status: 404 });
     }
+    
+    console.log('[process] Token record found in database');
 
     // Verify if this specific token is valid
     // Note: We should store JWT tokens in the database rather than our old tokens
@@ -106,6 +152,7 @@ export async function GET(request: Request) {
     const isRejectAction = action === 'reject';
 
     if (!isApproveAction && !isRejectAction) {
+      console.error('[process] Invalid action:', action);
       return NextResponse.json({ error: 'Acción inválida' }, { status: 401 });
     }
 
@@ -116,13 +163,22 @@ export async function GET(request: Request) {
       .eq('id', orderId)
       .single();
 
-    if (orderError || !order) {
+    if (orderError) {
+      console.error('[process] Order not found:', orderError);
       return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 });
     }
+    
+    if (!order) {
+      console.error('[process] Order data is null');
+      return NextResponse.json({ error: 'Orden no encontrada o datos incompletos' }, { status: 404 });
+    }
+    
+    console.log('[process] Order found with status:', order.credit_status);
 
     // Check if the order is in a valid state for action
     const validStates = ['PENDING', 'REJECTED_BY_VALIDATOR'];
     if (!validStates.includes(order.credit_status)) {
+      console.error('[process] Order not in valid state for action:', order.credit_status);
       return NextResponse.json({ 
         error: 'Esta orden ya no está pendiente de validación de crédito' 
       }, { status: 409 });
@@ -130,6 +186,8 @@ export async function GET(request: Request) {
 
     // Process the action
     if (isApproveAction) {
+      console.log('[process] Processing approve action');
+      
       // Approve credit
       const { error: updateError } = await supabase
         .from('orders')
@@ -140,8 +198,11 @@ export async function GET(request: Request) {
         .eq('id', orderId);
 
       if (updateError) {
+        console.error('[process] Error approving credit:', updateError);
         return NextResponse.json({ error: 'Error al aprobar el crédito' }, { status: 500 });
       }
+      
+      console.log('[process] Credit approved successfully');
 
       // Log the action
       await supabase.from('order_logs').insert({
@@ -150,18 +211,24 @@ export async function GET(request: Request) {
         performed_by: recipientEmail,
         action_method: 'EMAIL_TOKEN'
       });
+      
+      console.log('[process] Action logged');
 
       // Delete used tokens
       await supabase
         .from('credit_action_tokens')
         .delete()
         .eq('order_id', orderId);
+      
+      console.log('[process] Tokens deleted');
 
       // Redirect to success page
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/orders/${orderId}?action=approved`);
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=approved`);
     } 
     
     if (isRejectAction) {
+      console.log('[process] Processing reject action');
+      
       // If current status is PENDING, reject by validator
       const newStatus = order.credit_status === 'PENDING' 
         ? 'REJECTED_BY_VALIDATOR' 
@@ -170,6 +237,8 @@ export async function GET(request: Request) {
       const rejectionReason = order.credit_status === 'PENDING'
         ? 'Rechazado por validador mediante enlace de email'
         : 'Rechazado definitivamente por gerencia mediante enlace de email';
+      
+      console.log('[process] Setting new status:', newStatus);
 
       // Reject credit
       const { error: updateError } = await supabase
@@ -182,8 +251,11 @@ export async function GET(request: Request) {
         .eq('id', orderId);
 
       if (updateError) {
+        console.error('[process] Error rejecting credit:', updateError);
         return NextResponse.json({ error: 'Error al rechazar el crédito' }, { status: 500 });
       }
+      
+      console.log('[process] Credit rejection processed successfully');
 
       // Log the action
       await supabase.from('order_logs').insert({
@@ -192,9 +264,13 @@ export async function GET(request: Request) {
         performed_by: recipientEmail,
         action_method: 'EMAIL_TOKEN'
       });
+      
+      console.log('[process] Action logged');
 
       // If this is a rejection by validator, trigger notification to managers
       if (newStatus === 'REJECTED_BY_VALIDATOR') {
+        console.log('[process] Sending notification to managers');
+        
         // Call Edge Function to send notification to managers
         const { error: notificationError } = await supabase.functions.invoke('credit-validation-notification', {
           body: { 
@@ -204,7 +280,9 @@ export async function GET(request: Request) {
         });
 
         if (notificationError) {
-          console.error('Error sending notification:', notificationError);
+          console.error('[process] Error sending notification:', notificationError);
+        } else {
+          console.log('[process] Notification sent successfully');
         }
       }
 
@@ -213,15 +291,39 @@ export async function GET(request: Request) {
         .from('credit_action_tokens')
         .delete()
         .eq('order_id', orderId);
+      
+      console.log('[process] Tokens deleted');
 
       // Redirect to success page
-      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL}/orders/${orderId}?action=rejected`);
+      return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=rejected`);
     }
 
     // Should never reach here
+    console.error('[process] Unexpected flow - reached end without processing action');
     return NextResponse.json({ error: 'Error inesperado' }, { status: 500 });
   } catch (error) {
-    console.error('Error processing credit action:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
+    console.error('[process] Error processing credit action:', error);
+    
+    // Try to extract orderId for redirection
+    let orderId = 'error';
+    try {
+      const { searchParams } = new URL(request.url);
+      const token = searchParams.get('token');
+      
+      if (token) {
+        const parts = token.split('.');
+        if (parts.length === 3) {
+          const payloadString = Buffer.from(parts[1], 'base64').toString();
+          const payload = JSON.parse(payloadString);
+          if (payload.data && payload.data.orderId) {
+            orderId = payload.data.orderId;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[process] Error extracting orderId from token:', e);
+    }
+    
+    return NextResponse.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app'}/orders/${orderId}?action=error&reason=server_error`);
   }
 } 
