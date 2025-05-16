@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { CheckCircle2, AlertCircle, XCircle } from 'lucide-react';
@@ -54,7 +55,9 @@ function ActionMessage() {
 
 // Main component that renders both the ActionMessage and OrderDetailClient
 export default function OrderDetails({ params }: { params: { id: string } }) {
-  const { id } = params;
+  // Use React.use() to unwrap the params object
+  const unwrappedParams = React.use(params);
+  const { id } = unwrappedParams;
   
   return (
     <div className="container mx-auto py-6">
