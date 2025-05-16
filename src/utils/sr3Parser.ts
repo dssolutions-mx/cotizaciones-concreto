@@ -28,18 +28,8 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
   try {
     // Check if file is empty or not a string
     if (!fileContent || typeof fileContent !== 'string') {
+      console.error('[SR3Parser] Empty or invalid file content');
       throw new Error('Archivo vacío o inválido');
-    }
-
-    // First try to get MAX LOAD directly from header
-    const maxLoadMatch = /MAX LOAD:\s*([\d\.]+)\s*tf/i.exec(fileContent);
-    let declaredMaxForce = 0;
-    
-    if (maxLoadMatch && maxLoadMatch[1]) {
-      declaredMaxForce = parseFloat(maxLoadMatch[1]) * 1000; // Convert tf to kg
-      if (debug) {
-        console.log(`Found declared MAX LOAD: ${declaredMaxForce} kg`);
-      }
     }
 
     // Debug information
@@ -53,8 +43,20 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
       possibleDataSamples: [] as {line: string, parsed: any}[],
       parsingErrors: [] as string[],
       isBinary: false,
-      detectedFormat: 'unknown'
+      detectedFormat: 'unknown',
+      processingLog: [] as string[],
     };
+
+    // First try to get MAX LOAD directly from header
+    const maxLoadMatch = /MAX LOAD:\s*([\d\.]+)\s*tf/i.exec(fileContent);
+    let declaredMaxForce = 0;
+    
+    if (maxLoadMatch && maxLoadMatch[1]) {
+      declaredMaxForce = parseFloat(maxLoadMatch[1]) * 1000; // Convert tf to kg
+      debugInfo.processingLog.push(`Found declared MAX LOAD: ${declaredMaxForce} kg`);
+    } else {
+      debugInfo.processingLog.push('No MAX LOAD declaration found in header');
+    }
 
     // Check if file might be binary (contains null bytes or non-printable chars)
     debugInfo.isBinary = /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(fileContent.substring(0, 1000));
@@ -62,15 +64,14 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
     // Split content into lines
     const lines = fileContent.split('\n');
     debugInfo.totalLines = lines.length;
+    debugInfo.processingLog.push(`File has ${lines.length} lines`);
     
     // Store first few lines for debugging
     debugInfo.firstFewLines = lines.slice(0, Math.min(40, lines.length)).map(line => line.trim());
     
     // Check if the file appears to be in the expected format
     if (lines.length < 10) {
-      if (debug) {
-        debugInfo.parsingErrors.push('Not enough lines in file');
-      }
+      debugInfo.processingLog.push('Not enough lines in file');
       throw new Error('El archivo no contiene suficientes datos para analizar');
     }
     
@@ -79,14 +80,13 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
     const hasHeader = headerInfo.hasHeader;
     debugInfo.detectedFormat = hasHeader ? 'text_with_header' : 'text_data_only';
     
-    if (debug) {
-      debugInfo.headerLines = headerInfo.headerLines;
+    debugInfo.headerLines = headerInfo.headerLines;
+    debugInfo.processingLog.push(`Header detection: ${hasHeader ? 'Found header' : 'No header'}, ${headerInfo.headerLines} lines`);
       
-      // Add header detection info
-      debugInfo.parsingErrors.push(
-        ...headerInfo.detectionNotes.map(note => `Header detection: ${note}`)
-      );
-    }
+    // Add header detection info
+    debugInfo.parsingErrors.push(
+      ...headerInfo.detectionNotes.map(note => `Header detection: ${note}`)
+    );
     
     // Number of header lines to skip
     const headerLines = hasHeader ? headerInfo.headerLines : 0;
@@ -102,62 +102,124 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
     // Look for lines with many semicolon-separated values after the header
     let dataLineFound = false;
     
+    debugInfo.processingLog.push('Starting to look for data lines');
+    
     // First look for the force data (usually the first long line with many semicolons)
     for (let i = headerLines; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line) continue;
       
       // Check if this line contains many semicolons and numbers (likely force data)
-      if (line.split(';').length > 10) {
+      const semicolonCount = (line.match(/;/g) || []).length;
+      if (semicolonCount > 10) {
+        debugInfo.processingLog.push(`Potential data line at ${i+1}: found ${semicolonCount} semicolons`);
+        
         // This is likely our force data line
         const forceParts = line.split(';').map(part => part.trim()).filter(Boolean);
         
-        forceData = forceParts
+        // Check if parts look like numbers
+        const potentialForceData = forceParts
           .map(part => parseFloat(part))
           .filter(val => !isNaN(val));
         
-        if (debug) {
-          debugInfo.parsingErrors.push(`Found force data line at line ${i+1} with ${forceData.length} values`);
-        }
-        
-        // Now look for time data line (should be next non-empty line)
-        for (let j = i + 1; j < lines.length; j++) {
-          const timeLine = lines[j].trim();
-          if (!timeLine) continue;
+        if (potentialForceData.length > 10) {
+          forceData = potentialForceData;
+          debugInfo.processingLog.push(`Found force data line at line ${i+1} with ${forceData.length} values`);
           
-          // Check if this line also contains many semicolons and numbers
-          if (timeLine.split(';').length > 10) {
-            const timeParts = timeLine.split(';').map(part => part.trim()).filter(Boolean);
+          // Now look for time data line (should be next non-empty line)
+          for (let j = i + 1; j < lines.length; j++) {
+            const timeLine = lines[j].trim();
+            if (!timeLine) continue;
             
-            timeData = timeParts
-              .map(part => parseFloat(part))
-              .filter(val => !isNaN(val));
-            
-            if (debug) {
-              debugInfo.parsingErrors.push(`Found time data line at line ${j+1} with ${timeData.length} values`);
+            // Check if this line also contains many semicolons and numbers
+            const timeLineSemicolonCount = (timeLine.match(/;/g) || []).length;
+            if (timeLineSemicolonCount > 10) {
+              debugInfo.processingLog.push(`Potential time line at ${j+1}: found ${timeLineSemicolonCount} semicolons`);
+              
+              const timeParts = timeLine.split(';').map(part => part.trim()).filter(Boolean);
+              
+              // Check if parts look like numbers
+              const potentialTimeData = timeParts
+                .map(part => parseFloat(part))
+                .filter(val => !isNaN(val));
+              
+              if (potentialTimeData.length > 10) {
+                timeData = potentialTimeData;
+                debugInfo.processingLog.push(`Found time data line at line ${j+1} with ${timeData.length} values`);
+                dataLineFound = true;
+                break;
+              } else {
+                debugInfo.processingLog.push(`Line ${j+1} has semicolons but couldn't parse enough numbers: ${potentialTimeData.length} valid values`);
+              }
             }
-            
-            dataLineFound = true;
-            break;
           }
+          
+          if (dataLineFound) break;
+        } else {
+          debugInfo.processingLog.push(`Line ${i+1} has semicolons but couldn't parse enough numbers: ${potentialForceData.length} valid values`);
         }
-        
-        if (dataLineFound) break;
       }
     }
     
-    // If we didn't find data in the expected format, try the old approach of looking for columns
+    // If we didn't find data in the expected format, try a more aggressive approach
     if (!dataLineFound || forceData.length === 0) {
-      if (debug) {
-        debugInfo.parsingErrors.push('Could not find data in expected format, trying alternative parsing');
+      debugInfo.processingLog.push('Could not find data in expected format, trying alternative parsing');
+      
+      // Try to find any line with a lot of numbers separated by any delimiter
+      for (let i = headerLines; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || line.length < 50) continue; // Skip short lines
+        
+        // Try different delimiters
+        const delimiters = [';', ',', ' ', '\t'];
+        
+        for (const delimiter of delimiters) {
+          const parts = line.split(delimiter).map(part => part.trim()).filter(Boolean);
+          if (parts.length > 10) {
+            const numbers = parts.map(part => parseFloat(part)).filter(val => !isNaN(val));
+            
+            if (numbers.length > 10) {
+              debugInfo.processingLog.push(`Found potential data line using delimiter '${delimiter}': ${numbers.length} values`);
+              
+              // If we haven't found force data yet, use this
+              if (forceData.length === 0) {
+                forceData = numbers;
+                debugInfo.processingLog.push(`Using as force data: ${numbers.length} values`);
+              } 
+              // Otherwise, if we have force but not time, use this as time
+              else if (timeData.length === 0) {
+                timeData = numbers;
+                debugInfo.processingLog.push(`Using as time data: ${numbers.length} values`);
+                dataLineFound = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        if (forceData.length > 0 && timeData.length > 0) {
+          break;
+        }
       }
+      
+      // If we still can't find both, try assuming simple sequential time values
+      if (forceData.length > 0 && timeData.length === 0) {
+        debugInfo.processingLog.push(`Found force data (${forceData.length} values) but no time data, generating sequential time values`);
+        timeData = Array.from({ length: forceData.length }, (_, i) => i * 0.25); // Assume 0.25 second intervals
+        dataLineFound = true;
+      }
+    }
+    
+    // If we still don't have data, try the columnar approach as a last resort
+    if (!dataLineFound || forceData.length === 0) {
+      debugInfo.processingLog.push('No data lines found using semicolon parsing, trying columnar data format');
       
       // Try different separators to find the one that works best
       const possibleSeparators = [/\s+/, /,/, /;/, /\t/];
       const separatorCounts = possibleSeparators.map(() => 0);
       
       // First pass - determine best separator
-      for (let i = headerLines; i < Math.min(headerLines + 20, lines.length); i++) {
+      for (let i = headerLines; i < Math.min(headerLines + 30, lines.length); i++) {
         const line = lines[i].trim();
         if (!line) continue;
         
@@ -188,6 +250,8 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
       // Find the separator with the most successful parses
       const bestSeparatorIndex = separatorCounts.indexOf(Math.max(...separatorCounts));
       const separator = possibleSeparators[bestSeparatorIndex] || /\s+/;
+      
+      debugInfo.processingLog.push(`Best separator for columnar format: ${separator}`);
       
       // Process data lines with the selected separator
       timeData = [];
@@ -235,6 +299,8 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
       
       debugInfo.dataLines = dataLinesCount;
       debugInfo.validDataPoints = validPointsCount;
+      
+      debugInfo.processingLog.push(`Columnar parsing found ${validPointsCount} valid data points`);
     } else {
       debugInfo.validDataPoints = Math.min(timeData.length, forceData.length);
     }
@@ -242,23 +308,29 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
     // Ensure time and force data arrays have the same length
     const minLength = Math.min(timeData.length, forceData.length);
     if (minLength === 0) {
-      if (debug) {
-        debugInfo.parsingErrors.push('No valid data points extracted');
+      if (declaredMaxForce > 0) {
+        // If we have a declared max force but no data points, we'll use that
+        debugInfo.processingLog.push('No valid data points extracted, but we have a declared max force');
+        
+        // Generate some fake data for visualization
+        timeData = [0, 1];
+        forceData = [0, declaredMaxForce];
+      } else {
+        debugInfo.processingLog.push('No valid data points extracted and no declared max force');
+        throw new Error('No se pudieron extraer datos válidos del archivo');
       }
-      throw new Error('No se pudieron extraer datos válidos del archivo');
-    }
-    
-    // Truncate arrays to same length if needed
-    if (timeData.length !== forceData.length) {
-      if (debug) {
-        debugInfo.parsingErrors.push(`Time data (${timeData.length}) and force data (${forceData.length}) length mismatch, truncating to ${minLength}`);
+    } else {
+      // Truncate arrays to same length if needed
+      if (timeData.length !== forceData.length) {
+        debugInfo.processingLog.push(`Time data (${timeData.length}) and force data (${forceData.length}) length mismatch, truncating to ${minLength}`);
+        timeData = timeData.slice(0, minLength);
+        forceData = forceData.slice(0, minLength);
       }
-      timeData = timeData.slice(0, minLength);
-      forceData = forceData.slice(0, minLength);
     }
     
     // Find the maximum force value
     maxForce = Math.max(...forceData.map(f => Math.abs(f)));
+    debugInfo.processingLog.push(`Calculated max force from data: ${maxForce} kg`);
     
     // Prepare chart data
     const chartData = {
@@ -274,27 +346,42 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
     };
     
     // If we found a declared max force in the header, use that
+    // For production safety, make sure it's reasonable
+    if (declaredMaxForce > 0 && declaredMaxForce < 1000000) {  // Sanity check: less than 1000 tons
+      debugInfo.processingLog.push(`Using declared max force: ${declaredMaxForce} kg`);
+      maxForce = declaredMaxForce;
+    } else if (maxForce > 0) {
+      debugInfo.processingLog.push(`Using calculated max force: ${maxForce} kg`);
+    } else if (declaredMaxForce > 0) {
+      debugInfo.processingLog.push(`Falling back to declared max force: ${declaredMaxForce} kg`);
+      maxForce = declaredMaxForce;
+    } else {
+      debugInfo.processingLog.push('No valid force value found');
+      throw new Error('No se pudo determinar la fuerza máxima');
+    }
+    
     const result: Sr3Result = {
       timeData,
       forceData,
-      maxForce: declaredMaxForce > 0 ? declaredMaxForce : maxForce,
+      maxForce, 
       chartData,
       metadata: {
         fileFormat: debugInfo.detectedFormat,
         separator: ';',
-        totalPoints: minLength,
+        totalPoints: timeData.length,
         headerLines: headerLines
       }
     };
     
+    // Add debug information
     if (debug) {
       result.debug = debugInfo;
     }
     
     return result;
   } catch (err) {
-    console.error('Error parsing SR3 file:', err);
-    throw new Error('Error al analizar el archivo SR3');
+    console.error('[SR3Parser] Error parsing SR3 file:', err);
+    throw new Error('Error al analizar el archivo SR3: ' + (err instanceof Error ? err.message : String(err)));
   }
 }
 
@@ -302,20 +389,47 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
  * Extracts the maximum force from a raw SR3 file directly using regex
  */
 export function extractMaxForce(rawData: string): number {
-  // Try to find MAX LOAD declaration in header directly
-  const maxLoadMatch = /MAX LOAD:\s*([\d\.]+)\s*tf/i.exec(rawData);
-  if (maxLoadMatch && maxLoadMatch[1]) {
-    const value = parseFloat(maxLoadMatch[1]);
-    // Convert tf to kg (1 tf = 1000 kg)
-    return value * 1000;
-  }
-
-  // If not in header, try to extract from data points
   try {
-    const result = parseSr3File(rawData);
-    return result.maxForce;
+    // Try to find MAX LOAD declaration in header directly
+    const maxLoadMatch = /MAX LOAD:\s*([\d\.]+)\s*tf/i.exec(rawData);
+    if (maxLoadMatch && maxLoadMatch[1]) {
+      const value = parseFloat(maxLoadMatch[1]);
+      // Convert tf to kg (1 tf = 1000 kg)
+      return value * 1000;
+    }
+
+    // Try to find other possible formats for max load
+    const altFormats = [
+      /MAX(?:IMUM)?\s*(?:LOAD|FORCE|CARGA):\s*([\d\.]+)\s*(?:tf|ton|t|kg|kgf)/i,
+      /CARGA\s*(?:MAXIMA|MÁX):\s*([\d\.]+)\s*(?:tf|ton|t|kg|kgf)/i,
+      /FUERZA\s*(?:MAXIMA|MÁX):\s*([\d\.]+)\s*(?:tf|ton|t|kg|kgf)/i
+    ];
+
+    for (const regex of altFormats) {
+      const match = regex.exec(rawData);
+      if (match && match[1]) {
+        const value = parseFloat(match[1]);
+        // Check if unit is mentioned
+        const unit = match[0].toLowerCase();
+        // Convert based on unit
+        if (unit.includes('tf') || unit.includes('ton') || unit.includes(' t')) {
+          return value * 1000; // Convert to kg
+        } else {
+          return value; // Already in kg
+        }
+      }
+    }
+
+    // If not in header, try to extract from data points
+    try {
+      const result = parseSr3File(rawData);
+      return result.maxForce;
+    } catch (e) {
+      console.error('[SR3Parser] Failed to extract max force:', e);
+      return 0;
+    }
   } catch (e) {
-    console.error('Failed to extract max force:', e);
+    console.error('[SR3Parser] Error in extractMaxForce:', e);
     return 0;
   }
 }

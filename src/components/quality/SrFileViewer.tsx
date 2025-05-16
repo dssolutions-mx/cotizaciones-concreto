@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertTriangle, FileSpreadsheet } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Line } from 'react-chartjs-2';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter, CardDescription } from "@/components/ui/card";
+import { parseSr3File } from '@/utils/sr3Parser';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,9 +11,12 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { parseSr3File } from '@/utils/sr3Parser';
+import { Line } from 'react-chartjs-2';
+import { Badge } from '@/components/ui/badge';
+import { Loader2, AlertTriangle, BarChart } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-// Register Chart.js components
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -27,44 +28,47 @@ ChartJS.register(
 );
 
 interface SrFileViewerProps {
-  file: File | null;
+  file: File;
 }
 
 export function SrFileViewer({ file }: SrFileViewerProps) {
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
   const [chartData, setChartData] = useState<any>(null);
   const [maxForce, setMaxForce] = useState<number | null>(null);
-
-  // Process the SR3 file when it changes
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+  const [showDebug, setShowDebug] = useState(false);
+  
   useEffect(() => {
     if (!file) return;
     
-    processSrFile(file);
+    const processFile = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Read file content
+        const content = await readFileAsText(file);
+        
+        // Parse SR3 file with debug info
+        const result = parseSr3File(content, true);
+        
+        // Store the chart data and max force
+        setChartData(result.chartData);
+        setMaxForce(result.maxForce);
+        setDebugInfo(result.debug);
+        
+      } catch (err) {
+        console.error('Error processing SR3 file:', err);
+        setError(err instanceof Error ? err.message : 'Error desconocido al procesar el archivo');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    processFile();
   }, [file]);
-
-  const processSrFile = async (file: File) => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Read the file as a text
-      const fileContent = await readFileAsText(file);
-      
-      // Use our SR3 parser utility
-      const parsedData = parseSr3File(fileContent);
-      
-      setChartData(parsedData.chartData);
-      setMaxForce(parsedData.maxForce);
-    } catch (err) {
-      console.error('Error processing SR3 file:', err);
-      setError('No se pudo procesar el archivo. El formato podría no ser compatible.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Read file as text
+  
   const readFileAsText = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -84,93 +88,153 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
       reader.readAsText(file);
     });
   };
-
+  
   if (loading) {
     return (
       <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col items-center justify-center p-4">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            <p className="mt-2 text-sm text-gray-500">Procesando archivo...</p>
+        <CardContent className="p-6">
+          <div className="flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-primary mr-2" />
+            <span>Procesando archivo...</span>
           </div>
         </CardContent>
       </Card>
     );
   }
-
+  
   if (error) {
     return (
       <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-2 text-yellow-600">
-            <AlertTriangle className="h-5 w-5" />
-            <p>{error}</p>
+        <CardHeader>
+          <CardTitle className="text-red-500 flex items-center">
+            <AlertTriangle className="h-5 w-5 mr-2" />
+            Error al procesar archivo
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm">{error}</p>
+          <div className="mt-4">
+            <Button variant="outline" size="sm" onClick={() => setShowDebug(!showDebug)} type="button">
+              {showDebug ? "Ocultar Detalles" : "Mostrar Detalles de Error"}
+            </Button>
+            
+            {showDebug && debugInfo && (
+              <div className="mt-4 text-xs font-mono bg-gray-100 p-4 rounded-md overflow-auto max-h-80">
+                <p className="font-semibold mb-2">Debug Info:</p>
+                <pre>{JSON.stringify(debugInfo.processingLog || debugInfo, null, 2)}</pre>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
     );
   }
-
-  if (!file || !chartData) {
-    return (
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col items-center justify-center p-4 text-gray-400">
-            <FileSpreadsheet className="h-12 w-12 mb-2" />
-            <p>No hay archivo seleccionado</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
+  
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base font-medium">
-          Resultados del ensayo: {file.name}
-        </CardTitle>
-        {maxForce && (
-          <div className="mt-1 text-sm">
-            <span className="font-medium">Carga máxima:</span>{' '}
-            <span className="font-bold text-primary">{maxForce.toFixed(2)} kg</span>
-          </div>
-        )}
-      </CardHeader>
-      <CardContent>
-        <div className="h-64">
-          <Line
-            data={chartData}
-            options={{
-              responsive: true,
-              maintainAspectRatio: false,
-              scales: {
-                x: {
-                  title: {
-                    display: true,
-                    text: 'Tiempo (s)'
-                  }
-                },
-                y: {
-                  title: {
-                    display: true,
-                    text: 'Fuerza (kg)'
-                  },
-                  beginAtZero: true
-                }
-              },
-              plugins: {
-                legend: {
-                  display: false
-                },
-                tooltip: {
-                  enabled: true
-                }
-              }
-            }}
-          />
+      <CardHeader className="py-4">
+        <div className="flex justify-between items-center">
+          <CardTitle className="text-base flex items-center">
+            <BarChart className="h-5 w-5 mr-2 text-primary" />
+            Datos de ensayo
+          </CardTitle>
+          <Badge variant="outline" className="font-mono">
+            {maxForce !== null && `${maxForce.toFixed(2)} kg`}
+          </Badge>
         </div>
+        <CardDescription>
+          {file.name} ({(file.size / 1024).toFixed(2)} KB)
+        </CardDescription>
+      </CardHeader>
+      
+      <CardContent className="pt-0">
+        <Tabs defaultValue="chart">
+          <TabsList>
+            <TabsTrigger value="chart" type="button">Gráfica</TabsTrigger>
+            <TabsTrigger value="debug" type="button">Detalles</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="chart">
+            {chartData && chartData.datasets[0].data.length > 1 ? (
+              <div className="h-64">
+                <Line
+                  data={chartData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                      y: {
+                        beginAtZero: true,
+                        title: {
+                          display: true,
+                          text: 'Fuerza (kg)'
+                        }
+                      },
+                      x: {
+                        title: {
+                          display: true,
+                          text: 'Tiempo (s)'
+                        }
+                      }
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center p-4 h-64 border border-dashed rounded-md">
+                <span className="text-gray-500 mb-4">No hay suficientes datos para la gráfica</span>
+                <Badge variant="outline" className="text-lg px-4 py-2">
+                  {maxForce !== null ? `Fuerza máxima: ${maxForce.toFixed(2)} kg` : 'Sin datos'}
+                </Badge>
+              </div>
+            )}
+          </TabsContent>
+          
+          <TabsContent value="debug">
+            <div className="space-y-2 text-sm">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="font-medium">Fuerza máxima:</p>
+                  <Badge variant="outline">{maxForce?.toFixed(2)} kg</Badge>
+                </div>
+                <div>
+                  <p className="font-medium">Formato:</p>
+                  <Badge variant="outline">{debugInfo?.detectedFormat || 'Desconocido'}</Badge>
+                </div>
+                <div>
+                  <p className="font-medium">Puntos de datos:</p>
+                  <Badge variant="outline">{chartData?.labels?.length || 0}</Badge>
+                </div>
+                <div>
+                  <p className="font-medium">Líneas de cabecera:</p>
+                  <Badge variant="outline">{debugInfo?.headerLines || 0}</Badge>
+                </div>
+              </div>
+              
+              <Button variant="outline" size="sm" onClick={() => setShowDebug(!showDebug)} className="mt-4" type="button">
+                {showDebug ? "Ocultar Log" : "Mostrar Log de Procesamiento"}
+              </Button>
+              
+              {showDebug && debugInfo && (
+                <div className="mt-4">
+                  <p className="font-medium mb-1">Log de procesamiento:</p>
+                  <div className="text-xs font-mono bg-gray-100 p-4 rounded-md overflow-auto max-h-80">
+                    {debugInfo.processingLog?.map((log: string, i: number) => (
+                      <div key={i} className="mb-1">
+                        {i+1}: {log}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </CardContent>
+      
+      <CardFooter className="text-xs text-gray-500 pt-0">
+        Versión de parser: 1.1 • Nota: Los datos y cálculos mostrados son aproximados
+      </CardFooter>
     </Card>
   );
 } 
