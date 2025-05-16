@@ -177,7 +177,8 @@ export async function GET(request: Request) {
 
     // Check if the order is in a valid state for action
     const validStates = ['PENDING', 'REJECTED_BY_VALIDATOR'];
-    if (!validStates.includes(order.credit_status)) {
+    const orderStatusUpper = order.credit_status?.toUpperCase() || '';
+    if (!validStates.includes(orderStatusUpper)) {
       console.error('[process] Order not in valid state for action:', order.credit_status);
       return NextResponse.json({ 
         error: 'Esta orden ya no está pendiente de validación de crédito' 
