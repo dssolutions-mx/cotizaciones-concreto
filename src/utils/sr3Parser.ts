@@ -165,6 +165,17 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
     if (!dataLineFound || forceData.length === 0) {
       debugInfo.processingLog.push('Could not find data in expected format, trying alternative parsing');
       
+      // Log the first 5 non-empty lines after header for debugging
+      let nonEmptyLinesAfterHeader = 0;
+      for (let i = headerLines; i < Math.min(headerLines + 20, lines.length); i++) {
+        const line = lines[i].trim();
+        if (line && line.length > 5) {
+          debugInfo.processingLog.push(`Line ${i+1} content sample: ${line.substring(0, 50)}${line.length > 50 ? '...' : ''}`);
+          nonEmptyLinesAfterHeader++;
+          if (nonEmptyLinesAfterHeader >= 5) break;
+        }
+      }
+      
       // Try to find any line with a lot of numbers separated by any delimiter
       for (let i = headerLines; i < lines.length; i++) {
         const line = lines[i].trim();
@@ -312,9 +323,22 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
         // If we have a declared max force but no data points, we'll use that
         debugInfo.processingLog.push('No valid data points extracted, but we have a declared max force');
         
-        // Generate some fake data for visualization
-        timeData = [0, 1];
-        forceData = [0, declaredMaxForce];
+        // Generate data for visualization (more points for better chart)
+        timeData = [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+        // Create a simple bell curve peaking at declaredMaxForce
+        forceData = [
+          0,
+          declaredMaxForce * 0.25,
+          declaredMaxForce * 0.5,
+          declaredMaxForce * 0.85,
+          declaredMaxForce,
+          declaredMaxForce * 0.85,
+          declaredMaxForce * 0.5,
+          declaredMaxForce * 0.25,
+          0
+        ];
+        
+        debugInfo.processingLog.push(`Generated ${forceData.length} synthetic data points for visualization`);
       } else {
         debugInfo.processingLog.push('No valid data points extracted and no declared max force');
         throw new Error('No se pudieron extraer datos válidos del archivo');
@@ -373,10 +397,9 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
       }
     };
     
-    // Add debug information
-    if (debug) {
-      result.debug = debugInfo;
-    }
+    // Always include debug information regardless of environment 
+    // to ensure it's available in production builds
+    result.debug = debugInfo;
     
     return result;
   } catch (err) {
