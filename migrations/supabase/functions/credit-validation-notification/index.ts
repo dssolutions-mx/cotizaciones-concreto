@@ -244,8 +244,10 @@ serve(async (req)=>{
     const approveToken = await generateActionToken(order.id, 'approve', recipient.email);
     const rejectToken = await generateActionToken(order.id, 'reject', recipient.email);
     
-    const approveUrl = `${FRONTEND_URL}/api/credit-actions/process?token=${approveToken}`;
-    const rejectUrl = `${FRONTEND_URL}/api/credit-actions/process?token=${rejectToken}`;
+    // Use both direct-action and process endpoints for backward compatibility
+    // Direct action URLs are more friendly for email clients that modify links (like SendGrid's click tracking)
+    const approveUrl = `${FRONTEND_URL}/api/credit-actions/direct-action?order=${order.id}&action=approve&email=${encodeURIComponent(recipient.email)}`;
+    const rejectUrl = `${FRONTEND_URL}/api/credit-actions/direct-action?order=${order.id}&action=reject&email=${encodeURIComponent(recipient.email)}`;
     const viewOrderUrl = `${FRONTEND_URL}/orders/${order.id}`;
     
     if (notificationType === 'rejected_by_validator') {
