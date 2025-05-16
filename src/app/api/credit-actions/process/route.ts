@@ -189,13 +189,28 @@ export async function GET(request: Request) {
     if (isApproveAction) {
       console.log('[process] Processing approve action');
       
+      // Look up the user ID from the email first
+      const { data: userData, error: userError } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('email', recipientEmail)
+        .single();
+        
+      if (userError) {
+        console.error('[process] Error looking up user by email:', JSON.stringify(userError, null, 2));
+        // Continue with email as fallback
+      }
+      
+      const validatorId = userData?.id || recipientEmail;
+      console.log('[process] Validator ID:', validatorId);
+      
       // Approve credit
       console.log('[process] Updating credit status to "approved" for order:', orderId);
       const { error: updateError } = await supabase
         .from('orders')
         .update({ 
           credit_status: 'approved',
-          credit_validated_by: recipientEmail,
+          credit_validated_by: validatorId,
           credit_validation_date: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -212,7 +227,7 @@ export async function GET(request: Request) {
       await supabase.from('order_logs').insert({
         order_id: orderId,
         action: 'CREDIT_APPROVED',
-        performed_by: recipientEmail,
+        performed_by: validatorId,
         action_method: 'EMAIL_TOKEN'
       });
       
@@ -233,6 +248,21 @@ export async function GET(request: Request) {
     if (isRejectAction) {
       console.log('[process] Processing reject action');
       
+      // Look up the user ID from the email first
+      const { data: userData, error: userError } = await supabase
+        .from('user_profiles')
+        .select('id')
+        .eq('email', recipientEmail)
+        .single();
+        
+      if (userError) {
+        console.error('[process] Error looking up user by email:', JSON.stringify(userError, null, 2));
+        // Continue with email as fallback
+      }
+      
+      const validatorId = userData?.id || recipientEmail;
+      console.log('[process] Validator ID:', validatorId);
+      
       // If current status is PENDING, reject by validator
       const newStatus = orderStatusUpper === 'PENDING'
         ? 'rejected_by_validator'
@@ -249,7 +279,7 @@ export async function GET(request: Request) {
         .from('orders')
         .update({ 
           credit_status: newStatus,
-          credit_validated_by: recipientEmail,
+          credit_validated_by: validatorId,
           credit_validation_date: new Date().toISOString(),
           rejection_reason: rejectionReason,
           updated_at: new Date().toISOString()
@@ -267,7 +297,7 @@ export async function GET(request: Request) {
       await supabase.from('order_logs').insert({
         order_id: orderId,
         action: newStatus === 'rejected_by_validator' ? 'CREDIT_REJECTED_BY_VALIDATOR' : 'CREDIT_REJECTED',
-        performed_by: recipientEmail,
+        performed_by: validatorId,
         action_method: 'EMAIL_TOKEN'
       });
       
