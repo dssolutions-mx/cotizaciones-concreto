@@ -638,12 +638,16 @@ export async function fetchMetricasCalidad(
       resistenciaPromedio,
       desviacionEstandar,
       porcentajeResistenciaGarantia,
-      eficiencia: 0, // Can't calculate without more data
-      rendimientoVolumetrico: 0, // Can't calculate without more data
+      eficiencia: 0, // Can't calculate without more data - will be populated from RPC calls
+      rendimientoVolumetrico: 0, // Can't calculate without more data - will be populated from RPC calls
       coeficienteVariacion
     };
     
     console.log('Manually calculated metrics from filtered data:', manualMetrics);
+    
+    // Log debugging info about efficiency calculation paths
+    console.log('Note: eficiencia is initially set to 0 in fetchMetricasCalidad and should be populated through RPC calls in the component');
+    
     return manualMetrics;
   } catch (error) {
     handleError(error, 'fetchMetricasCalidad');

@@ -56,6 +56,7 @@ export default function RemisionesPorCliente() {
     from: subDays(new Date(), 30),
     to: new Date()
   });
+  const [singleDateMode, setSingleDateMode] = useState<boolean>(false);
   const [remisiones, setRemisiones] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingClients, setLoadingClients] = useState(false);
@@ -235,7 +236,7 @@ export default function RemisionesPorCliente() {
       setOrderProducts(products || []);
       
       // Fetch remisiones for all found orders and filter by date range
-      const { data: remisionesData, error: remisionesError } = await supabase
+      let remisionesQuery = supabase
         .from('remisiones')
         .select(`
           *,
@@ -243,9 +244,21 @@ export default function RemisionesPorCliente() {
           materiales:remision_materiales(*),
           order:orders(requires_invoice, construction_site)
         `)
-        .in('order_id', orderIds)
-        .gte('fecha', formattedStartDate)
-        .lte('fecha', formattedEndDate)
+        .in('order_id', orderIds);
+      
+      // Apply date filtering based on mode
+      if (singleDateMode && dateRange.from) {
+        // For single date mode, filter for exact date match
+        const dateStr = format(dateRange.from, 'yyyy-MM-dd');
+        remisionesQuery = remisionesQuery.eq('fecha', dateStr);
+      } else {
+        // For range mode, filter for date range
+        remisionesQuery = remisionesQuery
+          .gte('fecha', formattedStartDate)
+          .lte('fecha', formattedEndDate);
+      }
+      
+      const { data: remisionesData, error: remisionesError } = await remisionesQuery
         .order('fecha', { ascending: false });
       
       if (remisionesError) throw remisionesError;
@@ -286,7 +299,7 @@ export default function RemisionesPorCliente() {
     } finally {
       setLoading(false);
     }
-  }, [selectedClientId, dateRange, selectedSite, searchTerm]);
+  }, [selectedClientId, dateRange, selectedSite, searchTerm, singleDateMode]);
   
   // Filter remisiones based on selected site and search term
   const filterRemisiones = (remisiones: any[], site: string, search: string) => {
@@ -359,7 +372,7 @@ export default function RemisionesPorCliente() {
   
   // Handle date range change
   const handleDateRangeChange = (range: DateRange | undefined) => {
-    if (range && range.from && range.to) {
+    if (range && range.from) {
       setDateRange(range);
       if (selectedClientId) {
         // Clear selected client if date range changes
@@ -367,6 +380,18 @@ export default function RemisionesPorCliente() {
         setRemisiones([]);
         setFilteredRemisiones([]);
       }
+    }
+  };
+  
+  // Handle date mode change
+  const handleDateModeChange = (isSingleDate: boolean) => {
+    setSingleDateMode(isSingleDate);
+    
+    if (selectedClientId) {
+      // Clear selected client if date mode changes
+      setSelectedClientId('');
+      setRemisiones([]);
+      setFilteredRemisiones([]);
     }
   };
   
@@ -456,11 +481,13 @@ export default function RemisionesPorCliente() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             {/* Date Range Picker */}
             <div className="flex flex-col">
-              <Label>Rango de Fechas</Label>
+              <Label>Fechas</Label>
               <DateRangePickerWithPresets 
                 dateRange={dateRange} 
                 onDateRangeChange={handleDateRangeChange}
                 className="mt-1"
+                singleDateMode={singleDateMode}
+                onSingleDateModeChange={handleDateModeChange}
               />
             </div>
             

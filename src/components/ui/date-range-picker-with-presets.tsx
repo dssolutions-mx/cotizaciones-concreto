@@ -3,20 +3,28 @@
 import * as React from "react"
 import { DateRange } from "react-day-picker"
 import DateRangePicker from 'rsuite/DateRangePicker'
+import DatePicker from 'rsuite/DatePicker'
 import 'rsuite/DateRangePicker/styles/index.css'
+import 'rsuite/DatePicker/styles/index.css'
 import { startOfMonth, endOfMonth, subMonths } from "date-fns"
 import { cn } from "@/lib/utils"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 
 export interface DateRangePickerProps {
   dateRange: DateRange | undefined
   onDateRangeChange: (range: DateRange | undefined) => void
   className?: string
+  singleDateMode?: boolean
+  onSingleDateModeChange?: (isSingleDate: boolean) => void
 }
 
 export function DateRangePickerWithPresets({
   dateRange,
   onDateRangeChange,
   className,
+  singleDateMode = false,
+  onSingleDateModeChange
 }: DateRangePickerProps) {
   // Convert dateRange to RSuite's format if it exists
   const [value, setValue] = React.useState<[Date, Date] | null>(
@@ -25,8 +33,12 @@ export function DateRangePickerWithPresets({
       : null
   );
 
+  const [singleDate, setSingleDate] = React.useState<Date | null>(
+    dateRange?.from || null
+  );
+
   // Handle RSuite DateRangePicker change
-  const handleChange = (value: [Date, Date] | null) => {
+  const handleRangeChange = (value: [Date, Date] | null) => {
     setValue(value);
     
     if (value && value.length === 2) {
@@ -39,14 +51,54 @@ export function DateRangePickerWithPresets({
     }
   };
 
+  // Handle single date picker change
+  const handleSingleDateChange = (date: Date | null) => {
+    setSingleDate(date);
+    
+    if (date) {
+      onDateRangeChange({
+        from: date,
+        to: date
+      });
+    } else {
+      onDateRangeChange(undefined);
+    }
+  };
+
+  // Handle mode toggle
+  const handleModeToggle = (checked: boolean) => {
+    if (onSingleDateModeChange) {
+      onSingleDateModeChange(checked);
+    }
+    
+    // If switching to single date mode and we have a range
+    if (checked && dateRange?.from) {
+      setSingleDate(dateRange.from);
+      onDateRangeChange({
+        from: dateRange.from,
+        to: dateRange.from
+      });
+    }
+    
+    // If switching to range mode and we have a single date
+    if (!checked && singleDate) {
+      setValue(singleDate ? [singleDate, singleDate] : null);
+    }
+  };
+
   // Ensure the value is updated if dateRange changes externally
   React.useEffect(() => {
     if (dateRange?.from && dateRange?.to) {
-      setValue([dateRange.from, dateRange.to]);
+      if (singleDateMode) {
+        setSingleDate(dateRange.from);
+      } else {
+        setValue([dateRange.from, dateRange.to]);
+      }
     } else {
+      setSingleDate(null);
       setValue(null);
     }
-  }, [dateRange]);
+  }, [dateRange, singleDateMode]);
 
   // Current date for predefined ranges
   const today = new Date();
@@ -116,51 +168,88 @@ export function DateRangePickerWithPresets({
       className={cn("grid gap-2 relative", className)}
       ref={setPickerRef}
     >
+      {onSingleDateModeChange && (
+        <div className="flex items-center space-x-2 mb-2">
+          <Switch 
+            id="date-mode-toggle" 
+            checked={singleDateMode}
+            onCheckedChange={handleModeToggle}
+          />
+          <Label htmlFor="date-mode-toggle" className="text-sm text-gray-600">
+            {singleDateMode ? "Fecha específica" : "Rango de fechas"}
+          </Label>
+        </div>
+      )}
+      
       <div className="date-range-picker-container">
-        <DateRangePicker
-          value={value}
-          onChange={handleChange}
-          ranges={[
-            {
-              label: 'Este Mes',
-              value: [startOfMonth(today), endOfMonth(today)] as [Date, Date]
-            },
-            {
-              label: 'Mes Anterior',
-              value: [
-                startOfMonth(subMonths(today, 1)), 
-                endOfMonth(subMonths(today, 1))
-              ] as [Date, Date]
-            },
-            {
-              label: 'Últimos 3 Meses',
-              value: [subMonths(today, 3), today] as [Date, Date]
-            },
-            {
-              label: 'Últimos 6 Meses',
-              value: [subMonths(today, 6), today] as [Date, Date]
-            }
-          ]}
-          placeholder="Seleccionar fechas"
-          format="dd/MM/yyyy"
-          locale={{
-            sunday: 'D',
-            monday: 'L',
-            tuesday: 'M',
-            wednesday: 'X',
-            thursday: 'J',
-            friday: 'V',
-            saturday: 'S',
-            ok: 'Aplicar',
-            today: 'Hoy',
-            yesterday: 'Ayer',
-            last7Days: 'Últimos 7 días'
-          }}
-          showOneCalendar={false}
-          cleanable
-          block
-          placement="autoVerticalStart"
-        />
+        {singleDateMode ? (
+          <DatePicker
+            value={singleDate}
+            onChange={handleSingleDateChange}
+            placeholder="Seleccionar fecha"
+            format="dd/MM/yyyy"
+            locale={{
+              sunday: 'D',
+              monday: 'L',
+              tuesday: 'M',
+              wednesday: 'X',
+              thursday: 'J',
+              friday: 'V',
+              saturday: 'S',
+              ok: 'Aplicar',
+              today: 'Hoy',
+              yesterday: 'Ayer'
+            }}
+            cleanable
+            block
+            placement="autoVerticalStart"
+          />
+        ) : (
+          <DateRangePicker
+            value={value}
+            onChange={handleRangeChange}
+            ranges={[
+              {
+                label: 'Este Mes',
+                value: [startOfMonth(today), endOfMonth(today)] as [Date, Date]
+              },
+              {
+                label: 'Mes Anterior',
+                value: [
+                  startOfMonth(subMonths(today, 1)), 
+                  endOfMonth(subMonths(today, 1))
+                ] as [Date, Date]
+              },
+              {
+                label: 'Últimos 3 Meses',
+                value: [subMonths(today, 3), today] as [Date, Date]
+              },
+              {
+                label: 'Últimos 6 Meses',
+                value: [subMonths(today, 6), today] as [Date, Date]
+              }
+            ]}
+            placeholder="Seleccionar fechas"
+            format="dd/MM/yyyy"
+            locale={{
+              sunday: 'D',
+              monday: 'L',
+              tuesday: 'M',
+              wednesday: 'X',
+              thursday: 'J',
+              friday: 'V',
+              saturday: 'S',
+              ok: 'Aplicar',
+              today: 'Hoy',
+              yesterday: 'Ayer',
+              last7Days: 'Últimos 7 días'
+            }}
+            showOneCalendar={false}
+            cleanable
+            block
+            placement="autoVerticalStart"
+          />
+        )}
       </div>
       <style jsx global>{`
         /* Comprehensive green styling for DateRangePicker */

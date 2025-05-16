@@ -79,7 +79,7 @@ export default function QualityDashboardPage() {
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [selectedConstructionSite, setSelectedConstructionSite] = useState<string>('all');
   const [selectedRecipe, setSelectedRecipe] = useState<string>('all');
-  const [soloEdadGarantia, setSoloEdadGarantia] = useState<boolean>(false);
+  const [soloEdadGarantia, setSoloEdadGarantia] = useState<boolean>(true);
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
 
   // Load available filter options
@@ -320,6 +320,74 @@ export default function QualityDashboardPage() {
                     metricasData.rendimientoVolumetrico = 
                       calcularMediaSinCeros(rendimientos) || metricasData.rendimientoVolumetrico;
                   }
+                  
+                  // Apply same correction for eficiencia - ignoring zero values
+                  const eficiencias = results
+                    .map((r: any) => r.eficiencia)
+                    .filter((e: any) => e !== null && e !== 0 && !isNaN(e));
+                    
+                    // Match the same calculation logic used in reports/page.tsx
+                    if (eficiencias.length > 0) {
+                      // Log for debugging
+                      console.log('Efficiency values found:', {
+                        count: eficiencias.length,
+                        values: eficiencias,
+                        originalValue: metricasData.eficiencia,
+                        calculatedAverage: calcularMediaSinCeros(eficiencias)
+                      });
+                      
+                      // Replace the global eficiencia with corrected value
+                      metricasData.eficiencia = calcularMediaSinCeros(eficiencias);
+                    } else {
+                      console.log('No non-zero efficiency values found');
+                      
+                      // If no values were found, try to calculate efficiency directly
+                      // based on the recipe classification (similar to reportes page)
+                      try {
+                        // If we have resistance and cement consumption data, calculate directly
+                        if (metricasData.resistenciaPromedio > 0) {
+                          const { data: recipesData } = await supabase
+                            .from('recipe_versions')
+                            .select('notes')
+                            .order('created_at', { ascending: false })
+                            .limit(10);
+                          
+                          // Check if any recipes are MR type
+                          const hasMR = recipesData && recipesData.some(
+                            (r: any) => r.notes && r.notes.toUpperCase().includes('MR')
+                          );
+                          
+                          // Calculate efficiency based on recipe type
+                          // This matches the calculation in qualityMetricsUtils.ts
+                          if (metricasData.resistenciaPromedio > 0 && results.length > 0) {
+                            const consumos = results
+                              .map((r: any) => r.consumo_cemento_real)
+                              .filter((c: any) => c !== null && c !== 0 && !isNaN(c));
+                              
+                            if (consumos.length > 0) {
+                              const avgConsumo = calcularMediaSinCeros(consumos);
+                              if (avgConsumo > 0) {
+                                // For MR-type concrete, divide by 0.13 first
+                                if (hasMR) {
+                                  metricasData.eficiencia = (metricasData.resistenciaPromedio / 0.13) / avgConsumo;
+                                } else {
+                                  metricasData.eficiencia = metricasData.resistenciaPromedio / avgConsumo;
+                                }
+                                
+                                console.log('Calculated efficiency directly:', {
+                                  resistencia: metricasData.resistenciaPromedio,
+                                  consumo: avgConsumo,
+                                  isMR: hasMR,
+                                  result: metricasData.eficiencia
+                                });
+                              }
+                            }
+                          }
+                        }
+                      } catch (err) {
+                        console.error('Error calculating efficiency directly:', err);
+                      }
+                    }
                 }
               }
             } catch (detailedError) {
