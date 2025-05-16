@@ -50,13 +50,27 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
         // Read file content
         const content = await readFileAsText(file);
         
-        // Parse SR3 file with debug info
+        // Parse SR3 file with debug info - always enable debug mode
         const result = parseSr3File(content, true);
         
         // Store the chart data and max force
         setChartData(result.chartData);
         setMaxForce(result.maxForce);
-        setDebugInfo(result.debug);
+        
+        // Ensure debug info is always generated
+        setDebugInfo(result.debug || {
+          processingLog: ['No debug information available in production'],
+          detectedFormat: result.metadata?.fileFormat || 'unknown',
+          headerLines: result.metadata?.headerLines || 0
+        });
+        
+        // Log debug info to console in production too
+        console.log('SR3 Parser Result:', {
+          maxForce: result.maxForce,
+          dataPoints: result.timeData?.length || 0,
+          format: result.metadata?.fileFormat,
+          debug: result.debug
+        });
         
       } catch (err) {
         console.error('Error processing SR3 file:', err);
@@ -148,7 +162,7 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
       </CardHeader>
       
       <CardContent className="pt-0">
-        <Tabs defaultValue="chart">
+        <Tabs defaultValue="debug">
           <TabsList>
             <TabsTrigger value="chart" type="button">Gráfica</TabsTrigger>
             <TabsTrigger value="debug" type="button">Detalles</TabsTrigger>
@@ -186,6 +200,9 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
                 <Badge variant="outline" className="text-lg px-4 py-2">
                   {maxForce !== null ? `Fuerza máxima: ${maxForce.toFixed(2)} kg` : 'Sin datos'}
                 </Badge>
+                <p className="text-sm text-gray-500 mt-4">
+                  Para el cálculo de resistencia solo se requiere fuerza máxima, no es necesaria la gráfica
+                </p>
               </div>
             )}
           </TabsContent>
@@ -215,15 +232,26 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
                 {showDebug ? "Ocultar Log" : "Mostrar Log de Procesamiento"}
               </Button>
               
-              {showDebug && debugInfo && (
+              {showDebug && (
                 <div className="mt-4">
                   <p className="font-medium mb-1">Log de procesamiento:</p>
                   <div className="text-xs font-mono bg-gray-100 p-4 rounded-md overflow-auto max-h-80">
-                    {debugInfo.processingLog?.map((log: string, i: number) => (
-                      <div key={i} className="mb-1">
-                        {i+1}: {log}
+                    {debugInfo?.processingLog ? (
+                      debugInfo.processingLog.map((log: string, i: number) => (
+                        <div key={i} className="mb-1">
+                          {i+1}: {log}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="mb-1">No hay logs de procesamiento disponibles</div>
+                    )}
+                    
+                    {!debugInfo?.processingLog && debugInfo && (
+                      <div className="mt-4">
+                        <p className="font-semibold mb-1">Información de depuración:</p>
+                        <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(debugInfo, null, 2)}</pre>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
               )}
