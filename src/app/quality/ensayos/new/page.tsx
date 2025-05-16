@@ -190,47 +190,111 @@ export default function NuevoEnsayoPage() {
   // Process SR3 file to extract test data
   const processSr3FileData = async (file: File) => {
     try {
-      // First attempt to read as text
-      const reader = new FileReader();
-      let fileProcessed = false;
+      console.log('Processing SR3 file:', file.name, file.size, 'bytes');
       
-      reader.onload = async (event) => {
-        if (event.target?.result) {
-          try {
-            const content = event.target.result as string;
+      // Try multiple encodings to handle different environments
+      const encodings = ['UTF-8', 'ISO-8859-1', 'windows-1252'];
+      let success = false;
+      
+      for (const encoding of encodings) {
+        if (success) break;
+        
+        try {
+          console.log(`Trying encoding: ${encoding}`);
+          
+          // Read file with specific encoding
+          const content = await readFileWithEncoding(file, encoding);
+          
+          // Check if content might be binary
+          const hasBinaryContent = /[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(content.substring(0, 1000));
+          console.log(`File appears to be binary: ${hasBinaryContent}`);
+          
+          // Use our utility to extract the maximum force
+          const maxForce = extractMaxForce(content);
+          
+          // Only update if we found a valid force
+          if (maxForce && maxForce > 0) {
+            console.log(`Successfully extracted max force: ${maxForce} kg with encoding: ${encoding}`);
             
-            // Use our utility to extract the maximum force
-            const maxForce = extractMaxForce(content);
+            // Update form with the extracted maximum force
+            form.setValue('carga_kg', maxForce);
             
-            // Only update if we found a valid force
-            if (maxForce && maxForce > 0) {
-              // Update form with the extracted maximum force
-              form.setValue('carga_kg', maxForce);
-              
-              // Trigger the carga_kg change handler to calculate resistencia
-              handleCargaChange(maxForce);
-              fileProcessed = true;
-            } else if (!fileProcessed) {
-              // If we couldn't extract data as text, try as binary (if appropriate)
-              if (file.size > 0 && (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(content.substring(0, 1000)))) {
-                console.log('SR3 file appears to be binary, special processing may be required');
+            // Trigger the carga_kg change handler to calculate resistencia
+            handleCargaChange(maxForce);
+            success = true;
+            break;
+          }
+        } catch (err) {
+          console.error(`Error with encoding ${encoding}:`, err);
+        }
+      }
+      
+      // If we failed with all text encodings and it looks like binary data,
+      // make one more attempt with ISO-8859-1 which is most permissive with binary
+      if (!success) {
+        console.log('All encoding attempts failed, trying final approach');
+        
+        try {
+          const content = await readFileWithEncoding(file, 'ISO-8859-1');
+          
+          // Look for specific patterns that might indicate a force value
+          // Focus on simpler regex patterns that might work even with binary data
+          const simplePatterns = [
+            /MAX\s*LOAD\s*:\s*([\d\.]+)/i,
+            /LOAD\s*:\s*([\d\.]+)/i,
+            /CARGA\s*:\s*([\d\.]+)/i
+          ];
+          
+          for (const pattern of simplePatterns) {
+            const match = pattern.exec(content);
+            if (match && match[1]) {
+              const value = parseFloat(match[1]);
+              if (value > 0) {
+                // Assume ton-force by default in binary files where we can't see the unit
+                const maxForce = value * 1000; // Convert to kg
+                console.log(`Last resort: found max force: ${maxForce} kg`);
+                
+                form.setValue('carga_kg', maxForce);
+                handleCargaChange(maxForce);
+                success = true;
+                break;
               }
             }
-          } catch (err) {
-            console.error('Error processing SR3 file content:', err);
           }
+        } catch (err) {
+          console.error('Final attempt failed:', err);
         }
-      };
+      }
       
-      reader.onerror = (error) => {
-        console.error('Error reading SR3 file:', error);
-      };
-      
-      reader.readAsText(file);
+      if (!success) {
+        console.warn('Failed to extract data from SR3 file');
+      }
     } catch (error) {
       console.error('Error processing SR3 file:', error);
       // Don't show error to user, just log it
     }
+  };
+  
+  // Helper function to read file with specified encoding
+  const readFileWithEncoding = (file: File, encoding: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          resolve(event.target.result as string);
+        } else {
+          reject(new Error(`No se pudo leer el archivo con codificación ${encoding}`));
+        }
+      };
+      
+      reader.onerror = (error) => {
+        console.error(`Error reading file with encoding ${encoding}:`, error);
+        reject(new Error(`Error al leer el archivo con codificación ${encoding}`));
+      };
+      
+      reader.readAsText(file, encoding);
+    });
   };
 
   // Handle form submission
