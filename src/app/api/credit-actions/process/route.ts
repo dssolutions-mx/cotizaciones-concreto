@@ -190,16 +190,19 @@ export async function GET(request: Request) {
       console.log('[process] Processing approve action');
       
       // Approve credit
+      console.log('[process] Updating credit status to "approved" for order:', orderId);
       const { error: updateError } = await supabase
         .from('orders')
         .update({ 
-          credit_status: 'APPROVED',
+          credit_status: 'approved',
+          credit_validated_by: recipientEmail,
+          credit_validation_date: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('id', orderId);
 
       if (updateError) {
-        console.error('[process] Error approving credit:', updateError);
+        console.error('[process] Error approving credit:', JSON.stringify(updateError, null, 2));
         return NextResponse.json({ error: 'Error al aprobar el crédito' }, { status: 500 });
       }
       
@@ -231,11 +234,11 @@ export async function GET(request: Request) {
       console.log('[process] Processing reject action');
       
       // If current status is PENDING, reject by validator
-      const newStatus = order.credit_status === 'PENDING' 
-        ? 'REJECTED_BY_VALIDATOR' 
-        : 'REJECTED'; // Final rejection
+      const newStatus = orderStatusUpper === 'PENDING'
+        ? 'rejected_by_validator'
+        : 'rejected';
       
-      const rejectionReason = order.credit_status === 'PENDING'
+      const rejectionReason = orderStatusUpper === 'PENDING'
         ? 'Rechazado por validador mediante enlace de email'
         : 'Rechazado definitivamente por gerencia mediante enlace de email';
       
@@ -246,13 +249,15 @@ export async function GET(request: Request) {
         .from('orders')
         .update({ 
           credit_status: newStatus,
+          credit_validated_by: recipientEmail,
+          credit_validation_date: new Date().toISOString(),
           rejection_reason: rejectionReason,
           updated_at: new Date().toISOString()
         })
         .eq('id', orderId);
 
       if (updateError) {
-        console.error('[process] Error rejecting credit:', updateError);
+        console.error('[process] Error rejecting credit:', JSON.stringify(updateError, null, 2));
         return NextResponse.json({ error: 'Error al rechazar el crédito' }, { status: 500 });
       }
       
@@ -261,7 +266,7 @@ export async function GET(request: Request) {
       // Log the action
       await supabase.from('order_logs').insert({
         order_id: orderId,
-        action: newStatus === 'REJECTED_BY_VALIDATOR' ? 'CREDIT_REJECTED_BY_VALIDATOR' : 'CREDIT_REJECTED',
+        action: newStatus === 'rejected_by_validator' ? 'CREDIT_REJECTED_BY_VALIDATOR' : 'CREDIT_REJECTED',
         performed_by: recipientEmail,
         action_method: 'EMAIL_TOKEN'
       });
@@ -269,7 +274,7 @@ export async function GET(request: Request) {
       console.log('[process] Action logged');
 
       // If this is a rejection by validator, trigger notification to managers
-      if (newStatus === 'REJECTED_BY_VALIDATOR') {
+      if (newStatus === 'rejected_by_validator') {
         console.log('[process] Sending notification to managers');
         
         // Call Edge Function to send notification to managers
