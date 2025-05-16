@@ -90,11 +90,22 @@ export const formatRemisionesForAccounting = (
   const rows: string[] = [];
   
   // Function to find price for a product type
-  const findProductPrice = (productType: string): number => {
+  const findProductPrice = (productType: string, remisionOrderId: string): number => {
     if (!orderProducts || orderProducts.length === 0) return 0;
     
     // For SER001 (Vacío de Olla)
     if (productType === 'SER001') {
+      // First try to find empty truck product in the specific order
+      const orderSpecificEmptyTruck = orderProducts.find(p => 
+        (p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge) && 
+        p.order_id === remisionOrderId
+      );
+      
+      if (orderSpecificEmptyTruck) {
+        return orderSpecificEmptyTruck.empty_truck_price || 0;
+      }
+      
+      // Fallback to any empty truck product
       const emptyTruckProduct = orderProducts.find(p => 
         p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge
       );
@@ -103,15 +114,52 @@ export const formatRemisionesForAccounting = (
     
     // For SER002 (Bombeo)
     if (productType === 'SER002') {
+      // First try to find pump product in the specific order
+      const orderSpecificPump = orderProducts.find(p => 
+        p.has_pump_service && p.order_id === remisionOrderId
+      );
+      
+      if (orderSpecificPump) {
+        return orderSpecificPump.pump_price || 0;
+      }
+      
+      // Fallback to any pump product
       const pumpProduct = orderProducts.find(p => p.has_pump_service);
       return pumpProduct?.pump_price || 0;
     }
     
-    // For concrete products, match by recipe code
-    const concreteProduct = orderProducts.find(p => 
+    // For concrete products, first try to find in the specific order
+    const orderSpecificProducts = orderProducts.filter(p => p.order_id === remisionOrderId);
+    
+    // Find exact match in the specific order
+    let concreteProduct = orderSpecificProducts.find(p => 
       p.product_type === productType || 
       (p.recipe_id && p.recipe_id.toString() === productType)
     );
+    
+    // If not found in specific order with exact match, try with hyphen removal in specific order
+    if (!concreteProduct) {
+      concreteProduct = orderSpecificProducts.find(p => 
+        (p.product_type && productType === p.product_type.replace(/-/g, '')) || 
+        (p.recipe_id && productType === p.recipe_id.toString().replace(/-/g, ''))
+      );
+    }
+    
+    // If still not found, try in all orders
+    if (!concreteProduct) {
+      concreteProduct = orderProducts.find(p => 
+        p.product_type === productType || 
+        (p.recipe_id && p.recipe_id.toString() === productType)
+      );
+      
+      // Last attempt with hyphen removal
+      if (!concreteProduct) {
+        concreteProduct = orderProducts.find(p => 
+          (p.product_type && productType === p.product_type.replace(/-/g, '')) || 
+          (p.recipe_id && productType === p.recipe_id.toString().replace(/-/g, ''))
+        );
+      }
+    }
     
     return concreteProduct?.unit_price || 0;
   };
@@ -128,7 +176,7 @@ export const formatRemisionesForAccounting = (
     const dateFormatted = formatDateString(firstRemision.fecha);
     
     // Get price for vacío de olla
-    const emptyTruckPrice = findProductPrice('SER001');
+    const emptyTruckPrice = findProductPrice('SER001', firstRemision.order_id);
     
     // Add row for "VACIO DE OLLA" with code SER001
     rows.push([
@@ -150,19 +198,20 @@ export const formatRemisionesForAccounting = (
     // Format the date
     const dateFormatted = formatDateString(remision.fecha);
     
-    // Get product code from recipe code if available
-    const productCode = remision.recipe?.recipe_code 
-      ? remision.recipe.recipe_code.replace(/-/g, '') 
-      : "PRODUCTO";
+    // Get original product code from recipe code for price lookup
+    const originalProductCode = remision.recipe?.recipe_code || "PRODUCTO";
     
-    // Get price for this product
-    const productPrice = findProductPrice(productCode);
+    // Remove hyphens for display in accounting software
+    const displayProductCode = originalProductCode.replace(/-/g, '');
+    
+    // Get price for this product using original product code
+    const productPrice = findProductPrice(originalProductCode, remision.order_id);
     
     rows.push([
       `${prefix}${remision.remision_number}`,
       dateFormatted,
       constructionSite || "N/A",
-      productCode,
+      displayProductCode,
       remision.volumen_fabricado.toFixed(2),
       productPrice.toFixed(2), // Product price
       `${plantaPrefix}1-SILAO`
@@ -178,7 +227,7 @@ export const formatRemisionesForAccounting = (
     const dateFormatted = formatDateString(remision.fecha);
     
     // Get price for pump service
-    const pumpPrice = findProductPrice('SER002');
+    const pumpPrice = findProductPrice('SER002', remision.order_id);
     
     rows.push([
       `${prefix}${remision.remision_number}`,

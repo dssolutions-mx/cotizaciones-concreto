@@ -280,14 +280,32 @@ export default function RemisionesPorCliente() {
       setTotalVolume(volume);
       
       // Calculate total amount based on order_items prices
+      // Make sure to match products to their specific order
       let amount = 0;
       enrichedRemisiones.forEach(remision => {
         const recipeCode = remision.recipe?.recipe_code;
-        const product = products?.find(p => p.product_type === recipeCode || 
-          (p.recipe_id && p.recipe_id.toString() === recipeCode));
+        
+        // Find products specifically for this remision's order
+        const orderSpecificProducts = products?.filter(p => p.order_id === remision.order_id);
+        
+        // First try to find the product in the specific order
+        const product = orderSpecificProducts?.find(p => 
+          p.product_type === recipeCode || 
+          (p.recipe_id && p.recipe_id.toString() === recipeCode)
+        );
         
         if (product) {
           amount += (product.unit_price || 0) * remision.volumen_fabricado;
+        } else {
+          // Fallback to any matching product if not found in specific order
+          const fallbackProduct = products?.find(p => 
+            p.product_type === recipeCode || 
+            (p.recipe_id && p.recipe_id.toString() === recipeCode)
+          );
+          
+          if (fallbackProduct) {
+            amount += (fallbackProduct.unit_price || 0) * remision.volumen_fabricado;
+          }
         }
       });
       setTotalAmount(amount);
@@ -331,11 +349,28 @@ export default function RemisionesPorCliente() {
     let amount = 0;
     filtered.forEach(remision => {
       const recipeCode = remision.recipe?.recipe_code;
-      const product = orderProducts?.find(p => p.product_type === recipeCode || 
-        (p.recipe_id && p.recipe_id.toString() === recipeCode));
+      
+      // Find products specifically for this remision's order
+      const orderSpecificProducts = orderProducts?.filter(p => p.order_id === remision.order_id);
+      
+      // First try to find the product in the specific order
+      const product = orderSpecificProducts?.find(p => 
+        p.product_type === recipeCode || 
+        (p.recipe_id && p.recipe_id.toString() === recipeCode)
+      );
       
       if (product) {
         amount += (product.unit_price || 0) * remision.volumen_fabricado;
+      } else {
+        // Fallback to any matching product if not found in specific order
+        const fallbackProduct = orderProducts?.find(p => 
+          p.product_type === recipeCode || 
+          (p.recipe_id && p.recipe_id.toString() === recipeCode)
+        );
+        
+        if (fallbackProduct) {
+          amount += (fallbackProduct.unit_price || 0) * remision.volumen_fabricado;
+        }
       }
     });
     setTotalAmount(amount);
