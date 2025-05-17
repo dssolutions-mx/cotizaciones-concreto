@@ -82,59 +82,67 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
                 processingLog.push(`Successfully parsed ${result.timeData.length} data points`);
                 success = true;
                 break;
-              } else {
-                // We have a max force but no data points, create synthetic data for visualization
-                processingLog.push(`Got max force but no data points, will create synthetic data`);
-                result = {
-                  maxForce: maxForceValue,
-                  timeData: [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0],
-                  forceData: [
-                    0,
-                    maxForceValue * 0.25,
-                    maxForceValue * 0.5,
-                    maxForceValue * 0.85,
-                    maxForceValue,
-                    maxForceValue * 0.85,
-                    maxForceValue * 0.5,
-                    maxForceValue * 0.25,
-                    0
-                  ],
-                  chartData: {
-                    labels: [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0],
-                    datasets: [
-                      {
-                        label: 'Fuerza (kg) - Estimado',
-                        data: [
-                          0,
-                          maxForceValue * 0.25,
-                          maxForceValue * 0.5,
-                          maxForceValue * 0.85,
-                          maxForceValue,
-                          maxForceValue * 0.85,
-                          maxForceValue * 0.5,
-                          maxForceValue * 0.25,
-                          0
-                        ],
-                        borderColor: 'rgb(53, 162, 235)',
-                        backgroundColor: 'rgba(53, 162, 235, 0.5)',
+              } else if (hasBinaryContent) {
+                // If it's binary and standard parsing failed, try direct data extraction
+                processingLog.push(`Standard parsing didn't extract data points, trying direct binary extraction`);
+                
+                const forceLine = await extractDataFromBinary(content, 34); // Force data typically at line 34
+                const timeLine = await extractDataFromBinary(content, 35);  // Time data typically at line 35
+                
+                if (forceLine && timeLine) {
+                  // Parse semicolon-separated force and time data
+                  const forceData = parseSemicolonLine(forceLine);
+                  const timeData = parseSemicolonLine(timeLine);
+                  
+                  if (forceData.length > 10 && timeData.length > 10) {
+                    processingLog.push(`Direct extraction successful: ${forceData.length} force points, ${timeData.length} time points`);
+                    
+                    // Truncate to same length if needed
+                    const minLength = Math.min(timeData.length, forceData.length);
+                    const truncatedTimeData = timeData.slice(0, minLength);
+                    const truncatedForceData = forceData.slice(0, minLength);
+                    
+                    // Create chart data
+                    const chartData = {
+                      labels: truncatedTimeData,
+                      datasets: [
+                        {
+                          label: 'Fuerza (kg)',
+                          data: truncatedForceData,
+                          borderColor: 'rgb(53, 162, 235)',
+                          backgroundColor: 'rgba(53, 162, 235, 0.5)',
+                        },
+                      ],
+                    };
+                    
+                    // Create result with direct extraction data
+                    result = {
+                      maxForce: maxForceValue,
+                      timeData: truncatedTimeData,
+                      forceData: truncatedForceData,
+                      chartData: chartData,
+                      metadata: {
+                        fileFormat: 'direct_extraction',
+                        separator: ';',
+                        totalPoints: minLength,
+                        headerLines: 34 // Standard for SR3 files
                       },
-                    ],
-                  },
-                  metadata: {
-                    fileFormat: 'synthetic',
-                    separator: ';',
-                    totalPoints: 9,
-                    headerLines: 0
-                  },
-                  debug: {
-                    processingLog: [...processingLog, 'Created synthetic data for visualization'],
-                    detectedFormat: 'max_force_only',
-                    isBinary: hasBinaryContent,
-                    headerLines: 0
+                      debug: {
+                        processingLog: [...processingLog, `Used direct binary extraction approach`],
+                        detectedFormat: 'binary_direct_extraction',
+                        isBinary: true,
+                        headerLines: 34
+                      }
+                    };
+                    success = true;
+                    break;
                   }
-                };
-                success = true;
-                break;
+                }
+                
+                // Fallback to creating synthetic data if direct extraction failed
+                processingLog.push(`Direct extraction failed, falling back to synthetic data`);
+                
+                // Create synthetic data using the maxForceValue (code below will handle this)
               }
             }
           } catch (err) {
@@ -142,8 +150,15 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
           }
         }
         
-        // If we still don't have success, make one last attempt just to get the max force
-        if (!success) {
+        // If we still don't have success but have a max force value, create synthetic data
+        if (!success && maxForce && maxForce > 0) {
+          processingLog.push(`Creating synthetic data for max force: ${maxForce} kg`);
+          
+          result = createSyntheticData(maxForce, processingLog);
+          success = true;
+        }
+        // If we still don't have success, make one last attempt
+        else if (!success) {
           processingLog.push('All encoding attempts failed, trying one last approach');
           
           try {
@@ -154,33 +169,63 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
             if (maxForceValue > 0) {
               processingLog.push(`Last resort: found max force: ${maxForceValue} kg`);
               
-              // Create synthetic data
-              result = {
-                maxForce: maxForceValue,
-                timeData: [0, 1, 2, 3, 4],
-                forceData: [0, maxForceValue*0.5, maxForceValue, maxForceValue*0.5, 0],
-                chartData: {
-                  labels: [0, 1, 2, 3, 4],
-                  datasets: [{
-                    label: 'Fuerza (kg) - Estimado',
-                    data: [0, maxForceValue*0.5, maxForceValue, maxForceValue*0.5, 0],
-                    borderColor: 'rgb(255, 99, 132)',
-                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
-                  }]
-                },
-                metadata: {
-                  fileFormat: 'synthetic',
-                  separator: '',
-                  totalPoints: 5,
-                  headerLines: 0
-                },
-                debug: {
-                  processingLog,
-                  detectedFormat: 'fallback',
-                  headerLines: 0
+              // Try direct extraction one more time
+              const forceLine = await extractDataFromBinary(content, 34);
+              const timeLine = await extractDataFromBinary(content, 35);
+              
+              if (forceLine && timeLine) {
+                // Parse semicolon-separated force and time data
+                const forceData = parseSemicolonLine(forceLine);
+                const timeData = parseSemicolonLine(timeLine);
+                
+                if (forceData.length > 10 && timeData.length > 10) {
+                  processingLog.push(`Final direct extraction successful: ${forceData.length} force points, ${timeData.length} time points`);
+                  
+                  // Truncate to same length if needed
+                  const minLength = Math.min(timeData.length, forceData.length);
+                  
+                  // Create chart data
+                  const chartData = {
+                    labels: timeData.slice(0, minLength),
+                    datasets: [
+                      {
+                        label: 'Fuerza (kg)',
+                        data: forceData.slice(0, minLength),
+                        borderColor: 'rgb(53, 162, 235)',
+                        backgroundColor: 'rgba(53, 162, 235, 0.5)',
+                      },
+                    ],
+                  };
+                  
+                  // Create result
+                  result = {
+                    maxForce: maxForceValue,
+                    timeData: timeData.slice(0, minLength),
+                    forceData: forceData.slice(0, minLength),
+                    chartData: chartData,
+                    metadata: {
+                      fileFormat: 'direct_extraction_fallback',
+                      separator: ';',
+                      totalPoints: minLength,
+                      headerLines: 34
+                    },
+                    debug: {
+                      processingLog,
+                      detectedFormat: 'binary_direct_extraction_fallback',
+                      headerLines: 34
+                    }
+                  };
+                  success = true;
+                } else {
+                  // Create synthetic data as a last resort
+                  result = createSyntheticData(maxForceValue, processingLog);
+                  success = true;
                 }
-              };
-              success = true;
+              } else {
+                // Create synthetic data
+                result = createSyntheticData(maxForceValue, processingLog);
+                success = true;
+              }
             } else {
               throw new Error('No se pudo extraer la fuerza máxima del archivo');
             }
@@ -224,6 +269,92 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
     
     processFile();
   }, [file]);
+  
+  // Function to extract data points from specific lines in binary content
+  const extractDataFromBinary = (content: string, lineNumber: number): string | null => {
+    try {
+      // Split by newlines, preserving binary content
+      const lines = content.split('\n');
+      
+      // Check if we have enough lines
+      if (lines.length >= lineNumber) {
+        return lines[lineNumber - 1]; // Return the specified line (adjust for 0-based index)
+      }
+      
+      return null;
+    } catch (err) {
+      console.error(`Error extracting line ${lineNumber} from binary content:`, err);
+      return null;
+    }
+  };
+  
+  // Parse a semicolon-separated line into numbers
+  const parseSemicolonLine = (line: string): number[] => {
+    try {
+      return line.split(';')
+        .map(part => part.trim())
+        .filter(Boolean)
+        .map(part => parseFloat(part))
+        .filter(val => !isNaN(val));
+    } catch (err) {
+      console.error('Error parsing semicolon-separated line:', err);
+      return [];
+    }
+  };
+  
+  // Create synthetic data for visualization
+  const createSyntheticData = (maxForceValue: number, processingLog: string[]): any => {
+    processingLog.push(`Creating synthetic data with max force: ${maxForceValue} kg`);
+    
+    return {
+      maxForce: maxForceValue,
+      timeData: [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0],
+      forceData: [
+        0,
+        maxForceValue * 0.25,
+        maxForceValue * 0.5,
+        maxForceValue * 0.85,
+        maxForceValue,
+        maxForceValue * 0.85,
+        maxForceValue * 0.5,
+        maxForceValue * 0.25,
+        0
+      ],
+      chartData: {
+        labels: [0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0],
+        datasets: [
+          {
+            label: 'Fuerza (kg) - Estimado',
+            data: [
+              0,
+              maxForceValue * 0.25,
+              maxForceValue * 0.5,
+              maxForceValue * 0.85,
+              maxForceValue,
+              maxForceValue * 0.85,
+              maxForceValue * 0.5,
+              maxForceValue * 0.25,
+              0
+            ],
+            borderColor: 'rgb(53, 162, 235)',
+            backgroundColor: 'rgba(53, 162, 235, 0.5)',
+          },
+        ],
+      },
+      metadata: {
+        fileFormat: 'synthetic',
+        separator: ';',
+        totalPoints: 9,
+        headerLines: 0
+      },
+      debug: {
+        processingLog: [...processingLog, 'Created synthetic data for visualization'],
+        detectedFormat: 'max_force_only',
+        isBinary: true,
+        headerLines: 0
+      }
+    };
+  };
   
   // Read file with specific encoding
   const readFileWithEncoding = (file: File, encoding: string): Promise<string> => {

@@ -222,6 +222,38 @@ export default function NuevoEnsayoPage() {
             // Trigger the carga_kg change handler to calculate resistencia
             handleCargaChange(maxForce);
             success = true;
+            
+            // If it's binary, try to extract force data directly from the known positions
+            if (hasBinaryContent) {
+              try {
+                // Try direct extraction from known positions in SR3 files
+                const forceLine = extractDataFromBinary(content, 34); // Force data typically at line 34
+                if (forceLine) {
+                  // Extract and validate force values
+                  const forceData = parseSemicolonLine(forceLine);
+                  if (forceData.length > 0) {
+                    // Log success
+                    console.log(`Successfully extracted ${forceData.length} force data points directly from binary`);
+                    
+                    // Find the maximum force in the extracted data
+                    const extractedMaxForce = Math.max(...forceData.map(f => Math.abs(f)));
+                    console.log(`Max force from extracted data: ${extractedMaxForce} kg`);
+                    
+                    // If the extracted max force is close to the declared max force, use it
+                    // Otherwise stick with the declared value which is more reliable
+                    if (Math.abs(extractedMaxForce - maxForce) < maxForce * 0.1) { // Within 10%
+                      console.log(`Using extracted max force: ${extractedMaxForce} kg`);
+                      form.setValue('carga_kg', extractedMaxForce);
+                      handleCargaChange(extractedMaxForce);
+                    }
+                  }
+                }
+              } catch (err) {
+                console.error('Error during direct binary extraction:', err);
+                // Continue with the already extracted max force
+              }
+            }
+            
             break;
           }
         } catch (err) {
@@ -237,27 +269,46 @@ export default function NuevoEnsayoPage() {
         try {
           const content = await readFileWithEncoding(file, 'ISO-8859-1');
           
-          // Look for specific patterns that might indicate a force value
-          // Focus on simpler regex patterns that might work even with binary data
-          const simplePatterns = [
-            /MAX\s*LOAD\s*:\s*([\d\.]+)/i,
-            /LOAD\s*:\s*([\d\.]+)/i,
-            /CARGA\s*:\s*([\d\.]+)/i
-          ];
+          // First try direct binary extraction from known positions
+          try {
+            const forceLine = extractDataFromBinary(content, 34);
+            if (forceLine) {
+              const forceData = parseSemicolonLine(forceLine);
+              if (forceData.length > 10) {
+                const extractedMaxForce = Math.max(...forceData.map(f => Math.abs(f)));
+                if (extractedMaxForce > 0) {
+                  console.log(`Extracted max force directly from binary data: ${extractedMaxForce} kg`);
+                  form.setValue('carga_kg', extractedMaxForce);
+                  handleCargaChange(extractedMaxForce);
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error during final direct binary extraction:', err);
+          }
           
-          for (const pattern of simplePatterns) {
-            const match = pattern.exec(content);
-            if (match && match[1]) {
-              const value = parseFloat(match[1]);
-              if (value > 0) {
-                // Assume ton-force by default in binary files where we can't see the unit
-                const maxForce = value * 1000; // Convert to kg
-                console.log(`Last resort: found max force: ${maxForce} kg`);
-                
-                form.setValue('carga_kg', maxForce);
-                handleCargaChange(maxForce);
-                success = true;
-                break;
+          // If direct extraction failed, try regex patterns
+          if (!success) {
+            // Look for specific patterns that might indicate a force value
+            const simplePatterns = [
+              /MAX\s*LOAD\s*:\s*([\d\.]+)/i,
+              /LOAD\s*:\s*([\d\.]+)/i,
+              /CARGA\s*:\s*([\d\.]+)/i
+            ];
+            
+            for (const pattern of simplePatterns) {
+              const match = pattern.exec(content);
+              if (match && match[1]) {
+                const value = parseFloat(match[1]);
+                if (value > 0) {
+                  // Assume ton-force by default in binary files where we can't see the unit
+                  const maxForce = value * 1000; // Convert to kg
+                  console.log(`Last resort: found max force: ${maxForce} kg`);
+                  
+                  form.setValue('carga_kg', maxForce);
+                  handleCargaChange(maxForce);
+                  success = true;
+                }
               }
             }
           }
@@ -272,6 +323,38 @@ export default function NuevoEnsayoPage() {
     } catch (error) {
       console.error('Error processing SR3 file:', error);
       // Don't show error to user, just log it
+    }
+  };
+  
+  // Function to extract data from specific line in binary content
+  const extractDataFromBinary = (content: string, lineNumber: number): string | null => {
+    try {
+      // Split by newlines, preserving binary content
+      const lines = content.split('\n');
+      
+      // Check if we have enough lines
+      if (lines.length >= lineNumber) {
+        return lines[lineNumber - 1]; // Return the specified line (adjust for 0-based index)
+      }
+      
+      return null;
+    } catch (err) {
+      console.error(`Error extracting line ${lineNumber} from binary content:`, err);
+      return null;
+    }
+  };
+  
+  // Parse a semicolon-separated line into numbers
+  const parseSemicolonLine = (line: string): number[] => {
+    try {
+      return line.split(';')
+        .map(part => part.trim())
+        .filter(Boolean)
+        .map(part => parseFloat(part))
+        .filter(val => !isNaN(val));
+    } catch (err) {
+      console.error('Error parsing semicolon-separated line:', err);
+      return [];
     }
   };
   
