@@ -23,7 +23,8 @@ import {
   Beaker,
   FlaskConical,
   Clipboard,
-  BarChart
+  BarChart,
+  CreditCard
 } from 'lucide-react';
 import { AuthContextProvider } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -57,6 +58,16 @@ const finanzasSubMenuItems = [
     title: "Reporte de Ventas",
     href: "/finanzas/ventas",
     IconComponent: BarChart2,
+  },
+  {
+    title: "Reporte Diario",
+    href: "/finanzas/ventas-diarias",
+    IconComponent: BarChart,
+  },
+  {
+    title: "Pagos Diarios",
+    href: "/finanzas/pagos-diarios", 
+    IconComponent: CreditCard,
   },
   {
     title: "Remisiones por Cliente",

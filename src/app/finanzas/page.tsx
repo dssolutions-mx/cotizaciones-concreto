@@ -20,6 +20,9 @@ import { FinancialDashboardSkeleton } from '@/components/finanzas/FinancialDashb
 import { ClientBalanceTableSkeleton, CreditApprovalSkeleton } from '@/components/finanzas/FinancialMetricsSkeleton';
 import { Skeleton } from '@/components/ui/skeleton';
 import QuickAddPaymentButton from '@/components/finanzas/QuickAddPaymentButton';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { BarChart, PieChart } from 'lucide-react';
 
 // Enable ISR with 5-minute revalidation interval
 export const revalidate = 300; // 5 minutes in seconds
@@ -49,7 +52,21 @@ export default async function FinancialHubPage() {
       <div className="container mx-auto p-6">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight">Centro Financiero</h1>
-          <QuickAddPaymentButton />
+          <div className="flex items-center space-x-2">
+            <Link href="/finanzas/ventas-diarias">
+              <Button variant="outline" size="sm" className="flex items-center gap-2">
+                <BarChart className="h-4 w-4" />
+                <span>Reporte Diario</span>
+              </Button>
+            </Link>
+            <Link href="/finanzas/ventas">
+              <Button variant="outline" size="sm" className="flex items-center gap-2">
+                <PieChart className="h-4 w-4" />
+                <span>Reporte Mensual</span>
+              </Button>
+            </Link>
+            <QuickAddPaymentButton />
+          </div>
         </div>
         
         <RoleProtectedSection
