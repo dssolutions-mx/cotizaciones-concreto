@@ -81,7 +81,7 @@ serve(async (req)=>{
     // Create a Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     
-    // Get ALL orders for target date with creator information (no status filter)
+    // Get ALL orders for target date with creator information (excluding cancelled orders)
     const { data: orders, error: ordersError } = await supabase.from('orders').select(`
         id, 
         order_number,
@@ -104,7 +104,9 @@ serve(async (req)=>{
           empty_truck_volume,
           empty_truck_price
         )
-      `).eq('delivery_date', targetDateString);
+      `)
+      .eq('delivery_date', targetDateString)
+      .neq('order_status', 'cancelled');  // Exclude cancelled orders
         
     if (ordersError) {
       console.error('Error fetching orders:', ordersError);
@@ -115,7 +117,7 @@ serve(async (req)=>{
       });
     }
     
-    console.log(`Found ${orders.length} orders for ${targetDateString}`);
+    console.log(`Found ${orders.length} orders for ${targetDateString} (excluding cancelled orders)`);
     
     // Calculate totals for summary
     let totalConcreteVolume = 0;

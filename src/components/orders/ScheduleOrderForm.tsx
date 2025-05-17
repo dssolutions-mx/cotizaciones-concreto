@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { addDays, format } from 'date-fns';
+import { addDays, format, parseISO } from 'date-fns';
 import { clientService } from '@/lib/supabase/clients';
 import { supabase } from '@/lib/supabase';
 import orderService from '@/services/orderService';
@@ -33,6 +33,8 @@ interface Product {
   pumpPrice: number | null;
   scheduledVolume?: number;
   pumpVolume?: number;
+  ageDays?: number;
+  slump?: number;
 }
 
 interface Quote {
@@ -83,13 +85,26 @@ export default function ScheduleOrderForm({
     pumpService: boolean;
     pumpPrice: number | null;
     pumpVolume: number;
+    ageDays?: number;
+    slump?: number;
   }[]>([]);
+  
+  // Filtering for products
+  const [strengthFilter, setStrengthFilter] = useState<number | ''>('');
+  const [placementTypeFilter, setPlacementTypeFilter] = useState<string>('');
+  const [slumpFilter, setSlumpFilter] = useState<number | ''>('');
+  const [searchFilter, setSearchFilter] = useState<string>('');
   
   // Order details
   const [deliveryDate, setDeliveryDate] = useState<string>(format(tomorrow, 'yyyy-MM-dd'));
   const [deliveryTime, setDeliveryTime] = useState<string>('10:00');
   const [requiresInvoice, setRequiresInvoice] = useState<boolean>(false);
   const [specialRequirements, setSpecialRequirements] = useState<string>('');
+  
+  // Order-wide pumping service (instead of per product)
+  const [hasPumpService, setHasPumpService] = useState<boolean>(false);
+  const [pumpVolume, setPumpVolume] = useState<number>(0);
+  const [pumpPrice, setPumpPrice] = useState<number | null>(null);
   
   // Empty truck details
   const [hasEmptyTruckCharge, setHasEmptyTruckCharge] = useState<boolean>(false);
@@ -252,7 +267,9 @@ export default function ScheduleOrderForm({
                 recipe_code,
                 strength_fc,
                 placement_type,
-                max_aggregate_size
+                max_aggregate_size,
+                age_days,
+                slump
               )
             )
           `)
@@ -294,6 +311,8 @@ export default function ScheduleOrderForm({
                 strength_fc?: number;
                 placement_type?: string;
                 max_aggregate_size?: number;
+                age_days?: number;
+                slump?: number;
               };
               return {
                 id: recipeData?.recipe_code || 'Unknown',
@@ -307,7 +326,9 @@ export default function ScheduleOrderForm({
                 pumpService: detail.pump_service,
                 pumpPrice: detail.pump_price,
                 scheduledVolume: 0, // Initialize scheduled volume
-                pumpVolume: 0      // Initialize pump volume
+                pumpVolume: 0,      // Initialize pump volume
+                ageDays: recipeData?.age_days || 0,
+                slump: recipeData?.slump || 0
               };
             })
           };
@@ -387,12 +408,18 @@ export default function ScheduleOrderForm({
   // Handle product selection
   const handleProductSelect = (product: Product, checked: boolean) => {
     if (checked) {
+      // If this is the first product selected with pump service available,
+      // set the default pump price
+      if (!hasPumpService && product.pumpService && product.pumpPrice && pumpPrice === null) {
+        setPumpPrice(product.pumpPrice);
+      }
+      
       setSelectedProducts(prev => [
         ...prev, 
         { 
           ...product, 
           scheduledVolume: product.volume,
-          pumpVolume: product.pumpService ? product.volume : 0
+          pumpVolume: 0 // We no longer use this per product
         }
       ]);
     } else {
@@ -413,17 +440,6 @@ export default function ScheduleOrderForm({
     );
   };
   
-  // Handle pump volume change
-  const handlePumpVolumeChange = (quoteDetailId: string, volume: number) => {
-    setSelectedProducts(prev => 
-      prev.map(p => 
-        p.quoteDetailId === quoteDetailId 
-          ? { ...p, pumpVolume: volume } 
-          : p
-      )
-    );
-  };
-  
   // Calculate total order amount
   const calculateTotalAmount = () => {
     let total = selectedProducts.reduce(
@@ -431,13 +447,9 @@ export default function ScheduleOrderForm({
       0
     );
     
-    // Add pump service if any product has it - use pumpVolume for calculation
-    const productsWithPump = selectedProducts.filter(p => p.pumpService);
-    if (productsWithPump.length > 0) {
-      productsWithPump.forEach(product => {
-        const pumpPrice = product.pumpPrice || 0;
-        total += pumpPrice * product.pumpVolume; // Use pump volume for calculation
-      });
+    // Add order-wide pump service if enabled
+    if (hasPumpService && pumpPrice) {
+      total += pumpPrice * pumpVolume;
     }
     
     // Add empty truck charge if applicable
@@ -446,6 +458,46 @@ export default function ScheduleOrderForm({
     }
     
     return total;
+  };
+  
+  // Update the getFilteredProducts function to include the new filters
+  const getFilteredProducts = () => {
+    if (!availableQuotes.length) return [];
+    
+    let allProducts = availableQuotes.flatMap(quote => 
+      quote.products.map(product => ({
+        ...product,
+        quoteNumber: quote.quoteNumber,
+        quoteId: quote.id
+      }))
+    );
+    
+    // Apply strength filter if selected
+    if (strengthFilter !== '') {
+      allProducts = allProducts.filter(p => p.strength === strengthFilter);
+    }
+    
+    // Apply placement type filter if selected
+    if (placementTypeFilter) {
+      allProducts = allProducts.filter(p => p.placementType === placementTypeFilter);
+    }
+
+    // Apply slump filter if selected
+    if (slumpFilter !== '') {
+      allProducts = allProducts.filter(p => p.slump === slumpFilter);
+    }
+
+    // Apply search filter if entered
+    if (searchFilter) {
+      const searchTerm = searchFilter.toLowerCase();
+      allProducts = allProducts.filter(p => 
+        p.recipeCode.toLowerCase().includes(searchTerm) ||
+        p.placementType.toLowerCase().includes(searchTerm) ||
+        `${p.strength}`.includes(searchTerm)
+      );
+    }
+    
+    return allProducts;
   };
   
   // Handle order creation
@@ -489,11 +541,11 @@ export default function ScheduleOrderForm({
         total_amount: calculateTotalAmount(),
         order_status: 'created',
         credit_status: 'pending',
-        // Add selected products with volumes
+        // Add selected products with volumes, but now handle pump service at order level
         order_items: selectedProducts.map(p => ({
           quote_detail_id: p.quoteDetailId,
           volume: p.scheduledVolume,
-          pump_volume: p.pumpService ? p.pumpVolume : null
+          pump_volume: hasPumpService && pumpVolume > 0 ? pumpVolume : null // Single pump volume for the order
         }))
       };
       
@@ -662,105 +714,349 @@ export default function ScheduleOrderForm({
           </div>
         ) : (
         <form onSubmit={handleCreateOrder} className="space-y-6">
-          {/* Product selection */}
-          <div className="overflow-x-auto">
+          {/* Invoice requirement - Moved up and made more prominent */}
+          <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg shadow-sm">
+            <div className="flex items-center">
+              <input
+                id="requiresInvoice"
+                type="checkbox"
+                checked={requiresInvoice}
+                onChange={(e) => setRequiresInvoice(e.target.checked)}
+                className="h-5 w-5 text-green-600 rounded border-gray-300"
+              />
+              <label htmlFor="requiresInvoice" className="ml-2 block text-base font-bold text-gray-800">
+                Requiere Factura
+              </label>
+            </div>
+            <p className="text-sm text-gray-600 mt-1 pl-7">
+              Importante: Seleccionar esta opción afectará el balance del cliente
+            </p>
+          </div>
+
+          {/* Product filtering options */}
+          {availableQuotes.length > 0 && (
+            <div className="space-y-3 mb-4">
+              <h4 className="font-medium text-gray-700">Filtrar productos</h4>
+              
+              <div className="flex flex-wrap gap-2">
+                <div className="relative w-full sm:w-64">
+                  <input
+                    type="text"
+                    placeholder="Buscar productos..."
+                    value={searchFilter}
+                    onChange={(e) => setSearchFilter(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-md pl-10 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  />
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex flex-wrap gap-2">
+                <select
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  onChange={(e) => {
+                    setStrengthFilter(e.target.value ? Number(e.target.value) : '');
+                  }}
+                  value={strengthFilter}
+                >
+                  <option value="">Resistencia (kg/cm²)</option>
+                  {Array.from(new Set(availableQuotes.flatMap(q => q.products.map(p => p.strength))))
+                    .sort((a, b) => a - b)
+                    .map(strength => (
+                      <option key={strength} value={strength}>{strength} kg/cm²</option>
+                    ))
+                  }
+                </select>
+                
+                <select
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  onChange={(e) => {
+                    setSlumpFilter(e.target.value ? Number(e.target.value) : '');
+                  }}
+                  value={slumpFilter}
+                >
+                  <option value="">Revenimiento (cm)</option>
+                  {Array.from(new Set(availableQuotes.flatMap(q => q.products.map(p => p.slump))))
+                    .filter(slump => slump !== undefined && slump !== null)
+                    .sort((a, b) => a - b)
+                    .map(slump => (
+                      <option key={slump} value={slump}>{slump} cm</option>
+                    ))
+                  }
+                </select>
+                
+                <select
+                  className="px-3 py-2 border border-gray-300 rounded-md text-sm"
+                  onChange={(e) => {
+                    setPlacementTypeFilter(e.target.value);
+                  }}
+                  value={placementTypeFilter}
+                >
+                  <option value="">Tipo de colocación</option>
+                  {Array.from(new Set(availableQuotes.flatMap(q => q.products.map(p => p.placementType))))
+                    .filter(Boolean)
+                    .map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))
+                  }
+                </select>
+                
+                {(strengthFilter !== '' || placementTypeFilter || slumpFilter !== '' || searchFilter) && (
+                  <button
+                    onClick={() => {
+                      setStrengthFilter('');
+                      setPlacementTypeFilter('');
+                      setSlumpFilter('');
+                      setSearchFilter('');
+                    }}
+                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm"
+                  >
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+              
+              <div className="text-sm text-gray-600">
+                {getFilteredProducts().length} de {availableQuotes.flatMap(q => q.products).length} productos mostrados
+              </div>
+            </div>
+          )}
+
+          {/* Product selection table - redesigned for better readability and mobile responsiveness */}
+          {/* Desktop Table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Seleccionar
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Código
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Resistencia
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tipo de colocación
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Revenimiento
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Volumen Cotizado
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Edad
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Volumen a Programar
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Tipo
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Precio Unitario
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    TMA
                   </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Servicio de Bombeo
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Código
+                  </th>
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Volumen
+                  </th>
+                  <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Precio
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {availableQuotes.length === 0 ? (
+                {getFilteredProducts().length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-4 text-center text-sm text-gray-500">
-                      No hay cotizaciones activas disponibles para este cliente y sitio de construcción.
+                    <td colSpan={9} className="px-3 py-4 text-center text-sm text-gray-500">
+                      {availableQuotes.length === 0 
+                        ? "No hay cotizaciones activas disponibles para este cliente y sitio de construcción."
+                        : "No hay productos que coincidan con los filtros seleccionados."}
                     </td>
                   </tr>
                 ) : (
-                  availableQuotes.flatMap(quote => 
-                    quote.products.map((product) => {
-                      const isSelected = selectedProducts.some(p => p.quoteDetailId === product.quoteDetailId);
-                      const selectedProduct = selectedProducts.find(p => p.quoteDetailId === product.quoteDetailId);
-                      
-                      return (
-                        <tr key={`${quote.id}-${product.quoteDetailId}`} className="border-t hover:bg-gray-50">
-                          <td className="px-4 py-2">
-                            <input 
-                              type="checkbox" 
-                              checked={isSelected}
-                              onChange={(e) => handleProductSelect(product, e.target.checked)}
-                              className="h-4 w-4 text-green-600 rounded border-gray-300"
-                            />
-                          </td>
-                          <td className="px-4 py-2">
-                            <span className="font-medium">{product.recipeCode}</span>
-                            <div className="text-xs text-gray-500">Cotización: {quote.quoteNumber}</div>
-                          </td>
-                          <td className="px-4 py-2">{product.strength} kg/cm²</td>
-                          <td className="px-4 py-2">{product.placementType}</td>
-                          <td className="px-4 py-2">{product.volume} m³</td>
-                          <td className="px-4 py-2">
+                  getFilteredProducts().map((product) => {
+                    const isSelected = selectedProducts.some(p => p.quoteDetailId === product.quoteDetailId);
+                    const selectedProduct = selectedProducts.find(p => p.quoteDetailId === product.quoteDetailId);
+                    
+                    return (
+                      <tr key={`${product.quoteId}-${product.quoteDetailId}-desktop`} className={`border-t ${isSelected ? 'bg-green-50' : 'hover:bg-gray-50'}`}>
+                        <td className="px-3 py-2">
+                          <input 
+                            type="checkbox" 
+                            checked={isSelected}
+                            onChange={(e) => handleProductSelect(product, e.target.checked)}
+                            className="h-4 w-4 text-green-600 rounded border-gray-300"
+                          />
+                        </td>
+                        <td className="px-3 py-2 font-medium">{product.strength} kg/cm²</td>
+                        <td className="px-3 py-2">{product.slump || 'N/A'} cm</td>
+                        <td className="px-3 py-2">{product.ageDays || 'N/A'} días</td>
+                        <td className="px-3 py-2">{product.placementType}</td>
+                        <td className="px-3 py-2">{product.maxAggregateSize} mm</td>
+                        <td className="px-3 py-2">
+                          <span className="text-xs text-gray-500">
+                            {product.recipeCode}<br/>
+                            <span className="text-xs">({product.quoteNumber})</span>
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          {isSelected ? (
                             <input 
                               type="number"
                               min="0.1"
                               step="0.1"
                               value={selectedProduct?.scheduledVolume || 0}
                               onChange={(e) => handleVolumeChange(product.quoteDetailId, parseFloat(e.target.value))}
-                              disabled={!isSelected}
-                              className="w-20 rounded-md border border-gray-300 px-3 py-1"
+                              className="w-20 rounded-md border border-gray-300 px-2 py-1"
                             />
-                          </td>
-                          <td className="px-4 py-2">${product.unitPrice.toFixed(2)}</td>
-                          <td className="px-4 py-2">
-                            {product.pumpService ? (
-                              <div className="flex items-center space-x-2">
-                                <span>Sí (${product.pumpPrice?.toFixed(2) || '0.00'})</span>
-                                {isSelected && (
-                                  <input 
-                                    type="number"
-                                    min="0"
-                                    step="0.1"
-                                    value={selectedProduct?.pumpVolume || 0}
-                                    onChange={(e) => handlePumpVolumeChange(product.quoteDetailId, parseFloat(e.target.value))}
-                                    className="w-20 rounded-md border border-gray-300 px-3 py-1 ml-2"
-                                    placeholder="Vol. bombeo"
-                                  />
-                                )}
-                              </div>
-                            ) : 'No'}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )
+                          ) : (
+                            <span>{product.volume} m³</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2">${product.unitPrice.toFixed(2)}</td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
+
+          {/* Mobile Card List */}
+          <div className="sm:hidden space-y-3">
+            {getFilteredProducts().length === 0 ? (
+              <div className="px-3 py-4 text-center text-sm text-gray-500">
+                {availableQuotes.length === 0 
+                  ? "No hay cotizaciones activas disponibles para este cliente y sitio de construcción."
+                  : "No hay productos que coincidan con los filtros seleccionados."}
+              </div>
+            ) : (
+              getFilteredProducts().map((product) => {
+                const isSelected = selectedProducts.some(p => p.quoteDetailId === product.quoteDetailId);
+                const selectedProduct = selectedProducts.find(p => p.quoteDetailId === product.quoteDetailId);
+
+                return (
+                  <div 
+                    key={`${product.quoteId}-${product.quoteDetailId}-mobile`}
+                    onClick={() => handleProductSelect(product, !isSelected)} 
+                    className={`border rounded-lg p-4 cursor-pointer transition-all duration-150 ease-in-out ${isSelected ? 'bg-green-50 border-green-400 shadow-lg ring-2 ring-green-500' : 'bg-white border-gray-200 hover:shadow-md'}`}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-grow">
+                        <h4 className="font-semibold text-lg text-gray-800">{product.recipeCode}</h4>
+                        <p className="text-xs text-gray-500">Cotización: {product.quoteNumber}</p>
+                      </div>
+                      {/* Visual indicator for selection, can be enhanced */}
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ml-3 ${isSelected ? 'bg-green-500' : 'border-2 border-gray-300'}`}>
+                        {isSelected && (
+                          <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-x-3 gap-y-3 text-sm mb-3">
+                      <div className="p-2 rounded-md bg-gray-50 text-center">
+                        <span className="block text-xs text-gray-500">Resistencia</span> 
+                        <span className="block font-bold text-base text-gray-700">{product.strength}</span>
+                        <span className="block text-xs text-gray-500">kg/cm²</span>
+                      </div>
+                      <div className="p-2 rounded-md bg-gray-50 text-center">
+                        <span className="block text-xs text-gray-500">Revenimiento</span> 
+                        <span className="block font-bold text-base text-gray-700">{product.slump || 'N/A'}</span>
+                        <span className="block text-xs text-gray-500">cm</span>
+                      </div>
+                      <div className="p-2 rounded-md bg-gray-50 text-center">
+                        <span className="block text-xs text-gray-500">Edad</span> 
+                        <span className="block font-bold text-base text-gray-700">{product.ageDays || 'N/A'}</span>
+                        <span className="block text-xs text-gray-500">días</span>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs border-t pt-2 mt-2">
+                      <div><span className="font-medium text-gray-500">Tipo:</span> <span className="text-gray-700">{product.placementType}</span></div>
+                      <div><span className="font-medium text-gray-500">TMA:</span> <span className="text-gray-700">{product.maxAggregateSize} mm</span></div>
+                      <div className="col-span-2"><span className="font-medium text-gray-500">Precio Unitario:</span> <span className="font-semibold text-gray-700">${product.unitPrice.toFixed(2)}</span></div>
+                    </div>
+
+                    {isSelected && (
+                      <div className="mt-4 border-t pt-3">
+                        <label htmlFor={`volume-${product.quoteDetailId}-mobile`} className="block text-sm font-medium text-gray-700 mb-1">
+                          Volumen a Programar (m³)
+                        </label>
+                        <input 
+                          id={`volume-${product.quoteDetailId}-mobile`}
+                          type="number"
+                          min="0.1"
+                          step="0.1"
+                          value={selectedProduct?.scheduledVolume || 0}
+                          onChange={(e) => {
+                            e.stopPropagation(); // Prevent card click when interacting with input
+                            handleVolumeChange(product.quoteDetailId, parseFloat(e.target.value));
+                          }}
+                          onClick={(e) => e.stopPropagation()} // Prevent card click when interacting with input
+                          className="w-full rounded-md border border-gray-300 px-3 py-2 text-base"
+                        />
+                      </div>
+                    )}
+                    {!isSelected && (
+                       <p className="mt-3 text-sm text-gray-600"><span className="font-medium">Volumen Cotizado:</span> {product.volume} m³</p>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Pumping Service - moved to order level */}
+          {selectedProducts.length > 0 && selectedProducts.some(p => p.pumpService) && (
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mt-4">
+              <div className="flex items-center mb-3">
+                <input 
+                  id="hasPumpService"
+                  type="checkbox"
+                  checked={hasPumpService}
+                  onChange={(e) => {
+                    setHasPumpService(e.target.checked);
+                    if (e.target.checked && pumpVolume === 0) {
+                      // Set default pump volume to total concrete volume
+                      const totalVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
+                      setPumpVolume(totalVolume);
+                    }
+                  }}
+                  className="h-5 w-5 text-blue-600 rounded border-gray-300"
+                />
+                <label htmlFor="hasPumpService" className="ml-2 block text-base font-medium text-gray-800">
+                  Servicio de Bombeo
+                </label>
+              </div>
+              
+              {hasPumpService && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 pl-7">
+                  <div>
+                    <label htmlFor="pumpVolume" className="block text-sm font-medium text-gray-700 mb-1">
+                      Volumen a bombear (m³)
+                    </label>
+                    <input 
+                      id="pumpVolume"
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      value={pumpVolume}
+                      onChange={(e) => setPumpVolume(parseFloat(e.target.value))}
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="pumpPrice" className="block text-sm font-medium text-gray-700 mb-1">
+                      Precio por m³
+                    </label>
+                    <div className="w-full rounded-md border border-gray-300 px-3 py-2 bg-gray-100 text-gray-700">
+                      ${pumpPrice?.toFixed(2) || '0.00'}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Empty truck charge option - only show if products are selected */}
           {selectedProducts.length > 0 && (
@@ -853,41 +1149,38 @@ export default function ScheduleOrderForm({
             <div>
               <h3 className="font-medium mb-3">Opciones Adicionales</h3>
               
-              <div className="space-y-4">
-                <div className="flex items-center">
-                  <input
-                    id="requiresInvoice"
-                    type="checkbox"
-                    checked={requiresInvoice}
-                    onChange={(e) => setRequiresInvoice(e.target.checked)}
-                    className="h-4 w-4 text-green-600 rounded border-gray-300"
-                  />
-                  <label htmlFor="requiresInvoice" className="ml-2 block text-sm">
-                    Requiere Factura
-                  </label>
-                </div>
-                
-                <div>
-                  <label htmlFor="specialRequirements" className="block text-sm font-medium mb-1">
-                    Requisitos Especiales (opcional)
-                  </label>
-                  <textarea
-                    id="specialRequirements"
-                    value={specialRequirements}
-                    onChange={(e) => setSpecialRequirements(e.target.value)}
-                    rows={3}
-                    className="w-full rounded-md border border-gray-300 px-3 py-2"
-                    placeholder="Ingrese cualquier requisito especial para esta orden..."
-                  />
-                </div>
+              <div>
+                <label htmlFor="specialRequirements" className="block text-sm font-medium mb-1">
+                  Requisitos Especiales (opcional)
+                </label>
+                <textarea
+                  id="specialRequirements"
+                  value={specialRequirements}
+                  onChange={(e) => setSpecialRequirements(e.target.value)}
+                  rows={5}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2"
+                  placeholder="Ingrese cualquier requisito especial para esta orden..."
+                />
               </div>
             </div>
           </div>
           
-          <div className="bg-gray-50 p-4 rounded-lg border">
-            <p className="text-lg font-semibold">
-              Total: ${calculateTotalAmount().toFixed(2)}
-            </p>
+          {/* Order summary */}
+          <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-semibold">Resumen del Pedido</h3>
+              <p className="text-xl font-bold text-green-700">
+                Total: ${calculateTotalAmount().toFixed(2)}
+              </p>
+            </div>
+            <div className="mt-2">
+              <p className="text-sm text-gray-600">
+                {selectedProducts.length} producto(s) seleccionado(s) • 
+                {requiresInvoice ? ' Con factura' : ' Sin factura'} • 
+                {hasPumpService ? ` Bombeo: ${pumpVolume} m³ ($${pumpPrice?.toFixed(2) || '0.00'}/m³) • ` : ''}
+                Entrega: {deliveryDate.split('-').reverse().join('/')} a las {deliveryTime}
+              </p>
+            </div>
           </div>
           
           {/* Form actions */}
@@ -903,7 +1196,7 @@ export default function ScheduleOrderForm({
             <button
               type="submit"
               disabled={isSubmitting || selectedProducts.length === 0}
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? 'Creando orden...' : 'Crear Orden'}
             </button>
