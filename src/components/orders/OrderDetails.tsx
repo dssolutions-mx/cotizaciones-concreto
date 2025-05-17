@@ -82,6 +82,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [copySuccess, setCopySuccess] = useState<boolean>(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   // Calculate allowed recipe IDs
   const allowedRecipeIds = useMemo(() => {
@@ -514,6 +516,23 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     return !isDosificador;
   };
 
+  // Add function to handle order deletion
+  async function handleDeleteOrder() {
+    try {
+      setIsDeleting(true);
+      await orderService.deleteOrder(orderId);
+      toast.success('Orden eliminada permanentemente');
+      // Navigate back after deletion
+      handleGoBack();
+    } catch (err) {
+      console.error('Error eliminando la orden:', err);
+      toast.error('Error al eliminar la orden');
+      setError('Error al eliminar la orden. Por favor, intente nuevamente.');
+      setIsDeleting(false);
+      setShowConfirmDelete(false);
+    }
+  }
+
   if (loading) {
     return <div className="flex justify-center p-4">Cargando detalles de la orden...</div>;
   }
@@ -572,6 +591,41 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               </Dialog>
             </RoleProtectedSection>
           )}
+          
+          {/* Delete Order Button - Only for EXECUTIVE role */}
+          <RoleProtectedSection allowedRoles={['EXECUTIVE'] as UserRole[]}>
+            <Dialog open={showConfirmDelete} onOpenChange={setShowConfirmDelete}>
+              <DialogTrigger asChild>
+                <Button 
+                  variant="destructive" 
+                  className="ml-2"
+                  onClick={() => setShowConfirmDelete(true)}
+                >
+                  Eliminar Orden
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Eliminar Orden Permanentemente</DialogTitle>
+                  <DialogDescription>
+                    Esta acción eliminará permanentemente la orden #{order.order_number} y todos sus datos relacionados. Esta acción no se puede deshacer.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex justify-end gap-2 mt-4">
+                  <Button variant="outline" onClick={() => setShowConfirmDelete(false)}>
+                    Cancelar
+                  </Button>
+                  <Button 
+                    variant="destructive" 
+                    onClick={handleDeleteOrder}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? 'Eliminando...' : 'Confirmar Eliminación'}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+          </RoleProtectedSection>
         </div>
       </div>
     );

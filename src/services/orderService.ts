@@ -510,6 +510,36 @@ export async function getOrdersForDosificador() {
   }
 }
 
+/**
+ * Permanently deletes an order from the database
+ * This is restricted to executive users only at the UI level
+ */
+export async function deleteOrder(orderId: string) {
+  try {
+    // First delete associated order_items to avoid foreign key constraint violations
+    const { error: itemsError } = await supabase
+      .from('order_items')
+      .delete()
+      .eq('order_id', orderId);
+      
+    if (itemsError) throw itemsError;
+    
+    // Then delete the order itself
+    const { data, error } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', orderId)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error deleting order:', error);
+    throw error;
+  }
+}
+
 const orderService = {
   createOrder,
   getOrders,
@@ -525,7 +555,8 @@ const orderService = {
   getRejectedOrders,
   canUserApproveOrder,
   cancelOrder,
-  getOrdersForDosificador
+  getOrdersForDosificador,
+  deleteOrder
 };
 
 export default orderService; 

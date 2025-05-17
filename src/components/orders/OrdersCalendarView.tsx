@@ -123,14 +123,17 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
         creditStatusFilter ? creditStatusFilter.toString() : undefined
       );
 
+      // Filter out cancelled orders
+      const filteredData = data.filter(order => order.order_status?.toLowerCase() !== 'cancelled');
+
       // Obtenemos información de los sitios de construcción
-      const constructionSiteNames = Array.from(new Set(data.map(order => order.construction_site)));
+      const constructionSiteNames = Array.from(new Set(filteredData.map(order => order.construction_site)));
       
       // Buscamos los sitios de construcción que coincidan con los nombres
       const siteInfoMap = new Map<string, ConstructionSiteInfo>();
       
       // Primero intentamos usar el construction_site_id si está disponible
-      const ordersWithSiteId = data.filter(order => order.construction_site_id);
+      const ordersWithSiteId = filteredData.filter(order => order.construction_site_id);
       if (ordersWithSiteId.length > 0) {
         const siteIds = Array.from(new Set(ordersWithSiteId.map(order => order.construction_site_id)));
         
@@ -165,7 +168,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
       }
 
       // Primero, mostramos los datos básicos con estimaciones
-      const initialOrders = data.map(order => {
+      const initialOrders = filteredData.map(order => {
         // Buscamos la información del sitio de construcción
         // Primero intentamos por ID, luego por nombre
         let siteLocation = '';
@@ -195,7 +198,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
 
       // Para cada orden, vamos a cargar sus items para obtener los volúmenes reales
       const ordersWithItems = await Promise.all(
-        data.map(async (order) => {
+        filteredData.map(async (order) => {
           try {
             // Obtenemos los detalles completos de la orden
             const orderDetails = await orderService.getOrderById(order.id);
