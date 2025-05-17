@@ -53,18 +53,6 @@ export default async function FinancialHubPage() {
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold tracking-tight">Centro Financiero</h1>
           <div className="flex items-center space-x-2">
-            <Link href="/finanzas/ventas-diarias">
-              <Button variant="outline" size="sm" className="flex items-center gap-2">
-                <BarChart className="h-4 w-4" />
-                <span>Reporte Diario</span>
-              </Button>
-            </Link>
-            <Link href="/finanzas/ventas">
-              <Button variant="outline" size="sm" className="flex items-center gap-2">
-                <PieChart className="h-4 w-4" />
-                <span>Reporte Mensual</span>
-              </Button>
-            </Link>
             <QuickAddPaymentButton />
           </div>
         </div>
