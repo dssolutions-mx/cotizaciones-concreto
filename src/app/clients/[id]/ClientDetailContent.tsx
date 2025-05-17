@@ -16,6 +16,7 @@ import {
   DialogTitle,
   DialogDescription,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -36,6 +37,8 @@ import { toast } from "sonner";
 // Import for map components
 import dynamic from 'next/dynamic';
 import { Badge } from "@/components/ui/badge";
+// Import icons
+import { Pencil, Trash2, Plus, X, Save, Map } from "lucide-react";
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -51,6 +54,12 @@ const GoogleMapSelector = dynamic(
 
 const GoogleMapWrapper = dynamic(
   () => import('@/components/maps/GoogleMapWrapper'),
+  { ssr: false }
+);
+
+// Dynamically import the LocationSearchBox
+const LocationSearchBox = dynamic(
+  () => import('@/components/maps/LocationSearchBox'),
   { ssr: false }
 );
 
@@ -150,9 +159,10 @@ function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded:
         <RoleProtectedButton
           allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE']}
           onClick={() => setShowForm(true)}
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+          className="flex items-center gap-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md transition-colors"
         >
-          Agregar Nueva Obra
+          <Plus className="h-4 w-4" />
+          <span>Agregar Nueva Obra</span>
         </RoleProtectedButton>
       </div>
     );
@@ -164,9 +174,10 @@ function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded:
         <h3 className="text-lg font-medium">Nueva Obra</h3>
         <button 
           onClick={() => setShowForm(false)}
-          className="text-gray-500 hover:text-gray-700"
+          className="flex items-center gap-1 text-gray-500 hover:text-gray-700 transition-colors"
         >
-          Cancelar
+          <X className="h-4 w-4" />
+          <span>Cancelar</span>
         </button>
       </div>
 
@@ -281,11 +292,246 @@ function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded:
         <button
           type="button"
           onClick={handleSubmit}
-          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-blue-300"
+          className="flex items-center gap-1 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md disabled:bg-blue-300 transition-colors"
           disabled={isSubmitting}
         >
-          {isSubmitting ? 'Guardando...' : 'Guardar Obra'}
+          {isSubmitting ? (
+            <>
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span>Guardando...</span>
+            </>
+          ) : (
+            <>
+              <Plus className="h-4 w-4" />
+              <span>Guardar Obra</span>
+            </>
+          )}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// Componente para editar sitios existentes
+function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: ConstructionSite, clientId: string, onSiteUpdated: () => void, onCancel: () => void }) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [siteData, setSiteData] = useState<Partial<ConstructionSite>>({
+    name: site.name,
+    location: site.location,
+    access_restrictions: site.access_restrictions,
+    special_conditions: site.special_conditions,
+    is_active: site.is_active,
+    latitude: site.latitude,
+    longitude: site.longitude
+  });
+  const [isMounted, setIsMounted] = useState(false);
+
+  // Set mounted state for map components
+  useEffect(() => {
+    setIsMounted(true);
+    return () => setIsMounted(false);
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setSiteData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleLocationSelect = useCallback((lat: number, lng: number, address?: string) => {
+    setSiteData(prev => ({
+      ...prev,
+      latitude: lat,
+      longitude: lng,
+      // Update location field if an address was provided from search
+      ...(address ? { location: address } : {})
+    }));
+  }, []);
+
+  const handleSubmit = async () => {
+    if (!siteData.name?.trim()) {
+      alert('El nombre de la obra es obligatorio');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      if (!site.id) {
+        alert('Error: ID de la obra no encontrado.');
+        setIsSubmitting(false);
+        return;
+      }
+      // Ensure all necessary fields are passed to updateSite
+      const updateData = {
+        name: siteData.name,
+        location: siteData.location,
+        access_restrictions: siteData.access_restrictions,
+        special_conditions: siteData.special_conditions,
+        is_active: siteData.is_active ?? true, // Default to true if undefined
+        latitude: siteData.latitude,
+        longitude: siteData.longitude
+      };
+      await clientService.updateSite(clientId, site.id, updateData);
+      toast.success("Obra actualizada con éxito");
+      onSiteUpdated();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al actualizar la obra';
+      toast.error(errorMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 bg-gray-50 p-4 rounded-md">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-medium">Editar Obra: {site.name}</h3>
+        <button 
+          onClick={onCancel}
+          className="flex items-center gap-1 text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <X className="h-4 w-4" />
+          <span>Cancelar</span>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="mb-3">
+          <label htmlFor={`edit_site_name_${site.id}`} className="block text-sm font-medium text-gray-700 mb-1">
+            Nombre de la Obra *
+          </label>
+          <input
+            type="text"
+            id={`edit_site_name_${site.id}`}
+            name="name"
+            value={siteData.name || ''}
+            onChange={handleChange}
+            className="w-full p-2 border border-gray-300 rounded-md"
+          />
+        </div>
+        
+        <div className="mb-3">
+          <label htmlFor={`edit_site_location_${site.id}`} className="block text-sm font-medium text-gray-700 mb-1">
+            Ubicación
+          </label>
+          <input
+            type="text"
+            id={`edit_site_location_${site.id}`}
+            name="location"
+            value={siteData.location || ''}
+            onChange={handleChange}
+            className="w-full p-2 border border-gray-300 rounded-md"
+          />
+        </div>
+        
+        <div className="mb-3">
+          <label htmlFor={`edit_site_access_restrictions_${site.id}`} className="block text-sm font-medium text-gray-700 mb-1">
+            Restricciones de Acceso
+          </label>
+          <textarea
+            id={`edit_site_access_restrictions_${site.id}`}
+            name="access_restrictions"
+            value={siteData.access_restrictions || ''}
+            onChange={handleChange}
+            rows={2}
+            className="w-full p-2 border border-gray-300 rounded-md"
+          />
+        </div>
+        
+        <div className="mb-3">
+          <label htmlFor={`edit_site_special_conditions_${site.id}`} className="block text-sm font-medium text-gray-700 mb-1">
+            Condiciones Especiales
+          </label>
+          <textarea
+            id={`edit_site_special_conditions_${site.id}`}
+            name="special_conditions"
+            value={siteData.special_conditions || ''}
+            onChange={handleChange}
+            rows={2}
+            className="w-full p-2 border border-gray-300 rounded-md"
+          />
+        </div>
+
+        <div className="mb-3">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Estado de la Obra
+          </label>
+          <div className="flex items-center">
+            <input
+              type="checkbox"
+              id={`edit_is_active_${site.id}`}
+              name="is_active"
+              checked={siteData.is_active ?? true}
+              onChange={(e) => {
+                setSiteData(prev => ({
+                  ...prev,
+                  is_active: e.target.checked
+                }));
+              }}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            />
+            <label htmlFor={`edit_is_active_${site.id}`} className="ml-2 text-sm text-gray-700">
+              Obra Activa
+            </label>
+          </div>
+        </div>
+
+        <div className="md:col-span-2 mb-3">
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Coordenadas Geográficas (Opcional)
+          </label>
+          
+          {/* Add the location search box */}
+          {isMounted && (
+            <LocationSearchBox onSelectLocation={handleLocationSelect} />
+          )}
+          
+          {/* Map for selecting location */}
+          <GoogleMapWrapper>
+            <GoogleMapSelector 
+              onSelectLocation={handleLocationSelect} 
+              height="400px"
+              initialPosition={
+                siteData.latitude && siteData.longitude 
+                  ? { lat: siteData.latitude, lng: siteData.longitude } 
+                  : undefined
+              } 
+            />
+          </GoogleMapWrapper>
+          {siteData.latitude && siteData.longitude && (
+            <p className="text-xs text-gray-500 mt-1">
+              Lat: {siteData.latitude.toFixed(6)}, Lng: {siteData.longitude.toFixed(6)}
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <Button 
+          onClick={handleSubmit} 
+          disabled={isSubmitting}
+          className="flex items-center gap-1 bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md transition-colors"
+        >
+          {isSubmitting ? (
+            <>
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span>Actualizando...</span>
+            </>
+          ) : (
+            <>
+              <Save className="h-4 w-4" />
+              <span>Actualizar Obra</span>
+            </>
+          )}
+        </Button>
       </div>
     </div>
   );
@@ -585,8 +831,10 @@ function SiteStatusToggle({ site, onStatusChange }: { site: ConstructionSite, on
             variant="outline" 
             size="sm"
             onClick={openMapDialog}
+            className="flex items-center gap-1 text-xs"
           >
-            Ver en Mapa
+            <Map className="h-3 w-3" />
+            <span>Ver en Mapa</span>
           </Button>
           
           <Dialog open={showMapDialog} onOpenChange={closeDialog}>
@@ -970,6 +1218,10 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   // Order detail modal state
   const [isOrderDetailModalOpen, setIsOrderDetailModalOpen] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [editingSite, setEditingSite] = useState<ConstructionSite | null>(null);
+  // Delete site confirmation dialog
+  const [siteToDelete, setSiteToDelete] = useState<ConstructionSite | null>(null);
+  const [isDeletingSite, setIsDeletingSite] = useState(false);
 
   // Find the current total balance for passing to PaymentForm - MOVED UP HERE to fix hooks order
   const currentTotalBalance = useMemo(() => {
@@ -1047,6 +1299,24 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
     loadData(); // Refresh data after adjustment
   };
 
+  // Handle site deletion
+  const handleDeleteSite = async () => {
+    if (!siteToDelete) return;
+    
+    try {
+      setIsDeletingSite(true);
+      await clientService.deleteSite(siteToDelete.id);
+      toast.success(`Obra "${siteToDelete.name}" eliminada con éxito`);
+      setSiteToDelete(null);
+      loadData(); // Reload data after deletion
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Error al eliminar la obra';
+      toast.error(errorMessage);
+    } finally {
+      setIsDeletingSite(false);
+    }
+  };
+
   if (loading) {
     return <div className="p-4">Cargando detalles del cliente...</div>;
   }
@@ -1111,7 +1381,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
           <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
             <DialogTrigger asChild>
               <RoleProtectedButton
-                allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
+                allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
                 onClick={() => setIsPaymentDialogOpen(true)}
                 className="mt-4 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
               >
@@ -1138,7 +1408,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
           
           {/* Balance Adjustment Button */}
           <RoleProtectedButton
-            allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
+            allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
             onClick={handleBalanceAdjustmentOpen}
             className="mt-4 ml-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded"
           >
@@ -1176,6 +1446,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                     <TableHead>Condiciones Especiales</TableHead>
                     <TableHead>Coordenadas</TableHead>
                     <TableHead>Estado</TableHead>
+                    <TableHead>Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1194,12 +1465,43 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                       <TableCell>
                         <SiteStatusToggle site={site} onStatusChange={loadData} />
                       </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <RoleProtectedButton
+                            allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE']}
+                            onClick={() => setEditingSite(site)}
+                            className="flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-2 py-1 rounded-md text-xs transition-colors"
+                          >
+                            <Pencil className="h-3 w-3" />
+                            <span>Editar</span>
+                          </RoleProtectedButton>
+                          <RoleProtectedButton
+                            allowedRoles={['EXECUTIVE']}
+                            onClick={() => setSiteToDelete(site)}
+                            className="flex items-center gap-1 bg-red-500 hover:bg-red-600 text-white px-2 py-1 rounded-md text-xs transition-colors"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            <span>Eliminar</span>
+                          </RoleProtectedButton>
+                        </div>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
               </Table>
             ) : (
               <p className="text-sm text-gray-500">No hay obras registradas para este cliente.</p>
+            )}
+            {editingSite && (
+              <EditSiteForm 
+                site={editingSite} 
+                clientId={clientId} 
+                onSiteUpdated={() => {
+                  setEditingSite(null);
+                  loadData();
+                }}
+                onCancel={() => setEditingSite(null)}
+              />
             )}
             <NewSiteForm clientId={clientId} onSiteAdded={loadData} />
          </CardContent>
@@ -1276,6 +1578,50 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
         onClose={() => setIsOrderDetailModalOpen(false)} 
         orderId={selectedOrderId} 
       />
+
+      {/* Delete Site Confirmation Dialog */}
+      <Dialog open={!!siteToDelete} onOpenChange={(open) => !open && setSiteToDelete(null)}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Confirmar eliminación</DialogTitle>
+            <DialogDescription>
+              ¿Está seguro que desea eliminar permanentemente la obra "{siteToDelete?.name}"? 
+              Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button 
+              variant="outline" 
+              onClick={() => setSiteToDelete(null)}
+              disabled={isDeletingSite}
+              className="flex items-center gap-1"
+            >
+              Cancelar
+            </Button>
+            <Button 
+              variant="destructive" 
+              onClick={handleDeleteSite} 
+              disabled={isDeletingSite}
+              className="flex items-center gap-1"
+            >
+              {isDeletingSite ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span>Eliminando...</span>
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4" />
+                  <span>Eliminar</span>
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

@@ -231,6 +231,62 @@ export const clientService = {
   },
 
   /**
+   * Actualiza una obra (sitio de construcción) existente
+   * @param clientId ID del cliente (opcional, para validación o logging futuro)
+   * @param siteId ID de la obra a actualizar
+   * @param siteData Datos de la obra a actualizar
+   * @returns La obra actualizada
+   */
+  async updateSite(clientId: string, siteId: string, siteData: Partial<Omit<ConstructionSite, 'id' | 'client_id' | 'created_at'>>) {
+    try {
+      console.log('updateSite called with:', { clientId, siteId, siteData });
+      
+      if (!siteId) {
+        throw new Error('Site ID is required to update a site');
+      }
+      
+      // Prepare data for update, ensuring no undefined values are sent for nullable fields unless intended
+      const dataToUpdate = {
+        name: siteData.name,
+        location: siteData.location,
+        access_restrictions: siteData.access_restrictions,
+        special_conditions: siteData.special_conditions,
+        is_active: siteData.is_active,
+        latitude: siteData.latitude,
+        longitude: siteData.longitude
+      };
+
+      // Remove undefined properties to avoid overwriting with null unless explicitly provided as null
+      Object.keys(dataToUpdate).forEach(key => 
+        (dataToUpdate as any)[key] === undefined && delete (dataToUpdate as any)[key]
+      );
+
+      console.log('Updating site data:', dataToUpdate);
+      
+      const { data, error } = await supabase
+        .from('construction_sites')
+        .update(dataToUpdate)
+        .eq('id', siteId)
+        // Optionally, you might want to also match by client_id for extra security/scoping
+        // .eq('client_id', clientId) 
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Supabase error updating site:', error);
+        throw error;
+      }
+      
+      console.log('Site updated successfully:', data);
+      return data;
+    } catch (error) {
+      const errorMessage = handleError(error, `updateSite:${siteId}`);
+      console.error('Error updating site:', errorMessage, error);
+      throw new Error(errorMessage);
+    }
+  },
+
+  /**
    * Actualiza un cliente existente
    * @param clientId ID del cliente a actualizar
    * @param clientData Datos actualizados del cliente
@@ -327,6 +383,38 @@ export const clientService = {
     } catch (error) {
       const errorMessage = handleError(error, `updateSiteStatus:${siteId}`);
       console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  /**
+   * Elimina permanentemente una obra (sitio de construcción)
+   * @param siteId ID de la obra a eliminar
+   * @returns true si la eliminación fue exitosa
+   */
+  async deleteSite(siteId: string) {
+    try {
+      console.log('Deleting site:', siteId);
+      
+      if (!siteId) {
+        throw new Error('Site ID is required to delete a site');
+      }
+      
+      const { error } = await supabase
+        .from('construction_sites')
+        .delete()
+        .eq('id', siteId);
+
+      if (error) {
+        console.error('Supabase error deleting site:', error);
+        throw error;
+      }
+      
+      console.log('Site deleted successfully');
+      return true;
+    } catch (error) {
+      const errorMessage = handleError(error, `deleteSite:${siteId}`);
+      console.error('Error deleting site:', errorMessage, error);
       throw new Error(errorMessage);
     }
   },

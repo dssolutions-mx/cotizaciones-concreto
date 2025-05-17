@@ -18,6 +18,7 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const loadClients = async () => {
     try {
@@ -58,10 +59,15 @@ export default function ClientsPage() {
     }
   };
 
+  const filteredClients = clients.filter(client =>
+    client.business_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    client.client_code.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
     <div className="container mx-auto p-4">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Gestión de Clientes</h1>
+        <h1 className="text-3xl font-bold text-gray-800">Gestión de Clientes</h1>
         
         <RoleProtectedButton
           allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE']}
@@ -71,6 +77,16 @@ export default function ClientsPage() {
         >
           Crear Nuevo Cliente
         </RoleProtectedButton>
+      </div>
+      
+      <div className="mb-6">
+        <input
+          type="text"
+          placeholder="Buscar cliente por nombre o código..."
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
       </div>
       
       {loading || isDeleting ? (
@@ -86,40 +102,42 @@ export default function ClientsPage() {
         <div className="bg-white shadow-md rounded-lg p-6 text-center">
           <p className="text-red-500">{error}</p>
         </div>
-      ) : clients.length === 0 ? (
+      ) : filteredClients.length === 0 ? (
         <div className="bg-white shadow-md rounded-lg p-6 text-center">
-          <p className="text-gray-600">No hay clientes registrados.</p>
+          <p className="text-gray-600">
+            {clients.length === 0 ? 'No hay clientes registrados.' : 'No se encontraron clientes con ese criterio de búsqueda.'}
+          </p>
         </div>
       ) : (
-        <div className="bg-white shadow-md rounded-lg overflow-hidden">
+        <div className="bg-white shadow-lg rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+              <thead className="bg-gray-100">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     Código
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     Nombre de Empresa
                   </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                     Acciones
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {clients.map((client) => (
-                  <tr key={client.id}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                {filteredClients.map((client) => (
+                  <tr key={client.id} className="hover:bg-gray-50 transition-colors duration-150">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">
                       {client.client_code}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                       {client.business_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex justify-end space-x-2">
+                      <div className="flex justify-end space-x-3">
                         <button 
-                          className="text-indigo-600 hover:text-indigo-900"
+                          className="text-indigo-600 hover:text-indigo-800 font-medium py-1 px-3 rounded-md hover:bg-indigo-50 transition-colors duration-150"
                           onClick={() => {
                             router.push(`/clients/${client.id}`);
                           }}
@@ -132,7 +150,7 @@ export default function ClientsPage() {
                           onClick={() => {
                             router.push(`/clients/${client.id}/edit`);
                           }}
-                          className="text-blue-600 hover:text-blue-900"
+                          className="text-blue-600 hover:text-blue-800 font-medium py-1 px-3 rounded-md hover:bg-blue-50 transition-colors duration-150"
                         >
                           Editar
                         </RoleProtectedButton>
@@ -140,7 +158,7 @@ export default function ClientsPage() {
                         <RoleProtectedButton
                           allowedRoles={['PLANT_MANAGER', 'EXECUTIVE']}
                           onClick={() => handleDeleteClient(client.id, client.business_name)}
-                          className="text-red-600 hover:text-red-900"
+                          className="text-red-600 hover:text-red-800 font-medium py-1 px-3 rounded-md hover:bg-red-50 transition-colors duration-150"
                           disabled={isDeleting}
                         >
                           Eliminar
@@ -160,21 +178,21 @@ export default function ClientsPage() {
         action="ver estadísticas avanzadas de clientes"
         className="mt-8"
       >
-        <div className="bg-white shadow-md rounded-lg p-6">
-          <h2 className="text-xl font-semibold mb-4">Estadísticas de Clientes (Solo Ejecutivos)</h2>
+        <div className="bg-white shadow-lg rounded-xl p-6">
+          <h2 className="text-xl font-semibold mb-4 text-gray-700">Estadísticas de Clientes (Solo Ejecutivos)</h2>
           <p className="text-gray-600 mb-4">Esta sección muestra estadísticas avanzadas solo visibles para ejecutivos.</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="border rounded-lg p-4 bg-blue-50">
-              <h3 className="font-medium text-blue-800">Total de Clientes</h3>
-              <p className="text-2xl font-bold">{clients.length}</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="border border-blue-200 rounded-lg p-4 bg-blue-50 shadow-sm">
+              <h3 className="font-semibold text-blue-700">Total de Clientes</h3>
+              <p className="text-3xl font-bold text-blue-800">{filteredClients.length}</p>
             </div>
-            <div className="border rounded-lg p-4 bg-green-50">
-              <h3 className="font-medium text-green-800">Clientes Activos</h3>
-              <p className="text-2xl font-bold">Próximamente</p>
+            <div className="border border-green-200 rounded-lg p-4 bg-green-50 shadow-sm">
+              <h3 className="font-semibold text-green-700">Clientes Activos</h3>
+              <p className="text-2xl font-bold text-green-800">Próximamente</p>
             </div>
-            <div className="border rounded-lg p-4 bg-purple-50">
-              <h3 className="font-medium text-purple-800">Clientes Nuevos (30 días)</h3>
-              <p className="text-2xl font-bold">Próximamente</p>
+            <div className="border border-purple-200 rounded-lg p-4 bg-purple-50 shadow-sm">
+              <h3 className="font-semibold text-purple-700">Clientes Nuevos (30 días)</h3>
+              <p className="text-2xl font-bold text-purple-800">Próximamente</p>
             </div>
           </div>
         </div>
