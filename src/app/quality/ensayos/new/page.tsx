@@ -226,31 +226,40 @@ export default function NuevoEnsayoPage() {
             // If it's binary, try to extract force data directly from the known positions
             if (hasBinaryContent) {
               try {
-                // Try direct extraction from known positions in SR3 files
-                const forceLine = extractDataFromBinary(content, 34); // Force data typically at line 34
+                // First try direct binary extraction from known positions
+                let forceLine = null;
+                
+                // Try a range of possible positions where data might be found
+                for (let i = 30; i <= 40; i++) {
+                  const line = extractDataFromBinary(content, i);
+                  if (line && line.includes(';')) {
+                    // Count semicolons to identify data lines
+                    const semicolonCount = (line.match(/;/g) || []).length;
+                    if (semicolonCount > 100) { // Data lines typically have hundreds of semicolons
+                      console.log(`Found potential data line at position ${i} with ${semicolonCount} semicolons`);
+                      
+                      // The first line with many semicolons is the force data
+                      forceLine = line;
+                      console.log(`Using line ${i} as force data`);
+                      break; // We only need force data for extracting max force
+                    }
+                  }
+                }
+                
                 if (forceLine) {
-                  // Extract and validate force values
                   const forceData = parseSemicolonLine(forceLine);
-                  if (forceData.length > 0) {
-                    // Log success
-                    console.log(`Successfully extracted ${forceData.length} force data points directly from binary`);
-                    
-                    // Find the maximum force in the extracted data
+                  if (forceData.length > 10) {
                     const extractedMaxForce = Math.max(...forceData.map(f => Math.abs(f)));
-                    console.log(`Max force from extracted data: ${extractedMaxForce} kg`);
-                    
-                    // If the extracted max force is close to the declared max force, use it
-                    // Otherwise stick with the declared value which is more reliable
-                    if (Math.abs(extractedMaxForce - maxForce) < maxForce * 0.1) { // Within 10%
-                      console.log(`Using extracted max force: ${extractedMaxForce} kg`);
+                    if (extractedMaxForce > 0) {
+                      console.log(`Extracted max force directly from binary data: ${extractedMaxForce} kg`);
                       form.setValue('carga_kg', extractedMaxForce);
                       handleCargaChange(extractedMaxForce);
+                      success = true;
                     }
                   }
                 }
               } catch (err) {
-                console.error('Error during direct binary extraction:', err);
-                // Continue with the already extracted max force
+                console.error('Error during final direct binary extraction:', err);
               }
             }
             
@@ -271,7 +280,26 @@ export default function NuevoEnsayoPage() {
           
           // First try direct binary extraction from known positions
           try {
-            const forceLine = extractDataFromBinary(content, 34);
+            // Try to find data lines by scanning multiple possible positions
+            let forceLine = null;
+            
+            // Try a range of possible positions where data might be found
+            for (let i = 30; i <= 40; i++) {
+              const line = extractDataFromBinary(content, i);
+              if (line && line.includes(';')) {
+                // Count semicolons to identify data lines
+                const semicolonCount = (line.match(/;/g) || []).length;
+                if (semicolonCount > 100) { // Data lines typically have hundreds of semicolons
+                  console.log(`Found potential data line at position ${i} with ${semicolonCount} semicolons`);
+                  
+                  // The first line with many semicolons is the force data
+                  forceLine = line;
+                  console.log(`Using line ${i} as force data`);
+                  break; // We only need force data for extracting max force
+                }
+              }
+            }
+            
             if (forceLine) {
               const forceData = parseSemicolonLine(forceLine);
               if (forceData.length > 10) {
@@ -280,6 +308,7 @@ export default function NuevoEnsayoPage() {
                   console.log(`Extracted max force directly from binary data: ${extractedMaxForce} kg`);
                   form.setValue('carga_kg', extractedMaxForce);
                   handleCargaChange(extractedMaxForce);
+                  success = true;
                 }
               }
             }

@@ -86,8 +86,36 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
                 // If it's binary and standard parsing failed, try direct data extraction
                 processingLog.push(`Standard parsing didn't extract data points, trying direct binary extraction`);
                 
-                const forceLine = await extractDataFromBinary(content, 34); // Force data typically at line 34
-                const timeLine = await extractDataFromBinary(content, 35);  // Time data typically at line 35
+                // Try to find data lines by scanning multiple possible positions
+                // SR3 files can have variable header lengths (we've seen both 30 and 33 lines)
+                let forceLine = null;
+                let timeLine = null;
+                let lineFound = false;
+                
+                // Try a range of possible positions where data might be found
+                for (let i = 30; i <= 40; i++) {
+                  const line = await extractDataFromBinary(content, i);
+                  if (line && line.includes(';')) {
+                    // Count semicolons to identify data lines
+                    const semicolonCount = (line.match(/;/g) || []).length;
+                    if (semicolonCount > 100) { // Data lines typically have hundreds of semicolons
+                      processingLog.push(`Found potential data line at position ${i} with ${semicolonCount} semicolons`);
+                      
+                      // The first line with many semicolons is the force data
+                      if (!forceLine) {
+                        forceLine = line;
+                        processingLog.push(`Using line ${i} as force data`);
+                      } 
+                      // The second line with many semicolons is the time data
+                      else if (!timeLine) {
+                        timeLine = line;
+                        processingLog.push(`Using line ${i} as time data`);
+                        lineFound = true;
+                        break; // We found both lines, no need to continue
+                      }
+                    }
+                  }
+                }
                 
                 if (forceLine && timeLine) {
                   // Parse semicolon-separated force and time data
@@ -170,13 +198,42 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
               processingLog.push(`Last resort: found max force: ${maxForceValue} kg`);
               
               // Try direct extraction one more time
-              const forceLine = await extractDataFromBinary(content, 34);
-              const timeLine = await extractDataFromBinary(content, 35);
+              // Start with a direct scan approach since fixed positions don't work reliably
+              let foundForceLine = null;
+              let foundTimeLine = null;
+              let lineFound = false;
               
-              if (forceLine && timeLine) {
+              processingLog.push('Scanning for data lines with flexible position detection');
+              
+              // Try a range of possible positions where data might be found
+              for (let i = 30; i <= 40; i++) {
+                const line = await extractDataFromBinary(content, i);
+                if (line && line.includes(';')) {
+                  // Count semicolons to identify data lines
+                  const semicolonCount = (line.match(/;/g) || []).length;
+                  if (semicolonCount > 100) { // Data lines typically have hundreds of semicolons
+                    processingLog.push(`Found potential data line at position ${i} with ${semicolonCount} semicolons`);
+                    
+                    // The first line with many semicolons is the force data
+                    if (!foundForceLine) {
+                      foundForceLine = line;
+                      processingLog.push(`Using line ${i} as force data`);
+                    } 
+                    // The second line with many semicolons is the time data
+                    else if (!foundTimeLine) {
+                      foundTimeLine = line;
+                      processingLog.push(`Using line ${i} as time data`);
+                      lineFound = true;
+                      break; // We found both lines, no need to continue
+                    }
+                  }
+                }
+              }
+              
+              if (foundForceLine && foundTimeLine) {
                 // Parse semicolon-separated force and time data
-                const forceData = parseSemicolonLine(forceLine);
-                const timeData = parseSemicolonLine(timeLine);
+                const forceData = parseSemicolonLine(foundForceLine);
+                const timeData = parseSemicolonLine(foundTimeLine);
                 
                 if (forceData.length > 10 && timeData.length > 10) {
                   processingLog.push(`Final direct extraction successful: ${forceData.length} force points, ${timeData.length} time points`);
