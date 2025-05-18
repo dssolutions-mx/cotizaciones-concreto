@@ -560,7 +560,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           
           {/* Payment Button with Dialog */}
           {shouldShowFinancialInfo() && (
-            <RoleProtectedSection allowedRoles={['SALES_AGENT', 'EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}>
+            <RoleProtectedSection allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}>
               <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
                 <DialogTrigger asChild>
                   <Button 
