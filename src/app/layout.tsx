@@ -140,6 +140,12 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
         addFinanzasLink = true;
         break;
+      
+      case 'EXTERNAL_SALES_AGENT':
+        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
+        navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
+        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        break;
         
       case 'SALES_AGENT':
         navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });

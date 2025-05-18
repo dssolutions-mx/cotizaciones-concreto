@@ -21,7 +21,7 @@ export default function OrderDetailClient({ orderId }: OrderDetailClientProps) {
   }, [returnTo]);
   
   return (
-    <RoleGuard allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR', 'DOSIFICADOR', 'QUALITY_TEAM']}>
+    <RoleGuard allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR', 'DOSIFICADOR', 'QUALITY_TEAM', 'EXTERNAL_SALES_AGENT']}>
       <div className="relative">
         <OrderDetails orderId={orderId} />
       </div>

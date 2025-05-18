@@ -16,7 +16,7 @@ import {
 import { z } from 'zod';
 
 // Type definitions
-export type UserRole = 'QUALITY_TEAM' | 'PLANT_MANAGER' | 'SALES_AGENT' | 'EXECUTIVE' | 'CREDIT_VALIDATOR' | 'DOSIFICADOR';
+export type UserRole = 'QUALITY_TEAM' | 'PLANT_MANAGER' | 'SALES_AGENT' | 'EXECUTIVE' | 'CREDIT_VALIDATOR' | 'DOSIFICADOR' | 'EXTERNAL_SALES_AGENT';
 
 export interface UserProfile {
   id: string;

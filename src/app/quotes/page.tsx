@@ -47,7 +47,7 @@ function QuotesContent() {
     let roleTabs: TabDefinition[] = [];
     
     // SALES_AGENT can see draft quotes, approved quotes, and create quotes
-    if (hasRole(['SALES_AGENT'])) {
+    if (hasRole(['SALES_AGENT', 'EXTERNAL_SALES_AGENT'])) {
       roleTabs = [
         { 
           id: 'draft', 
@@ -295,7 +295,7 @@ function QuotesContent() {
 export default function QuotesPage() {
   return (
     <RoleGuard 
-      allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE']}
+      allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'EXTERNAL_SALES_AGENT']}
       redirectTo="/access-denied"
     >
       <Suspense fallback={<div className="p-12 text-center">Cargando cotizaciones...</div>}>

@@ -319,7 +319,10 @@ function OrdersContent() {
 
 export default function OrdersPage() {
   return (
-    <RoleGuard allowedRoles={['DOSIFICADOR', 'SALES_AGENT', 'CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER']}>
+    <RoleGuard
+      allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR', 'DOSIFICADOR', 'EXTERNAL_SALES_AGENT']}
+      redirectTo="/access-denied"
+    >
       <Suspense fallback={<div className="p-12 text-center">Cargando pedidos...</div>}>
         <OrdersContent />
       </Suspense>
