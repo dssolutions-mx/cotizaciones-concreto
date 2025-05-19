@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import orderService from '@/services/orderService';
 import { clientService } from '@/lib/supabase/clients';
+import { fetchAvailableRecipes } from '@/services/recipeService';
 import { OrderWithDetails, OrderStatus, CreditStatus } from '@/types/order';
 import { ConstructionSite, ClientBalance } from '@/types/client';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -31,7 +32,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
-import { Copy } from 'lucide-react';
+import { Copy, CalculatorIcon } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Define una interfaz para editar la orden
@@ -44,6 +45,8 @@ interface EditableOrderData {
     id: string;
     volume: number;
     pump_volume?: number | null;
+    recipe_id?: string | null;
+    temp_recipe_code?: string; // Campo temporal para mostrar el código, no se guarda en BD
   }>;
 }
 
@@ -84,6 +87,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [availableRecipes, setAvailableRecipes] = useState<any[]>([]);
+  const [loadingRecipes, setLoadingRecipes] = useState(false);
+  const [recipePrices, setRecipePrices] = useState<Record<string, number>>({});
+  const [isRecalculating, setIsRecalculating] = useState<boolean>(false);
   
   // Calculate allowed recipe IDs
   const allowedRecipeIds = useMemo(() => {
@@ -116,6 +123,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   
   // Check if the user can approve/reject credit
   const canManageCredit = (isCreditValidator || isManager) && order?.credit_status !== 'approved' && order?.credit_status !== 'rejected';
+
+  // Check if the order can be edited based on multiple conditions
+  const canEditProducts = useMemo(() => {
+    // Only allow editing products if there are no remisiones registered
+    return !hasRemisiones;
+  }, [hasRemisiones]);
 
   const loadOrderDetails = useCallback(async () => {
     try {
@@ -277,9 +290,29 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       products: order.products.map(p => ({ 
         id: p.id, 
         volume: p.volume,
-        pump_volume: p.pump_volume
+        pump_volume: p.pump_volume,
+        recipe_id: p.recipe_id,
+        temp_recipe_code: p.product_type
       }))
     });
+    
+    // Load available recipes when entering edit mode
+    loadAvailableRecipes();
+  };
+
+  // Function to load available recipes
+  const loadAvailableRecipes = async () => {
+    try {
+      setLoadingRecipes(true);
+      const recipes = await fetchAvailableRecipes();
+      setAvailableRecipes(recipes);
+      setRecipePrices(recipes.reduce((acc, recipe) => ({ ...acc, [recipe.id]: recipe.unit_price }), {}));
+    } catch (error) {
+      console.error('Error loading recipes:', error);
+      toast.error('Error al cargar las recetas disponibles');
+    } finally {
+      setLoadingRecipes(false);
+    }
   };
 
   function handleCancelEdit() {
@@ -329,6 +362,40 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     });
   }
 
+  function handleRecipeChange(id: string, newRecipeId: string) {
+    if (!editedOrder || !editedOrder.products) return;
+    
+    // Find the recipe details
+    const selectedRecipe = availableRecipes.find(r => r.id === newRecipeId);
+    
+    const updatedProducts = editedOrder.products.map(product => {
+      if (product.id === id) {
+        return { 
+          ...product, 
+          recipe_id: newRecipeId,
+          temp_recipe_code: selectedRecipe?.recipe_code || ''
+        };
+      }
+      return product;
+    });
+    
+    setEditedOrder({
+      ...editedOrder,
+      products: updatedProducts
+    });
+  }
+
+  // Función de utilidad para obtener el precio unitario correcto
+  const getProductUnitPrice = (product: any) => {
+    if (!product?.recipe_id) return 0;
+    
+    // Intentar obtener el precio de la receta seleccionada
+    const recipePrice = product.recipe_id ? recipePrices[product.recipe_id] : 0;
+    
+    // Si no tenemos un precio en nuestro mapa, usar el precio original del producto
+    return recipePrice || (product.unit_price || 0);
+  };
+
   async function handleSaveChanges() {
     if (!editedOrder || !order) return;
     
@@ -345,22 +412,51 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       await orderService.updateOrder(orderId, orderUpdate);
       
-      // Actualizar los productos si han cambiado y la orden está en estado 'created'
-      if (editedOrder.products && editedOrder.products.length > 0 && order.order_status === 'created') {
-        console.log('Order status is created, attempting to update items...');
+      // Actualizar los productos si han cambiado, no hay remisiones y el estatus es 'created'
+      if (editedOrder.products && 
+          editedOrder.products.length > 0 && 
+          !hasRemisiones) {
+        console.log('No remisiones found, attempting to update items...');
         const updates = editedOrder.products.map(product => {
           const originalProduct = order.products.find(p => p.id === product.id);
           
           // Solo actualizar si los valores han cambiado
           if (originalProduct && 
               (originalProduct.volume !== product.volume || 
-               originalProduct.pump_volume !== product.pump_volume)) {
-             console.log(`Updating item ${product.id} - Volume: ${product.volume}, Pump Volume: ${product.pump_volume}`);
+               originalProduct.pump_volume !== product.pump_volume ||
+               originalProduct.recipe_id !== product.recipe_id)) {
+               
+             console.log(`Updating item ${product.id} - Volume: ${product.volume}, Pump Volume: ${product.pump_volume}, Recipe: ${product.recipe_id}`);
+             
+             // Find the recipe details if recipe has changed
+             let productType = originalProduct.product_type;
+             let unitPrice = originalProduct.unit_price;
+             
+             if (originalProduct.recipe_id !== product.recipe_id && product.recipe_id) {
+               const selectedRecipe = availableRecipes.find(r => r.id === product.recipe_id);
+               if (selectedRecipe) {
+                 productType = selectedRecipe.recipe_code;
+                 // Obtener el precio actualizado para la nueva receta
+                 unitPrice = selectedRecipe.unit_price || originalProduct.unit_price;
+               }
+             }
+             
+             // Calcular el nuevo precio total basado en el volumen y el precio unitario
+             const newTotalPrice = unitPrice * product.volume;
+             
             return orderService.updateOrderItem(product.id, {
               volume: product.volume,
               pump_volume: product.pump_volume,
-              // Recalcular el precio total basado en el precio unitario
-              total_price: originalProduct.unit_price * product.volume
+              // Si cambió el tipo de receta, actualizar el recipe_id y product_type
+              ...(originalProduct.recipe_id !== product.recipe_id && product.recipe_id ? {
+                product_type: productType,
+                unit_price: unitPrice,
+                total_price: newTotalPrice,
+                recipe_id: product.recipe_id // Agregar recipe_id directamente en el item
+              } : {
+                // Si solo cambió el volumen, actualizar solo el precio total
+                total_price: unitPrice * product.volume
+              })
             });
           }
           return Promise.resolve();
@@ -368,7 +464,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         
         await Promise.all(updates);
       } else {
-          console.log(`Skipping item update. Status: ${order.order_status}`);
+          console.log(`Skipping item update. Has remisiones: ${hasRemisiones}`);
       }
       
       // Reload order details after saving
@@ -533,6 +629,32 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     }
   }
 
+  // Log para depuración cuando cambien los allowedRecipeIds
+  useEffect(() => {
+    if (allowedRecipeIds.length > 0) {
+      console.log('OrderDetails: allowedRecipeIds actualizados:', allowedRecipeIds);
+    }
+  }, [allowedRecipeIds]);
+
+  // Function to handle recalculation of order final amount
+  async function handleRecalculateAmount() {
+    if (!order) return;
+    
+    try {
+      setIsRecalculating(true);
+      const result = await orderService.recalculateOrderAmount(order.id);
+      toast.success(result.message || 'Monto final recalculado correctamente');
+      
+      // Reload order details to show updated amounts
+      await loadOrderDetails();
+    } catch (error) {
+      console.error('Error recalculating order amount:', error);
+      toast.error('Error al recalcular el monto: ' + (error instanceof Error ? error.message : 'Error desconocido'));
+    } finally {
+      setIsRecalculating(false);
+    }
+  }
+
   if (loading) {
     return <div className="flex justify-center p-4">Cargando detalles de la orden...</div>;
   }
@@ -553,80 +675,116 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
   // Render the action buttons section with Payment Dialog
   const renderOrderActions = () => {
+    // Check for roles that can edit most things
+    const managerOrFinance = hasRole(['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]);
+    const salesAgentRoles = hasRole(['SALES_AGENT', 'EXTERNAL_SALES_AGENT'] as UserRole[]);
+    
+    // For delete action
+    const canDeleteOrder = managerOrFinance && order && !hasRemisiones && order.order_status !== 'cancelled';
+    
+    // Menu of actions
     return (
-      <div className="flex flex-wrap gap-2 items-center justify-end mt-4">
-        <div className="flex flex-wrap gap-2">
-          {/* ... existing buttons ... */}
-          
-          {/* Payment Button with Dialog */}
-          {shouldShowFinancialInfo() && (
-            <RoleProtectedSection allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}>
-              <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button 
-                    variant="outline" 
-                    className="ml-2"
-                    onClick={() => setIsPaymentDialogOpen(true)}
-                  >
-                    Registrar Pago
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl">
-                  <DialogHeader>
-                    <DialogTitle>Registrar Pago para Cliente</DialogTitle>
-                    <DialogDescription>
-                      Ingrese los detalles del pago para {order.client.business_name}
-                    </DialogDescription>
-                  </DialogHeader>
-                  
-                  <PaymentForm 
-                    clientId={order.client_id} 
-                    sites={clientSites}
-                    onSuccess={handlePaymentSuccess}
-                    onCancel={() => setIsPaymentDialogOpen(false)}
-                    defaultConstructionSite={order.construction_site || ''}
-                    currentBalance={currentClientBalance}
-                  />
-                </DialogContent>
-              </Dialog>
-            </RoleProtectedSection>
+      <div className="flex flex-wrap gap-2 mb-6 justify-end">
+        {/* Recalculate button with role protection */}
+        <RoleProtectedButton
+          allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'] as UserRole[]}
+          onClick={handleRecalculateAmount}
+          disabled={isRecalculating || !hasRemisiones}
+          className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
+        >
+          {isRecalculating ? (
+            <>
+              <span className="animate-spin mr-2">◌</span>
+              Recalculando...
+            </>
+          ) : (
+            <>
+              <CalculatorIcon className="w-4 h-4 mr-2" />
+              Recalcular
+            </>
           )}
-          
-          {/* Delete Order Button - Only for EXECUTIVE role */}
-          <RoleProtectedSection allowedRoles={['EXECUTIVE'] as UserRole[]}>
-            <Dialog open={showConfirmDelete} onOpenChange={setShowConfirmDelete}>
-              <DialogTrigger asChild>
-                <Button 
-                  variant="destructive" 
-                  className="ml-2"
-                  onClick={() => setShowConfirmDelete(true)}
-                >
-                  Eliminar Orden
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Eliminar Orden Permanentemente</DialogTitle>
-                  <DialogDescription>
-                    Esta acción eliminará permanentemente la orden #{order.order_number} y todos sus datos relacionados. Esta acción no se puede deshacer.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="flex justify-end gap-2 mt-4">
-                  <Button variant="outline" onClick={() => setShowConfirmDelete(false)}>
-                    Cancelar
-                  </Button>
-                  <Button 
-                    variant="destructive" 
-                    onClick={handleDeleteOrder}
-                    disabled={isDeleting}
-                  >
-                    {isDeleting ? 'Eliminando...' : 'Confirmar Eliminación'}
-                  </Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-          </RoleProtectedSection>
-        </div>
+        </RoleProtectedButton>
+
+        {canEditOrder && !isEditing && (
+          <Button variant="outline" size="sm" onClick={handleEditClick} className="mr-2">
+            Editar Detalles
+          </Button>
+        )}
+        
+        {/* Approve Credit button - only show for validators when status is pending */}
+        {canManageCredit && order?.credit_status === 'pending' && (
+          <Button 
+            variant="default" 
+            size="sm"
+            onClick={handleApproveCredit}
+            className="bg-green-600 hover:bg-green-700">
+            Aprobar Crédito
+          </Button>
+        )}
+        
+        {/* Reject Credit button - show for validator */}
+        {canManageCredit && order?.credit_status === 'pending' && isCreditValidator && (
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={openRejectReasonModal}>
+            Rechazar (Validador)
+          </Button>
+        )}
+        
+        {/* Reject Credit button - show for manager */}
+        {canManageCredit && 
+         order?.credit_status === 'pending' && 
+         isManager && (
+          <Button 
+            variant="destructive" 
+            size="sm"
+            onClick={openConfirmModal}>
+            Rechazar (Gerente)
+          </Button>
+        )}
+        
+        {/* Cancel Order button */}
+        {canCancelOrder && (
+          <Button 
+            variant="outline" 
+            size="sm"
+            className="border-red-300 text-red-700 hover:bg-red-50"
+            onClick={() => setShowConfirmCancel(true)}
+            disabled={isCancelling}
+          >
+            {isCancelling ? 'Cancelando...' : 'Cancelar Orden'}
+          </Button>
+        )}
+        
+        {/* Delete Order button */}
+        {canDeleteOrder && (
+          <RoleProtectedButton
+            allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
+            onClick={() => setShowConfirmDelete(true)}
+            disabled={isDeleting}
+            className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
+          >
+            {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
+          </RoleProtectedButton>
+        )}
+        
+        {/* Allow adding payments for roles with FINANCE permission */}
+        {shouldShowFinancialInfo() && order?.client_id && (
+          <>
+            <RoleProtectedButton
+              allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
+              onClick={() => setIsPaymentDialogOpen(true)}
+              className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
+            >
+              Registrar Pago
+            </RoleProtectedButton>
+          </>
+        )}
+        
+        <Button variant="outline" size="sm" onClick={handleGoBack}>
+          {returnTo === 'delivery' ? 'Volver a Programación' : 'Volver a Listado'}
+        </Button>
       </div>
     );
   };
@@ -826,7 +984,9 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead className="w-[200px]">Producto</TableHead>
+                        <TableHead className="w-[200px]">
+                          {isEditing && canEditProducts ? "Receta / Producto" : "Producto"}
+                        </TableHead>
                         <TableHead>Volumen</TableHead>
                         <TableHead>Servicio de Bomba</TableHead>
                         {shouldShowFinancialInfo() && (
@@ -838,7 +998,77 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {order.products.map((product) => (
+                      {isEditing && canEditProducts
+                      ? (editedOrder?.products || []).map((product) => {
+                          const originalProduct = order.products.find(p => p.id === product.id);
+                          return (
+                            <TableRow key={product.id}>
+                              <TableCell className="font-medium">
+                                {loadingRecipes ? (
+                                  <div className="flex items-center gap-2">
+                                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-green-500 border-t-transparent"></div>
+                                    <span>Cargando...</span>
+                                  </div>
+                                ) : (
+                                  <select
+                                    value={product.recipe_id || ''}
+                                    onChange={(e) => handleRecipeChange(product.id, e.target.value)}
+                                    className="w-full px-2 py-1 border border-gray-300 rounded-md"
+                                    disabled={loadingRecipes}
+                                  >
+                                    <option value="" disabled>Seleccionar receta</option>
+                                    {availableRecipes.map((recipe) => (
+                                      <option key={recipe.id} value={recipe.id}>
+                                        {recipe.recipe_code} - {recipe.age_days}d {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                                {product.recipe_id && originalProduct?.recipe_id && product.recipe_id !== originalProduct?.recipe_id && (
+                                  <div className="mt-1 text-xs text-green-600 font-medium">
+                                    Producto cambiado
+                                  </div>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <input
+                                  type="number"
+                                  min="0.01"
+                                  step="0.01"
+                                  value={product.volume}
+                                  onChange={(e) => handleProductVolumeChange(product.id, parseFloat(e.target.value) || 0)}
+                                  className="w-20 px-2 py-1 border border-gray-300 rounded-md"
+                                />
+                                <span className="ml-1">m³</span>
+                              </TableCell>
+                              <TableCell>
+                                {originalProduct?.has_pump_service ? (
+                                  <>
+                                    <span className="mr-2">Sí -</span>
+                                    <input
+                                      type="number"
+                                      min="0.01"
+                                      step="0.01"
+                                      value={product.pump_volume || 0}
+                                      onChange={(e) => handlePumpVolumeChange(product.id, parseFloat(e.target.value) || 0)}
+                                      className="w-20 px-2 py-1 border border-gray-300 rounded-md"
+                                    />
+                                    <span className="ml-1">m³</span>
+                                  </>
+                                ) : (
+                                  'No'
+                                )}
+                              </TableCell>
+                              {shouldShowFinancialInfo() && originalProduct && (
+                                <>
+                                  <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product))}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product) * product.volume)}</TableCell>
+                                </>
+                              )}
+                            </TableRow>
+                          );
+                        })
+                      : order.products.map((product) => (
                         <TableRow key={product.id}>
                           <TableCell className="font-medium">{product.product_type}</TableCell>
                           <TableCell>{product.volume} m³</TableCell>
@@ -849,8 +1079,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                           </TableCell>
                           {shouldShowFinancialInfo() && (
                             <>
-                              <TableCell className="text-right">{formatCurrency(product.unit_price)}</TableCell>
-                              <TableCell className="text-right">{formatCurrency(product.total_price)}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product))}</TableCell>
+                              <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product) * product.volume)}</TableCell>
                             </>
                           )}
                         </TableRow>
@@ -870,13 +1100,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
                 {isEditing && (
                   <div className="mt-6 space-y-5">
-                    {order.order_status !== 'created' && (
+                    {!canEditProducts && (
                       <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
                         <div className="flex">
                           <div className="ml-3">
                             <p className="text-sm text-yellow-700">
-                              La orden ya ha sido aprobada. Solo puedes cambiar la fecha y hora de entrega, los requisitos especiales 
-                              y si requiere factura. El volumen no se puede modificar.
+                              {hasRemisiones 
+                                ? "Esta orden ya tiene remisiones registradas. No se pueden modificar las recetas ni los volúmenes de los productos."
+                                : "Solo puedes cambiar la fecha y hora de entrega, los requisitos especiales y si requiere factura."}
                             </p>
                           </div>
                         </div>

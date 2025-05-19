@@ -65,38 +65,32 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
   const [loading, setLoading] = useState(false);
   const [loadingRecipes, setLoadingRecipes] = useState(false);
 
+  // Log para depuración cuando el componente se monte
+  useEffect(() => {
+    console.log('RemisionManualForm montado con allowedRecipeIds:', allowedRecipeIds);
+    
+    // Cleanup al desmontar
+    return () => {
+      console.log('RemisionManualForm desmontado');
+    };
+  }, [allowedRecipeIds]);
+
   // Fetch recipes - now filtered
   useEffect(() => {
     const fetchRecipes = async () => {
       if (!allowedRecipeIds || allowedRecipeIds.length === 0) {
         setRecipes([]); // No allowed recipes for this order
         setLoadingRecipes(false); // Ensure loading is stopped
+        console.log('No hay recetas permitidas para esta orden');
         return;
       }
 
+      console.log('RemisionManualForm - Recipe IDs permitidos exactos:', JSON.stringify(allowedRecipeIds));
       setLoadingRecipes(true);
 
-      // --- Caching Logic Start ---
-      const sortedAllowedRecipeIds = [...allowedRecipeIds].sort().join(',');
-      const cacheKey = `recipes_cache_${sortedAllowedRecipeIds}`;
-
+      // Saltamos el caché y siempre recargamos para asegurar tener los datos frescos
       try {
-        const cachedDataString = sessionStorage.getItem(cacheKey);
-        if (cachedDataString) {
-          const cachedRecipes = JSON.parse(cachedDataString);
-          setRecipes(cachedRecipes);
-          setLoadingRecipes(false);
-          console.log('Loaded recipes from session cache.');
-          return; // Loaded from cache, no need to fetch
-        }
-      } catch (cacheError) {
-        console.warn('Error reading recipes from session cache:', cacheError);
-        // Proceed to fetch if cache read fails
-      }
-      // --- Caching Logic End ---
-
-      try {
-        console.log('Fetching recipes from Supabase...');
+        console.log('RemisionManualForm - Fetching recipes from Supabase...');
         const { data, error } = await supabase
           .from('recipes')
           .select('id, recipe_code')
@@ -106,26 +100,29 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         if (error) throw error;
         
         const fetchedRecipes = data || [];
+        console.log('RemisionManualForm - Recetas obtenidas:', JSON.stringify(fetchedRecipes));
         setRecipes(fetchedRecipes);
-
-        // --- Caching Logic Start (Write to cache) ---
-        try {
-          sessionStorage.setItem(cacheKey, JSON.stringify(fetchedRecipes));
-          console.log('Stored recipes to session cache.');
-        } catch (cacheWriteError) {
-          console.warn('Error writing recipes to session cache:', cacheWriteError);
-        }
-        // --- Caching Logic End (Write to cache) ---
-
       } catch (error: any) {
         showError('Error al cargar las recetas permitidas: ' + error.message);
+        console.error('Error al cargar recetas:', error);
         setRecipes([]); // Set to empty on error
       } finally {
         setLoadingRecipes(false);
       }
     };
+    
+    // Ejecutar inmediatamente al montar
     fetchRecipes();
-  }, [allowedRecipeIds]); // Rerun when allowedRecipeIds change
+    
+    // Y también cada 5 segundos para asegurar actualizaciones sin sobrecargar
+    const intervalId = setInterval(() => {
+      console.log('Refrescando recetas automáticamente...');
+      fetchRecipes();
+    }, 5000);
+    
+    // Limpiar intervalo al desmontar
+    return () => clearInterval(intervalId);
+  }, [allowedRecipeIds]);
 
   // Fetch theoretical materials when recipe changes for CONCRETO type
   const fetchTheoreticalMaterials = useCallback(async (selectedRecipeId: string) => {

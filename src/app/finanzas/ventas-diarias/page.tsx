@@ -174,8 +174,23 @@ async function SalesMetrics({ date }: { date: string }) {
       
       console.log(`Found ${orderItems?.length || 0} order items`);
       
-      // Calculate metrics from order items - USE DELIVERED VOLUMES
+      // Calculate metrics from order items - USE DELIVERED VOLUMES ONLY
       if (orderItems && orderItems.length > 0) {
+        // For debugging: Log pumping services requested vs delivered
+        const pumpingItems = orderItems.filter(item => item.has_pump_service);
+        console.log(`${pumpingItems.length} items have pump service requested`);
+        
+        const pumpingItemsDelivered = pumpingItems.filter(item => item.pump_volume_delivered > 0);
+        console.log(`${pumpingItemsDelivered.length} items have actual pump volume delivered`);
+        
+        if (pumpingItems.length > 0) {
+          console.log('Pump items details:', pumpingItems.map(item => ({
+            orderId: item.order_id,
+            requestedVolume: item.pump_volume,
+            deliveredVolume: item.pump_volume_delivered
+          })));
+        }
+        
         // Process each order item
         orderItems.forEach(item => {
           // Add concrete volume (prefer concrete_volume_delivered if available)
@@ -184,9 +199,9 @@ async function SalesMetrics({ date }: { date: string }) {
             metricsData.totalConcreteVolume += Number(concreteVolume);
           }
           
-          // Add pumping volume (prefer pump_volume_delivered if available)
-          if (item.has_pump_service) {
-            const pumpVolume = item.pump_volume_delivered || item.pump_volume || 0;
+          // Add pumping volume - ONLY if pump_volume_delivered exists and is > 0
+          if (item.has_pump_service && item.pump_volume_delivered > 0) {
+            const pumpVolume = item.pump_volume_delivered || 0;
             metricsData.totalPumpingVolume += Number(pumpVolume);
           }
         });
@@ -338,9 +353,9 @@ async function DailySalesTable({ date }: { date: string }) {
               }
             }
             
-            // Add pumping volume (prefer pump_volume_delivered if available)
-            if (item.has_pump_service) {
-              const pumpVol = item.pump_volume_delivered || item.pump_volume || 0;
+            // Add pumping volume - ONLY if pump_volume_delivered exists and is > 0
+            if (item.has_pump_service && item.pump_volume_delivered > 0) {
+              const pumpVol = item.pump_volume_delivered || 0;
               pumpingVolume += Number(pumpVol);
             }
           });

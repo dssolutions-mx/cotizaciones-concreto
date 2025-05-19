@@ -239,8 +239,9 @@ export async function getOrderById(id: string) {
     const { clients, products, ...orderData } = data;
     
     // Map products to include recipe_id directly
-    const structuredProducts = (products || []).map((p: { quote_details: { recipe_id: string } | null; [key: string]: any }) => {
-      const recipeId = p.quote_details?.recipe_id || null;
+    const structuredProducts = (products || []).map((p: { recipe_id: string | null; quote_details: { recipe_id: string } | null; [key: string]: any }) => {
+      // Usar el recipe_id directo del order_item si existe, sino el de quote_details como fallback
+      const recipeId = p.recipe_id !== null ? p.recipe_id : (p.quote_details?.recipe_id || null);
       const { quote_details, ...productData } = p;
       return {
         ...productData,
@@ -347,6 +348,9 @@ export async function updateOrderItem(id: string, itemData: {
   volume?: number;
   pump_volume?: number | null;
   total_price?: number;
+  recipe_id?: string;
+  product_type?: string;
+  unit_price?: number;
 }) {
   try {
     const { data, error } = await supabase
@@ -516,26 +520,85 @@ export async function getOrdersForDosificador() {
  */
 export async function deleteOrder(orderId: string) {
   try {
-    // First delete associated order_items to avoid foreign key constraint violations
-    const { error: itemsError } = await supabase
+    // Check if the order has remisiones
+    const { data: remisiones, error: remisionesError } = await supabase
+      .from('remisiones')
+      .select('id')
+      .eq('order_id', orderId)
+      .limit(1);
+    
+    if (remisionesError) throw remisionesError;
+    
+    if (remisiones && remisiones.length > 0) {
+      throw new Error('No se puede eliminar la orden porque tiene remisiones asociadas');
+    }
+    
+    // Delete order items first
+    const { error: orderItemsError } = await supabase
       .from('order_items')
       .delete()
       .eq('order_id', orderId);
-      
-    if (itemsError) throw itemsError;
     
-    // Then delete the order itself
-    const { data, error } = await supabase
+    if (orderItemsError) throw orderItemsError;
+    
+    // Then delete the order
+    const { error: orderError } = await supabase
       .from('orders')
       .delete()
-      .eq('id', orderId)
-      .select()
-      .single();
+      .eq('id', orderId);
     
-    if (error) throw error;
-    return data;
+    if (orderError) throw orderError;
+    
+    return { success: true };
   } catch (error) {
     console.error('Error deleting order:', error);
+    throw error;
+  }
+}
+
+// New function to recalculate an order's final amount
+export async function recalculateOrderAmount(orderId: string) {
+  try {
+    // Get a remision for this order to trigger the recalculation
+    const { data: remisiones, error: remisionesError } = await supabase
+      .from('remisiones')
+      .select('id')
+      .eq('order_id', orderId)
+      .limit(1);
+    
+    if (remisionesError) throw remisionesError;
+    
+    if (!remisiones || remisiones.length === 0) {
+      // If there are no remisiones, set final_amount to 0
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({ 
+          final_amount: 0,
+          invoice_amount: 0,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', orderId);
+      
+      if (updateError) throw updateError;
+      return { success: true, message: 'No hay remisiones para esta orden. Monto final actualizado a 0.' };
+    }
+    
+    // There is at least one remision, update it to trigger the recalculation
+    const remisionId = remisiones[0].id;
+    
+    // Perform a no-op update to trigger the actualizar_volumenes_orden trigger
+    const { error: updateError } = await supabase
+      .from('remisiones')
+      .update({ 
+        updated_at: new Date().toISOString() 
+      })
+      .eq('id', remisionId);
+    
+    if (updateError) throw updateError;
+    
+    return { success: true, message: 'Monto final actualizado correctamente.' };
+  } catch (error) {
+    console.error('Error recalculating order amount:', error);
     throw error;
   }
 }
@@ -556,7 +619,8 @@ const orderService = {
   canUserApproveOrder,
   cancelOrder,
   getOrdersForDosificador,
-  deleteOrder
+  deleteOrder,
+  recalculateOrderAmount
 };
 
 export default orderService; 

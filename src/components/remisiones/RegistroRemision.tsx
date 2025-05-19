@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import RemisionPdfExtractor from './RemisionPdfExtractor';
@@ -69,6 +69,13 @@ export default function RegistroRemision({
   const canCreateRemisiones = profile?.role === 'DOSIFICADOR' || 
                              profile?.role === 'PLANT_MANAGER' || 
                              profile?.role === 'EXECUTIVE';
+  
+  // Log cuando cambian los allowedRecipeIds para depuración
+  useEffect(() => {
+    if (allowedRecipeIds.length > 0) {
+      console.log('RegistroRemision recibió allowedRecipeIds:', JSON.stringify(allowedRecipeIds));
+    }
+  }, [allowedRecipeIds]);
   
   if (!canCreateRemisiones) {
     return (
