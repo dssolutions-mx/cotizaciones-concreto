@@ -34,6 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import { Copy, CalculatorIcon } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 
 // Define una interfaz para editar la orden
 interface EditableOrderData {
@@ -92,6 +93,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [recipePrices, setRecipePrices] = useState<Record<string, number>>({});
   const [isRecalculating, setIsRecalculating] = useState<boolean>(false);
   
+  // Recipe filter states - Added for filtering functionality
+  const [strengthFilter, setStrengthFilter] = useState<number | ''>('');
+  const [placementTypeFilter, setPlacementTypeFilter] = useState<string>('');
+  const [slumpFilter, setSlumpFilter] = useState<number | ''>('');
+  const [searchFilter, setSearchFilter] = useState<string>('');
+  
   // Calculate allowed recipe IDs
   const allowedRecipeIds = useMemo(() => {
     if (!order?.products) return [];
@@ -129,6 +136,54 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     // Only allow editing products if there are no remisiones registered
     return !hasRemisiones;
   }, [hasRemisiones]);
+
+  // Function to filter recipes based on filter criteria
+  const getFilteredRecipes = useCallback(() => {
+    if (!availableRecipes.length) return [];
+    
+    let filteredRecipes = [...availableRecipes];
+    
+    // Apply strength filter if selected
+    if (strengthFilter !== '') {
+      filteredRecipes = filteredRecipes.filter(recipe => 
+        recipe.strength_fc === strengthFilter
+      );
+    }
+    
+    // Apply placement type filter if selected
+    if (placementTypeFilter) {
+      filteredRecipes = filteredRecipes.filter(recipe => 
+        recipe.placement_type === placementTypeFilter
+      );
+    }
+
+    // Apply slump filter if selected
+    if (slumpFilter !== '') {
+      filteredRecipes = filteredRecipes.filter(recipe => 
+        recipe.slump === slumpFilter
+      );
+    }
+
+    // Apply search filter if entered
+    if (searchFilter) {
+      const searchTerm = searchFilter.toLowerCase();
+      filteredRecipes = filteredRecipes.filter(recipe => 
+        recipe.recipe_code.toLowerCase().includes(searchTerm) ||
+        (recipe.placement_type && recipe.placement_type.toLowerCase().includes(searchTerm)) ||
+        (recipe.strength_fc && `${recipe.strength_fc}`.includes(searchTerm))
+      );
+    }
+    
+    return filteredRecipes;
+  }, [availableRecipes, strengthFilter, placementTypeFilter, slumpFilter, searchFilter]);
+
+  // Reset all filters
+  const resetFilters = useCallback(() => {
+    setStrengthFilter('');
+    setPlacementTypeFilter('');
+    setSlumpFilter('');
+    setSearchFilter('');
+  }, []);
 
   const loadOrderDetails = useCallback(async () => {
     try {
@@ -298,15 +353,152 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     
     // Load available recipes when entering edit mode
     loadAvailableRecipes();
+    // Reset filters when starting to edit
+    resetFilters();
   };
 
   // Function to load available recipes
   const loadAvailableRecipes = async () => {
     try {
       setLoadingRecipes(true);
-      const recipes = await fetchAvailableRecipes();
-      setAvailableRecipes(recipes);
-      setRecipePrices(recipes.reduce((acc, recipe) => ({ ...acc, [recipe.id]: recipe.unit_price }), {}));
+      
+      if (!order?.client_id || !order?.construction_site) {
+        toast.error('No se pudo determinar el cliente o la obra para cargar las recetas');
+        return;
+      }
+      
+      console.log(`Fetching active price for Client: ${order.client_id}, Site: ${order.construction_site}`);
+      
+      // 1. Find the active product price for this client and site
+      const { data: activePrices, error: activePriceError } = await supabase
+        .from('product_prices')
+        .select('quote_id, id, is_active, updated_at, recipe_id')
+        .eq('client_id', order.client_id)
+        .eq('construction_site', order.construction_site)
+        .eq('is_active', true)
+        .order('updated_at', { ascending: false });
+      
+      if (activePriceError) {
+        console.error("Error fetching active product prices:", activePriceError);
+        toast.error('Error al cargar los precios activos para el cliente');
+        return;
+      }
+      
+      console.log('Active prices fetched:', activePrices);
+      
+      if (!activePrices || activePrices.length === 0) {
+        console.log('No active prices/quotes found for this client/site.');
+        setAvailableRecipes([]);
+        return;
+      }
+      
+      // Double-check that all prices are actually active
+      const trulyActivePrices = activePrices.filter(price => price.is_active === true);
+      console.log(`Found ${trulyActivePrices.length} truly active prices out of ${activePrices.length} returned prices`);
+      
+      if (trulyActivePrices.length === 0) {
+        console.log('No prices with is_active=true found despite query filter.');
+        setAvailableRecipes([]);
+        return;
+      }
+      
+      // Get unique quote IDs from truly active prices
+      const uniqueQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
+      console.log('Unique quote IDs from active prices:', uniqueQuoteIds);
+      
+      // Create a set of active quote-recipe combinations
+      // This ensures we only display recipes that are active for a specific quote
+      const activeQuoteRecipeCombos = new Set(
+        trulyActivePrices
+          .filter(price => price.quote_id && price.recipe_id)
+          .map(price => `${price.quote_id}:${price.recipe_id}`)
+      );
+      console.log('Active quote-recipe combinations:', Array.from(activeQuoteRecipeCombos));
+      
+      // 2. Fetch all quotes linked to active prices
+      const { data: quotesData, error: quotesError } = await supabase
+        .from('quotes')
+        .select(`
+          id,
+          quote_number,
+          quote_details(
+            id,
+            volume,
+            final_price,
+            pump_service,
+            pump_price,
+            recipe_id,
+            recipes:recipe_id(
+              id,
+              recipe_code,
+              strength_fc,
+              placement_type,
+              max_aggregate_size,
+              age_days,
+              slump
+            )
+          )
+        `)
+        .in('id', uniqueQuoteIds)
+        .eq('status', 'APPROVED'); // Ensure the linked quotes are still approved
+      
+      if (quotesError) {
+        console.error("Error fetching the linked quotes:", quotesError);
+        toast.error('Error al cargar las cotizaciones vinculadas');
+        return;
+      }
+      
+      if (!quotesData || quotesData.length === 0) {
+        console.log('No approved quotes found for the active prices.');
+        setAvailableRecipes([]);
+        return;
+      }
+      
+      console.log('Successfully fetched linked quotes:', quotesData);
+      
+      // 3. Extract valid recipes from the quotes
+      const validRecipes: any[] = [];
+      const priceMap: Record<string, number> = {};
+      
+      quotesData.forEach(quoteData => {
+        // Filter quote details to only include those with active quote-recipe combinations
+        const activeDetails = quoteData.quote_details.filter((detail: any) => 
+          // Check if this specific quote-recipe combination is in our active set
+          activeQuoteRecipeCombos.has(`${quoteData.id}:${detail.recipe_id}`)
+        );
+        
+        console.log(`Quote ${quoteData.quote_number}: filtered ${quoteData.quote_details.length} details to ${activeDetails.length} active details`);
+        
+        // Extract recipe information from the active details
+        activeDetails.forEach((detail: any) => {
+          // Skip if recipe is missing
+          if (!detail.recipes) return;
+          
+          const recipeData = detail.recipes;
+          
+          // Add recipe to our list if it has all the data we need
+          if (recipeData.id && recipeData.recipe_code) {
+            validRecipes.push({
+              id: recipeData.id,
+              recipe_code: recipeData.recipe_code,
+              strength_fc: recipeData.strength_fc || 0,
+              placement_type: recipeData.placement_type || '',
+              max_aggregate_size: recipeData.max_aggregate_size || 0,
+              age_days: recipeData.age_days || 0,
+              slump: recipeData.slump || 0,
+              unit_price: detail.final_price || 0,  // Set price from the quote detail
+            });
+            
+            // Also store the price in our map
+            priceMap[recipeData.id] = detail.final_price || 0;
+          }
+        });
+      });
+      
+      console.log(`Loaded ${validRecipes.length} recipes specific to this client and site`);
+      
+      setAvailableRecipes(validRecipes);
+      setRecipePrices(priceMap);
     } catch (error) {
       console.error('Error loading recipes:', error);
       toast.error('Error al cargar las recetas disponibles');
@@ -318,6 +510,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   function handleCancelEdit() {
     setIsEditing(false);
     setEditedOrder(null);
+    resetFilters();
   }
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) {
@@ -384,6 +577,24 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       products: updatedProducts
     });
   }
+
+  // Function to get unique values for filter dropdowns
+  const getUniqueFilterValues = useCallback((field: string) => {
+    if (!availableRecipes.length) return [];
+    
+    const values = availableRecipes
+      .map(recipe => recipe[field])
+      .filter(value => value !== null && value !== undefined);
+    
+    return Array.from(new Set(values)).sort((a, b) => {
+      // For numeric values like strength and slump
+      if (typeof a === 'number' && typeof b === 'number') {
+        return a - b;
+      }
+      // For string values
+      return String(a).localeCompare(String(b));
+    });
+  }, [availableRecipes]);
 
   // Función de utilidad para obtener el precio unitario correcto
   const getProductUnitPrice = (product: any) => {
@@ -673,18 +884,34 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   // Calculate total balance from fetched balances
   const totalClientBalance = clientBalances.find(b => b.construction_site === null)?.current_balance;
 
+  // Get filtered recipes
+  const filteredRecipes = getFilteredRecipes();
+
+  // Count recipes before and after filtering
+  const totalRecipeCount = availableRecipes.length;
+  const filteredRecipeCount = filteredRecipes.length;
+
   // Render the action buttons section with Payment Dialog
   const renderOrderActions = () => {
     // Check for roles that can edit most things
     const managerOrFinance = hasRole(['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]);
-    const salesAgentRoles = hasRole(['SALES_AGENT', 'EXTERNAL_SALES_AGENT'] as UserRole[]);
     
     // For delete action
     const canDeleteOrder = managerOrFinance && order && !hasRemisiones && order.order_status !== 'cancelled';
     
-    // Menu of actions
+    // Menu of actions - only keeping the 3 requested buttons
     return (
       <div className="flex flex-wrap gap-2 mb-6 justify-end">
+        {/* Edit Order button */}
+        {canEditOrder && !isEditing && (
+          <Button
+            onClick={handleEditClick}
+            className="px-3 py-2 rounded text-sm bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Editar Orden
+          </Button>
+        )}
+        
         {/* Recalculate button with role protection */}
         <RoleProtectedButton
           allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'] as UserRole[]}
@@ -704,58 +931,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             </>
           )}
         </RoleProtectedButton>
-
-        {canEditOrder && !isEditing && (
-          <Button variant="outline" size="sm" onClick={handleEditClick} className="mr-2">
-            Editar Detalles
-          </Button>
-        )}
-        
-        {/* Approve Credit button - only show for validators when status is pending */}
-        {canManageCredit && order?.credit_status === 'pending' && (
-          <Button 
-            variant="default" 
-            size="sm"
-            onClick={handleApproveCredit}
-            className="bg-green-600 hover:bg-green-700">
-            Aprobar Crédito
-          </Button>
-        )}
-        
-        {/* Reject Credit button - show for validator */}
-        {canManageCredit && order?.credit_status === 'pending' && isCreditValidator && (
-          <Button 
-            variant="destructive" 
-            size="sm"
-            onClick={openRejectReasonModal}>
-            Rechazar (Validador)
-          </Button>
-        )}
-        
-        {/* Reject Credit button - show for manager */}
-        {canManageCredit && 
-         order?.credit_status === 'pending' && 
-         isManager && (
-          <Button 
-            variant="destructive" 
-            size="sm"
-            onClick={openConfirmModal}>
-            Rechazar (Gerente)
-          </Button>
-        )}
-        
-        {/* Cancel Order button */}
-        {canCancelOrder && (
-          <Button 
-            variant="outline" 
-            size="sm"
-            className="border-red-300 text-red-700 hover:bg-red-50"
-            onClick={() => setShowConfirmCancel(true)}
-            disabled={isCancelling}
-          >
-            {isCancelling ? 'Cancelando...' : 'Cancelar Orden'}
-          </Button>
-        )}
         
         {/* Delete Order button */}
         {canDeleteOrder && (
@@ -771,20 +946,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         
         {/* Allow adding payments for roles with FINANCE permission */}
         {shouldShowFinancialInfo() && order?.client_id && (
-          <>
-            <RoleProtectedButton
-              allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
-              onClick={() => setIsPaymentDialogOpen(true)}
-              className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
-            >
-              Registrar Pago
-            </RoleProtectedButton>
-          </>
+          <RoleProtectedButton
+            allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
+            onClick={() => setIsPaymentDialogOpen(true)}
+            className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
+          >
+            Registrar Pago
+          </RoleProtectedButton>
         )}
-        
-        <Button variant="outline" size="sm" onClick={handleGoBack}>
-          {returnTo === 'delivery' ? 'Volver a Programación' : 'Volver a Listado'}
-        </Button>
       </div>
     );
   };
@@ -897,28 +1066,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   </div>
                   {canManageCredit && order.credit_status === 'pending' && (
                     <div className="mt-4 flex space-x-2">
-                      <button
-                        onClick={handleApproveCredit}
-                        className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-xs text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                      >
-                        Aprobar Crédito
-                      </button>
-                      
-                      {isCreditValidator ? (
-                        <button
-                          onClick={openRejectReasonModal}
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-xs text-white bg-red-600 hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                        >
-                          Rechazar Crédito
-                        </button>
-                      ) : (
-                        <button
-                          onClick={openConfirmModal}
-                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded shadow-xs text-white bg-red-600 hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                        >
-                          Rechazar Crédito
-                        </button>
-                      )}
+                      {/* Credit buttons removed to avoid duplication - actions available in the bottom actions section */}
                     </div>
                   )}
                 </div>
@@ -957,22 +1105,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   </dl>
                   {/* Order actions buttons */}
                   <div className="px-4 py-5 sm:px-6 bg-gray-50 border-t flex flex-wrap gap-2">
-                    {canEditOrder && !isEditing && order.order_status !== 'cancelled' && (
-                      <button
+                    {/* Buttons removed to avoid duplication - actions are available in the bottom actions section */}
+                    {canEditOrder && !isEditing && (
+                      <Button
                         onClick={handleEditClick}
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-xs text-white bg-green-600 hover:bg-green-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                        className="px-3 py-2 rounded text-sm bg-blue-600 text-white hover:bg-blue-700"
                       >
                         Editar Orden
-                      </button>
-                    )}
-                    
-                    {canCancelOrder && !isEditing && order.order_status !== 'cancelled' && (
-                      <button
-                        onClick={() => setShowConfirmCancel(true)}
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-xs text-white bg-red-600 hover:bg-red-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                      >
-                        Cancelar Orden
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -1010,19 +1150,82 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                     <span>Cargando...</span>
                                   </div>
                                 ) : (
-                                  <select
-                                    value={product.recipe_id || ''}
-                                    onChange={(e) => handleRecipeChange(product.id, e.target.value)}
-                                    className="w-full px-2 py-1 border border-gray-300 rounded-md"
-                                    disabled={loadingRecipes}
-                                  >
-                                    <option value="" disabled>Seleccionar receta</option>
-                                    {availableRecipes.map((recipe) => (
-                                      <option key={recipe.id} value={recipe.id}>
-                                        {recipe.recipe_code} - {recipe.age_days}d {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  <>
+                                    {/* Filter controls for recipes */}
+                                    <div className="mb-3">
+                                      <div className="flex flex-wrap gap-2 mb-2">
+                                        <input
+                                          type="text"
+                                          placeholder="Buscar receta..."
+                                          value={searchFilter}
+                                          onChange={(e) => setSearchFilter(e.target.value)}
+                                          className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
+                                        />
+                                      </div>
+                                      <div className="flex flex-wrap gap-2 mb-2">
+                                        <select
+                                          className="text-xs px-2 py-1 border border-gray-300 rounded-md"
+                                          onChange={(e) => setStrengthFilter(e.target.value ? Number(e.target.value) : '')}
+                                          value={strengthFilter}
+                                        >
+                                          <option value="">Resistencia</option>
+                                          {getUniqueFilterValues('strength_fc').map((strength) => (
+                                            <option key={strength} value={strength}>{strength} kg/cm²</option>
+                                          ))}
+                                        </select>
+                                        
+                                        <select
+                                          className="text-xs px-2 py-1 border border-gray-300 rounded-md"
+                                          onChange={(e) => setSlumpFilter(e.target.value ? Number(e.target.value) : '')}
+                                          value={slumpFilter}
+                                        >
+                                          <option value="">Revenimiento</option>
+                                          {getUniqueFilterValues('slump').map((slump) => (
+                                            <option key={slump} value={slump}>{slump} cm</option>
+                                          ))}
+                                        </select>
+                                        
+                                        <select
+                                          className="text-xs px-2 py-1 border border-gray-300 rounded-md"
+                                          onChange={(e) => setPlacementTypeFilter(e.target.value)}
+                                          value={placementTypeFilter}
+                                        >
+                                          <option value="">Tipo colocación</option>
+                                          {getUniqueFilterValues('placement_type').map((type) => (
+                                            <option key={type} value={type}>{type}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                      
+                                      {(strengthFilter !== '' || placementTypeFilter || slumpFilter !== '' || searchFilter) && (
+                                        <div className="flex justify-between items-center text-xs mb-2">
+                                          <span className="text-gray-600">
+                                            Mostrando {filteredRecipeCount} de {totalRecipeCount} recetas
+                                          </span>
+                                          <button
+                                            onClick={resetFilters}
+                                            className="text-blue-600 hover:text-blue-800"
+                                          >
+                                            Limpiar filtros
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                    
+                                    <select
+                                      value={product.recipe_id || ''}
+                                      onChange={(e) => handleRecipeChange(product.id, e.target.value)}
+                                      className="w-full px-2 py-1 border border-gray-300 rounded-md"
+                                      disabled={loadingRecipes}
+                                    >
+                                      <option value="" disabled>Seleccionar receta</option>
+                                      {filteredRecipes.map((recipe) => (
+                                        <option key={recipe.id} value={recipe.id}>
+                                          {recipe.recipe_code} - {recipe.strength_fc}kg/cm² {recipe.slump}cm {recipe.age_days}d {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </>
                                 )}
                                 {product.recipe_id && originalProduct?.recipe_id && product.recipe_id !== originalProduct?.recipe_id && (
                                   <div className="mt-1 text-xs text-green-600 font-medium">
