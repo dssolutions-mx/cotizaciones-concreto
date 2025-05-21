@@ -559,12 +559,11 @@ export async function deleteOrder(orderId: string) {
 // New function to recalculate an order's final amount
 export async function recalculateOrderAmount(orderId: string) {
   try {
-    // Get a remision for this order to trigger the recalculation
+    // First, check if there are any remisiones for this order
     const { data: remisiones, error: remisionesError } = await supabase
       .from('remisiones')
-      .select('id')
-      .eq('order_id', orderId)
-      .limit(1);
+      .select('id, volumen_fabricado, tipo_remision')
+      .eq('order_id', orderId);
     
     if (remisionesError) throw remisionesError;
     
@@ -583,18 +582,47 @@ export async function recalculateOrderAmount(orderId: string) {
       return { success: true, message: 'No hay remisiones para esta orden. Monto final actualizado a 0.' };
     }
     
-    // There is at least one remision, update it to trigger the recalculation
-    const remisionId = remisiones[0].id;
+    // Get order details to know if it requires invoice
+    const { data: orderData, error: orderError } = await supabase
+      .from('orders')
+      .select('requires_invoice')
+      .eq('id', orderId)
+      .single();
     
-    // Perform a no-op update to trigger the actualizar_volumenes_orden trigger
-    const { error: updateError } = await supabase
-      .from('remisiones')
-      .update({ 
-        updated_at: new Date().toISOString() 
-      })
-      .eq('id', remisionId);
+    if (orderError) throw orderError;
     
-    if (updateError) throw updateError;
+    // Step 1: Reset all concrete_volume_delivered and pump_volume_delivered to 0
+    const { error: resetError } = await supabase.rpc('reset_order_item_volumes', { p_order_id: orderId });
+    if (resetError) throw resetError;
+    
+    // Step 2: Update the delivered volumes based on remisiones
+    const { error: updateVolumesError } = await supabase.rpc('update_order_delivered_volumes', { p_order_id: orderId });
+    if (updateVolumesError) throw updateVolumesError;
+    
+    // Step 3: Calculate the final amount based on the updated volumes
+    const { data: calculationResult, error: calculationError } = await supabase.rpc('calculate_order_final_amount', { 
+      p_order_id: orderId,
+      p_requires_invoice: orderData.requires_invoice
+    });
+    
+    if (calculationError) throw calculationError;
+    
+    // Step 4: Perform a no-op update on a remision to trigger any other necessary updates
+    if (remisiones.length > 0) {
+      const remisionId = remisiones[0].id;
+      
+      const { error: updateError } = await supabase
+        .from('remisiones')
+        .update({ 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', remisionId);
+      
+      if (updateError) {
+        console.warn('Warning: Could not update remision timestamp:', updateError);
+        // Continue even if this fails
+      }
+    }
     
     return { success: true, message: 'Monto final actualizado correctamente.' };
   } catch (error) {

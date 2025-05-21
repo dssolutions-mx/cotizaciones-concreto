@@ -598,13 +598,22 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
   // Función de utilidad para obtener el precio unitario correcto
   const getProductUnitPrice = (product: any) => {
-    if (!product?.recipe_id) return 0;
+    // Special case for empty truck charges
+    if (product.has_empty_truck_charge || product.product_type === 'VACÍO DE OLLA') {
+      return product.empty_truck_price || product.unit_price || 0;
+    }
     
-    // Intentar obtener el precio de la receta seleccionada
-    const recipePrice = product.recipe_id ? recipePrices[product.recipe_id] : 0;
+    // Normal case for products with recipe_id
+    if (product?.recipe_id) {
+      // Intentar obtener el precio de la receta seleccionada
+      const recipePrice = recipePrices[product.recipe_id] || 0;
+      
+      // Si no tenemos un precio en nuestro mapa, usar el precio original del producto
+      return recipePrice || (product.unit_price || 0);
+    }
     
-    // Si no tenemos un precio en nuestro mapa, usar el precio original del producto
-    return recipePrice || (product.unit_price || 0);
+    // Fallback to unit_price for any other product
+    return product.unit_price || 0;
   };
 
   async function handleSaveChanges() {
@@ -899,7 +908,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     // For delete action
     const canDeleteOrder = managerOrFinance && order && !hasRemisiones && order.order_status !== 'cancelled';
     
-    // Menu of actions - only keeping the 3 requested buttons
+    // Menu of actions
     return (
       <div className="flex flex-wrap gap-2 mb-6 justify-end">
         {/* Edit Order button */}
@@ -916,7 +925,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         <RoleProtectedButton
           allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR'] as UserRole[]}
           onClick={handleRecalculateAmount}
-          disabled={isRecalculating || !hasRemisiones}
+          disabled={isRecalculating}
           className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
         >
           {isRecalculating ? (
