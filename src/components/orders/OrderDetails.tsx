@@ -914,7 +914,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         
         {/* Recalculate button with role protection */}
         <RoleProtectedButton
-          allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'] as UserRole[]}
+          allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR'] as UserRole[]}
           onClick={handleRecalculateAmount}
           disabled={isRecalculating || !hasRemisiones}
           className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
