@@ -128,6 +128,15 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
   const isManager = profile?.role === 'EXECUTIVE' as UserRole || profile?.role === 'PLANT_MANAGER' as UserRole;
   
+  // Debug: Log role information
+  useEffect(() => {
+    console.log('OrderDetails Debug - User Profile:', profile);
+    console.log('OrderDetails Debug - User Role:', profile?.role);
+    console.log('OrderDetails Debug - Is Credit Validator:', isCreditValidator);
+    console.log('OrderDetails Debug - Has Role CREDIT_VALIDATOR:', hasRole('CREDIT_VALIDATOR'));
+    console.log('OrderDetails Debug - Has Role Array:', hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR']));
+  }, [profile, isCreditValidator, hasRole]);
+  
   // Check if the user can approve/reject credit
   const canManageCredit = (isCreditValidator || isManager) && order?.credit_status !== 'approved' && order?.credit_status !== 'rejected';
 
@@ -829,7 +838,15 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
   // Add this function to check if financial info should be shown
   const shouldShowFinancialInfo = () => {
-    return !isDosificador;
+    // Credit validators typically don't need to see financial info, but managers do
+    const canSeeFinancialInfo = hasRole(['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]);
+    console.log('OrderDetails Debug - shouldShowFinancialInfo:', {
+      profileRole: profile?.role,
+      isDosificador,
+      canSeeFinancialInfo,
+      result: canSeeFinancialInfo
+    });
+    return canSeeFinancialInfo;
   };
 
   // Add function to handle order deletion
@@ -908,9 +925,31 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     // For delete action
     const canDeleteOrder = managerOrFinance && order && !hasRemisiones && order.order_status !== 'cancelled';
     
+    // Debug: Log button visibility logic
+    console.log('OrderDetails Debug - renderOrderActions:', {
+      profile,
+      hasRole_CREDIT_VALIDATOR: hasRole('CREDIT_VALIDATOR'),
+      hasRole_Array: hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR']),
+      managerOrFinance,
+      canDeleteOrder,
+      order: !!order,
+      hasRemisiones,
+      orderStatus: order?.order_status
+    });
+    
     // Menu of actions
     return (
       <div className="flex flex-wrap gap-2 mb-6 justify-end">
+        {/* Debug info - temporary */}
+        {profile?.role === 'CREDIT_VALIDATOR' && (
+          <div className="w-full p-2 bg-yellow-100 border border-yellow-300 rounded text-xs">
+            <strong>Debug Info for CREDIT_VALIDATOR:</strong><br/>
+            Profile Role: {profile?.role}<br/>
+            Has CREDIT_VALIDATOR Role: {hasRole('CREDIT_VALIDATOR') ? 'YES' : 'NO'}<br/>
+            Has Array Role: {hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR']) ? 'YES' : 'NO'}
+          </div>
+        )}
+        
         {/* Edit Order button */}
         {canEditOrder && !isEditing && (
           <Button
@@ -927,6 +966,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           onClick={handleRecalculateAmount}
           disabled={isRecalculating}
           className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
+          showDisabled={true}
+          disabledMessage="No tienes permiso para recalcular"
         >
           {isRecalculating ? (
             <>
@@ -1447,6 +1488,9 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             )}
           </div>
 
+          {/* Always show order actions, not just for financial users */}
+          {renderOrderActions()}
+
           {shouldShowFinancialInfo() && (
             <div className="mt-6 border-t pt-6">
               <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
@@ -1456,8 +1500,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 clientId={order.client_id}
                 constructionSite={order.construction_site}
               />
-              
-              {renderOrderActions()}
             </div>
           )}
         </>

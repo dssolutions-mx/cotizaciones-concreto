@@ -28,7 +28,7 @@ function formatDateForDB(date = new Date()) {
 
 serve(async (req)=>{
   try {
-    // Try to get date from request parameters or default to tomorrow in Mexico's timezone
+    // Try to get date from request parameters or default to TODAY in Mexico's timezone
     let targetDate;
     let targetDateString;
   
@@ -49,13 +49,11 @@ serve(async (req)=>{
         targetDate = new Date(year, month - 1, day, 12, 0, 0); // Set to noon to avoid timezone edge cases
         targetDateString = formatDateForDB(targetDate);
       } else {
-        // Default to tomorrow in Mexico's timezone
+        // Default to TODAY in Mexico's timezone
         const mexicoToday = getMexicoDate();
-        const mexicoTomorrow = new Date(mexicoToday);
-        mexicoTomorrow.setDate(mexicoTomorrow.getDate() + 1);
         
-        targetDate = mexicoTomorrow;
-        targetDateString = formatDateForDB(mexicoTomorrow);
+        targetDate = mexicoToday;
+        targetDateString = formatDateForDB(mexicoToday);
       }
       
       console.log(`Using target date: ${targetDateString} (Mexico time)`);
@@ -118,7 +116,7 @@ serve(async (req)=>{
       });
     }
     
-    console.log(`Found ${orders.length} orders for ${targetDateString} (excluding cancelled orders)`);
+    console.log(`Found ${orders.length} orders for TODAY ${targetDateString} (excluding cancelled orders)`);
     
     // Calculate totals for summary
     let totalConcreteVolume = 0;
@@ -137,8 +135,7 @@ serve(async (req)=>{
         // Total for all orders
         totalConcreteVolume += Number(item.volume) || 0;
         
-        // Only count pumping volume if has_pump_service is exactly true (not just truthy) AND pump_price exists and is > 0
-        // AND pump_volume exists and is > 0
+        // Only count pumping volume if has_pump_service is true AND pump_price exists AND pump_volume exists
         if (item.has_pump_service === true && 
             item.pump_price !== null && Number(item.pump_price) > 0 &&
             item.pump_volume !== null && Number(item.pump_volume) > 0) {
@@ -149,8 +146,7 @@ serve(async (req)=>{
         if (isFullyApproved) {
           totalApprovedConcreteVolume += Number(item.volume) || 0;
           
-          // Only count approved pumping volume if has_pump_service is exactly true AND pump_price exists and is > 0
-          // AND pump_volume exists and is > 0
+          // Only count approved pumping volume if has_pump_service is true AND pump_price exists AND pump_volume exists
           if (item.has_pump_service === true && 
               item.pump_price !== null && Number(item.pump_price) > 0 &&
               item.pump_volume !== null && Number(item.pump_volume) > 0) {
@@ -218,8 +214,8 @@ serve(async (req)=>{
             <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">
               ${hasPumpService ? 
                 `<div>
-                   <span style="background-color: #E6F6FF; color: #0369A1; padding: 4px 8px; border-radius: 4px; font-size: 14px;">S\u00ed</span>
-                   <span style="display: block; margin-top: 4px; font-size: 12px; color: #64748B;">${item.pump_volume} m\u00b3 @ $${Number(item.pump_price).toFixed(2)}</span>
+                  <span style="background-color: #E6F6FF; color: #0369A1; padding: 4px 8px; border-radius: 4px; font-size: 14px;">S\u00ed</span>
+                  <span style="display: block; margin-top: 4px; font-size: 12px; color: #64748B;">${item.pump_volume} m\u00b3 @ $${Number(item.pump_price).toFixed(2)}</span>
                  </div>` 
                 : 
                 '<span style="background-color: #F9FAFB; color: #64748B; padding: 4px 8px; border-radius: 4px; font-size: 14px;">No</span>'
@@ -307,7 +303,7 @@ serve(async (req)=>{
     // Create summary table HTML
     const summaryTableHtml = `
       <div style="margin: 40px 0; padding: 25px; border-radius: 8px; background-color: #F0F9FF; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
-        <h2 style="color: #0C4A6E; font-size: 20px; margin: 0 0 20px 0; text-align: center;">Resumen de Pedidos para ${formattedDate}</h2>
+        <h2 style="color: #0C4A6E; font-size: 20px; margin: 0 0 20px 0; text-align: center;">Resumen de Pedidos para HOY ${formattedDate}</h2>
         <table style="width: 100%; border-collapse: collapse; font-size: 16px;">
           <thead>
             <tr>
@@ -384,13 +380,13 @@ serve(async (req)=>{
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Programación de Entregas</title>
+        <title>Programación de Entregas para HOY</title>
       </head>
       <body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #F8FAFC; color: #334155;">
         <div style="max-width: 800px; margin: 0 auto; background-color: #FFFFFF; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
           <!-- Header -->
           <div style="background-color: #0C4A6E; padding: 30px; text-align: center; border-bottom: 5px solid #0369A1;">
-            <h1 style="color: #FFFFFF; margin: 0; font-size: 28px; font-weight: 600;">Programación de Entregas</h1>
+            <h1 style="color: #FFFFFF; margin: 0; font-size: 28px; font-weight: 600;">Programación de Entregas para HOY</h1>
             <p style="color: #BAE6FD; margin: 10px 0 0 0; font-size: 18px;">${formattedDate}</p>
           </div>
           
@@ -399,7 +395,7 @@ serve(async (req)=>{
             ${orders.length > 0 ? `
               <div style="background-color: #F0F9FF; padding: 15px; border-radius: 8px; margin-bottom: 30px; text-align: center;">
                 <p style="margin: 0; font-size: 16px; color: #0369A1;">
-                  <strong>Se han programado ${orders.length} pedidos para ${formattedDate}</strong>
+                  <strong>Se han programado ${orders.length} pedidos para HOY ${formattedDate}</strong>
                 </p>
                 <p style="margin: 5px 0 0 0; font-size: 14px; color: #64748B;">
                   (${orders.filter((o: any) => o.credit_status === 'approved' && (o.order_status === 'validated' || o.order_status === 'created')).length} con crédito aprobado y orden validada)
@@ -437,7 +433,7 @@ serve(async (req)=>{
               ${summaryTableHtml}
             ` : `
               <div style="background-color: #F0F9FF; padding: 40px; border-radius: 8px; text-align: center; margin: 40px 0;">
-                <p style="margin: 0; font-size: 18px; color: #0369A1;">No hay pedidos programados para ${formattedDate}.</p>
+                <p style="margin: 0; font-size: 18px; color: #0369A1;">No hay pedidos programados para HOY ${formattedDate}.</p>
               </div>
             `}
           </div>
@@ -471,17 +467,18 @@ serve(async (req)=>{
     
     console.log('Attempting to send email via SendGrid');
     
-    // Prepare email data with personalization
+    // Prepare email data with BCC to prevent recipients from seeing each other's emails
     const emailData = {
-      personalizations: allEmails.map(email => ({
-        to: [{ email }],
-        subject: `Programación de Entregas - ${formattedDate}`
-      })),
+      personalizations: [{
+        to: [{ email: FROM_EMAIL }],
+        bcc: allEmails.map(email => ({ email })),
+        subject: `Programación de Entregas para HOY - ${formattedDate}`
+      }],
       from: {
         email: FROM_EMAIL,
         name: FROM_NAME
       },
-      subject: `Programación de Entregas - ${formattedDate}`,
+      subject: `Programación de Entregas para HOY - ${formattedDate}`,
       content: [
         {
           type: "text/html",
@@ -513,20 +510,6 @@ serve(async (req)=>{
     
     console.log('Email sent successfully');
     
-    // Record notifications in database
-    if (orders.length > 0) {
-      const notificationRecords = allEmails.flatMap((email) => orders.map((order: any) => ({
-            order_id: order.id,
-            notification_type: 'DAILY_SCHEDULE',
-            recipient: email,
-            delivery_status: response.ok ? 'SENT' : 'FAILED'
-          })));
-      const { error: notificationError } = await supabase.from('order_notifications').insert(notificationRecords);
-      if (notificationError) {
-        console.error('Error recording notifications:', notificationError);
-      }
-    }
-    
     return new Response(JSON.stringify({
       success: true,
       message: `Email sent to ${allEmails.length} recipients for ${orders.length} orders on ${targetDateString}`,
@@ -550,4 +533,4 @@ serve(async (req)=>{
       }
     });
   }
-});
+}); 
