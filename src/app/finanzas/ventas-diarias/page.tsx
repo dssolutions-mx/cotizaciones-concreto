@@ -193,13 +193,14 @@ async function SalesMetrics({ date }: { date: string }) {
         
         // Process each order item
         orderItems.forEach(item => {
-          // Add concrete volume (prefer concrete_volume_delivered if available)
-          if (!item.has_empty_truck_charge) {
-            const concreteVolume = item.concrete_volume_delivered || item.volume || 0;
+          // Add concrete volume - ONLY use concrete_volume_delivered (from remisiones)
+          // Exclude both empty truck charges AND global pumping service items
+          if (!item.has_empty_truck_charge && item.product_type !== 'SERVICIO DE BOMBEO') {
+            const concreteVolume = item.concrete_volume_delivered || 0;
             metricsData.totalConcreteVolume += Number(concreteVolume);
           }
           
-          // Add pumping volume - ONLY if pump_volume_delivered exists and is > 0
+          // Add pumping volume - ONLY use pump_volume_delivered (from remisiones)
           if (item.has_pump_service && item.pump_volume_delivered > 0) {
             const pumpVolume = item.pump_volume_delivered || 0;
             metricsData.totalPumpingVolume += Number(pumpVolume);
@@ -342,18 +343,19 @@ async function DailySalesTable({ date }: { date: string }) {
         // Process items to get volumes and product names - USE DELIVERED VOLUMES when available
         if (items && items.length > 0) {
           items.forEach(item => {
-            // Add concrete volume (prefer concrete_volume_delivered if available)
-            if (!item.has_empty_truck_charge) {
-              const concreteVol = item.concrete_volume_delivered || item.volume || 0;
+            // Add concrete volume - ONLY use concrete_volume_delivered (from remisiones)
+            // Exclude both empty truck charges AND global pumping service items
+            if (!item.has_empty_truck_charge && item.product_type !== 'SERVICIO DE BOMBEO') {
+              const concreteVol = item.concrete_volume_delivered || 0;
               concreteVolume += Number(concreteVol);
               
-              // Add product name if not already included
+              // Add product name if not already included and it's not a pumping service
               if (item.product_type && !productNames.includes(item.product_type)) {
                 productNames.push(item.product_type);
               }
             }
             
-            // Add pumping volume - ONLY if pump_volume_delivered exists and is > 0
+            // Add pumping volume - ONLY use pump_volume_delivered (from remisiones)
             if (item.has_pump_service && item.pump_volume_delivered > 0) {
               const pumpVol = item.pump_volume_delivered || 0;
               pumpingVolume += Number(pumpVol);
