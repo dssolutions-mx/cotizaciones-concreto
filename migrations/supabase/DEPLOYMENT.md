@@ -117,6 +117,26 @@ Configura un cron job para ejecutar la función `daily-schedule-report` todos lo
      }
      ```
 
+### Reporte de Pedidos del Día Actual
+
+Configura un cron job para ejecutar la función `today-schedule-report` todos los días a las 8 AM:
+
+1. Abre el panel de Supabase
+2. Ve a la sección "Database" > "Scheduled Tasks"
+3. Crea una nueva tarea programada con la siguiente configuración:
+   - Nombre: `today_orders_report`
+   - Programa: `0 8 * * *` (8 AM todos los días)
+   - Tipo: `HTTP Request`
+   - URL: `https://YOUR_PROJECT_REF.supabase.co/functions/v1/today-schedule-report`
+   - Método: `POST`
+   - Headers: 
+     ```
+     {
+       "Content-Type": "application/json",
+       "Authorization": "Bearer YOUR_SERVICE_ROLE_KEY"
+     }
+     ```
+
 ## 5. Pruebas
 
 ### Validación de Crédito

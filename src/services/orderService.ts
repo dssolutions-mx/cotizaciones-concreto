@@ -567,66 +567,184 @@ export async function recalculateOrderAmount(orderId: string) {
     
     if (remisionesError) throw remisionesError;
     
-    if (!remisiones || remisiones.length === 0) {
-      // If there are no remisiones, set final_amount to 0
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({ 
-          final_amount: 0,
-          invoice_amount: 0,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
-      
-      if (updateError) throw updateError;
-      return { success: true, message: 'No hay remisiones para esta orden. Monto final actualizado a 0.' };
-    }
-    
     // Get order details to know if it requires invoice
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
-      .select('requires_invoice')
+      .select('requires_invoice, client_id, construction_site')
       .eq('id', orderId)
       .single();
     
     if (orderError) throw orderError;
     
+    // Get all order items
+    const { data: orderItems, error: itemsError } = await supabase
+      .from('order_items')
+      .select('*')
+      .eq('order_id', orderId);
+    
+    if (itemsError) throw itemsError;
+    
     // Step 1: Reset all concrete_volume_delivered and pump_volume_delivered to 0
-    const { error: resetError } = await supabase.rpc('reset_order_item_volumes', { p_order_id: orderId });
-    if (resetError) throw resetError;
+    await supabase
+      .from('order_items')
+      .update({ 
+        concrete_volume_delivered: 0, 
+        pump_volume_delivered: 0 
+      })
+      .eq('order_id', orderId);
     
-    // Step 2: Update the delivered volumes based on remisiones
-    const { error: updateVolumesError } = await supabase.rpc('update_order_delivered_volumes', { p_order_id: orderId });
-    if (updateVolumesError) throw updateVolumesError;
-    
-    // Step 3: Calculate the final amount based on the updated volumes
-    const { data: calculationResult, error: calculationError } = await supabase.rpc('calculate_order_final_amount', { 
-      p_order_id: orderId,
-      p_requires_invoice: orderData.requires_invoice
-    });
-    
-    if (calculationError) throw calculationError;
-    
-    // Step 4: Perform a no-op update on a remision to trigger any other necessary updates
-    if (remisiones.length > 0) {
-      const remisionId = remisiones[0].id;
+    // Step 2: Update delivered volumes based on remisiones
+    if (remisiones && remisiones.length > 0) {
+      // Calculate concrete volume delivered
+      const concreteRemisiones = remisiones.filter(r => r.tipo_remision === 'CONCRETO');
+      const totalConcreteDelivered = concreteRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
       
-      const { error: updateError } = await supabase
-        .from('remisiones')
-        .update({ 
-          updated_at: new Date().toISOString() 
-        })
-        .eq('id', remisionId);
+      // Update concrete items with proportional delivery
+      const concreteItems = orderItems?.filter(item => 
+        item.product_type !== 'SERVICIO DE BOMBEO' && 
+        item.product_type !== 'VACÍO DE OLLA' &&
+        !item.has_empty_truck_charge
+      ) || [];
       
-      if (updateError) {
-        console.warn('Warning: Could not update remision timestamp:', updateError);
-        // Continue even if this fails
+      if (concreteItems.length > 0 && totalConcreteDelivered > 0) {
+        const totalConcreteOrdered = concreteItems.reduce((sum, item) => sum + (item.volume || 0), 0);
+        const deliveryRatio = totalConcreteOrdered > 0 ? totalConcreteDelivered / totalConcreteOrdered : 0;
+        
+        for (const item of concreteItems) {
+          const deliveredVolume = (item.volume || 0) * deliveryRatio;
+          await supabase
+            .from('order_items')
+            .update({ concrete_volume_delivered: deliveredVolume })
+            .eq('id', item.id);
+        }
+      }
+      
+      // Handle pump volume delivered - both from remisiones and global pump service
+      const pumpRemisiones = remisiones.filter(r => r.tipo_remision === 'BOMBEO');
+      const totalPumpDelivered = pumpRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
+      
+      // Find pump service items (both legacy and global)
+      const pumpItems = orderItems?.filter(item => item.has_pump_service) || [];
+      
+      // Handle global pump service items
+      const globalPumpItems = pumpItems.filter(item => 
+        item.product_type === 'SERVICIO DE BOMBEO' || item.quote_detail_id === null
+      );
+      
+      // Handle regular pump service items  
+      const regularPumpItems = pumpItems.filter(item => 
+        item.product_type !== 'SERVICIO DE BOMBEO' && item.quote_detail_id !== null
+      );
+      
+      // For global pump service, if it exists and has volume, set pump_volume_delivered to its volume
+      for (const globalItem of globalPumpItems) {
+        if (globalItem.volume > 0) {
+          await supabase
+            .from('order_items')
+            .update({ pump_volume_delivered: globalItem.volume })
+            .eq('id', globalItem.id);
+        }
+      }
+      
+      // For regular pump items, distribute the remision pump volume
+      if (regularPumpItems.length > 0 && totalPumpDelivered > 0) {
+        const totalPumpOrdered = regularPumpItems.reduce((sum, item) => sum + (item.pump_volume || 0), 0);
+        const pumpDeliveryRatio = totalPumpOrdered > 0 ? totalPumpDelivered / totalPumpOrdered : 0;
+        
+        for (const item of regularPumpItems) {
+          const deliveredPumpVolume = (item.pump_volume || 0) * pumpDeliveryRatio;
+          await supabase
+            .from('order_items')
+            .update({ pump_volume_delivered: deliveredPumpVolume })
+            .eq('id', item.id);
+        }
+      }
+    } else {
+      // If no remisiones, but there's a global pump service, still set its delivered volume
+      const globalPumpItems = orderItems?.filter(item => 
+        item.product_type === 'SERVICIO DE BOMBEO' && item.volume > 0
+      ) || [];
+      
+      for (const globalItem of globalPumpItems) {
+        await supabase
+          .from('order_items')
+          .update({ pump_volume_delivered: globalItem.volume })
+          .eq('id', globalItem.id);
       }
     }
     
-    return { success: true, message: 'Monto final actualizado correctamente.' };
+    // Step 3: Calculate the final amount manually since we understand the logic better
+    const { data: updatedItems, error: updatedItemsError } = await supabase
+      .from('order_items')
+      .select('*')
+      .eq('order_id', orderId);
+    
+    if (updatedItemsError) throw updatedItemsError;
+    
+    // Calculate concrete amount (excluding empty truck charges)
+    const concreteAmount = updatedItems
+      ?.filter(item => 
+        item.product_type !== 'VACÍO DE OLLA' && 
+        item.product_type !== 'SERVICIO DE BOMBEO' &&
+        !item.has_empty_truck_charge
+      )
+      .reduce((sum, item) => sum + ((item.unit_price || 0) * (item.concrete_volume_delivered || 0)), 0) || 0;
+    
+    // Calculate pump amount
+    const pumpAmount = updatedItems
+      ?.filter(item => item.has_pump_service && (item.pump_volume_delivered || 0) > 0)
+      .reduce((sum, item) => sum + ((item.pump_price || 0) * (item.pump_volume_delivered || 0)), 0) || 0;
+    
+    // Calculate empty truck amount
+    const emptyTruckAmount = updatedItems
+      ?.filter(item => 
+        item.product_type === 'VACÍO DE OLLA' || 
+        item.has_empty_truck_charge
+      )
+      .reduce((sum, item) => sum + ((item.empty_truck_price || 0) * (item.empty_truck_volume || 0)), 0) || 0;
+    
+    // Calculate additional products amount
+    const { data: additionalProducts, error: additionalError } = await supabase
+      .from('remision_productos_adicionales')
+      .select('cantidad, precio_unitario')
+      .in('remision_id', (remisiones || []).map(r => r.id));
+    
+    if (additionalError) throw additionalError;
+    
+    const additionalAmount = additionalProducts?.reduce((sum, product) => 
+      sum + ((product.cantidad || 0) * (product.precio_unitario || 0)), 0) || 0;
+    
+    // Calculate total final amount
+    const finalAmount = concreteAmount + pumpAmount + emptyTruckAmount + additionalAmount;
+    const invoiceAmount = orderData.requires_invoice ? finalAmount * 1.16 : finalAmount;
+    
+    // Update the order with new amounts
+    const { error: updateOrderError } = await supabase
+      .from('orders')
+      .update({ 
+        final_amount: finalAmount,
+        invoice_amount: invoiceAmount,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', orderId);
+    
+    if (updateOrderError) throw updateOrderError;
+    
+    // Update client balance
+    const { error: balanceError } = await supabase.rpc('update_client_balance', {
+      p_client_id: orderData.client_id,
+      p_site_name: orderData.construction_site
+    });
+    
+    if (balanceError) throw balanceError;
+    
+    return { 
+      success: true, 
+      message: `Monto final recalculado: $${finalAmount.toFixed(2)}${orderData.requires_invoice ? ` (con IVA: $${invoiceAmount.toFixed(2)})` : ''}` 
+    };
+    
   } catch (error) {
-    console.error('Error recalculating order amount:', error);
+    console.error('Error in recalculateOrderAmount:', error);
     throw error;
   }
 }

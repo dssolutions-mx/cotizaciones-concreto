@@ -375,6 +375,68 @@ export default function ScheduleOrderForm({
     // Ensure all dependencies are included and the array size is stable
   }, [selectedClientId, selectedConstructionSiteId, selectedConstructionSite?.name, preSelectedQuoteId]);
   
+  // Load pumping service pricing for client + construction site
+  useEffect(() => {
+    if (!selectedClientId || !selectedConstructionSite?.name) {
+      setPumpPrice(null);
+      return;
+    }
+    
+    const loadPumpServicePricing = async () => {
+      try {
+        console.log(`Fetching pump service pricing for Client: ${selectedClientId}, Site: ${selectedConstructionSite.name}`);
+        
+        // Look for pump service pricing in quote_details that are approved for this client + site combination
+        const { data: pumpServiceData, error: pumpServiceError } = await supabase
+          .from('quotes')
+          .select(`
+            quote_details(
+              pump_service,
+              pump_price
+            )
+          `)
+          .eq('status', 'APPROVED')
+          .eq('client_id', selectedClientId)
+          .eq('construction_site', selectedConstructionSite.name)
+          .not('quote_details.pump_price', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
+          
+        if (pumpServiceError) {
+          console.error("Error fetching pump service pricing:", pumpServiceError);
+          return;
+        }
+        
+        // Find the first quote with pump service pricing
+        if (pumpServiceData && pumpServiceData.length > 0) {
+          const quoteWithPumpService = pumpServiceData.find(quote => 
+            quote.quote_details.some((detail: any) => detail.pump_service && detail.pump_price)
+          );
+          
+          if (quoteWithPumpService) {
+            const pumpDetail = quoteWithPumpService.quote_details.find((detail: any) => 
+              detail.pump_service && detail.pump_price
+            );
+            
+            if (pumpDetail && pumpDetail.pump_price) {
+              setPumpPrice(pumpDetail.pump_price);
+              console.log(`Found pump service price: $${pumpDetail.pump_price} for client + site combination`);
+            }
+          }
+        } else {
+          // Fallback: Allow manual entry for cases where no pump pricing is found
+          console.log('No pump service pricing found in approved quotes for this client + site combination');
+          console.log('Setting to 0 to allow manual entry.');
+          setPumpPrice(0);
+        }
+      } catch (err) {
+        console.error('Error loading pump service pricing:', err);
+      }
+    };
+    
+    loadPumpServicePricing();
+  }, [selectedClientId, selectedConstructionSite?.name]);
+  
   // Filter clients based on search query
   const filteredClients = clients.filter(client => 
     client.business_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -408,12 +470,6 @@ export default function ScheduleOrderForm({
   // Handle product selection
   const handleProductSelect = (product: Product, checked: boolean) => {
     if (checked) {
-      // If this is the first product selected with pump service available,
-      // set the default pump price
-      if (!hasPumpService && product.pumpService && product.pumpPrice && pumpPrice === null) {
-        setPumpPrice(product.pumpPrice);
-      }
-      
       setSelectedProducts(prev => [
         ...prev, 
         { 
@@ -1006,8 +1062,8 @@ export default function ScheduleOrderForm({
             )}
           </div>
 
-          {/* Pumping Service - moved to order level */}
-          {selectedProducts.length > 0 && selectedProducts.some(p => p.pumpService) && (
+          {/* Pumping Service - available globally for client + construction site */}
+          {selectedProducts.length > 0 && pumpPrice !== null && (
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mt-4">
               <div className="flex items-center mb-3">
                 <input 
@@ -1049,12 +1105,36 @@ export default function ScheduleOrderForm({
                     <label htmlFor="pumpPrice" className="block text-sm font-medium text-gray-700 mb-1">
                       Precio por m³
                     </label>
-                    <div className="w-full rounded-md border border-gray-300 px-3 py-2 bg-gray-100 text-gray-700">
-                      ${pumpPrice?.toFixed(2) || '0.00'}
-                    </div>
+                    {pumpPrice > 0 ? (
+                      <div className="w-full rounded-md border border-gray-300 px-3 py-2 bg-gray-100 text-gray-700">
+                        ${pumpPrice?.toFixed(2) || '0.00'}
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <input 
+                          id="pumpPrice"
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={pumpPrice || ''}
+                          onChange={(e) => setPumpPrice(parseFloat(e.target.value) || 0)}
+                          placeholder="Ingrese precio de bombeo"
+                          className="w-full rounded-md border border-yellow-400 px-3 py-2 bg-yellow-50"
+                        />
+                        <p className="text-xs text-amber-600">
+                          ⚠️ No se encontró precio de bombeo para este cliente/sitio. Ingrese manualmente.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
+              
+              <p className="text-xs text-gray-600 mt-2">
+                {pumpPrice > 0 
+                  ? "El servicio de bombeo se cobra globalmente para este cliente y sitio de construcción"
+                  : "Precio manual requerido - no hay cotizaciones con bombeo para este cliente/sitio"}
+              </p>
             </div>
           )}
 

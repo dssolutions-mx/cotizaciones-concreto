@@ -42,6 +42,8 @@ interface EditableOrderData {
   delivery_time?: string;
   requires_invoice?: boolean;
   special_requirements?: string | null;
+  has_pump_service?: boolean;
+  pump_volume?: number;
   products?: Array<{
     id: string;
     volume: number;
@@ -99,6 +101,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [slumpFilter, setSlumpFilter] = useState<number | ''>('');
   const [searchFilter, setSearchFilter] = useState<string>('');
   
+  // Global pump service states
+  const [hasPumpService, setHasPumpService] = useState<boolean>(false);
+  const [pumpVolume, setPumpVolume] = useState<number>(0);
+  const [pumpPrice, setPumpPrice] = useState<number | null>(null);
+  
   // Calculate allowed recipe IDs
   const allowedRecipeIds = useMemo(() => {
     if (!order?.products) return [];
@@ -136,6 +143,108 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     console.log('OrderDetails Debug - Has Role CREDIT_VALIDATOR:', hasRole('CREDIT_VALIDATOR'));
     console.log('OrderDetails Debug - Has Role Array:', hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR']));
   }, [profile, isCreditValidator, hasRole]);
+  
+  // Load pumping service pricing for client + construction site
+  useEffect(() => {
+    if (!order?.client_id || !order?.construction_site) {
+      setPumpPrice(null);
+      return;
+    }
+    
+    const loadPumpServicePricing = async () => {
+      try {
+        console.log(`Fetching pump service pricing for Client: ${order.client_id}, Site: ${order.construction_site}`);
+        
+        // Look for pump service pricing in quote_details that are approved for this client + site combination
+        const { data: pumpServiceData, error: pumpServiceError } = await supabase
+          .from('quotes')
+          .select(`
+            quote_details(
+              pump_service,
+              pump_price
+            )
+          `)
+          .eq('status', 'APPROVED')
+          .eq('client_id', order.client_id)
+          .eq('construction_site', order.construction_site)
+          .not('quote_details.pump_price', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
+          
+        if (pumpServiceError) {
+          console.error("Error fetching pump service pricing:", pumpServiceError);
+          return;
+        }
+        
+        // Find the first quote with pump service pricing
+        if (pumpServiceData && pumpServiceData.length > 0) {
+          const quoteWithPumpService = pumpServiceData.find(quote => 
+            quote.quote_details.some((detail: any) => detail.pump_service && detail.pump_price)
+          );
+          
+          if (quoteWithPumpService) {
+            const pumpDetail = quoteWithPumpService.quote_details.find((detail: any) => 
+              detail.pump_service && detail.pump_price
+            );
+            
+            if (pumpDetail && pumpDetail.pump_price) {
+              setPumpPrice(pumpDetail.pump_price);
+              console.log(`Found pump service price: $${pumpDetail.pump_price} for client + site combination`);
+            }
+          }
+        }
+        
+        // Fallback: If no pump pricing found, check if this order already has legacy pump service
+        // and allow manual pricing for backward compatibility
+        if (!pumpServiceData || pumpServiceData.length === 0) {
+          console.log('No pump service pricing found in approved quotes for this client + site combination');
+          console.log('Checking if order has existing pump service for fallback pricing...');
+          
+          // Check if order has any existing pump service pricing we can use as fallback
+          const existingPumpItems = order.products?.filter(p => p.has_pump_service && p.pump_price) || [];
+          if (existingPumpItems.length > 0) {
+            const fallbackPrice = existingPumpItems[0].pump_price || 0; // Ensure it's a number
+            setPumpPrice(fallbackPrice);
+            console.log(`Using fallback pump price from existing order items: $${fallbackPrice}`);
+          } else {
+            // Set to 0 to allow manual entry for legacy orders
+            setPumpPrice(0);
+            console.log('No existing pump pricing found. Setting to 0 to allow manual entry.');
+          }
+        }
+      } catch (err) {
+        console.error('Error loading pump service pricing:', err);
+        // Set to 0 to allow manual entry in case of any errors
+        setPumpPrice(0);
+      }
+    };
+    
+    loadPumpServicePricing();
+  }, [order?.client_id, order?.construction_site]);
+  
+  // Initialize pump service state when order loads
+  useEffect(() => {
+    if (order) {
+      // Check if order has a global pump service item
+      const globalPumpItem = order.products.find(p => 
+        p.product_type === 'SERVICIO DE BOMBEO' || 
+        (p.has_pump_service && p.quote_detail_id === null)
+      );
+      
+      if (globalPumpItem) {
+        // Use global pump service
+        setHasPumpService(true);
+        setPumpVolume(globalPumpItem.pump_volume || globalPumpItem.volume || 0);
+      } else {
+        // Check if order has any individual product pump service (legacy)
+        const orderHasPumpService = order.products.some(p => p.has_pump_service && p.pump_volume);
+        const totalPumpVolume = order.products.reduce((sum, p) => sum + (p.pump_volume || 0), 0);
+        
+        setHasPumpService(orderHasPumpService);
+        setPumpVolume(totalPumpVolume);
+      }
+    }
+  }, [order]);
   
   // Check if the user can approve/reject credit
   const canManageCredit = (isCreditValidator || isManager) && order?.credit_status !== 'approved' && order?.credit_status !== 'rejected';
@@ -351,13 +460,17 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       delivery_time: order.delivery_time,
       requires_invoice: order.requires_invoice,
       special_requirements: order.special_requirements || null,
-      products: order.products.map(p => ({ 
-        id: p.id, 
-        volume: p.volume,
-        pump_volume: p.pump_volume,
-        recipe_id: p.recipe_id,
-        temp_recipe_code: p.product_type
-      }))
+      has_pump_service: hasPumpService,
+      pump_volume: pumpVolume,
+      products: order.products
+        .filter(p => p.product_type !== 'SERVICIO DE BOMBEO') // Exclude global pump service items from product editing
+        .map(p => ({ 
+          id: p.id, 
+          volume: p.volume,
+          pump_volume: p.pump_volume,
+          recipe_id: p.recipe_id,
+          temp_recipe_code: p.product_type
+        }))
     });
     
     // Load available recipes when entering edit mode
@@ -640,6 +753,61 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       };
       
       await orderService.updateOrder(orderId, orderUpdate);
+      
+      // Manejar el servicio de bombeo global
+      if (pumpPrice !== null) {
+        // Buscar si ya existe un item de orden específico para bombeo global
+        const existingPumpItem = order.products.find(p => 
+          p.product_type === 'SERVICIO DE BOMBEO' || 
+          (p.has_pump_service && p.quote_detail_id === null)
+        );
+        
+        if (hasPumpService && pumpVolume > 0) {
+          // Crear o actualizar el item de bombeo global
+          if (existingPumpItem) {
+            // Actualizar el item existente
+            await orderService.updateOrderItem(existingPumpItem.id, {
+              volume: pumpVolume,
+              pump_volume: pumpVolume,
+              total_price: pumpPrice * pumpVolume
+            });
+            
+            // Actualizar también pump_volume_delivered para el recálculo automático
+            const { error: updateDeliveredError } = await supabase
+              .from('order_items')
+              .update({ pump_volume_delivered: pumpVolume })
+              .eq('id', existingPumpItem.id);
+            
+            if (updateDeliveredError) throw updateDeliveredError;
+          } else {
+            // Crear un nuevo item para el servicio de bombeo global
+            const { error: pumpItemError } = await supabase
+              .from('order_items')
+              .insert({
+                order_id: orderId,
+                quote_detail_id: null,
+                product_type: 'SERVICIO DE BOMBEO',
+                volume: pumpVolume,
+                unit_price: pumpPrice,
+                total_price: pumpPrice * pumpVolume,
+                has_pump_service: true,
+                pump_price: pumpPrice,
+                pump_volume: pumpVolume,
+                pump_volume_delivered: pumpVolume // Agregar esto para el recálculo automático
+              });
+            
+            if (pumpItemError) throw pumpItemError;
+          }
+        } else if (existingPumpItem) {
+          // Eliminar el item de bombeo si ya no se necesita
+          const { error: deletePumpError } = await supabase
+            .from('order_items')
+            .delete()
+            .eq('id', existingPumpItem.id);
+          
+          if (deletePumpError) throw deletePumpError;
+        }
+      }
       
       // Actualizar los productos si han cambiado, no hay remisiones y el estatus es 'created'
       if (editedOrder.products && 
@@ -1156,14 +1324,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   {/* Order actions buttons */}
                   <div className="px-4 py-5 sm:px-6 bg-gray-50 border-t flex flex-wrap gap-2">
                     {/* Buttons removed to avoid duplication - actions are available in the bottom actions section */}
-                    {canEditOrder && !isEditing && (
-                      <Button
-                        onClick={handleEditClick}
-                        className="px-3 py-2 rounded text-sm bg-blue-600 text-white hover:bg-blue-700"
-                      >
-                        Editar Orden
-                      </Button>
-                    )}
                   </div>
                 </div>
 
@@ -1323,10 +1483,20 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                         })
                       : order.products.map((product) => (
                         <TableRow key={product.id}>
-                          <TableCell className="font-medium">{product.product_type}</TableCell>
+                          <TableCell className="font-medium">
+                            {product.product_type === 'SERVICIO DE BOMBEO' ? (
+                              <span className="text-blue-600 font-semibold">
+                                {product.product_type} (Global)
+                              </span>
+                            ) : (
+                              product.product_type
+                            )}
+                          </TableCell>
                           <TableCell>{product.volume} m³</TableCell>
                           <TableCell>
-                            {product.has_pump_service ? 
+                            {product.product_type === 'SERVICIO DE BOMBEO' ? (
+                              <span className="text-blue-600">Global</span>
+                            ) : product.has_pump_service ? 
                               `Sí - ${product.pump_volume} m³` : 
                               'No'}
                           </TableCell>
@@ -1430,6 +1600,82 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                         className="w-full rounded-md border border-gray-300 px-3 py-2"
                       />
                     </div>
+                    
+                    {/* Global Pumping Service */}
+                    {pumpPrice !== null && (
+                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                        <div className="flex items-center mb-3">
+                          <input 
+                            id="hasPumpService"
+                            type="checkbox"
+                            checked={hasPumpService}
+                            onChange={(e) => {
+                              setHasPumpService(e.target.checked);
+                              if (e.target.checked && pumpVolume === 0) {
+                                // Set default pump volume to total concrete volume
+                                const totalVolume = editedOrder?.products?.reduce((sum, p) => sum + p.volume, 0) || 0;
+                                setPumpVolume(totalVolume);
+                              }
+                            }}
+                            className="h-5 w-5 text-blue-600 rounded border-gray-300"
+                          />
+                          <label htmlFor="hasPumpService" className="ml-2 block text-base font-medium text-gray-800">
+                            Servicio de Bombeo Global
+                          </label>
+                        </div>
+                        
+                        {hasPumpService && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 pl-7">
+                            <div>
+                              <label htmlFor="pumpVolume" className="block text-sm font-medium text-gray-700 mb-1">
+                                Volumen a bombear (m³)
+                              </label>
+                              <input 
+                                id="pumpVolume"
+                                type="number"
+                                min="0.1"
+                                step="0.1"
+                                value={pumpVolume}
+                                onChange={(e) => setPumpVolume(parseFloat(e.target.value))}
+                                className="w-full rounded-md border border-gray-300 px-3 py-2"
+                              />
+                            </div>
+                            <div>
+                              <label htmlFor="pumpPrice" className="block text-sm font-medium text-gray-700 mb-1">
+                                Precio por m³
+                              </label>
+                              {pumpPrice > 0 ? (
+                                <div className="w-full rounded-md border border-gray-300 px-3 py-2 bg-gray-100 text-gray-700">
+                                  ${pumpPrice?.toFixed(2) || '0.00'}
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  <input 
+                                    id="pumpPrice"
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    value={pumpPrice || ''}
+                                    onChange={(e) => setPumpPrice(parseFloat(e.target.value) || 0)}
+                                    placeholder="Ingrese precio de bombeo"
+                                    className="w-full rounded-md border border-yellow-400 px-3 py-2 bg-yellow-50"
+                                  />
+                                  <p className="text-xs text-amber-600">
+                                    ⚠️ No se encontró precio de bombeo para este cliente/sitio. Ingrese manualmente.
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <p className="text-xs text-gray-600 mt-2">
+                          {pumpPrice > 0 
+                            ? "El servicio de bombeo se cobra globalmente para este cliente y sitio de construcción"
+                            : "Precio manual requerido - no hay cotizaciones con bombeo para este cliente/sitio"}
+                        </p>
+                      </div>
+                    )}
                     
                     <div className="flex justify-end space-x-2">
                       <button
