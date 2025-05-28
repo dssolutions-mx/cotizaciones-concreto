@@ -1106,9 +1106,9 @@ export default function ScheduleOrderForm({
                       Precio por m³
                     </label>
                     {pumpPrice > 0 ? (
-                      <div className="w-full rounded-md border border-gray-300 px-3 py-2 bg-gray-100 text-gray-700">
-                        ${pumpPrice?.toFixed(2) || '0.00'}
-                      </div>
+                    <div className="w-full rounded-md border border-gray-300 px-3 py-2 bg-gray-100 text-gray-700">
+                      ${pumpPrice?.toFixed(2) || '0.00'}
+                    </div>
                     ) : (
                       <div className="space-y-2">
                         <input 

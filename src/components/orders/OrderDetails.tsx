@@ -465,12 +465,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       products: order.products
         .filter(p => p.product_type !== 'SERVICIO DE BOMBEO') // Exclude global pump service items from product editing
         .map(p => ({ 
-          id: p.id, 
-          volume: p.volume,
-          pump_volume: p.pump_volume,
-          recipe_id: p.recipe_id,
-          temp_recipe_code: p.product_type
-        }))
+        id: p.id, 
+        volume: p.volume,
+        pump_volume: p.pump_volume,
+        recipe_id: p.recipe_id,
+        temp_recipe_code: p.product_type
+      }))
     });
     
     // Load available recipes when entering edit mode

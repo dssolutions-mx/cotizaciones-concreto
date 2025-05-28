@@ -622,7 +622,7 @@ export async function recalculateOrderAmount(orderId: string) {
       // Handle pump volume delivered - both from remisiones and global pump service
       const pumpRemisiones = remisiones.filter(r => r.tipo_remision === 'BOMBEO');
       const totalPumpDelivered = pumpRemisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
-      
+    
       // Find pump service items (both legacy and global)
       const pumpItems = orderItems?.filter(item => item.has_pump_service) || [];
       
@@ -721,13 +721,13 @@ export async function recalculateOrderAmount(orderId: string) {
     // Update the order with new amounts
     const { error: updateOrderError } = await supabase
       .from('orders')
-      .update({ 
+        .update({ 
         final_amount: finalAmount,
         invoice_amount: invoiceAmount,
-        updated_at: new Date().toISOString()
-      })
+          updated_at: new Date().toISOString() 
+        })
       .eq('id', orderId);
-    
+      
     if (updateOrderError) throw updateOrderError;
     
     // Update client balance
