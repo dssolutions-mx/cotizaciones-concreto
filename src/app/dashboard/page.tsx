@@ -11,7 +11,12 @@ import {
   Beaker, 
   Clock, 
   Bell, 
-  ExternalLink 
+  ExternalLink,
+  DollarSign,
+  AlertTriangle,
+  Calendar,
+  Award,
+  BarChart3
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -53,6 +58,32 @@ interface PendingQuote {
   constructionSite: string;
 }
 
+// Enhanced dashboard metrics interface
+interface DashboardData {
+  metrics: {
+    // Core metrics (removed activeRecipes and quality metrics)
+    monthlyQuotes: number;
+    monthlySales: number;
+    activeClients: number;
+    
+    // Growth metrics
+    quoteGrowth: number;
+    salesGrowth: number;
+    clientGrowth: number;
+    
+    // Financial metrics
+    totalOutstandingBalance: number;
+    monthlyRevenue: number;
+    pendingCreditOrders: number;
+    
+    // Operational metrics
+    pendingQuotes: number;
+    todayOrders: number;
+  };
+  newNotificationsCount: number;
+  lastUpdated: string;
+}
+
 // Create a fetcher function for SWR
 const fetcher = async (url: string) => {
   const response = await fetch(url);
@@ -65,10 +96,12 @@ const fetcher = async (url: string) => {
 // Define component prop types
 interface MetricsCardProps {
   title: string;
-  value: number;
+  value: number | string;
   growth?: number;
   icon: ReactNode;
   isLoading: boolean;
+  suffix?: string;
+  colorScheme?: 'green' | 'blue' | 'yellow' | 'red' | 'purple';
 }
 
 // Define component prop types
@@ -77,7 +110,7 @@ interface ChartProps {
 }
 
 // Separate dashboard into smaller components for better performance
-const MetricsCard = ({ title, value, growth, icon, isLoading }: MetricsCardProps) => {
+const MetricsCard = ({ title, value, growth, icon, isLoading, suffix = '', colorScheme = 'green' }: MetricsCardProps) => {
   const itemVariants = {
     hidden: { y: 20, opacity: 0 },
     visible: { 
@@ -90,10 +123,18 @@ const MetricsCard = ({ title, value, growth, icon, isLoading }: MetricsCardProps
     }
   };
 
+  const colorClasses = {
+    green: 'border-green-500 bg-green-50',
+    blue: 'border-blue-500 bg-blue-50',
+    yellow: 'border-yellow-500 bg-yellow-50',
+    red: 'border-red-500 bg-red-50',
+    purple: 'border-purple-500 bg-purple-50'
+  };
+
   if (isLoading) {
     return (
       <motion.div 
-        className="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500"
+        className={`bg-white rounded-lg shadow-md p-6 border-l-4 ${colorClasses[colorScheme]}`}
         variants={itemVariants}
       >
         <div className="animate-pulse">
@@ -105,21 +146,32 @@ const MetricsCard = ({ title, value, growth, icon, isLoading }: MetricsCardProps
     );
   }
 
+  // Format value for display
+  const formatValue = (val: number | string): string => {
+    if (typeof val === 'string') return val;
+    if (suffix === '$') {
+      return `$${val.toLocaleString('es-MX')}`;
+    }
+    return val.toLocaleString('es-MX');
+  };
+
   return (
     <motion.div 
-      className="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500 @container"
+      className={`bg-white rounded-lg shadow-md p-6 border-l-4 ${colorClasses[colorScheme]} @container`}
       variants={itemVariants}
     >
       <div className="flex justify-between items-start">
         <div>
           <p className="text-gray-500 text-sm @lg:text-base">{title}</p>
-          <h3 className="text-2xl font-bold text-gray-800 mt-1 @lg:text-3xl">{value}</h3>
+          <h3 className="text-2xl font-bold text-gray-800 mt-1 @lg:text-3xl">
+            {formatValue(value)}{suffix !== '$' ? suffix : ''}
+          </h3>
           {growth !== undefined && (
             <p className={`${growth >= 0 ? 'text-green-500' : 'text-red-500'} text-sm font-medium mt-2 @lg:text-base`}>
               <span>
                 {growth >= 0 ? '↑' : '↓'} {Math.abs(growth)}%
               </span> 
-              <span className="text-gray-400">vs mes anterior</span>
+              <span className="text-gray-400 ml-1">vs mes anterior</span>
             </p>
           )}
         </div>
@@ -141,7 +193,7 @@ const useDashboardData = () => {
   });
 
   return {
-    dashboardData: data,
+    dashboardData: data as DashboardData | undefined,
     isLoading,
     isError: error
   };
@@ -540,7 +592,7 @@ const PendingQuotesList = ({ isLoading }: ChartProps) => {
 // Create a DashboardContent component to be wrapped in Suspense
 function DashboardContent() {
   const { profile } = useAuth();
-  const { dashboardData, isLoading: isLoadingDashboard } = useDashboardData();
+  const { dashboardData, isLoading: isLoadingDashboard, isError } = useDashboardData();
   const { quotesData, pendingQuotes, isLoading: isLoadingQuotes } = useQuotesData();
   const { salesData, isLoading: isLoadingSales } = useSalesData();
   const { recipeData, isLoading: isLoadingRecipes } = useRecipeData();
@@ -576,31 +628,58 @@ function DashboardContent() {
     return null;
   };
 
-  // Main metrics
+  // Enhanced metrics array with financial and operational data
   const metrics = [
+    // First row - Core business metrics
     {
       title: "Cotizaciones del Mes",
       value: dashboardData?.metrics?.monthlyQuotes || 0,
       growth: dashboardData?.metrics?.quoteGrowth || 0,
-      icon: <FileText className="h-6 w-6 text-green-500" />
+      icon: <FileText className="h-6 w-6 text-green-500" />,
+      colorScheme: 'green' as const,
+      suffix: ''
     },
     {
       title: "Venta Mensual (m³)",
       value: dashboardData?.metrics?.monthlySales || 0,
       growth: dashboardData?.metrics?.salesGrowth || 0,
-      icon: <TrendingUp className="h-6 w-6 text-green-500" />
+      icon: <TrendingUp className="h-6 w-6 text-green-500" />,
+      colorScheme: 'green' as const,
+      suffix: ' m³'
     },
     {
       title: "Clientes Activos",
       value: dashboardData?.metrics?.activeClients || 0,
       growth: dashboardData?.metrics?.clientGrowth || 0,
-      icon: <Users className="h-6 w-6 text-green-500" />
+      icon: <Users className="h-6 w-6 text-blue-500" />,
+      suffix: '',
+      colorScheme: 'blue' as const
+    },
+    
+    // Second row - Financial and operational metrics
+    {
+      title: "Ingresos del Mes",
+      value: dashboardData?.metrics?.monthlyRevenue || 0,
+      growth: undefined,
+      icon: <DollarSign className="h-6 w-6 text-green-500" />,
+      suffix: '$',
+      colorScheme: 'green' as const
     },
     {
-      title: "Recetas Activas",
-      value: dashboardData?.metrics?.activeRecipes || 0,
+      title: "Créditos Pendientes",
+      value: dashboardData?.metrics?.pendingCreditOrders || 0,
       growth: undefined,
-      icon: <Beaker className="h-6 w-6 text-green-500" />
+      icon: <AlertTriangle className="h-6 w-6 text-yellow-500" />,
+      suffix: '',
+      colorScheme: 'yellow' as const
+    },
+    {
+      title: "Pedidos Hoy",
+      value: dashboardData?.metrics?.todayOrders || 0,
+      growth: undefined,
+      icon: <Calendar className="h-6 w-6 text-blue-500" />,
+      suffix: '',
+      colorScheme: 'blue' as const
     }
   ];
 
@@ -616,7 +695,7 @@ function DashboardContent() {
   };
 
   // Error handling
-  if (isLoadingDashboard || isLoadingQuotes || isLoadingSales || isLoadingRecipes || isLoadingActivity) {
+  if (isError && !dashboardData) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -647,28 +726,32 @@ function DashboardContent() {
           <div>
             <h1 className="text-2xl font-bold text-gray-800 mb-2">Dashboard</h1>
             <p className="text-gray-600">Bienvenido al panel de control de DC Concretos</p>
+            {dashboardData?.lastUpdated && (
+              <p className="text-xs text-gray-400 mt-1">
+                Última actualización: {new Date(dashboardData.lastUpdated).toLocaleString('es-MX')}
+              </p>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Tarjetas de resumen - con carga progresiva */}
-      <motion.div 
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8"
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-      >
+      <DosificadorQuickAccess />
+
+      {/* Main Metrics Grid - Updated to show 6 key metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         {metrics.map((metric, index) => (
-          <MetricsCard 
+          <MetricsCard
             key={index}
             title={metric.title}
             value={metric.value}
             growth={metric.growth}
             icon={metric.icon}
             isLoading={isLoadingDashboard}
+            suffix={metric.suffix}
+            colorScheme={metric.colorScheme}
           />
         ))}
-      </motion.div>
+      </div>
 
       {/* Charts section with progressive loading */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -762,8 +845,6 @@ function DashboardContent() {
           <PendingQuotesList isLoading={isLoadingQuotes} />
         </motion.div>
       </div>
-
-      <DosificadorQuickAccess />
     </div>
   );
 }
