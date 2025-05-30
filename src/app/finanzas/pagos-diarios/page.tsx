@@ -18,32 +18,34 @@ export default async function DailyPaymentsReportPage({
 }: {
   searchParams: { [key: string]: string | string[] | undefined };
 }) {
-  // Get the date from query params or use today's date
-  const dateParam = searchParams.date ? String(searchParams.date) : format(new Date(), 'yyyy-MM-dd');
+  // Get the date range from query params or use today's date as default
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const startDateParam = searchParams.start_date ? String(searchParams.start_date) : today;
+  const endDateParam = searchParams.end_date ? String(searchParams.end_date) : today;
   
   return (
     <Suspense fallback={<FinancialDashboardSkeleton />}>
       <div className="container mx-auto p-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
-          <h1 className="text-3xl font-bold tracking-tight">Reporte de Pagos Diarios</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Reporte de Pagos</h1>
           <div className="flex items-center gap-2">
-            <DatePickerWithButton currentDate={dateParam} />
+            <DatePickerWithButton startDate={startDateParam} endDate={endDateParam} />
           </div>
         </div>
         
         <RoleProtectedSection
           allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
-          action="ver información de pagos diarios"
+          action="ver información de pagos"
         >
           <div className="space-y-8">
             {/* Payment metrics summary cards with separate suspense boundary */}
             <Suspense fallback={<PaymentMetricsSkeleton />}>
-              <PaymentMetrics date={dateParam} />
+              <PaymentMetrics startDate={startDateParam} endDate={endDateParam} />
             </Suspense>
             
             {/* Daily payments table */}
             <Suspense fallback={<DailyPaymentsTableSkeleton />}>
-              <DailyPaymentsTable date={dateParam} />
+              <DailyPaymentsTable startDate={startDateParam} endDate={endDateParam} />
             </Suspense>
           </div>
         </RoleProtectedSection>
@@ -52,16 +54,24 @@ export default async function DailyPaymentsReportPage({
   );
 }
 
-// Date Picker with Button Component
-function DatePickerWithButton({ currentDate }: { currentDate: string }) {
+// Date Picker with Button Component - Modified to support date ranges
+function DatePickerWithButton({ startDate, endDate }: { startDate: string; endDate: string }) {
   return (
     <form className="flex items-center space-x-2">
       <div className="flex items-center space-x-2 bg-muted p-2 rounded-md">
         <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+        <span className="text-sm text-muted-foreground">Desde:</span>
         <input 
           type="date" 
-          name="date" 
-          defaultValue={currentDate}
+          name="start_date" 
+          defaultValue={startDate}
+          className="bg-transparent text-sm outline-none"
+        />
+        <span className="text-sm text-muted-foreground">Hasta:</span>
+        <input 
+          type="date" 
+          name="end_date" 
+          defaultValue={endDate}
           className="bg-transparent text-sm outline-none"
         />
       </div>
@@ -116,8 +126,8 @@ function DailyPaymentsTableSkeleton() {
   );
 }
 
-// Payment Metrics Section - Displays KPI cards
-async function PaymentMetrics({ date }: { date: string }) {
+// Payment Metrics Section - Modified to work with date ranges
+async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDate: string }) {
   // Initialize metrics with default values
   let metricsData = {
     totalPaymentsAmount: 0,
@@ -136,11 +146,11 @@ async function PaymentMetrics({ date }: { date: string }) {
     // Create a service client for data fetching
     const serviceClient = createServiceClient();
     
-    // Convert date to the start and end of the day in UTC format
-    const startDate = new Date(`${date}T00:00:00.000Z`);
-    const endDate = new Date(`${date}T23:59:59.999Z`);
+    // Convert dates to the start and end of the day range in UTC format
+    const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
+    const endDateTime = new Date(`${endDate}T23:59:59.999Z`);
     
-    // Fetch payments for the selected date
+    // Fetch payments for the selected date range
     const { data: payments, error } = await serviceClient
       .from('client_payments')
       .select(`
@@ -152,12 +162,12 @@ async function PaymentMetrics({ date }: { date: string }) {
         payment_date,
         construction_site
       `)
-      .gte('payment_date', startDate.toISOString())
-      .lte('payment_date', endDate.toISOString());
+      .gte('payment_date', startDateTime.toISOString())
+      .lte('payment_date', endDateTime.toISOString());
     
     if (error) throw error;
     
-    console.log(`Found ${payments?.length || 0} payments for date ${date}`);
+    console.log(`Found ${payments?.length || 0} payments for date range ${startDate} to ${endDate}`);
     
     // If we have payments, calculate metrics
     if (payments && payments.length > 0) {
@@ -196,9 +206,14 @@ async function PaymentMetrics({ date }: { date: string }) {
     console.error("Error fetching payment metrics:", error);
   }
 
+  // Determine the period description
+  const periodDescription = startDate === endDate 
+    ? `para el ${startDate}` 
+    : `del ${startDate} al ${endDate}`;
+
   return (
     <section>
-      <h2 className="text-2xl font-semibold mb-4">Resumen de Pagos Diarios</h2>
+      <h2 className="text-2xl font-semibold mb-4">Resumen de Pagos {periodDescription}</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Total Payments */}
         <KPICard
@@ -240,8 +255,8 @@ async function PaymentMetrics({ date }: { date: string }) {
   );
 }
 
-// Daily Payments Table - Shows detailed information for each payment
-async function DailyPaymentsTable({ date }: { date: string }) {
+// Daily Payments Table - Modified to work with date ranges
+async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; endDate: string }) {
   // Initialize payments array
   let payments: any[] = [];
   let fetchError: Error | null = null;
@@ -250,11 +265,11 @@ async function DailyPaymentsTable({ date }: { date: string }) {
     // Create a server-side Supabase client
     const supabase = await createServerSupabaseClient();
     
-    // Convert date to the start and end of the day in UTC format
-    const startDate = new Date(`${date}T00:00:00.000Z`);
-    const endDate = new Date(`${date}T23:59:59.999Z`);
+    // Convert dates to the start and end of the day range in UTC format
+    const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
+    const endDateTime = new Date(`${endDate}T23:59:59.999Z`);
     
-    // Fetch payments for the selected date with client information
+    // Fetch payments for the selected date range with client information
     const { data, error } = await supabase
       .from('client_payments')
       .select(`
@@ -271,13 +286,13 @@ async function DailyPaymentsTable({ date }: { date: string }) {
           business_name
         )
       `)
-      .gte('payment_date', startDate.toISOString())
-      .lte('payment_date', endDate.toISOString())
+      .gte('payment_date', startDateTime.toISOString())
+      .lte('payment_date', endDateTime.toISOString())
       .order('payment_date', { ascending: true });
     
     if (error) throw error;
     
-    console.log(`DailyPaymentsTable - Found ${data?.length || 0} payments for ${date}`);
+    console.log(`DailyPaymentsTable - Found ${data?.length || 0} payments for ${startDate} to ${endDate}`);
     
     // If we have payments, enhance them with formatted data
     if (data && data.length > 0) {
@@ -294,7 +309,7 @@ async function DailyPaymentsTable({ date }: { date: string }) {
       });
     }
   } catch (error) {
-    console.error("Error loading daily payments data:", error);
+    console.error("Error loading payments data:", error);
     fetchError = error as Error;
   }
   
@@ -318,18 +333,23 @@ async function DailyPaymentsTable({ date }: { date: string }) {
     );
   }
   
+  // Determine the period description
+  const periodDescription = startDate === endDate 
+    ? `la fecha ${startDate}` 
+    : `el período del ${startDate} al ${endDate}`;
+  
   if (payments.length === 0) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Detalle de Pagos</CardTitle>
           <CardDescription>
-            No hay pagos registrados para la fecha seleccionada
+            No hay pagos registrados para {periodDescription}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-center p-8 text-gray-500">
-            <p>No hay pagos para mostrar en la fecha seleccionada.</p>
+            <p>No hay pagos para mostrar en {periodDescription}.</p>
           </div>
         </CardContent>
       </Card>
@@ -341,7 +361,7 @@ async function DailyPaymentsTable({ date }: { date: string }) {
       <CardHeader>
         <CardTitle>Detalle de Pagos</CardTitle>
         <CardDescription>
-          Todos los pagos registrados para el {date}
+          Todos los pagos registrados para {periodDescription}
         </CardDescription>
       </CardHeader>
       <CardContent>
