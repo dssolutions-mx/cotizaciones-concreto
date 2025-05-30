@@ -116,10 +116,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     return Array.from(new Set(ids)); 
   }, [order]);
   
+  // Check if user is a credit validator or manager
+  const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
+  const isManager = profile?.role === 'EXECUTIVE' as UserRole || profile?.role === 'PLANT_MANAGER' as UserRole;
+  
   // Check if user has the Dosificador role
   const isDosificador = profile?.role === 'DOSIFICADOR' as UserRole;
   
-  // Determine if the order can be edited: Not allowed if completed, cancelled, or by Dosificador
+  // Check if the order can be edited: Not allowed if completed, cancelled, or by Dosificador
   const canEditOrder = order && 
     order.order_status !== 'completed' && 
     order.order_status !== 'cancelled' &&
@@ -131,124 +135,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     !hasRemisiones && 
     !isDosificador;
   
-  // Check if user is a credit validator or manager
-  const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
-  const isManager = profile?.role === 'EXECUTIVE' as UserRole || profile?.role === 'PLANT_MANAGER' as UserRole;
-  
-  // Debug: Log role information
-  useEffect(() => {
-    console.log('OrderDetails Debug - User Profile:', profile);
-    console.log('OrderDetails Debug - User Role:', profile?.role);
-    console.log('OrderDetails Debug - Is Credit Validator:', isCreditValidator);
-    console.log('OrderDetails Debug - Has Role CREDIT_VALIDATOR:', hasRole('CREDIT_VALIDATOR'));
-    console.log('OrderDetails Debug - Has Role Array:', hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR']));
-  }, [profile, isCreditValidator, hasRole]);
-  
-  // Load pumping service pricing for client + construction site
-  useEffect(() => {
-    if (!order?.client_id || !order?.construction_site) {
-      setPumpPrice(null);
-      return;
-    }
-    
-    const loadPumpServicePricing = async () => {
-      try {
-        console.log(`Fetching pump service pricing for Client: ${order.client_id}, Site: ${order.construction_site}`);
-        
-        // Look for pump service pricing in quote_details that are approved for this client + site combination
-        const { data: pumpServiceData, error: pumpServiceError } = await supabase
-          .from('quotes')
-          .select(`
-            quote_details(
-              pump_service,
-              pump_price
-            )
-          `)
-          .eq('status', 'APPROVED')
-          .eq('client_id', order.client_id)
-          .eq('construction_site', order.construction_site)
-          .not('quote_details.pump_price', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1);
-          
-        if (pumpServiceError) {
-          console.error("Error fetching pump service pricing:", pumpServiceError);
-          return;
-        }
-        
-        // Find the first quote with pump service pricing
-        if (pumpServiceData && pumpServiceData.length > 0) {
-          const quoteWithPumpService = pumpServiceData.find(quote => 
-            quote.quote_details.some((detail: any) => detail.pump_service && detail.pump_price)
-          );
-          
-          if (quoteWithPumpService) {
-            const pumpDetail = quoteWithPumpService.quote_details.find((detail: any) => 
-              detail.pump_service && detail.pump_price
-            );
-            
-            if (pumpDetail && pumpDetail.pump_price) {
-              setPumpPrice(pumpDetail.pump_price);
-              console.log(`Found pump service price: $${pumpDetail.pump_price} for client + site combination`);
-            }
-          }
-        }
-        
-        // Fallback: If no pump pricing found, check if this order already has legacy pump service
-        // and allow manual pricing for backward compatibility
-        if (!pumpServiceData || pumpServiceData.length === 0) {
-          console.log('No pump service pricing found in approved quotes for this client + site combination');
-          console.log('Checking if order has existing pump service for fallback pricing...');
-          
-          // Check if order has any existing pump service pricing we can use as fallback
-          const existingPumpItems = order.products?.filter(p => p.has_pump_service && p.pump_price) || [];
-          if (existingPumpItems.length > 0) {
-            const fallbackPrice = existingPumpItems[0].pump_price || 0; // Ensure it's a number
-            setPumpPrice(fallbackPrice);
-            console.log(`Using fallback pump price from existing order items: $${fallbackPrice}`);
-          } else {
-            // Set to 0 to allow manual entry for legacy orders
-            setPumpPrice(0);
-            console.log('No existing pump pricing found. Setting to 0 to allow manual entry.');
-          }
-        }
-      } catch (err) {
-        console.error('Error loading pump service pricing:', err);
-        // Set to 0 to allow manual entry in case of any errors
-        setPumpPrice(0);
-      }
-    };
-    
-    loadPumpServicePricing();
-  }, [order?.client_id, order?.construction_site]);
-  
-  // Initialize pump service state when order loads
-  useEffect(() => {
-    if (order) {
-      // Check if order has a global pump service item
-      const globalPumpItem = order.products.find(p => 
-        p.product_type === 'SERVICIO DE BOMBEO' || 
-        (p.has_pump_service && p.quote_detail_id === null)
-      );
-      
-      if (globalPumpItem) {
-        // Use global pump service
-        setHasPumpService(true);
-        setPumpVolume(globalPumpItem.pump_volume || globalPumpItem.volume || 0);
-      } else {
-        // Check if order has any individual product pump service (legacy)
-        const orderHasPumpService = order.products.some(p => p.has_pump_service && p.pump_volume);
-        const totalPumpVolume = order.products.reduce((sum, p) => sum + (p.pump_volume || 0), 0);
-        
-        setHasPumpService(orderHasPumpService);
-        setPumpVolume(totalPumpVolume);
-      }
-    }
-  }, [order]);
-  
-  // Check if the user can approve/reject credit
-  const canManageCredit = (isCreditValidator || isManager) && order?.credit_status !== 'approved' && order?.credit_status !== 'rejected';
-
   // Check if the order can be edited based on multiple conditions
   const canEditProducts = useMemo(() => {
     // Only allow editing products if there are no remisiones registered
@@ -1006,14 +892,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
 
   // Add this function to check if financial info should be shown
   const shouldShowFinancialInfo = () => {
-    // Credit validators typically don't need to see financial info, but managers do
-    const canSeeFinancialInfo = hasRole(['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]);
-    console.log('OrderDetails Debug - shouldShowFinancialInfo:', {
-      profileRole: profile?.role,
-      isDosificador,
-      canSeeFinancialInfo,
-      result: canSeeFinancialInfo
-    });
+    // Credit validators, managers, and executives can see financial info
+    const canSeeFinancialInfo = hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'] as UserRole[]);
     return canSeeFinancialInfo;
   };
 
@@ -1060,6 +940,103 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     }
   }
 
+  // Load pumping service pricing for client + construction site
+  useEffect(() => {
+    if (!order?.client_id || !order?.construction_site) {
+      setPumpPrice(null);
+      return;
+    }
+    
+    const loadPumpServicePricing = async () => {
+      try {
+        // Look for pump service pricing in quote_details that are approved for this client + site combination
+        const { data: pumpServiceData, error: pumpServiceError } = await supabase
+          .from('quotes')
+          .select(`
+            quote_details(
+              pump_service,
+              pump_price
+            )
+          `)
+          .eq('status', 'APPROVED')
+          .eq('client_id', order.client_id)
+          .eq('construction_site', order.construction_site)
+          .not('quote_details.pump_price', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
+          
+        if (pumpServiceError) {
+          console.error("Error fetching pump service pricing:", pumpServiceError);
+          return;
+        }
+        
+        // Find the first quote with pump service pricing
+        if (pumpServiceData && pumpServiceData.length > 0) {
+          const quoteWithPumpService = pumpServiceData.find(quote => 
+            quote.quote_details.some((detail: any) => detail.pump_service && detail.pump_price)
+          );
+          
+          if (quoteWithPumpService) {
+            const pumpDetail = quoteWithPumpService.quote_details.find((detail: any) => 
+              detail.pump_service && detail.pump_price
+            );
+            
+            if (pumpDetail && pumpDetail.pump_price) {
+              setPumpPrice(pumpDetail.pump_price);
+            }
+          }
+        }
+        
+        // Fallback: If no pump pricing found, check if this order already has legacy pump service
+        // and allow manual pricing for backward compatibility
+        if (!pumpServiceData || pumpServiceData.length === 0) {
+          // Check if order has any existing pump service pricing we can use as fallback
+          const existingPumpItems = order.products?.filter(p => p.has_pump_service && p.pump_price) || [];
+          if (existingPumpItems.length > 0) {
+            const fallbackPrice = existingPumpItems[0].pump_price || 0; // Ensure it's a number
+            setPumpPrice(fallbackPrice);
+          } else {
+            // Set to 0 to allow manual entry for legacy orders
+            setPumpPrice(0);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading pump service pricing:', err);
+        // Set to 0 to allow manual entry in case of any errors
+        setPumpPrice(0);
+      }
+    };
+    
+    loadPumpServicePricing();
+  }, [order?.client_id, order?.construction_site]);
+  
+  // Initialize pump service state when order loads
+  useEffect(() => {
+    if (order) {
+      // Check if order has a global pump service item
+      const globalPumpItem = order.products.find(p => 
+        p.product_type === 'SERVICIO DE BOMBEO' || 
+        (p.has_pump_service && p.quote_detail_id === null)
+      );
+      
+      if (globalPumpItem) {
+        // Use global pump service
+        setHasPumpService(true);
+        setPumpVolume(globalPumpItem.pump_volume || globalPumpItem.volume || 0);
+      } else {
+        // Check if order has any individual product pump service (legacy)
+        const orderHasPumpService = order.products.some(p => p.has_pump_service && p.pump_volume);
+        const totalPumpVolume = order.products.reduce((sum, p) => sum + (p.pump_volume || 0), 0);
+        
+        setHasPumpService(orderHasPumpService);
+        setPumpVolume(totalPumpVolume);
+      }
+    }
+  }, [order]);
+  
+  // Check if the user can approve/reject credit
+  const canManageCredit = (isCreditValidator || isManager) && order?.credit_status !== 'approved' && order?.credit_status !== 'rejected';
+
   if (loading) {
     return <div className="flex justify-center p-4">Cargando detalles de la orden...</div>;
   }
@@ -1093,31 +1070,9 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     // For delete action
     const canDeleteOrder = managerOrFinance && order && !hasRemisiones && order.order_status !== 'cancelled';
     
-    // Debug: Log button visibility logic
-    console.log('OrderDetails Debug - renderOrderActions:', {
-      profile,
-      hasRole_CREDIT_VALIDATOR: hasRole('CREDIT_VALIDATOR'),
-      hasRole_Array: hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR']),
-      managerOrFinance,
-      canDeleteOrder,
-      order: !!order,
-      hasRemisiones,
-      orderStatus: order?.order_status
-    });
-    
     // Menu of actions
     return (
       <div className="flex flex-wrap gap-2 mb-6 justify-end">
-        {/* Debug info - temporary */}
-        {profile?.role === 'CREDIT_VALIDATOR' && (
-          <div className="w-full p-2 bg-yellow-100 border border-yellow-300 rounded text-xs">
-            <strong>Debug Info for CREDIT_VALIDATOR:</strong><br/>
-            Profile Role: {profile?.role}<br/>
-            Has CREDIT_VALIDATOR Role: {hasRole('CREDIT_VALIDATOR') ? 'YES' : 'NO'}<br/>
-            Has Array Role: {hasRole(['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'CREDIT_VALIDATOR']) ? 'YES' : 'NO'}
-          </div>
-        )}
-        
         {/* Edit Order button */}
         {canEditOrder && !isEditing && (
           <Button
@@ -1165,7 +1120,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         {/* Allow adding payments for roles with FINANCE permission */}
         {shouldShowFinancialInfo() && order?.client_id && (
           <RoleProtectedButton
-            allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
+            allowedRoles={['EXECUTIVE', 'PLANT_MANAGER', 'CREDIT_VALIDATOR'] as UserRole[]}
             onClick={() => setIsPaymentDialogOpen(true)}
             className="px-3 py-2 rounded text-sm bg-white border border-gray-300 hover:bg-gray-50"
           >
