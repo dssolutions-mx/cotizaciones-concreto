@@ -14,7 +14,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Info } from "lucide-react";
+import { CalendarIcon, Info, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -30,6 +30,7 @@ import dynamic from 'next/dynamic';
 import { ApexOptions } from 'apexcharts';
 import { DateRange } from "react-day-picker";
 import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-with-presets"
+import * as XLSX from 'xlsx';
 
 // Dynamically import ApexCharts with SSR disabled
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -1155,6 +1156,161 @@ export default function VentasDashboard() {
     }
   };
 
+  // Excel Export Function
+  const exportToExcel = () => {
+    try {
+      // Prepare data for export - same structure as the table
+      const excelData = filteredRemisionesWithVacioDeOlla.map((remision, index) => {
+        // Find the order for this remision
+        const order = salesData.find(o => o.id === remision.order_id);
+        
+        // Handle virtual vacío de olla entries
+        if (remision.isVirtualVacioDeOlla) {
+          const orderItem = remision.originalOrderItem;
+          const price = parseFloat(orderItem.unit_price) || parseFloat(orderItem.empty_truck_price) || 0;
+          const volume = parseFloat(orderItem.empty_truck_volume) || parseFloat(orderItem.volume) || 1;
+          const subtotal = parseFloat(orderItem.total_price) || (price * volume);
+          
+          const date = order?.delivery_date ? 
+            new Date(order.delivery_date) : 
+            new Date();
+          const formattedDate = isValid(date) ? 
+            format(date, 'dd/MM/yyyy', { locale: es }) : 
+            'Fecha inválida';
+          
+          return {
+            'Remisión': remision.remision_number,
+            'Tipo': remision.tipo_remision,
+            'Fecha': formattedDate,
+            'Cliente': order?.clientName || remision.order?.clients?.business_name || 'N/A',
+            'Código Producto': 'SER001',
+            'Producto': 'VACIO DE OLLA',
+            'Volumen (m³)': volume.toFixed(1),
+            'Precio de Venta': `$${price.toFixed(2)}`,
+            'SubTotal': `$${subtotal.toFixed(2)}`,
+            'Tipo Facturación': order?.requires_invoice ? 'Fiscal' : 'Efectivo',
+            'Número de Orden': order?.order_number || 'N/A',
+            'Obra': order?.construction_site || 'N/A'
+          };
+        }
+        
+        // Handle regular remisiones
+        const orderItems = order?.items || [];
+        const recipeCode = remision.recipe?.recipe_code;
+        
+        const orderItem = orderItems.find((item: any) => {
+          if (remision.tipo_remision === 'BOMBEO' && item.has_pump_service) {
+            return true;
+          }
+          return item.product_type === recipeCode || 
+            (item.recipe_id && item.recipe_id.toString() === recipeCode);
+        });
+        
+        let price = 0;
+        const volume = remision.volumen_fabricado || 0;
+        const isEmptyTruck = recipeCode === 'SER001' || orderItem?.product_type === 'VACÍO DE OLLA';
+        const displayVolume = isEmptyTruck ? 1 : volume;
+        
+        if (orderItem) {
+          if (remision.tipo_remision === 'BOMBEO') {
+            price = orderItem.pump_price || 0;
+          } else if (isEmptyTruck) {
+            price = orderItem.unit_price || 0;
+          } else {
+            price = orderItem.unit_price || 0;
+          }
+        }
+        
+        const subtotal = price * displayVolume;
+        
+        const date = remision.fecha ? 
+          new Date(remision.fecha) : 
+          new Date();
+        const formattedDate = isValid(date) ? 
+          format(date, 'dd/MM/yyyy', { locale: es }) : 
+          'Fecha inválida';
+        
+        return {
+          'Remisión': remision.remision_number,
+          'Tipo': remision.tipo_remision,
+          'Fecha': formattedDate,
+          'Cliente': order?.clientName || remision.order?.clients?.business_name || 'N/A',
+          'Código Producto': remision.tipo_remision === 'BOMBEO' ? 'SER002' : 
+            recipeCode === 'SER001' || orderItem?.product_type === 'VACÍO DE OLLA' ? 'SER001' : 
+            recipeCode || 'N/A',
+          'Producto': remision.tipo_remision === 'BOMBEO' ? 'SERVICIO DE BOMBEO' : 
+            recipeCode === 'SER001' || orderItem?.product_type === 'VACÍO DE OLLA' ? 'VACIO DE OLLA' : 
+            'CONCRETO PREMEZCLADO',
+          'Volumen (m³)': displayVolume.toFixed(1),
+          'Precio de Venta': `$${price.toFixed(2)}`,
+          'SubTotal': `$${subtotal.toFixed(2)}`,
+          'Tipo Facturación': order?.requires_invoice ? 'Fiscal' : 'Efectivo',
+          'Número de Orden': order?.order_number || 'N/A',
+          'Obra': order?.construction_site || 'N/A',
+          'Resistencia (fc)': remision.recipe?.strength_fc || 'N/A'
+        };
+      });
+
+      // Add summary row
+      const summaryRow = {
+        'Remisión': 'TOTAL',
+        'Tipo': '',
+        'Fecha': '',
+        'Cliente': '',
+        'Código Producto': '',
+        'Producto': '',
+        'Volumen (m³)': summaryMetrics.totalVolume.toFixed(1),
+        'Precio de Venta': '',
+        'SubTotal': `$${summaryMetrics.totalAmount.toFixed(2)}`,
+        'Tipo Facturación': '',
+        'Número de Orden': '',
+        'Obra': '',
+        'Resistencia (fc)': ''
+      };
+
+      excelData.push(summaryRow);
+
+      // Create workbook and worksheet
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+      // Set column widths
+      const columnWidths = [
+        { wch: 15 }, // Remisión
+        { wch: 12 }, // Tipo
+        { wch: 12 }, // Fecha
+        { wch: 25 }, // Cliente
+        { wch: 15 }, // Código Producto
+        { wch: 20 }, // Producto
+        { wch: 12 }, // Volumen
+        { wch: 15 }, // Precio de Venta
+        { wch: 15 }, // SubTotal
+        { wch: 15 }, // Tipo Facturación
+        { wch: 15 }, // Número de Orden
+        { wch: 25 }, // Obra
+        { wch: 12 }  // Resistencia
+      ];
+      worksheet['!cols'] = columnWidths;
+
+      // Add worksheet to workbook
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte de Ventas');
+
+      // Generate filename with date range
+      const startDateStr = startDate ? format(startDate, 'dd-MM-yyyy') : 'fecha';
+      const endDateStr = endDate ? format(endDate, 'dd-MM-yyyy') : 'fecha';
+      const filename = `Reporte_Ventas_${startDateStr}_${endDateStr}.xlsx`;
+
+      // Write and download the file
+      XLSX.writeFile(workbook, filename);
+
+      // Show success message (optional - you might want to add a toast notification)
+      console.log('Excel file exported successfully');
+    } catch (error) {
+      console.error('Error exporting to Excel:', error);
+      // You might want to show an error notification here
+    }
+  };
+
   return (
     <div className="container mx-auto p-6">
       {/* Layout Toggle */}
@@ -1374,14 +1530,26 @@ export default function VentasDashboard() {
                 <Skeleton className="h-64 w-full" />
               ) : (
                 <Tabs defaultValue="remisiones" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 mb-4">
-                    <TabsTrigger value="remisiones">
-                      Remisiones ({filteredRemisiones.length})
-                    </TabsTrigger>
-                    <TabsTrigger value="summary">
-                      Resumen por Cliente
-                    </TabsTrigger>
-                  </TabsList>
+                  <div className="flex justify-between items-center mb-4">
+                    <TabsList className="grid grid-cols-2">
+                      <TabsTrigger value="remisiones">
+                        Remisiones ({filteredRemisionesWithVacioDeOlla.length})
+                      </TabsTrigger>
+                      <TabsTrigger value="summary">
+                        Resumen por Cliente
+                      </TabsTrigger>
+                    </TabsList>
+                    <Button 
+                      onClick={exportToExcel} 
+                      variant="outline" 
+                      size="sm"
+                      className="flex items-center gap-2"
+                      disabled={filteredRemisionesWithVacioDeOlla.length === 0}
+                    >
+                      <Download className="h-4 w-4" />
+                      Exportar Excel
+                    </Button>
+                  </div>
                   
                   <TabsContent value="remisiones">
                     <div className="rounded-md border">
@@ -1879,7 +2047,21 @@ export default function VentasDashboard() {
                      </Card>
                  </div>
 
-                 {/* Charts Section */}
+                 {/* Export Button for PowerBI Layout */}
+              <div className="flex justify-end mb-4">
+                <Button 
+                  onClick={exportToExcel} 
+                  variant="outline" 
+                  size="sm"
+                  className="flex items-center gap-2"
+                  disabled={filteredRemisionesWithVacioDeOlla.length === 0}
+                >
+                  <Download className="h-4 w-4" />
+                  Exportar Excel
+                </Button>
+              </div>
+
+              {/* Charts Section */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-4">
                     {/* Efectivo/Fiscal Donut */}
                     <Card className="lg:col-span-4 overflow-hidden border-0 shadow-md">
