@@ -62,6 +62,8 @@ export const recipeService = {
   },
 
   async saveRecipe(recipeData: ExcelRecipeData): Promise<Recipe> {
+    console.log('saveRecipe called with:', recipeData);
+    
     // First, check if a recipe with this code already exists
     const { data: existingRecipe, error: existingRecipeError } = await supabase
       .from('recipes')
@@ -136,11 +138,16 @@ export const recipeService = {
       .select()
       .single();
 
-    if (newVersionError) throw newVersionError;
+    if (newVersionError) {
+      console.error('Error creating recipe version:', newVersionError);
+      throw newVersionError;
+    }
+    
+    console.log('Recipe version created:', versionInsert);
 
     // Insert material quantities
     const materialQuantities = Object.entries(recipeData.materials)
-      .filter(([material, quantity]) => quantity !== undefined)
+      .filter(([material, quantity]) => quantity !== undefined && quantity > 0)
       .map(([material, quantity]) => ({
         recipe_version_id: versionInsert.id,
         material_type: material,
@@ -148,12 +155,19 @@ export const recipeService = {
         unit: ['additive1', 'additive2'].includes(material) ? 'l/m³' : 'kg/m³'
       }));
 
+    console.log('Material quantities to insert:', materialQuantities);
+
     const { error: materialsError } = await supabase
       .from('material_quantities')
       .insert(materialQuantities);
 
-    if (materialsError) throw materialsError;
+    if (materialsError) {
+      console.error('Error inserting material quantities:', materialsError);
+      throw materialsError;
+    }
 
+    console.log('Recipe saved successfully:', recipeInsert);
+    
     return recipeInsert;
   },
 
@@ -232,7 +246,7 @@ export const recipeService = {
           placement_type,
           max_aggregate_size,
           slump,
-          recipe_versions!inner(
+          recipe_versions(
             id,
             version_number,
             is_current,
@@ -240,8 +254,6 @@ export const recipeService = {
             loaded_to_k2
           )
         `)
-        .eq('recipe_versions.is_current', true)
-        .limit(limit)
         .order('recipe_code');
 
       if (error) {
@@ -253,9 +265,12 @@ export const recipeService = {
       // Enrich data with recipe type
       const enrichedData = data?.map(r => ({
         ...r,
-        recipe_type: r.recipe_versions[0]?.notes || null,
-        loaded_to_k2: r.recipe_versions[0]?.loaded_to_k2 || false
+        recipe_type: r.recipe_versions?.[0]?.notes || null,
+        loaded_to_k2: r.recipe_versions?.[0]?.loaded_to_k2 || false
       })) || [];
+      
+      console.log('All recipes fetched:', enrichedData.length);
+      console.log('Recipes with RF:', enrichedData.filter(r => r.recipe_code.includes('RF')));
       
       return { data: enrichedData, error: null };
     } catch (error) {

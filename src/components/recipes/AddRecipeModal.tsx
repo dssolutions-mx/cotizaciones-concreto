@@ -58,10 +58,12 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log('Form submitted!', { recipeData });
     setError(null);
 
     try {
       setIsProcessing(true);
+      console.log('Starting processing...');
       
       // Create an ExcelRecipeData-like object from form data
       const formattedRecipe = {
@@ -75,18 +77,18 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
           slump: parseFloat(recipeData.slump)
         },
         materials: {
-          cement: parseFloat(recipeData.cement),
-          water: parseFloat(recipeData.water),
-          gravel: parseFloat(recipeData.gravel),
-          ...(recipeData.recipeType === 'MR' && recipeData.gravel40mm && { 
+          cement: recipeData.cement && !isNaN(parseFloat(recipeData.cement)) ? parseFloat(recipeData.cement) : 0,
+          water: recipeData.water && !isNaN(parseFloat(recipeData.water)) ? parseFloat(recipeData.water) : 0,
+          gravel: recipeData.gravel && !isNaN(parseFloat(recipeData.gravel)) ? parseFloat(recipeData.gravel) : 0,
+          ...(recipeData.recipeType === 'MR' && recipeData.gravel40mm && !isNaN(parseFloat(recipeData.gravel40mm)) && { 
             gravel40mm: parseFloat(recipeData.gravel40mm) 
           }),
-          volcanicSand: parseFloat(recipeData.volcanicSand),
-          basalticSand: parseFloat(recipeData.basalticSand),
-          additive1: parseFloat(recipeData.additive1),
-          additive2: parseFloat(recipeData.additive2)
+          volcanicSand: recipeData.volcanicSand && !isNaN(parseFloat(recipeData.volcanicSand)) ? parseFloat(recipeData.volcanicSand) : 0,
+          basalticSand: recipeData.basalticSand && !isNaN(parseFloat(recipeData.basalticSand)) ? parseFloat(recipeData.basalticSand) : 0,
+          additive1: recipeData.additive1 && !isNaN(parseFloat(recipeData.additive1)) ? parseFloat(recipeData.additive1) : 0,
+          additive2: recipeData.additive2 && !isNaN(parseFloat(recipeData.additive2)) ? parseFloat(recipeData.additive2) : 0
         },
-        referenceData: recipeData.sssWater ? {
+        referenceData: recipeData.sssWater && !isNaN(parseFloat(recipeData.sssWater)) ? {
           sssWater: parseFloat(recipeData.sssWater)
         } : undefined
       };
@@ -99,6 +101,14 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
       if (isNaN(formattedRecipe.characteristics.strength)) {
         throw new Error('La resistencia debe ser un número válido');
       }
+      
+      // Validate that at least essential materials are provided
+      if (formattedRecipe.materials.cement <= 0 || formattedRecipe.materials.water <= 0) {
+        throw new Error('Al menos cemento y agua son obligatorios para crear una receta');
+      }
+      
+      // Debug log to see what we're saving
+      console.log('Saving recipe data:', formattedRecipe);
       
       // Save the recipe
       const savedRecipe = await recipeService.saveRecipe(formattedRecipe);
@@ -310,13 +320,12 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Grava 20mm (kg/m³) *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Grava 20mm (kg/m³)</label>
                 <input
                   type="number"
                   name="gravel"
                   value={recipeData.gravel}
                   onChange={handleInputChange}
-                  required
                   step="0.01"
                   className="w-full border border-gray-300 rounded-md p-2"
                 />
@@ -339,52 +348,48 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Arena Volcánica (kg/m³) *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Arena Volcánica (kg/m³)</label>
                 <input
                   type="number"
                   name="volcanicSand"
                   value={recipeData.volcanicSand}
                   onChange={handleInputChange}
-                  required
                   step="0.01"
                   className="w-full border border-gray-300 rounded-md p-2"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Arena Basáltica (kg/m³) *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Arena Basáltica (kg/m³)</label>
                 <input
                   type="number"
                   name="basalticSand"
                   value={recipeData.basalticSand}
                   onChange={handleInputChange}
-                  required
                   step="0.01"
                   className="w-full border border-gray-300 rounded-md p-2"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Aditivo 1 (l/m³) *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Aditivo 1 (l/m³)</label>
                 <input
                   type="number"
                   name="additive1"
                   value={recipeData.additive1}
                   onChange={handleInputChange}
-                  required
                   step="0.01"
                   className="w-full border border-gray-300 rounded-md p-2"
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Aditivo 2 (l/m³) *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Aditivo 2 (l/m³)</label>
                 <input
                   type="number"
                   name="additive2"
                   value={recipeData.additive2}
                   onChange={handleInputChange}
-                  required
                   step="0.01"
                   className="w-full border border-gray-300 rounded-md p-2"
                 />
