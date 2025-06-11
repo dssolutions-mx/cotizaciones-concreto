@@ -636,12 +636,12 @@ export async function recalculateOrderAmount(orderId: string) {
         item.product_type !== 'SERVICIO DE BOMBEO' && item.quote_detail_id !== null
       );
       
-      // For global pump service, if it exists and has volume, set pump_volume_delivered to its volume
+      // For global pump service, set pump_volume_delivered to actual delivered volume from BOMBEO remisiones
       for (const globalItem of globalPumpItems) {
         if (globalItem.volume > 0) {
           await supabase
             .from('order_items')
-            .update({ pump_volume_delivered: globalItem.volume })
+            .update({ pump_volume_delivered: totalPumpDelivered })
             .eq('id', globalItem.id);
         }
       }
@@ -660,7 +660,7 @@ export async function recalculateOrderAmount(orderId: string) {
         }
       }
     } else {
-      // If no remisiones, but there's a global pump service, still set its delivered volume
+      // If no remisiones, but there's a global pump service, delivered volume should be 0
       const globalPumpItems = orderItems?.filter(item => 
         item.product_type === 'SERVICIO DE BOMBEO' && item.volume > 0
       ) || [];
@@ -668,7 +668,7 @@ export async function recalculateOrderAmount(orderId: string) {
       for (const globalItem of globalPumpItems) {
         await supabase
           .from('order_items')
-          .update({ pump_volume_delivered: globalItem.volume })
+          .update({ pump_volume_delivered: 0 })
           .eq('id', globalItem.id);
       }
     }
@@ -690,10 +690,18 @@ export async function recalculateOrderAmount(orderId: string) {
       )
       .reduce((sum, item) => sum + ((item.unit_price || 0) * (item.concrete_volume_delivered || 0)), 0) || 0;
     
-    // Calculate pump amount
-    const pumpAmount = updatedItems
-      ?.filter(item => item.has_pump_service && (item.pump_volume_delivered || 0) > 0)
-      .reduce((sum, item) => sum + ((item.pump_price || 0) * (item.pump_volume_delivered || 0)), 0) || 0;
+    // Calculate pump amount - avoid double charging when there's a global pump service
+    const hasGlobalPumpService = updatedItems?.some(item => item.product_type === 'SERVICIO DE BOMBEO') || false;
+    
+    const pumpAmount = hasGlobalPumpService
+      ? // If there's a global pump service, only charge from that item
+        updatedItems
+          ?.filter(item => item.product_type === 'SERVICIO DE BOMBEO' && (item.pump_volume_delivered || 0) > 0)
+          .reduce((sum, item) => sum + ((item.pump_price || 0) * (item.pump_volume_delivered || 0)), 0) || 0
+      : // Otherwise, charge from individual items with pump service
+        updatedItems
+          ?.filter(item => item.has_pump_service && (item.pump_volume_delivered || 0) > 0)
+          .reduce((sum, item) => sum + ((item.pump_price || 0) * (item.pump_volume_delivered || 0)), 0) || 0;
     
     // Calculate empty truck amount
     const emptyTruckAmount = updatedItems
