@@ -157,7 +157,7 @@ function NewSiteForm({ clientId, onSiteAdded }: { clientId: string, onSiteAdded:
     return (
       <div className="mt-6">
         <RoleProtectedButton
-          allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE']}
+          allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
           onClick={() => setShowForm(true)}
           className="flex items-center gap-1 bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-md transition-colors"
         >
