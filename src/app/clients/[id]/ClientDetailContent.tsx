@@ -1468,7 +1468,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <RoleProtectedButton
-                            allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE']}
+                            allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
                             onClick={() => setEditingSite(site)}
                             className="flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-2 py-1 rounded-md text-xs transition-colors"
                           >
