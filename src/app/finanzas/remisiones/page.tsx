@@ -10,7 +10,7 @@ import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-wi
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Check, Copy, FileDown, ChevronDown, ChevronRight, Search, X } from 'lucide-react';
+import { Check, Copy, FileDown, ChevronDown, ChevronRight, Search, X, Edit } from 'lucide-react';
 import { Input } from "@/components/ui/input";
 import { supabase } from '@/lib/supabase';
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +18,8 @@ import { Label } from "@/components/ui/label";
 import { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
 import { clientService } from '@/lib/supabase/clients';
 import { formatCurrency } from '@/lib/utils';
+import EditRemisionModal from '@/components/remisiones/EditRemisionModal';
+import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import { 
   Command,
   CommandEmpty,
@@ -68,6 +70,8 @@ export default function RemisionesPorCliente() {
   const [totalVolume, setTotalVolume] = useState(0);
   const [totalAmount, setTotalAmount] = useState(0);
   const [clientComboboxOpen, setClientComboboxOpen] = useState(false);
+  const [editingRemision, setEditingRemision] = useState<any>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   
   // Load clients based on date range
   const loadClientsWithRemisiones = useCallback(async () => {
@@ -434,6 +438,18 @@ export default function RemisionesPorCliente() {
   const toggleExpand = (remisionId: string) => {
     setExpandedRemisionId(expandedRemisionId === remisionId ? null : remisionId);
   };
+
+  // Handle edit remision
+  const handleEditClick = (remision: any) => {
+    setEditingRemision(remision);
+    setEditModalOpen(true);
+  };
+
+  const handleEditSuccess = () => {
+    fetchRemisiones();
+    setEditModalOpen(false);
+    setEditingRemision(null);
+  };
   
   // Copy remisiones data for accounting
   const handleCopyToAccounting = async () => {
@@ -717,6 +733,7 @@ export default function RemisionesPorCliente() {
                         <TableHead>Unidad</TableHead>
                         <TableHead>Receta</TableHead>
                         <TableHead className="text-right">Volumen</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -738,10 +755,22 @@ export default function RemisionesPorCliente() {
                             <TableCell>{remision.unidad || '-'}</TableCell>
                             <TableCell>{remision.recipe?.recipe_code || 'N/A'}</TableCell>
                             <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                            <TableCell className="text-right">
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <RoleProtectedButton
+                                  allowedRoles={['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE']}
+                                  onClick={() => handleEditClick(remision)}
+                                  className="p-1.5 rounded text-blue-600 hover:bg-blue-50"
+                                  title="Editar remisión"
+                                >
+                                  <Edit size={16} />
+                                </RoleProtectedButton>
+                              </div>
+                            </TableCell>
                           </TableRow>
                           {expandedRemisionId === remision.id && (
                             <TableRow>
-                              <TableCell colSpan={7} className="p-0">
+                              <TableCell colSpan={8} className="p-0">
                                 <div className="p-4 bg-gray-50 border-t">
                                   <h4 className="text-sm font-semibold mb-2">Detalles Adicionales</h4>
                                   <dl className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
@@ -780,6 +809,7 @@ export default function RemisionesPorCliente() {
                         <TableHead>Conductor</TableHead>
                         <TableHead>Unidad</TableHead>
                         <TableHead className="text-right">Volumen</TableHead>
+                        <TableHead className="text-right">Acciones</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -791,6 +821,16 @@ export default function RemisionesPorCliente() {
                           <TableCell>{remision.conductor || '-'}</TableCell>
                           <TableCell>{remision.unidad || '-'}</TableCell>
                           <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                          <TableCell className="text-right">
+                            <RoleProtectedButton
+                              allowedRoles={['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE']}
+                              onClick={() => handleEditClick(remision)}
+                              className="p-1.5 rounded text-blue-600 hover:bg-blue-50"
+                              title="Editar remisión"
+                            >
+                              <Edit size={16} />
+                            </RoleProtectedButton>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -801,6 +841,16 @@ export default function RemisionesPorCliente() {
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Modal */}
+      {editingRemision && (
+        <EditRemisionModal
+          isOpen={editModalOpen}
+          onClose={() => setEditModalOpen(false)}
+          remision={editingRemision}
+          onSuccess={handleEditSuccess}
+        />
+      )}
     </div>
   );
 } 

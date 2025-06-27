@@ -14,10 +14,11 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2, Edit } from 'lucide-react';
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import EditRemisionModal from './EditRemisionModal';
 import { toast } from "sonner";
 import {
   Dialog,
@@ -253,6 +254,8 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [remisionToDelete, setRemisionToDelete] = useState<any | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [editingRemision, setEditingRemision] = useState<any>(null);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   
   // Helper function to safely format dates without timezone issues
   const formatDateSafely = (dateStr: string): string => {
@@ -356,6 +359,17 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
   const handleDeleteClick = (remision: any) => {
     setRemisionToDelete(remision);
     setDeleteDialogOpen(true);
+  };
+
+  const handleEditClick = (remision: any) => {
+    setEditingRemision(remision);
+    setEditModalOpen(true);
+  };
+
+  const handleEditSuccess = () => {
+    fetchRemisiones();
+    setEditModalOpen(false);
+    setEditingRemision(null);
   };
   
   const confirmDelete = async () => {
@@ -500,7 +514,15 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                                 <TableCell>{remision.unidad || '-'}</TableCell>
                                 <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
                                 <TableCell className="text-right">
-                                  <div onClick={(e) => e.stopPropagation()}>
+                                  <div onClick={(e) => e.stopPropagation()} className="flex gap-1 justify-end">
+                                    <RoleProtectedButton
+                                      allowedRoles={['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE']}
+                                      onClick={() => handleEditClick(remision)}
+                                      className="p-1.5 rounded text-blue-600 hover:bg-blue-50"
+                                      title="Editar remisión"
+                                    >
+                                      <Edit size={16} />
+                                    </RoleProtectedButton>
                                     <RoleProtectedButton
                                       allowedRoles={'EXECUTIVE'}
                                       onClick={() => handleDeleteClick(remision)}
@@ -566,14 +588,24 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                         <TableCell>{remision.unidad || '-'}</TableCell>
                         <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
                         <TableCell className="text-right">
-                          <RoleProtectedButton
-                            allowedRoles={'EXECUTIVE'}
-                            onClick={() => handleDeleteClick(remision)}
-                            className="p-1.5 rounded text-red-600 hover:bg-red-50"
-                            title="Eliminar remisión"
-                          >
-                            <Trash2 size={16} />
-                          </RoleProtectedButton>
+                          <div className="flex gap-1 justify-end">
+                            <RoleProtectedButton
+                              allowedRoles={['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE']}
+                              onClick={() => handleEditClick(remision)}
+                              className="p-1.5 rounded text-blue-600 hover:bg-blue-50"
+                              title="Editar remisión"
+                            >
+                              <Edit size={16} />
+                            </RoleProtectedButton>
+                            <RoleProtectedButton
+                              allowedRoles={'EXECUTIVE'}
+                              onClick={() => handleDeleteClick(remision)}
+                              className="p-1.5 rounded text-red-600 hover:bg-red-50"
+                              title="Eliminar remisión"
+                            >
+                              <Trash2 size={16} />
+                            </RoleProtectedButton>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -612,6 +644,16 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Modal */}
+      {editingRemision && (
+        <EditRemisionModal
+          isOpen={editModalOpen}
+          onClose={() => setEditModalOpen(false)}
+          remision={editingRemision}
+          onSuccess={handleEditSuccess}
+        />
+      )}
     </div>
   );
 } 
