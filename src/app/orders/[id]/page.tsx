@@ -54,8 +54,8 @@ function ActionMessage() {
 }
 
 // Main component that renders both the ActionMessage and OrderDetailClient
-export default function OrderDetails({ params }: { params: { id: string } }) {
-  // Use React.use() to unwrap the params object
+export default function OrderDetails({ params }: { params: Promise<{ id: string }> }) {
+  // Use React.use() to unwrap the params promise
   const unwrappedParams = React.use(params);
   const { id } = unwrappedParams;
   

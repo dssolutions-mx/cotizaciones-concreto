@@ -1791,6 +1791,34 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete order confirmation dialog */}
+      <Dialog open={showConfirmDelete} onOpenChange={setShowConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Eliminación</DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas eliminar permanentemente esta orden? Esta acción no se puede deshacer y eliminará todos los datos asociados.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowConfirmDelete(false)}
+              disabled={isDeleting}
+            >
+              No, Mantener
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteOrder}
+              disabled={isDeleting}
+            >
+              {isDeleting ? 'Eliminando...' : 'Sí, Eliminar Orden'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 
