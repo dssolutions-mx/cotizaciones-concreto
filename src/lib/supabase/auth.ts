@@ -111,17 +111,41 @@ export const authService = {
   },
 
   /**
-   * Obtiene todos los usuarios con sus perfiles
+   * Obtiene todos los usuarios con sus perfiles y información de planta
    */
   async getAllUsers() {
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('*')
+      .select(`
+        *,
+        plant:plants(
+          id,
+          code,
+          name,
+          location
+        ),
+        business_unit:business_units(
+          id,
+          code,
+          name
+        )
+      `)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    return data;
+    // Transform the data to flatten plant and business unit information
+    const transformedData = data?.map(user => ({
+      ...user,
+      plant_name: user.plant?.name || null,
+      plant_code: user.plant?.code || null,
+      business_unit_name: user.business_unit?.name || null,
+      // Remove nested objects to match expected interface
+      plant: undefined,
+      business_unit: undefined
+    }));
+
+    return transformedData;
   },
 
   /**

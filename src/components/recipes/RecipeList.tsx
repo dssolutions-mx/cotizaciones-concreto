@@ -6,36 +6,33 @@ import { recipeService } from '@/lib/supabase/recipes';
 import { Recipe } from '@/types/recipes';
 import { RecipeDetailsModal } from './RecipeDetailsModal';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import { usePlantAwareRecipes } from '@/hooks/usePlantAwareRecipes';
 
 interface RecipeListProps {
   hasEditPermission?: boolean;
 }
 
+interface RecipeWithVersions extends Recipe {
+  recipe_versions: { notes?: string }[];
+  recipe_type?: string | null;
+  loaded_to_k2?: boolean;
+}
+
 export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
-  const [recipes, setRecipes] = useState<(Recipe & { recipe_versions: { notes?: string }[] })[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   
   // State to manage expanded/collapsed groups
   const [expandedTypes, setExpandedTypes] = useState<Record<string, boolean>>({});
   const [expandedStrengths, setExpandedStrengths] = useState<Record<string, Record<number, boolean>>>({});
 
-  useEffect(() => {
-    const fetchRecipes = async () => {
-      try {
-        const { data: fetchedRecipes } = await recipeService.getRecipes(100);
-        setRecipes(fetchedRecipes);
-      } catch (err) {
-        setError('Error al cargar las recetas');
-        console.error(err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  // Use plant-aware recipes hook
+  const { recipes: rawRecipes, isLoading, error, canCreateRecipe, defaultPlantForCreation } = usePlantAwareRecipes({
+    limit: 100,
+    autoRefresh: true
+  });
 
-    fetchRecipes();
-  }, []);
+  // Cast recipes to the expected type with recipe_versions
+  const recipes = rawRecipes as RecipeWithVersions[];
 
   const handleViewDetails = (recipeId: string) => {
     setSelectedRecipeId(recipeId);

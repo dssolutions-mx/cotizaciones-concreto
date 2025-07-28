@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { priceService } from '@/lib/supabase/prices';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import { usePlantAwareMaterialPrices } from '@/hooks/usePlantAwareMaterialPrices';
 
 const MATERIAL_TYPES = [
   { id: 'cement', name: 'Cemento', unit: 'kg' },
@@ -25,40 +26,10 @@ interface MaterialPriceListProps {
 }
 
 export const MaterialPriceList = ({ hasEditPermission = false }: MaterialPriceListProps) => {
-  const [prices, setPrices] = useState<MaterialPrice[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadPrices = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const { data, error: supabaseError } = await priceService.getCurrentMaterialPrices();
-      
-      if (supabaseError) throw supabaseError;
-      
-      // Filter to keep only the latest price per material
-      const latestPricesMap = (data || []).reduce((acc, current) => {
-        const existing = acc[current.material_type];
-        if (!existing || new Date(current.effective_date) > new Date(existing.effective_date)) {
-          acc[current.material_type] = current;
-        }
-        return acc;
-      }, {} as Record<string, MaterialPrice>);
-
-      setPrices(Object.values(latestPricesMap));
-    } catch (err: unknown) {
-      console.error('Error loading material prices:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Error al cargar los precios';
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadPrices();
-  }, []);
+  // Use plant-aware material prices hook
+  const { materialPrices: prices, isLoading: loading, error, refetch: loadPrices } = usePlantAwareMaterialPrices({
+    autoRefresh: true
+  });
 
   const getMaterialName = (materialType: string) => {
     const material = MATERIAL_TYPES.find(m => m.id === materialType);

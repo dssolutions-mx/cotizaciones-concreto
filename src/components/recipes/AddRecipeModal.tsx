@@ -2,432 +2,301 @@
 'use client';
 
 import React, { useState } from 'react';
-import { recipeService } from '@/lib/supabase/recipes';
-import { saveRecipeReferenceMaterials } from '@/lib/recipes/recipeReferenceMaterials';
 import { X } from 'lucide-react';
+import { supabase } from '@/lib/supabase/client';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePlantContext } from '@/contexts/PlantContext';
+import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
+import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 
 interface AddRecipeModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
+  onSuccess: () => void;
 }
 
-export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({ 
-  isOpen, 
+export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
+  isOpen,
   onClose,
-  onSuccess 
+  onSuccess
 }) => {
-  const [recipeData, setRecipeData] = useState({
-    // Recipe data
+  const { profile } = useAuth();
+  const { userAccess, isGlobalAdmin, currentPlant } = usePlantContext();
+  
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  // Plant selection state for recipe creation
+  const [selectedPlantId, setSelectedPlantId] = useState<string | null>(() => {
+    return plantAwareDataService.getDefaultPlantForCreation({
+      userAccess,
+      isGlobalAdmin,
+      currentPlantId: currentPlant?.id || null
+    });
+  });
+  const [selectedBusinessUnitId, setSelectedBusinessUnitId] = useState<string | null>(
+    currentPlant?.business_unit_id || null
+  );
+
+  const [formData, setFormData] = useState({
     recipeCode: '',
-    recipeType: 'FC', // Default to 'FC'
-    
-    // Characteristics
-    strength: '',
-    age: '',
-    placement: 'D', // Default to 'Directa'
+    strengthFc: '',
+    ageDays: '28',
+    placementType: 'D',
     maxAggregateSize: '',
     slump: '',
-    
-    // Materials
-    cement: '',
-    water: '',
-    gravel: '',
-    gravel40mm: '',
-    volcanicSand: '',
-    basalticSand: '',
-    additive1: '',
-    additive2: '',
-    
-    // Reference data
-    sssWater: ''
+    notes: '',
   });
-  
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    
+    // Validate plant selection
+    if (!selectedPlantId) {
+      setError('Debes seleccionar una planta para crear la receta');
+      return;
+    }
+
+    // Validate user can create in selected plant
+    if (!plantAwareDataService.canCreateInPlant(selectedPlantId, {
+      userAccess,
+      isGlobalAdmin,
+      currentPlantId: currentPlant?.id || null
+    })) {
+      setError('No tienes permisos para crear recetas en la planta seleccionada');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // 1. Create the recipe
+      const { data: recipe, error: recipeError } = await supabase
+        .from('recipes')
+        .insert({
+          recipe_code: formData.recipeCode,
+          strength_fc: parseFloat(formData.strengthFc),
+          age_days: parseInt(formData.ageDays),
+          placement_type: formData.placementType,
+          max_aggregate_size: parseFloat(formData.maxAggregateSize),
+          slump: parseFloat(formData.slump),
+          plant_id: selectedPlantId, // Include plant assignment
+          created_by: profile?.id
+        })
+        .select()
+        .single();
+
+      if (recipeError) throw recipeError;
+
+      // 2. Create the initial version
+      const { data: version, error: versionError } = await supabase
+        .from('recipe_versions')
+        .insert({
+          recipe_id: recipe.id,
+          version_number: 1,
+          effective_date: new Date().toISOString(),
+          is_current: true,
+          notes: formData.notes || null
+        })
+        .select()
+        .single();
+
+      if (versionError) throw versionError;
+
+      onSuccess();
+      onClose();
+      
+      // Reset form
+      setFormData({
+        recipeCode: '',
+        strengthFc: '',
+        ageDays: '28',
+        placementType: 'D',
+        maxAggregateSize: '',
+        slump: '',
+        notes: '',
+      });
+      
+    } catch (err: any) {
+      setError(err.message || 'Error al crear la receta');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setRecipeData(prev => ({
+    setFormData(prev => ({
       ...prev,
       [name]: value
     }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log('Form submitted!', { recipeData });
-    setError(null);
-
-    try {
-      setIsProcessing(true);
-      console.log('Starting processing...');
-      
-      // Create an ExcelRecipeData-like object from form data
-      const formattedRecipe = {
-        recipeCode: recipeData.recipeCode,
-        recipeType: recipeData.recipeType as 'FC' | 'MR',
-        characteristics: {
-          strength: parseFloat(recipeData.strength),
-          age: parseInt(recipeData.age),
-          placement: recipeData.placement,
-          maxAggregateSize: parseFloat(recipeData.maxAggregateSize),
-          slump: parseFloat(recipeData.slump)
-        },
-        materials: {
-          cement: recipeData.cement && !isNaN(parseFloat(recipeData.cement)) ? parseFloat(recipeData.cement) : 0,
-          water: recipeData.water && !isNaN(parseFloat(recipeData.water)) ? parseFloat(recipeData.water) : 0,
-          gravel: recipeData.gravel && !isNaN(parseFloat(recipeData.gravel)) ? parseFloat(recipeData.gravel) : 0,
-          ...(recipeData.recipeType === 'MR' && recipeData.gravel40mm && !isNaN(parseFloat(recipeData.gravel40mm)) && { 
-            gravel40mm: parseFloat(recipeData.gravel40mm) 
-          }),
-          volcanicSand: recipeData.volcanicSand && !isNaN(parseFloat(recipeData.volcanicSand)) ? parseFloat(recipeData.volcanicSand) : 0,
-          basalticSand: recipeData.basalticSand && !isNaN(parseFloat(recipeData.basalticSand)) ? parseFloat(recipeData.basalticSand) : 0,
-          additive1: recipeData.additive1 && !isNaN(parseFloat(recipeData.additive1)) ? parseFloat(recipeData.additive1) : 0,
-          additive2: recipeData.additive2 && !isNaN(parseFloat(recipeData.additive2)) ? parseFloat(recipeData.additive2) : 0
-        },
-        referenceData: recipeData.sssWater && !isNaN(parseFloat(recipeData.sssWater)) ? {
-          sssWater: parseFloat(recipeData.sssWater)
-        } : undefined
-      };
-      
-      // Validate required fields
-      if (!formattedRecipe.recipeCode) {
-        throw new Error('El código de receta es obligatorio');
-      }
-      
-      if (isNaN(formattedRecipe.characteristics.strength)) {
-        throw new Error('La resistencia debe ser un número válido');
-      }
-      
-      // Validate that at least essential materials are provided
-      if (formattedRecipe.materials.cement <= 0 || formattedRecipe.materials.water <= 0) {
-        throw new Error('Al menos cemento y agua son obligatorios para crear una receta');
-      }
-      
-      // Debug log to see what we're saving
-      console.log('Saving recipe data:', formattedRecipe);
-      
-      // Save the recipe
-      const savedRecipe = await recipeService.saveRecipe(formattedRecipe);
-      
-      // Get the current version for this recipe
-      const { data: recipeWithVersions } = await recipeService.getRecipeById(savedRecipe.id!);
-      
-      if (recipeWithVersions && recipeWithVersions.recipe_versions && recipeWithVersions.recipe_versions.length > 0) {
-        const currentVersion = recipeWithVersions.recipe_versions[0];
-
-        // If recipe has reference data, save it to the specific version
-        if (currentVersion.id && formattedRecipe.referenceData) {
-          await saveRecipeReferenceMaterials(currentVersion.id, formattedRecipe.referenceData);
-        }
-      }
-      
-      // Reset form and call success callback
-      setRecipeData({
-        recipeCode: '',
-        recipeType: 'FC',
-        strength: '',
-        age: '',
-        placement: 'D',
-        maxAggregateSize: '',
-        slump: '',
-        cement: '',
-        water: '',
-        gravel: '',
-        gravel40mm: '',
-        volcanicSand: '',
-        basalticSand: '',
-        additive1: '',
-        additive2: '',
-        sssWater: ''
-      });
-      
-      if (onSuccess) {
-        onSuccess();
-      }
-      
-      onClose();
-    } catch (err) {
-      console.error('Error al guardar la receta:', err);
-      setError(err instanceof Error ? err.message : 'Error desconocido');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center p-4 border-b">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Agregar Nueva Receta</h2>
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             className="text-gray-500 hover:text-gray-700"
           >
-            <X size={20} />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6">
-          {error && (
-            <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
-              {error}
-            </div>
-          )}
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div>
-              <h3 className="font-semibold text-lg mb-4 border-b pb-2">Información General</h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Código de Receta *</label>
-                  <input
-                    type="text"
-                    name="recipeCode"
-                    value={recipeData.recipeCode}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full border border-gray-300 rounded-md p-2"
-                    placeholder="ej. F100-10-D"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Receta *</label>
-                  <select
-                    name="recipeType"
-                    value={recipeData.recipeType}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full border border-gray-300 rounded-md p-2"
-                  >
-                    <option value="FC">FC (Resistencia a Compresión)</option>
-                    <option value="MR">MR (Módulo de Ruptura)</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="font-semibold text-lg mb-4 border-b pb-2">Características</h3>
-              
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Resistencia (kg/cm²) *</label>
-                    <input
-                      type="number"
-                      name="strength"
-                      value={recipeData.strength}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full border border-gray-300 rounded-md p-2"
-                      placeholder="ej. 100"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Edad (días) *</label>
-                    <input
-                      type="number"
-                      name="age"
-                      value={recipeData.age}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full border border-gray-300 rounded-md p-2"
-                      placeholder="ej. 28"
-                    />
-                  </div>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Tamaño Máx. Agregado (mm) *</label>
-                    <input
-                      type="number"
-                      name="maxAggregateSize"
-                      value={recipeData.maxAggregateSize}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full border border-gray-300 rounded-md p-2"
-                      placeholder="ej. 20"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Revenimiento (cm) *</label>
-                    <input
-                      type="number"
-                      name="slump"
-                      value={recipeData.slump}
-                      onChange={handleInputChange}
-                      required
-                      className="w-full border border-gray-300 rounded-md p-2"
-                      placeholder="ej. 10"
-                    />
-                  </div>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Colocación *</label>
-                  <select
-                    name="placement"
-                    value={recipeData.placement}
-                    onChange={handleInputChange}
-                    required
-                    className="w-full border border-gray-300 rounded-md p-2"
-                  >
-                    <option value="D">Directa</option>
-                    <option value="B">Bombeado</option>
-                  </select>
-                </div>
-              </div>
-            </div>
+        {error && (
+          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+            {error}
           </div>
-          
-          <div className="mb-6">
-            <h3 className="font-semibold text-lg mb-4 border-b pb-2">Cantidades de Materiales</h3>
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Cemento (kg/m³) *</label>
-                <input
-                  type="number"
-                  name="cement"
-                  value={recipeData.cement}
-                  onChange={handleInputChange}
-                  required
-                  step="0.01"
-                  className="w-full border border-gray-300 rounded-md p-2"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Agua (l/m³) *</label>
-                <input
-                  type="number"
-                  name="water"
-                  value={recipeData.water}
-                  onChange={handleInputChange}
-                  required
-                  step="0.01"
-                  className="w-full border border-gray-300 rounded-md p-2"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Grava 20mm (kg/m³)</label>
-                <input
-                  type="number"
-                  name="gravel"
-                  value={recipeData.gravel}
-                  onChange={handleInputChange}
-                  step="0.01"
-                  className="w-full border border-gray-300 rounded-md p-2"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Grava 40mm (kg/m³) {recipeData.recipeType === 'MR' ? '*' : ''}
-                </label>
-                <input
-                  type="number"
-                  name="gravel40mm"
-                  value={recipeData.gravel40mm}
-                  onChange={handleInputChange}
-                  required={recipeData.recipeType === 'MR'}
-                  step="0.01"
-                  className="w-full border border-gray-300 rounded-md p-2"
-                  disabled={recipeData.recipeType !== 'MR'}
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Arena Volcánica (kg/m³)</label>
-                <input
-                  type="number"
-                  name="volcanicSand"
-                  value={recipeData.volcanicSand}
-                  onChange={handleInputChange}
-                  step="0.01"
-                  className="w-full border border-gray-300 rounded-md p-2"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Arena Basáltica (kg/m³)</label>
-                <input
-                  type="number"
-                  name="basalticSand"
-                  value={recipeData.basalticSand}
-                  onChange={handleInputChange}
-                  step="0.01"
-                  className="w-full border border-gray-300 rounded-md p-2"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Aditivo 1 (l/m³)</label>
-                <input
-                  type="number"
-                  name="additive1"
-                  value={recipeData.additive1}
-                  onChange={handleInputChange}
-                  step="0.01"
-                  className="w-full border border-gray-300 rounded-md p-2"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Aditivo 2 (l/m³)</label>
-                <input
-                  type="number"
-                  name="additive2"
-                  value={recipeData.additive2}
-                  onChange={handleInputChange}
-                  step="0.01"
-                  className="w-full border border-gray-300 rounded-md p-2"
-                />
-              </div>
-            </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Plant Selection */}
+          <div>
+            <EnhancedPlantSelector
+              mode="CREATE"
+              selectedPlantId={selectedPlantId}
+              selectedBusinessUnitId={selectedBusinessUnitId}
+              onPlantChange={setSelectedPlantId}
+              onBusinessUnitChange={setSelectedBusinessUnitId}
+              required
+              showLabel
+            />
           </div>
-          
-          <div className="mb-6">
-            <h3 className="font-semibold text-lg mb-4 border-b pb-2">Materiales de Referencia</h3>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Agua SSS (kg/m³)</label>
-              <input
-                type="number"
-                name="sssWater"
-                value={recipeData.sssWater}
-                onChange={handleInputChange}
-                step="0.01"
-                className="w-full border border-gray-300 rounded-md p-2"
-              />
-              <p className="text-xs text-gray-500 mt-1">Valor de referencia para agua en condición Saturada con Superficie Seca</p>
-            </div>
+
+          {/* Recipe Code */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Código de Receta *
+            </label>
+            <input
+              type="text"
+              name="recipeCode"
+              value={formData.recipeCode}
+              onChange={handleInputChange}
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Ej: FC-25-28-D-20-10"
+            />
           </div>
-          
-          <div className="flex justify-end space-x-3 border-t pt-4">
+
+          {/* Strength */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Resistencia f'c (MPa) *
+            </label>
+            <input
+              type="number"
+              name="strengthFc"
+              value={formData.strengthFc}
+              onChange={handleInputChange}
+              required
+              step="0.1"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="25"
+            />
+          </div>
+
+          {/* Age Days */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Edad (días) *
+            </label>
+            <input
+              type="number"
+              name="ageDays"
+              value={formData.ageDays}
+              onChange={handleInputChange}
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+
+          {/* Placement Type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tipo de Colocación *
+            </label>
+            <select
+              name="placementType"
+              value={formData.placementType}
+              onChange={handleInputChange}
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="D">Directa</option>
+              <option value="B">Bombeado</option>
+            </select>
+          </div>
+
+          {/* Max Aggregate Size */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Tamaño Máximo de Agregado (mm) *
+            </label>
+            <input
+              type="number"
+              name="maxAggregateSize"
+              value={formData.maxAggregateSize}
+              onChange={handleInputChange}
+              required
+              step="0.1"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="20"
+            />
+          </div>
+
+          {/* Slump */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Revenimiento (cm) *
+            </label>
+            <input
+              type="number"
+              name="slump"
+              value={formData.slump}
+              onChange={handleInputChange}
+              required
+              step="0.1"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="10"
+            />
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Notas / Tipo de Receta
+            </label>
+            <textarea
+              name="notes"
+              value={formData.notes}
+              onChange={handleInputChange}
+              rows={3}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Ej: FC (Resistencia), MR (Módulo de Rotura), etc."
+            />
+          </div>
+
+          {/* Submit Button */}
+          <div className="flex justify-end space-x-3 pt-4">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 border border-gray-300 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              disabled={isProcessing}
-              className="px-4 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50"
+              disabled={isSubmitting || !selectedPlantId}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isProcessing ? 'Guardando...' : 'Guardar Receta'}
+              {isSubmitting ? 'Creando...' : 'Crear Receta'}
             </button>
           </div>
         </form>

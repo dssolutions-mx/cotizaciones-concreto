@@ -42,6 +42,7 @@ export interface CreateQuoteData {
   construction_site: string;
   location: string;
   validity_date: string;
+  plant_id?: string;
   details: Array<{
     product_id: string;
     volume: number;
@@ -267,12 +268,19 @@ export const createQuote = async (quoteData: CreateQuoteData) => {
     const { details, ...quoteMainData } = quoteData;
     
     // Begin by creating the quote
+    const quoteInsertData = {
+      ...quoteMainData,
+      created_by: authData.session.user.id
+    };
+    
+    // Add plant_id if provided
+    if (quoteData.plant_id) {
+      quoteInsertData.plant_id = quoteData.plant_id;
+    }
+    
     const { data: quote, error: quoteError } = await supabase
       .from('quotes')
-      .insert([{
-        ...quoteMainData,
-        created_by: authData.session.user.id
-      }])
+      .insert([quoteInsertData])
       .select()
       .single();
 

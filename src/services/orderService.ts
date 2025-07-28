@@ -57,29 +57,50 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       console.warn('Could not get auth session, using null for created_by:', authError);
     }
     
-    // Check if we have a valid user ID
+        // Check if we have a valid user ID
     if (!userId) {
       throw new Error('Usuario no autenticado. Debe iniciar sesión para crear órdenes.');
     }
-    
+
+    // Get plant_id from the associated quote for inheritance
+    let plantId = null;
+    if (orderData.quote_id) {
+      const { data: quote, error: quoteError } = await supabase
+        .from('quotes')
+        .select('plant_id')
+        .eq('id', orderData.quote_id)
+        .single();
+        
+      if (!quoteError && quote) {
+        plantId = quote.plant_id;
+      }
+    }
+
     // Start a transaction
+    const orderInsertData: any = {
+      quote_id: orderData.quote_id,
+      client_id: orderData.client_id,
+      construction_site: orderData.construction_site,
+      construction_site_id: orderData.construction_site_id,
+      order_number: orderNumber,
+      delivery_date: orderData.delivery_date,
+      delivery_time: orderData.delivery_time,
+      requires_invoice: orderData.requires_invoice,
+      special_requirements: orderData.special_requirements,
+      total_amount: orderData.total_amount,
+      order_status: orderData.order_status,
+      credit_status: orderData.credit_status,
+      created_by: userId
+    };
+    
+    // Add plant_id if inherited from quote
+    if (plantId) {
+      orderInsertData.plant_id = plantId;
+    }
+    
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .insert({
-        quote_id: orderData.quote_id,
-        client_id: orderData.client_id,
-        construction_site: orderData.construction_site,
-        construction_site_id: orderData.construction_site_id,
-        order_number: orderNumber,
-        delivery_date: orderData.delivery_date,
-        delivery_time: orderData.delivery_time,
-        requires_invoice: orderData.requires_invoice,
-        special_requirements: orderData.special_requirements,
-        total_amount: orderData.total_amount,
-        order_status: orderData.order_status,
-        credit_status: orderData.credit_status,
-        created_by: userId
-      })
+      .insert(orderInsertData)
       .select('id')
       .single();
     

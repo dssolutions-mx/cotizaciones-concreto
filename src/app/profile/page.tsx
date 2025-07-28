@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { authService } from '@/lib/supabase/auth';
+import PlantAssignmentDisplay from '@/components/plants/PlantAssignmentDisplay';
 
 export default function ProfilePage() {
-  const { profile, isLoading, refreshSession } = useAuth();
+  const { profile, isLoading } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -39,14 +40,7 @@ export default function ProfilePage() {
         last_name: lastName,
       });
 
-      // Also manually refresh the session to ensure changes are reflected
-      await refreshSession();
-      
-      // Add a second refresh after a short delay to ensure changes are reflected
-      setTimeout(async () => {
-        await refreshSession();
-        console.log('Second refresh completed after profile update');
-      }, 500);
+      // Profile updated successfully
       
       setMessage('Perfil actualizado correctamente');
       setTimeout(() => setMessage(null), 3000);
@@ -132,6 +126,12 @@ export default function ProfilePage() {
             {getRoleDisplay(profile.role)}
           </span>
         </div>
+      </div>
+
+      {/* Plant/Business Unit Assignment Information */}
+      <div className="mb-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-3">Asignación de Planta</h3>
+        <PlantAssignmentDisplay showDetails={true} compact={false} />
       </div>
 
       <form onSubmit={handleSubmit}>

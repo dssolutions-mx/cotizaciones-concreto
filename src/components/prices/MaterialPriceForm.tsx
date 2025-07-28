@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import { priceService } from '@/lib/supabase/prices';
+import { usePlantContext } from '@/contexts/PlantContext';
+import { useAuth } from '@/contexts/AuthContext';
+import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
+import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 
 interface MaterialPriceFormData {
   materialType: string;
@@ -23,6 +27,21 @@ interface MaterialPriceFormProps {
 }
 
 export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
+  const { userAccess, isGlobalAdmin, currentPlant } = usePlantContext();
+  const { profile } = useAuth();
+  
+  // Plant selection state for material price creation
+  const [selectedPlantId, setSelectedPlantId] = useState<string | null>(() => {
+    return plantAwareDataService.getDefaultPlantForCreation({
+      userAccess,
+      isGlobalAdmin,
+      currentPlantId: currentPlant?.id || null
+    });
+  });
+  const [selectedBusinessUnitId, setSelectedBusinessUnitId] = useState<string | null>(
+    currentPlant?.business_unit_id || null
+  );
+
   const [formData, setFormData] = useState<MaterialPriceFormData>({
     materialType: '',
     pricePerUnit: 0,
@@ -48,9 +67,33 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       return;
     }
 
+    // Validate plant selection
+    if (!selectedPlantId) {
+      setError('Debes seleccionar una planta para crear el precio del material');
+      return;
+    }
+
+    // Validate user can create in selected plant
+    if (!plantAwareDataService.canCreateInPlant(selectedPlantId, {
+      userAccess,
+      isGlobalAdmin,
+      currentPlantId: currentPlant?.id || null
+    })) {
+      setError('No tienes permisos para crear precios de materiales en la planta seleccionada');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
-      const { error: supabaseError } = await priceService.saveMaterialPrice(formData);
+      
+      // Create material price with plant assignment
+      const materialPriceData = {
+        ...formData,
+        plant_id: selectedPlantId,
+        created_by: profile?.id
+      };
+      
+      const { error: supabaseError } = await priceService.saveMaterialPrice(materialPriceData);
       
       if (supabaseError) throw supabaseError;
 
@@ -76,73 +119,95 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
   const selectedMaterial = MATERIAL_TYPES.find(m => m.id === formData.materialType);
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-sm">
-      <h3 className="text-lg font-semibold mb-4">Registrar Nuevo Precio de Material</h3>
+    <div className="bg-white p-6 rounded-lg shadow-sm border">
+      <h3 className="text-lg font-semibold mb-4">Nuevo Precio de Material</h3>
       
       {error && (
-        <div className="mb-4 p-2 bg-red-50 border border-red-200 text-red-600 rounded">
+        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="mb-4 p-2 bg-green-50 border border-green-200 text-green-600 rounded">
+        <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
           Precio guardado exitosamente
         </div>
       )}
-      
-      <div className="space-y-4">
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Plant Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700">Material</label>
+          <EnhancedPlantSelector
+            mode="CREATE"
+            selectedPlantId={selectedPlantId}
+            selectedBusinessUnitId={selectedBusinessUnitId}
+            onPlantChange={setSelectedPlantId}
+            onBusinessUnitChange={setSelectedBusinessUnitId}
+            required
+            showLabel
+          />
+        </div>
+
+        {/* Material Type */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Material *
+          </label>
           <select
             value={formData.materialType}
-            onChange={(e) => setFormData({...formData, materialType: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
-            disabled={isSubmitting}
+            onChange={(e) => setFormData(prev => ({ ...prev, materialType: e.target.value }))}
+            required
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
             <option value="">Seleccionar material</option>
             {MATERIAL_TYPES.map(material => (
               <option key={material.id} value={material.id}>
-                {material.name}
+                {material.name} ({material.unit})
               </option>
             ))}
           </select>
         </div>
 
+        {/* Price */}
         <div>
-          <label className="block text-sm font-medium text-gray-700">
-            Precio por {selectedMaterial?.unit || 'unidad'}
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Precio por {selectedMaterial?.unit || 'unidad'} *
           </label>
           <input
             type="number"
             step="0.01"
             min="0"
             value={formData.pricePerUnit}
-            onChange={(e) => setFormData({...formData, pricePerUnit: parseFloat(e.target.value)})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
-            disabled={isSubmitting}
+            onChange={(e) => setFormData(prev => ({ ...prev, pricePerUnit: parseFloat(e.target.value) || 0 }))}
+            required
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            placeholder="0.00"
           />
         </div>
 
+        {/* Effective Date */}
         <div>
-          <label className="block text-sm font-medium text-gray-700">Fecha efectiva</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Fecha Efectiva *
+          </label>
           <input
             type="date"
             value={formData.effectiveDate}
-            onChange={(e) => setFormData({...formData, effectiveDate: e.target.value})}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-xs focus:border-green-500 focus:ring-green-500"
-            disabled={isSubmitting}
+            onChange={(e) => setFormData(prev => ({ ...prev, effectiveDate: e.target.value }))}
+            required
+            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
 
+        {/* Submit Button */}
         <button
           type="submit"
-          disabled={isSubmitting}
-          className="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={isSubmitting || !selectedPlantId}
+          className="w-full py-2 px-4 bg-blue-600 text-white font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isSubmitting ? 'Guardando...' : 'Guardar Precio'}
         </button>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 }; 

@@ -15,9 +15,11 @@ import { DayPicker } from 'react-day-picker';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import * as Popover from '@radix-ui/react-popover';
-import { CalendarIcon } from 'lucide-react';
+import { CalendarIcon, AlertCircle } from 'lucide-react';
 import 'react-day-picker/dist/style.css';
 import { useDebouncedCallback } from 'use-debounce';
+import { usePlantAwareRecipes } from '@/hooks/usePlantAwareRecipes';
+import { usePlantContext } from '@/contexts/PlantContext';
 import ClientCreationForm from '@/components/clients/ClientCreationForm';
 import ConstructionSiteForm from '@/components/clients/ConstructionSiteForm';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -29,7 +31,7 @@ interface Client {
 }
 
 interface Recipe {
-  id: string;
+  id?: string;
   recipe_code: string;
   strength_fc: number;
   placement_type: string;
@@ -37,6 +39,7 @@ interface Recipe {
   max_aggregate_size: number;
   recipe_type?: string;
   age_days?: number;
+  plant_id?: string;
 }
 
 interface RecipeVersion {
@@ -80,10 +83,18 @@ interface DraftQuoteData {
 }
 
 export default function QuoteBuilder() {
+  const { userAccess, isGlobalAdmin, currentPlant } = usePlantContext();
+  
   const [clients, setClients] = useState<Client[]>([]);
   const [selectedClient, setSelectedClient] = useState<string>('');
+  
+  // Use plant-aware recipes hook
+  const { recipes: allRecipes, isLoading: recipesLoading, error: recipesError } = usePlantAwareRecipes({
+    autoRefresh: true
+  });
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [quoteProducts, setQuoteProducts] = useState<QuoteProduct[]>([]);
+  const [plantValidationError, setPlantValidationError] = useState<string | null>(null);
   const [clientHistory, setClientHistory] = useState<any[]>([]);
   const [selectedSite, setSelectedSite] = useState<string>('');
   const [constructionSite, setConstructionSite] = useState('');
@@ -109,29 +120,13 @@ export default function QuoteBuilder() {
     lng: null
   });
 
-  // Load initial data - clients and recipes
+  // Load initial data - clients
   useEffect(() => {
     const loadInitialData = async () => {
       try {
         setIsLoading(true);
-        const [clientsData, recipesResponse] = await Promise.all([
-          clientService.getAllClients(),
-          recipeService.getRecipes()
-        ]);
-        
+        const clientsData = await clientService.getAllClients();
         setClients(clientsData);
-        
-        const recipesData = recipesResponse.data || [];
-        setRecipes(recipesData.map(r => ({
-          id: r.id,
-          recipe_code: r.recipe_code,
-          strength_fc: r.strength_fc,
-          placement_type: r.placement_type,
-          slump: r.slump,
-          max_aggregate_size: r.max_aggregate_size,
-          recipe_type: r.recipe_type || 'N/A',
-          age_days: r.age_days
-        })));
       } catch (error) {
         console.error('Error loading initial data:', error);
         alert('Error loading initial data. Please refresh the page.');
@@ -146,6 +141,23 @@ export default function QuoteBuilder() {
     console.log('Google Maps API Key set?', !!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY);
     // Default date is now set in useState initialization
   }, []);
+
+  // Update recipes when plant-aware recipes change
+  useEffect(() => {
+    if (allRecipes) {
+      setRecipes(allRecipes.map(r => ({
+        id: r.id,
+        recipe_code: r.recipe_code,
+        strength_fc: r.strength_fc,
+        placement_type: r.placement_type,
+        slump: r.slump,
+        max_aggregate_size: r.max_aggregate_size,
+        recipe_type: (r as any).recipe_type || 'N/A',
+        age_days: r.age_days,
+        plant_id: (r as any).plant_id // Include plant_id for validation
+      }) as Recipe));
+    }
+  }, [allRecipes]);
 
   // Load client history when client is selected
   useEffect(() => {
@@ -262,6 +274,18 @@ export default function QuoteBuilder() {
     }
 
     try {
+      // Validate plant compatibility if there are already products in the quote
+      if (quoteProducts.length > 0 && recipe.plant_id) {
+        const existingPlantId = quoteProducts[0].recipe.plant_id;
+        if (existingPlantId && existingPlantId !== recipe.plant_id) {
+          setPlantValidationError('Todas las recetas en una cotización deben pertenecer a la misma planta');
+          return;
+        }
+      }
+      
+      // Clear any previous plant validation errors
+      setPlantValidationError(null);
+
       // Check if product already exists in quote
       const existingProduct = quoteProducts.find(p => p.recipe.id === recipeId);
       if (existingProduct) {
@@ -356,6 +380,19 @@ export default function QuoteBuilder() {
     try {
       setIsLoading(true);
       
+      // Determine plant_id from the first recipe in the quote
+      let quotePlantId: string | undefined;
+      if (quoteProducts.length > 0) {
+        quotePlantId = quoteProducts[0].recipe.plant_id;
+        
+        // Validate all recipes belong to the same plant
+        const differentPlant = quoteProducts.find(p => p.recipe.plant_id !== quotePlantId);
+        if (differentPlant) {
+          setPlantValidationError('Todas las recetas en una cotización deben pertenecer a la misma planta');
+          return;
+        }
+      }
+      
       // Generate quote number (simple implementation, you might want a more robust method)
       const currentYear = new Date().getFullYear();
       const quoteNumberPrefix = `COT-${currentYear}`;
@@ -368,6 +405,7 @@ export default function QuoteBuilder() {
         validity_date: validityDate,
         status: 'DRAFT',
         quote_number: `${quoteNumberPrefix}-${Math.floor(Math.random() * 9000) + 1000}`, // Generate 4-digit random number
+        plant_id: quotePlantId, // Include plant_id from recipes
         details: [] // Adding empty details array to match CreateQuoteData interface
       };
 
@@ -740,9 +778,9 @@ export default function QuoteBuilder() {
                                                     </p>
                                                   </div>
                                                   <button 
-                                                    onClick={() => addProductToQuote(recipe.id)}
+                                                    onClick={() => recipe.id && addProductToQuote(recipe.id)}
                                                     className="mt-4 w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors focus:ring-2 focus:ring-green-500 focus:ring-offset-2 flex items-center justify-center gap-1"
-                                                    disabled={isLoading}
+                                                    disabled={isLoading || !recipe.id}
                                                   >
                                                     <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                                                       <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />

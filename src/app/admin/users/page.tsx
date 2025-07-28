@@ -5,7 +5,9 @@ import { UserRole } from '@/contexts/AuthContext';
 import RoleGuard from '@/components/auth/RoleGuard';
 import Link from 'next/link';
 import { authService } from '@/lib/supabase/auth';
-import { Search } from 'lucide-react';
+import { Search, Edit2, Save, X, UserMinus, UserPlus, Building2 } from 'lucide-react';
+import { usePlantContext } from '@/contexts/PlantContext';
+import UserPlantAssignment from '@/components/plants/UserPlantAssignment';
 
 interface UserData {
   id: string;
@@ -15,6 +17,11 @@ interface UserData {
   role: UserRole;
   created_at: string;
   is_active?: boolean;
+  plant_id?: string | null;
+  business_unit_id?: string | null;
+  plant_name?: string;
+  plant_code?: string;
+  business_unit_name?: string;
 }
 
 export default function UserManagementPage() {
@@ -24,6 +31,7 @@ export default function UserManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const { availablePlants, businessUnits } = usePlantContext();
 
   useEffect(() => {
     fetchUsers();
@@ -162,6 +170,9 @@ export default function UserManagementPage() {
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
                     Rol
                   </th>
+                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/5">
+                    Planta/Unidad
+                  </th>
                   <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">
                     Estado
                   </th>
@@ -176,7 +187,7 @@ export default function UserManagementPage() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-4 text-center">
+                    <td colSpan={7} className="px-4 py-4 text-center">
                       <div className="flex justify-center items-center">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
                         <span className="ml-2">Cargando usuarios...</span>
@@ -185,7 +196,7 @@ export default function UserManagementPage() {
                   </tr>
                 ) : filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
                       {searchTerm ? 'No se encontraron resultados para la búsqueda' : 'No se encontraron usuarios'}
                     </td>
                   </tr>
@@ -199,6 +210,12 @@ export default function UserManagementPage() {
                         <div className="text-sm font-medium text-gray-900">
                           {user.first_name || ''} {user.last_name || ''}
                         </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <UserPlantAssignment 
+                          user={user}
+                          onUpdate={fetchUsers}
+                        />
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm text-gray-500 truncate max-w-[180px]">{user.email}</div>
@@ -231,6 +248,34 @@ export default function UserManagementPage() {
                             {user.role === 'DOSIFICADOR' && 'Dosificador'}
                           </div>
                         )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="text-sm text-gray-900">
+                          {user.plant_name ? (
+                            <div className="flex items-center">
+                              <Building2 className="h-4 w-4 text-gray-400 mr-2" />
+                              <div>
+                                <div className="font-medium">{user.plant_name}</div>
+                                {user.plant_code && (
+                                  <div className="text-xs text-gray-500">{user.plant_code}</div>
+                                )}
+                              </div>
+                            </div>
+                          ) : user.business_unit_name ? (
+                            <div className="flex items-center">
+                              <Building2 className="h-4 w-4 text-blue-400 mr-2" />
+                              <div>
+                                <div className="font-medium text-blue-600">{user.business_unit_name}</div>
+                                <div className="text-xs text-gray-500">Unidad de Negocio</div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center text-gray-400">
+                              <Building2 className="h-4 w-4 mr-2" />
+                              <span className="text-sm">Global</span>
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span 

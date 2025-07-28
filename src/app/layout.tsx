@@ -24,12 +24,15 @@ import {
   FlaskConical,
   Clipboard,
   BarChart,
-  CreditCard
+  CreditCard,
+  Building2
 } from 'lucide-react';
 import { AuthContextProvider } from '@/contexts/AuthContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { PlantProvider } from '@/contexts/PlantContext';
 import ProfileMenu from '@/components/auth/ProfileMenu';
 import AuthStatusIndicator from '@/components/auth/AuthStatusIndicator';
+import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { Inter } from 'next/font/google';
 import { OrderPreferencesProvider } from '@/contexts/OrderPreferencesContext';
 import { Toaster as SonnerToaster } from 'sonner';
@@ -156,6 +159,16 @@ function Navigation({ children }: { children: React.ReactNode }) {
         break;
         
       case 'PLANT_MANAGER':
+        navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
+        navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
+        navItems.push({ href: '/price-history', label: 'Historial', IconComponent: BarChart2 });
+        navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
+        navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
+        navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        addFinanzasLink = true;
+        addQualityLink = true;
+        break;
+        
       case 'EXECUTIVE':
         navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
         navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
@@ -163,6 +176,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
         navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        navItems.push({ href: '/admin/users', label: 'Gestión Usuarios', IconComponent: UserCog });
+        navItems.push({ href: '/admin/plants', label: 'Gestión Plantas', IconComponent: Building2 });
         addFinanzasLink = true;
         addQualityLink = true;
         break;
@@ -312,6 +327,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
           </Link>
           
           <div className="flex items-center gap-2">
+                                        <PlantContextDisplay className="min-w-[160px]" showLabel={false} />
             <ProfileMenu />
             
             {/* Botón de menú móvil */}
@@ -339,7 +355,10 @@ function Navigation({ children }: { children: React.ReactNode }) {
             {'Panel Principal'} {/* Temporarily using static title */}
           </h1>
           
-          <ProfileMenu />
+          <div className="flex items-center gap-4">
+                                      <PlantContextDisplay className="min-w-[200px]" showLabel={false} />
+            <ProfileMenu />
+          </div>
         </div>
         
         {/* Añadir el indicador de estado de autenticación */}
@@ -569,15 +588,17 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       {/* Body doesn't need conditional class anymore based on route */}
       <body className="bg-gray-100" suppressHydrationWarning>
         <AuthContextProvider>
-          <OrderPreferencesProvider>
-            <SessionManager /> {/* Manage session within auth context */}
-            <ErrorBoundary>
-              {/* Always render Navigation; it will handle landing internally */}
-              <Navigation>{children}</Navigation> 
-            </ErrorBoundary>
-            <Toaster />
-            <SonnerToaster position="top-right" richColors/>
-          </OrderPreferencesProvider>
+          <PlantProvider>
+            <OrderPreferencesProvider>
+              <SessionManager /> {/* Manage session within auth context */}
+              <ErrorBoundary>
+                {/* Always render Navigation; it will handle landing internally */}
+                <Navigation>{children}</Navigation> 
+              </ErrorBoundary>
+              <Toaster />
+              <SonnerToaster position="top-right" richColors/>
+            </OrderPreferencesProvider>
+          </PlantProvider>
         </AuthContextProvider>
       </body>
     </html>

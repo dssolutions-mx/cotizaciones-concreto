@@ -7,24 +7,45 @@ export const priceService = {
     materialType: string;
     pricePerUnit: number;
     effectiveDate: string;
+    plant_id?: string;
+    created_by?: string;
   }) {
-    // Cerrar precio actual
+    // Cerrar precio actual para esta planta
+    const updateConditions: any = { 
+      material_type: priceData.materialType,
+      end_date: null 
+    };
+    
+    // Si hay plant_id, solo cerrar precios de esa planta
+    if (priceData.plant_id) {
+      updateConditions.plant_id = priceData.plant_id;
+    }
+    
     await supabase
       .from('material_prices')
       .update({ end_date: new Date().toISOString() })
-      .match({ 
-        material_type: priceData.materialType,
-        end_date: null 
-      });
+      .match(updateConditions);
 
     // Insertar nuevo precio
+    const insertData: any = {
+      material_type: priceData.materialType,
+      price_per_unit: priceData.pricePerUnit,
+      effective_date: priceData.effectiveDate
+    };
+    
+    // Agregar plant_id si se proporciona
+    if (priceData.plant_id) {
+      insertData.plant_id = priceData.plant_id;
+    }
+    
+    // Agregar created_by si se proporciona
+    if (priceData.created_by) {
+      insertData.created_by = priceData.created_by;
+    }
+    
     return await supabase
       .from('material_prices')
-      .insert({
-        material_type: priceData.materialType,
-        price_per_unit: priceData.pricePerUnit,
-        effective_date: priceData.effectiveDate
-      });
+      .insert(insertData);
   },
 
   // Gastos administrativos

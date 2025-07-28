@@ -24,6 +24,8 @@ export interface UserProfile {
   first_name: string | null;
   last_name: string | null;
   role: UserRole;
+  plant_id: string | null;
+  business_unit_id: string | null;
 }
 
 // Auth context type

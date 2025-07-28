@@ -61,7 +61,7 @@ export const recipeService = {
     });
   },
 
-  async saveRecipe(recipeData: ExcelRecipeData): Promise<Recipe> {
+  async saveRecipe(recipeData: ExcelRecipeData, plantId?: string, createdBy?: string): Promise<Recipe> {
     console.log('saveRecipe called with:', recipeData);
     
     // First, check if a recipe with this code already exists
@@ -74,15 +74,22 @@ export const recipeService = {
     let recipeInsert;
     if (existingRecipe) {
       // If recipe exists, update the existing recipe
+      const updateData: any = {
+        strength_fc: recipeData.characteristics.strength,
+        age_days: recipeData.characteristics.age,
+        placement_type: recipeData.characteristics.placement,
+        max_aggregate_size: recipeData.characteristics.maxAggregateSize,
+        slump: recipeData.characteristics.slump
+      };
+      
+      // Add plant_id if provided (for cases where existing recipe needs plant assignment)
+      if (plantId) {
+        updateData.plant_id = plantId;
+      }
+      
       const { data: updatedRecipe, error: updateError } = await supabase
         .from('recipes')
-        .update({
-          strength_fc: recipeData.characteristics.strength,
-          age_days: recipeData.characteristics.age,
-          placement_type: recipeData.characteristics.placement,
-          max_aggregate_size: recipeData.characteristics.maxAggregateSize,
-          slump: recipeData.characteristics.slump
-        })
+        .update(updateData)
         .eq('id', existingRecipe.id)
         .select()
         .single();
@@ -91,16 +98,28 @@ export const recipeService = {
       recipeInsert = updatedRecipe;
     } else {
       // If recipe doesn't exist, insert a new recipe
+      const recipeInsertData: any = {
+        recipe_code: recipeData.recipeCode,
+        strength_fc: recipeData.characteristics.strength,
+        age_days: recipeData.characteristics.age,
+        placement_type: recipeData.characteristics.placement,
+        max_aggregate_size: recipeData.characteristics.maxAggregateSize,
+        slump: recipeData.characteristics.slump
+      };
+      
+      // Add plant_id if provided
+      if (plantId) {
+        recipeInsertData.plant_id = plantId;
+      }
+      
+      // Add created_by if provided
+      if (createdBy) {
+        recipeInsertData.created_by = createdBy;
+      }
+      
       const { data: newRecipe, error: recipeError } = await supabase
         .from('recipes')
-        .insert({
-          recipe_code: recipeData.recipeCode,
-          strength_fc: recipeData.characteristics.strength,
-          age_days: recipeData.characteristics.age,
-          placement_type: recipeData.characteristics.placement,
-          max_aggregate_size: recipeData.characteristics.maxAggregateSize,
-          slump: recipeData.characteristics.slump
-        })
+        .insert(recipeInsertData)
         .select()
         .single();
 
