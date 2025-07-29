@@ -5,11 +5,324 @@ import {
   Recipe, 
   RecipeVersion, 
   MaterialQuantity, 
-  ExcelRecipeData 
+  ExcelRecipeData,
+  Material,
+  NewRecipeData,
+  RecipeSearchFilters,
+  RecipeSearchResult,
+  RecipeSpecification
 } from '@/types/recipes';
 import * as XLSX from 'xlsx-js-style';
 
 export const recipeService = {
+  // Enhanced material management
+  async getMaterials(plantId?: string): Promise<Material[]> {
+    try {
+      let query = supabase
+        .from('materials')
+        .select('*')
+        .eq('is_active', true)
+        .order('material_name');
+
+      if (plantId) {
+        query = query.eq('plant_id', plantId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      const errorMessage = handleError(error, 'getMaterials');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  // New specification-based recipe creation
+  async createRecipeWithSpecifications(recipeData: NewRecipeData): Promise<Recipe> {
+    try {
+      // First, check if a recipe with the same specifications already exists
+      const { data: existingRecipes, error: searchError } = await supabase.rpc('find_recipes_by_specifications', {
+        p_strength_fc: recipeData.specification.strength_fc,
+        p_age_days: recipeData.specification.age_days,
+        p_placement_type: recipeData.specification.placement_type,
+        p_max_aggregate_size: recipeData.specification.max_aggregate_size,
+        p_slump: recipeData.specification.slump,
+        p_application_type: recipeData.specification.application_type,
+        p_has_waterproofing: recipeData.specification.has_waterproofing,
+        p_performance_grade: recipeData.specification.performance_grade,
+        p_plant_id: recipeData.plant_id,
+        p_recipe_type: recipeData.specification.recipe_type
+      });
+
+      if (searchError) throw searchError;
+
+      if (existingRecipes && existingRecipes.length > 0) {
+        // If recipe with same specifications exists, create a new version instead
+        const existingRecipe = existingRecipes[0];
+        console.log('Recipe with same specifications found:', existingRecipe.recipe_code);
+        
+        // Create new version for existing recipe
+        const { data: newVersion, error: versionError } = await supabase.rpc('create_recipe_version', {
+          p_recipe_id: existingRecipe.recipe_id,
+          p_materials: recipeData.materials.map(m => ({
+            material_id: m.material_id,
+            quantity: m.quantity,
+            unit: m.unit
+          })),
+          p_notes: recipeData.notes || `Nueva versión creada con materiales del master`,
+          p_new_system_code: recipeData.new_system_code || null
+        });
+
+        if (versionError) throw versionError;
+
+        // Add reference materials if provided
+        if (recipeData.reference_materials && recipeData.reference_materials.length > 0 && newVersion) {
+          for (const refMaterial of recipeData.reference_materials) {
+            await supabase
+              .from('recipe_reference_materials')
+              .insert({
+                recipe_version_id: newVersion.id,
+                material_type: refMaterial.material_type,
+                sss_value: refMaterial.sss_value
+              });
+          }
+        }
+
+        // Return the existing recipe (updated with new version)
+        const { data: updatedRecipe } = await supabase
+          .from('recipes')
+          .select('*')
+          .eq('id', existingRecipe.recipe_id)
+          .single();
+
+        return updatedRecipe;
+      }
+
+      // Use the new database function for specification-based creation
+      const { data, error } = await supabase.rpc('create_recipe_with_specifications', {
+        p_recipe_code: recipeData.recipe_code,
+        p_new_system_code: recipeData.new_system_code || null,
+        p_strength_fc: recipeData.specification.strength_fc,
+        p_age_days: recipeData.specification.age_days,
+        p_placement_type: recipeData.specification.placement_type,
+        p_max_aggregate_size: recipeData.specification.max_aggregate_size,
+        p_slump: recipeData.specification.slump,
+        p_plant_id: recipeData.plant_id,
+        p_materials: recipeData.materials,
+        p_application_type: recipeData.specification.application_type || 'standard',
+        p_has_waterproofing: recipeData.specification.has_waterproofing || false,
+        p_performance_grade: recipeData.specification.performance_grade || 'standard',
+        p_recipe_type: recipeData.specification.recipe_type || null,
+        p_notes: recipeData.notes || null
+      });
+
+      if (error) throw error;
+
+      // Add reference materials if provided
+      if (recipeData.reference_materials && recipeData.reference_materials.length > 0) {
+        // Get the current version of the created recipe
+        const { data: versions } = await supabase
+          .from('recipe_versions')
+          .select('id')
+          .eq('recipe_id', data.id)
+          .eq('is_current', true)
+          .single();
+
+        if (versions) {
+          for (const refMaterial of recipeData.reference_materials) {
+            await supabase
+              .from('recipe_reference_materials')
+              .insert({
+                recipe_version_id: versions.id,
+                material_type: refMaterial.material_type,
+                sss_value: refMaterial.sss_value
+              });
+          }
+        }
+      }
+
+      return data;
+    } catch (error) {
+      const errorMessage = handleError(error, 'createRecipeWithSpecifications');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Specification-based recipe search
+  async findRecipesBySpecifications(filters: RecipeSearchFilters): Promise<RecipeSearchResult[]> {
+    try {
+      const { data, error } = await supabase.rpc('find_recipes_by_specifications', {
+        p_strength_fc: filters.strength_fc || null,
+        p_age_days: filters.age_days || null,
+        p_placement_type: filters.placement_type || null,
+        p_max_aggregate_size: filters.max_aggregate_size || null,
+        p_slump: filters.slump || null,
+        p_application_type: filters.application_type || null,
+        p_has_waterproofing: filters.has_waterproofing || null,
+        p_performance_grade: filters.performance_grade || null,
+        p_plant_id: filters.plant_id || null,
+        p_recipe_type: filters.recipe_type || null
+      });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      const errorMessage = handleError(error, 'findRecipesBySpecifications');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Legacy recipe search by code
+  async findRecipeByCode(code: string): Promise<Recipe | null> {
+    try {
+      const { data, error } = await supabase.rpc('find_recipe_by_code', { code });
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      const errorMessage = handleError(error, 'findRecipeByCode');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Enhanced recipe version creation
+  async createRecipeVersion(recipeId: string, materials: MaterialQuantity[], notes?: string, newSystemCode?: string): Promise<RecipeVersion> {
+    try {
+      const { data, error } = await supabase.rpc('create_recipe_version', {
+        p_recipe_id: recipeId,
+        p_materials: materials.map(m => ({
+          material_id: m.material_id,
+          quantity: m.quantity,
+          unit: m.unit
+        })),
+        p_notes: notes || null,
+        p_new_system_code: newSystemCode || null
+      });
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      const errorMessage = handleError(error, 'createRecipeVersion');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Get enhanced recipe details with material master integration
+  async getEnhancedRecipeDetails(recipeId: string): Promise<{
+    recipe: Recipe, 
+    versions: RecipeVersion[], 
+    materials: MaterialQuantity[],
+    materialDetails: Material[]
+  }> {
+    try {
+      // Get basic recipe details
+      const { data: recipe, error: recipeError } = await supabase
+        .from('recipes')
+        .select('*')
+        .eq('id', recipeId)
+        .single();
+
+      if (recipeError) throw recipeError;
+
+      // Get versions
+      const { data: versions, error: versionsError } = await supabase
+        .from('recipe_versions')
+        .select('*')
+        .eq('recipe_id', recipeId)
+        .order('version_number', { ascending: false });
+
+      if (versionsError) throw versionsError;
+
+      // Get current version materials
+      const currentVersion = versions.find(v => v.is_current);
+      if (!currentVersion) throw new Error('No current version found');
+
+      const { data: materials, error: materialsError } = await supabase
+        .from('material_quantities')
+        .select('*')
+        .eq('recipe_version_id', currentVersion.id);
+
+      if (materialsError) throw materialsError;
+
+      // Get material details for materials with material_id
+      const materialIds = materials
+        .filter(m => m.material_id)
+        .map(m => m.material_id!);
+
+      let materialDetails: Material[] = [];
+      if (materialIds.length > 0) {
+        const { data: materialData, error: materialDetailsError } = await supabase
+          .from('materials')
+          .select('*')
+          .in('id', materialIds);
+
+        if (materialDetailsError) throw materialDetailsError;
+        materialDetails = materialData || [];
+      }
+
+      return { recipe, versions, materials, materialDetails };
+    } catch (error) {
+      const errorMessage = handleError(error, 'getEnhancedRecipeDetails');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Get recipe specifications summary
+  async getRecipeSpecificationsSummary(filters?: {
+    application_type?: string;
+    performance_grade?: string;
+    plant_id?: string;
+  }): Promise<any[]> {
+    try {
+      let query = supabase
+        .from('recipe_specifications_summary')
+        .select('*')
+        .order('recipe_code');
+
+      if (filters?.application_type) {
+        query = query.eq('application_type', filters.application_type);
+      }
+      if (filters?.performance_grade) {
+        query = query.eq('performance_grade', filters.performance_grade);
+      }
+      if (filters?.plant_id) {
+        query = query.eq('plant_id', filters.plant_id);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      const errorMessage = handleError(error, 'getRecipeSpecificationsSummary');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Get enhanced recipe materials view
+  async getEnhancedRecipeMaterials(recipeCode: string): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('recipe_materials_enhanced')
+        .select('*')
+        .eq('recipe_code', recipeCode)
+        .eq('is_current', true);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      const errorMessage = handleError(error, 'getEnhancedRecipeMaterials');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  // Legacy functions for backward compatibility
   async processExcelFile(file: File): Promise<ExcelRecipeData[]> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -253,9 +566,9 @@ export const recipeService = {
     }
   },
 
-  async getRecipes(limit = 100) {
+  async getRecipes(limit = 100, plantIds?: string[] | null) {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('recipes')
         .select(`
           id,
@@ -265,6 +578,12 @@ export const recipeService = {
           placement_type,
           max_aggregate_size,
           slump,
+          new_system_code,
+          coding_system,
+          application_type,
+          has_waterproofing,
+          performance_grade,
+          plant_id,
           recipe_versions(
             id,
             version_number,
@@ -273,7 +592,22 @@ export const recipeService = {
             loaded_to_k2
           )
         `)
-        .order('recipe_code');
+        .order('created_at', { ascending: false });
+
+      // Apply plant filtering if plantIds is provided
+      if (plantIds && plantIds.length > 0) {
+        query = query.in('plant_id', plantIds);
+      } else if (plantIds && plantIds.length === 0) {
+        // User has no access - return empty result by filtering on a non-existent condition
+        query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Non-existent UUID
+      }
+      // If plantIds is null, user can access all plants (global admin), so no filter applied
+
+      if (limit) {
+        query = query.limit(limit);
+      }
+
+      const { data, error } = await query;
 
       if (error) {
         const errorMessage = handleError(error, 'getRecipes');
@@ -311,6 +645,11 @@ export const recipeService = {
           placement_type,
           max_aggregate_size,
           slump,
+          new_system_code,
+          coding_system,
+          application_type,
+          has_waterproofing,
+          performance_grade,
           recipe_versions!inner(
             id,
             version_number,
@@ -318,6 +657,7 @@ export const recipeService = {
             notes,
             materials:material_quantities(
               material_type,
+              material_id,
               quantity,
               unit
             )

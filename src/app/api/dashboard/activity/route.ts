@@ -9,40 +9,60 @@ interface ActivityItem {
   time: string;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Get plant_id from query parameters
+    const { searchParams } = new URL(request.url);
+    const plantId = searchParams.get('plant_id');
+    
     // Create service client like finanzas pages do
     const serviceClient = createServiceClient();
     
     // Fetch recent orders and quotes for activity feed
     const [ordersResult, quotesResult] = await Promise.all([
-      serviceClient
-        .from('orders')
-        .select(`
-          id,
-          order_number,
-          created_at,
-          order_status,
-          clients (
-            business_name
-          )
-        `)
-        .order('created_at', { ascending: false })
-        .limit(5),
+      (async () => {
+        let ordersQuery = serviceClient
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            created_at,
+            order_status,
+            clients (
+              business_name
+            )
+          `)
+          .order('created_at', { ascending: false })
+          .limit(5);
         
-      serviceClient
-        .from('quotes')
-        .select(`
-          id,
-          quote_number,
-          status,
-          created_at,
-          clients:client_id (
-            business_name
-          )
-        `)
-        .order('created_at', { ascending: false })
-        .limit(5)
+        if (plantId) {
+          ordersQuery = ordersQuery.eq('plant_id', plantId);
+        }
+        
+        return await ordersQuery;
+      })(),
+      
+      (async () => {
+        let quotesQuery = serviceClient
+          .from('quotes')
+          .select(`
+            id,
+            quote_number,
+            status,
+            created_at,
+            clients:client_id (
+              business_name
+            )
+          `)
+          .order('created_at', { ascending: false })
+          .limit(5);
+        
+        if (plantId) {
+          quotesQuery = quotesQuery.eq('plant_id', plantId);
+        }
+        
+        return await quotesQuery;
+      })()
     ]);
 
     // Combine and format activity items

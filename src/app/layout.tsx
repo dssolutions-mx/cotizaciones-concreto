@@ -87,6 +87,16 @@ const qualitySubMenuItems = [
     IconComponent: BarChart,
   },
   {
+    title: "Materiales",
+    href: "/admin/materials",
+    IconComponent: Package,
+  },
+  {
+    title: "Recetas",
+    href: "/recipes",
+    IconComponent: FileText,
+  },
+  {
     title: "Muestreos",
     href: "/quality/muestreos",
     IconComponent: Beaker,
@@ -136,6 +146,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
     switch (role) {
       case 'DOSIFICADOR':
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        addQualityLink = true;
         break;
         
       case 'CREDIT_VALIDATOR':

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { recipeService } from '@/lib/supabase/recipes';
 import { getRecipeReferenceMaterials } from '@/lib/recipes/recipeReferenceMaterials';
-import { Recipe, RecipeVersion, MaterialQuantity, RecipeReferenceMaterial } from '@/types/recipes';
+import { Recipe, RecipeVersion, MaterialQuantity, RecipeReferenceMaterial, Material } from '@/types/recipes';
 import { supabase } from '@/lib/supabase';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 
@@ -22,7 +22,8 @@ export const RecipeDetailsModal: React.FC<RecipeDetailsModalProps> = ({
   const [recipeDetails, setRecipeDetails] = useState<{
     recipe: Recipe, 
     versions: RecipeVersion[], 
-    materials: MaterialQuantity[]
+    materials: MaterialQuantity[],
+    materialDetails: Material[]
   } | null>(null);
   const [referenceMaterials, setReferenceMaterials] = useState<RecipeReferenceMaterial[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,8 +36,8 @@ export const RecipeDetailsModal: React.FC<RecipeDetailsModalProps> = ({
 
       try {
         setIsLoading(true);
-        // Fetch recipe details
-        const details = await recipeService.getRecipeDetails(recipeId);
+        // Fetch enhanced recipe details with material master integration
+        const details = await recipeService.getEnhancedRecipeDetails(recipeId);
         setRecipeDetails(details);
 
         // Find the current version
@@ -99,6 +100,30 @@ export const RecipeDetailsModal: React.FC<RecipeDetailsModalProps> = ({
   if (!isOpen) return null;
 
   const renderMaterialRow = (material: MaterialQuantity) => {
+    // Get material details if available
+    const materialDetail = recipeDetails?.materialDetails.find(m => m.id === material.material_id);
+    
+    const materialName = materialDetail?.material_name || 
+      (material.material_type ? getLegacyMaterialName(material.material_type) : 'Material desconocido');
+
+    return (
+      <tr key={material.id} className="border-b">
+        <td className="py-2 px-4">
+          <div>
+            <div className="font-medium">{materialName}</div>
+            {materialDetail && (
+              <div className="text-xs text-gray-500">
+                {materialDetail.category} • {materialDetail.unit_of_measure}
+              </div>
+            )}
+          </div>
+        </td>
+        <td className="py-2 px-4 text-right">{material.quantity.toFixed(2)} {material.unit}</td>
+      </tr>
+    );
+  };
+
+  const getLegacyMaterialName = (materialType: string) => {
     const materialNames: { [key: string]: string } = {
       'additive1': 'Aditivo 1',
       'additive2': 'Aditivo 2',
@@ -109,13 +134,7 @@ export const RecipeDetailsModal: React.FC<RecipeDetailsModalProps> = ({
       'volcanicSand': 'Arena Volcánica',
       'cement': 'Cemento'
     };
-
-    return (
-      <tr key={material.id} className="border-b">
-        <td className="py-2 px-4">{materialNames[material.material_type] || material.material_type}</td>
-        <td className="py-2 px-4 text-right">{material.quantity.toFixed(2)} {material.unit}</td>
-      </tr>
-    );
+    return materialNames[materialType] || materialType;
   };
 
   // Custom sorting function for materials
@@ -153,6 +172,25 @@ export const RecipeDetailsModal: React.FC<RecipeDetailsModalProps> = ({
     );
   };
 
+  const getApplicationTypeLabel = (type?: string) => {
+    const labels: Record<string, string> = {
+      'standard': 'Estándar',
+      'pavimento': 'Pavimento',
+      'relleno_fluido': 'Relleno Fluido',
+      'mortero': 'Mortero'
+    };
+    return labels[type || ''] || type || 'N/A';
+  };
+
+  const getPerformanceGradeLabel = (grade?: string) => {
+    const labels: Record<string, string> = {
+      'standard': 'Estándar',
+      'high_performance': 'Alto Rendimiento',
+      'rapid': 'Rápido'
+    };
+    return labels[grade || ''] || grade || 'N/A';
+  };
+
   if (isLoading) {
     return (
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -181,12 +219,12 @@ export const RecipeDetailsModal: React.FC<RecipeDetailsModalProps> = ({
 
   if (!recipeDetails) return null;
 
-  const { recipe, versions, materials } = recipeDetails;
+  const { recipe, versions, materials, materialDetails } = recipeDetails;
   const currentVersion = versions.find(v => v.is_current);
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white p-6 rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-2xl font-bold">Detalles de Receta: {recipe.recipe_code}</h2>
           <button 
@@ -197,44 +235,79 @@ export const RecipeDetailsModal: React.FC<RecipeDetailsModalProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Basic Characteristics */}
           <div>
-            <h3 className="font-semibold text-lg mb-2">Características</h3>
+            <h3 className="font-semibold text-lg mb-2">Características Básicas</h3>
             <div className="space-y-2">
               <p><span className="font-medium">Resistencia:</span> {recipe.strength_fc} Kg/cm²</p>
               <p><span className="font-medium">Edad:</span> {recipe.age_days} días</p>
               <p><span className="font-medium">Colocación:</span> {recipe.placement_type}</p>
               <p><span className="font-medium">Tamaño Máximo de Agregado:</span> {recipe.max_aggregate_size} mm</p>
               <p><span className="font-medium">Revenimiento:</span> {recipe.slump} cm</p>
+              {recipe.recipe_type && (
+                <p><span className="font-medium">Tipo de Receta:</span> {recipe.recipe_type === 'FC' ? 'Concreto (FC)' : 'Mortero (MR)'}</p>
+              )}
             </div>
           </div>
 
+          {/* Enhanced Specifications */}
           <div>
-            <h3 className="font-semibold text-lg mb-2">Versión Actual</h3>
-            {currentVersion && (
+            <h3 className="font-semibold text-lg mb-2">Especificaciones Avanzadas</h3>
+            <div className="space-y-2">
+              {recipe.new_system_code && (
+                <p><span className="font-medium">Nuevo Código:</span> {recipe.new_system_code}</p>
+              )}
+              <p><span className="font-medium">Sistema de Codificación:</span> 
+                <span className={`ml-2 px-2 py-1 rounded text-xs ${
+                  recipe.coding_system === 'new_system' 
+                    ? 'bg-green-100 text-green-800' 
+                    : 'bg-gray-100 text-gray-800'
+                }`}>
+                  {recipe.coding_system === 'new_system' ? 'Nuevo Sistema' : 'Sistema Legacy'}
+                </span>
+              </p>
+              <p><span className="font-medium">Tipo de Aplicación:</span> {getApplicationTypeLabel(recipe.application_type)}</p>
+              <p><span className="font-medium">Grado de Rendimiento:</span> {getPerformanceGradeLabel(recipe.performance_grade)}</p>
+              <p><span className="font-medium">Impermeabilización:</span> 
+                {recipe.has_waterproofing ? 
+                  <span className="text-green-600 font-medium ml-2">✓ Incluida</span> : 
+                  <span className="text-gray-500 ml-2">No incluida</span>
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Version Information */}
+        <div className="mb-6">
+          <h3 className="font-semibold text-lg mb-2">Versión Actual</h3>
+          {currentVersion && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <p><span className="font-medium">Número de Versión:</span> {currentVersion.version_number}</p>
                 <p><span className="font-medium">Fecha de Efectividad:</span> {new Date(currentVersion.effective_date).toLocaleDateString()}</p>
                 {currentVersion.notes && (
                   <p><span className="font-medium">Notas:</span> {currentVersion.notes}</p>
                 )}
-                <div className="flex items-center mt-3">
-                  <span className="font-medium mr-2">Cargada en K2:</span>
-                  <RoleProtectedButton
-                    allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
-                    onClick={() => updateK2LoadStatus(currentVersion.id!, !currentVersion.loaded_to_k2)}
-                    className="px-3 py-1 text-xs bg-blue-500 text-white rounded"
-                    disabled={isUpdatingK2Status}
-                    showDisabled={true}
-                  >
-                    {currentVersion.loaded_to_k2 ? 'Marcar como No Cargado' : 'Marcar como Cargado a K2'}
-                  </RoleProtectedButton>
-                </div>
               </div>
-            )}
-          </div>
+              <div className="flex items-center">
+                <span className="font-medium mr-2">Cargada en K2:</span>
+                <RoleProtectedButton
+                  allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
+                  onClick={() => updateK2LoadStatus(currentVersion.id!, !currentVersion.loaded_to_k2)}
+                  className="px-3 py-1 text-xs bg-blue-500 text-white rounded"
+                  disabled={isUpdatingK2Status}
+                  showDisabled={true}
+                >
+                  {currentVersion.loaded_to_k2 ? 'Marcar como No Cargado' : 'Marcar como Cargado a K2'}
+                </RoleProtectedButton>
+              </div>
+            </div>
+          )}
         </div>
 
+        {/* Material Quantities */}
         <div className="mb-6">
           <h3 className="font-semibold text-lg mb-2">Cantidades de Materiales</h3>
           <table className="w-full border-collapse">
@@ -250,6 +323,7 @@ export const RecipeDetailsModal: React.FC<RecipeDetailsModalProps> = ({
           </table>
         </div>
 
+        {/* Reference Materials */}
         {referenceMaterials.length > 0 && (
           <div>
             <h3 className="font-semibold text-lg mb-2">Materiales de Referencia (SSS)</h3>
@@ -264,6 +338,40 @@ export const RecipeDetailsModal: React.FC<RecipeDetailsModalProps> = ({
                 {referenceMaterials.map(renderReferenceMaterialRow)}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Version History */}
+        {versions.length > 1 && (
+          <div className="mt-6">
+            <h3 className="font-semibold text-lg mb-2">Historial de Versiones</h3>
+            <div className="space-y-2">
+              {versions.map((version) => (
+                <div key={version.id} className="flex justify-between items-center p-2 border rounded">
+                  <div>
+                    <span className="font-medium">Versión {version.version_number}</span>
+                    <span className="text-sm text-gray-500 ml-2">
+                      {new Date(version.effective_date).toLocaleDateString()}
+                    </span>
+                    {version.is_current && (
+                      <span className="ml-2 px-2 py-1 bg-green-100 text-green-800 text-xs rounded">
+                        Actual
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {version.loaded_to_k2 && (
+                      <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
+                        K2
+                      </span>
+                    )}
+                    {version.notes && (
+                      <span className="text-sm text-gray-600">{version.notes}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

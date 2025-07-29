@@ -131,6 +131,13 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       return;
     }
 
+    // Validate that we have a valid recipe_id
+    if (!selectedRecipeId) {
+      console.warn('No selectedRecipeId provided');
+      setManualMaterials([]);
+      return;
+    }
+
     try {
       // Find the latest version of the selected recipe
       const { data: versionData, error: versionError } = await supabase

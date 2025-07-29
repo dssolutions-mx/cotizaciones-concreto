@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
+import { recipeService } from '@/lib/supabase/recipes';
 import type { Recipe } from '@/types/recipes';
 
 interface UsePlantAwareRecipesOptions {
@@ -35,20 +36,17 @@ export function usePlantAwareRecipes(options: UsePlantAwareRecipesOptions = {}) 
         currentPlantId: currentPlant?.id || null
       };
       
-      const result = await plantAwareDataService.getRecipes(plantFilterOptions, limit);
+      // Get accessible plant IDs
+      const plantIds = await plantAwareDataService.getAccessiblePlantIds(plantFilterOptions);
+      
+      // Use recipe service with plant filtering
+      const result = await recipeService.getRecipes(limit, plantIds);
       
       if (result.error) {
-        throw new Error(result.error.message || 'Error loading recipes');
+        throw new Error(result.error || 'Error loading recipes');
       }
       
-      // Enrich data with recipe type (similar to original service)
-      const enrichedData = result.data?.map((r: any) => ({
-        ...r,
-        recipe_type: r.recipe_versions?.[0]?.notes || null,
-        loaded_to_k2: r.recipe_versions?.[0]?.loaded_to_k2 || false
-      })) || [];
-      
-      setRecipes(enrichedData);
+      setRecipes(result.data || []);
     } catch (err) {
       console.error('Error loading plant-aware recipes:', err);
       setError(err instanceof Error ? err.message : 'Error loading recipes');

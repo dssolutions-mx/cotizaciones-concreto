@@ -23,10 +23,22 @@ interface DashboardMetrics {
   todayOrders: number;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Get plant_id from query parameters
+    const { searchParams } = new URL(request.url);
+    const plantId = searchParams.get('plant_id');
+    
     // Create service client like finanzas pages do
     const serviceClient = createServiceClient();
+    
+    // Helper function to apply plant filter conditionally
+    const applyPlantFilter = (query: any) => {
+      if (plantId) {
+        return query.eq('plant_id', plantId);
+      }
+      return query;
+    };
     
     const now = new Date();
     const currentMonthStart = startOfMonth(now);
@@ -58,72 +70,92 @@ export async function GET() {
       creditOrdersResult
     ] = await Promise.all([
       // Quotes metrics - only get count and basic info
-      serviceClient
-        .from('quotes')
-        .select('id, status, created_at', { count: 'exact' })
-        .gte('created_at', currentMonthStart.toISOString())
-        .lte('created_at', currentMonthEnd.toISOString()),
+      applyPlantFilter(
+        serviceClient
+          .from('quotes')
+          .select('id, status, created_at', { count: 'exact' })
+          .gte('created_at', currentMonthStart.toISOString())
+          .lte('created_at', currentMonthEnd.toISOString())
+      ),
         
-      serviceClient
-        .from('quotes')
-        .select('id, status, created_at', { count: 'exact' })
-        .gte('created_at', previousMonthStart.toISOString())
-        .lte('created_at', previousMonthEnd.toISOString()),
+      applyPlantFilter(
+        serviceClient
+          .from('quotes')
+          .select('id, status, created_at', { count: 'exact' })
+          .gte('created_at', previousMonthStart.toISOString())
+          .lte('created_at', previousMonthEnd.toISOString())
+      ),
         
-      serviceClient
-        .from('quotes')
-        .select('*', { count: 'exact', head: true })
-        .in('status', ['DRAFT', 'PENDING_APPROVAL']),
+      applyPlantFilter(
+        serviceClient
+          .from('quotes')
+          .select('*', { count: 'exact', head: true })
+          .in('status', ['DRAFT', 'PENDING_APPROVAL'])
+      ),
         
       // Orders data - using exact same pattern as ventas-diarias page
-      serviceClient
-        .from('orders')
-        .select('id, client_id, total_amount, final_amount, invoice_amount, delivery_date, requires_invoice, order_status')
-        .gte('delivery_date', format(currentMonthStart, 'yyyy-MM-dd'))
-        .lte('delivery_date', format(currentMonthEnd, 'yyyy-MM-dd'))
-        .not('order_status', 'eq', 'CANCELLED'),
+      applyPlantFilter(
+        serviceClient
+          .from('orders')
+          .select('id, client_id, total_amount, final_amount, invoice_amount, delivery_date, requires_invoice, order_status')
+          .gte('delivery_date', format(currentMonthStart, 'yyyy-MM-dd'))
+          .lte('delivery_date', format(currentMonthEnd, 'yyyy-MM-dd'))
+          .not('order_status', 'eq', 'CANCELLED')
+      ),
         
-      serviceClient
-        .from('orders')
-        .select('id, client_id, total_amount, final_amount, invoice_amount, delivery_date, requires_invoice, order_status')
-        .gte('delivery_date', format(previousMonthStart, 'yyyy-MM-dd'))
-        .lte('delivery_date', format(previousMonthEnd, 'yyyy-MM-dd'))
-        .not('order_status', 'eq', 'CANCELLED'),
+      applyPlantFilter(
+        serviceClient
+          .from('orders')
+          .select('id, client_id, total_amount, final_amount, invoice_amount, delivery_date, requires_invoice, order_status')
+          .gte('delivery_date', format(previousMonthStart, 'yyyy-MM-dd'))
+          .lte('delivery_date', format(previousMonthEnd, 'yyyy-MM-dd'))
+          .not('order_status', 'eq', 'CANCELLED')
+      ),
         
-      serviceClient
-        .from('orders')
-        .select('*', { count: 'exact', head: true })
-        .eq('delivery_date', today)
-        .not('order_status', 'eq', 'CANCELLED'),
+      applyPlantFilter(
+        serviceClient
+          .from('orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('delivery_date', today)
+          .not('order_status', 'eq', 'CANCELLED')
+      ),
         
       // Remisiones for volume calculation - using exact pattern from ventas page
-      serviceClient
-        .from('remisiones')
-        .select('volumen_fabricado, fecha, tipo_remision')
-        .gte('fecha', format(currentMonthStart, 'yyyy-MM-dd'))
-        .lte('fecha', format(currentMonthEnd, 'yyyy-MM-dd')),
+      applyPlantFilter(
+        serviceClient
+          .from('remisiones')
+          .select('volumen_fabricado, fecha, tipo_remision')
+          .gte('fecha', format(currentMonthStart, 'yyyy-MM-dd'))
+          .lte('fecha', format(currentMonthEnd, 'yyyy-MM-dd'))
+      ),
         
-      serviceClient
-        .from('remisiones')
-        .select('volumen_fabricado, fecha, tipo_remision')
-        .gte('fecha', format(previousMonthStart, 'yyyy-MM-dd'))
-        .lte('fecha', format(previousMonthEnd, 'yyyy-MM-dd')),
+      applyPlantFilter(
+        serviceClient
+          .from('remisiones')
+          .select('volumen_fabricado, fecha, tipo_remision')
+          .gte('fecha', format(previousMonthStart, 'yyyy-MM-dd'))
+          .lte('fecha', format(previousMonthEnd, 'yyyy-MM-dd'))
+      ),
         
       // Revenue data using same pattern as finanzas/ventas-diarias
-      serviceClient
-        .from('orders')
-        .select('total_amount, final_amount, invoice_amount, requires_invoice')
-        .gte('delivery_date', format(currentMonthStart, 'yyyy-MM-dd'))
-        .lte('delivery_date', format(currentMonthEnd, 'yyyy-MM-dd'))
-        .not('order_status', 'eq', 'CANCELLED')
-        .not('total_amount', 'is', null),
+      applyPlantFilter(
+        serviceClient
+          .from('orders')
+          .select('total_amount, final_amount, invoice_amount, requires_invoice')
+          .gte('delivery_date', format(currentMonthStart, 'yyyy-MM-dd'))
+          .lte('delivery_date', format(currentMonthEnd, 'yyyy-MM-dd'))
+          .not('order_status', 'eq', 'CANCELLED')
+          .not('total_amount', 'is', null)
+      ),
         
       // Credit orders pending approval - using same logic as finanzas pages (credit_status = 'pending')
-      serviceClient
-        .from('orders')
-        .select('id, total_amount, final_amount, invoice_amount, client_id, order_status, credit_status', { count: 'exact' })
-        .eq('credit_status', 'pending')
-        .not('order_status', 'eq', 'CANCELLED')
+      applyPlantFilter(
+        serviceClient
+          .from('orders')
+          .select('id, total_amount, final_amount, invoice_amount, client_id, order_status, credit_status', { count: 'exact' })
+          .eq('credit_status', 'pending')
+          .not('order_status', 'eq', 'CANCELLED')
+      )
     ]);
 
     // Process quotes data - using count since there's no total_amount in quotes table

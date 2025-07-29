@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { RecipeList } from '@/components/recipes/RecipeList';
+import { RecipeSearchModal } from '@/components/recipes/RecipeSearchModal';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
@@ -9,13 +10,15 @@ import RoleIndicator from '@/components/ui/RoleIndicator';
 import * as XLSX from 'xlsx-js-style';
 import { recipeService } from '@/lib/supabase/recipes';
 import { calculateBasePrice } from '@/lib/utils/priceCalculator';
-import { FileDown, Plus, Upload } from 'lucide-react';
+import { FileDown, Plus, Upload, Search, Filter } from 'lucide-react';
 import { AddRecipeModal } from '@/components/recipes/AddRecipeModal';
+import { RecipeSearchResult } from '@/types/recipes';
 
 export default function RecipesPage() {
   const { hasRole } = useAuth();
   const [isExporting, setIsExporting] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
 
   const exportRecipeBasePrices = async () => {
     try {
@@ -41,7 +44,13 @@ export default function RecipesPage() {
           
           recipeData.push({
             'Código': recipe.recipe_code,
+            'Nuevo Código': recipe.new_system_code || 'N/A',
+            'Sistema': recipe.coding_system === 'new_system' ? 'Nuevo' : 'Legacy',
+            'Tipo Aplicación': recipe.application_type || 'N/A',
+            'Rendimiento': recipe.performance_grade || 'N/A',
+            'Impermeabilización': recipe.has_waterproofing ? 'Sí' : 'No',
             'Tipo': recipe.recipe_type || 'N/A',
+            'Tipo Receta': recipe.recipe_type === 'FC' ? 'Concreto (FC)' : recipe.recipe_type === 'MR' ? 'Mortero (MR)' : 'N/A',
             'Resistencia (kg/cm²)': recipe.strength_fc,
             'Revenimiento (cm)': recipe.slump,
             'Tamaño Máx. Agregado (mm)': recipe.max_aggregate_size,
@@ -74,7 +83,13 @@ export default function RecipesPage() {
       // Adjust column widths
       const colWidths = [
         { wch: 15 }, // Código
+        { wch: 15 }, // Nuevo Código
+        { wch: 10 }, // Sistema
+        { wch: 15 }, // Tipo Aplicación
+        { wch: 12 }, // Rendimiento
+        { wch: 15 }, // Impermeabilización
         { wch: 8 },  // Tipo
+        { wch: 15 }, // Tipo Receta
         { wch: 18 }, // Resistencia
         { wch: 18 }, // Revenimiento
         { wch: 18 }, // Tamaño Máx
@@ -104,12 +119,30 @@ export default function RecipesPage() {
     window.location.reload();
   };
 
+  const handleRecipeSearch = (recipe: RecipeSearchResult) => {
+    // Handle recipe selection from search
+    console.log('Recipe selected from search:', recipe);
+    // You can implement navigation to recipe details or other actions here
+  };
+
   return (
     <div className="container mx-auto p-4 bg-white rounded-lg">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Recetas de Concreto</h1>
         
         <div className="flex items-center gap-3">
+          {/* Search Button */}
+          <RoleProtectedButton
+            allowedRoles={['QUALITY_TEAM', 'EXECUTIVE', 'SALES_AGENT']}
+            onClick={() => setIsSearchModalOpen(true)}
+            className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600 inline-flex items-center gap-2"
+            showDisabled={true}
+            disabledMessage="Solo usuarios autorizados pueden buscar recetas"
+          >
+            <Search size={18} />
+            Buscar Recetas
+          </RoleProtectedButton>
+
           {/* Export Button */}
           <RoleProtectedButton
             allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
@@ -138,7 +171,7 @@ export default function RecipesPage() {
           <RoleProtectedButton
             allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
             onClick={() => {}} // Link handles the navigation
-            className="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600 inline-flex items-center gap-2"
+            className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600 inline-flex items-center gap-2"
             showDisabled={true}
             disabledMessage="Solo el equipo de calidad y ejecutivos pueden cargar recetas por Excel"
           >
@@ -163,6 +196,13 @@ export default function RecipesPage() {
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         onSuccess={handleRecipeAdded}
+      />
+
+      {/* Recipe Search Modal */}
+      <RecipeSearchModal
+        isOpen={isSearchModalOpen}
+        onClose={() => setIsSearchModalOpen(false)}
+        onRecipeSelect={handleRecipeSearch}
       />
       
       {/* Pass hasEditPermission prop to RecipeList */}

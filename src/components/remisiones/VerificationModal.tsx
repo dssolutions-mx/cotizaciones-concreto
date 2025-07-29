@@ -105,6 +105,12 @@ export default function VerificationModal({
           return;
         }
         
+        // Validate that we have a valid recipe_id
+        if (!recipeData?.id) {
+          setRecipeError('Datos de receta inválidos');
+          return;
+        }
+        
         // Get the current version of the recipe
         const { data: versionData, error: versionError } = await supabase
           .from('recipe_versions')

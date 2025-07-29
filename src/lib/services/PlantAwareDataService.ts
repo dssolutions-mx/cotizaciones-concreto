@@ -72,9 +72,10 @@ export class PlantAwareDataService {
     if (plantIds && plantIds.length > 0) {
       query = query.in('plant_id', plantIds);
     } else if (plantIds && plantIds.length === 0) {
-      // User has no access - return empty result
-      query = query.is('plant_id', null).neq('plant_id', null); // Impossible condition
+      // User has no access - return empty result by filtering on a non-existent condition
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Non-existent UUID
     }
+    // If plantIds is null, user can access all plants (global admin), so no filter applied
 
     return query;
   }
@@ -94,9 +95,10 @@ export class PlantAwareDataService {
     if (plantIds && plantIds.length > 0) {
       query = query.in('plant_id', plantIds);
     } else if (plantIds && plantIds.length === 0) {
-      // User has no access - return empty result
-      query = query.is('plant_id', null).neq('plant_id', null); // Impossible condition
+      // User has no access - return empty result by filtering on a non-existent condition
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Non-existent UUID
     }
+    // If plantIds is null, user can access all plants (global admin), so no filter applied
 
     return query;
   }
@@ -116,9 +118,10 @@ export class PlantAwareDataService {
     if (plantIds && plantIds.length > 0) {
       query = query.in('plant_id', plantIds);
     } else if (plantIds && plantIds.length === 0) {
-      // User has no access - return empty result
-      query = query.is('plant_id', null).neq('plant_id', null); // Impossible condition
+      // User has no access - return empty result by filtering on a non-existent condition
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Non-existent UUID
     }
+    // If plantIds is null, user can access all plants (global admin), so no filter applied
 
     return query;
   }

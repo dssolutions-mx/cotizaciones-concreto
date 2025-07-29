@@ -19,6 +19,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { usePlantContext } from '@/contexts/PlantContext';
 
 // Componentes
 import { 
@@ -84,7 +85,7 @@ interface DashboardData {
   lastUpdated: string;
 }
 
-// Create a fetcher function for SWR
+// Create a simple fetcher function for SWR
 const fetcher = async (url: string) => {
   const response = await fetch(url);
   if (!response.ok) {
@@ -186,11 +187,17 @@ const MetricsCard = ({ title, value, growth, icon, isLoading, suffix = '', color
 // Create a separate async API route for dashboard data
 // This will allow us to fetch everything in parallel and cache it
 const useDashboardData = () => {
-  const { data, error, isLoading } = useSWR('/api/dashboard', fetcher, {
-    revalidateOnFocus: false,
-    revalidateIfStale: false,
-    dedupingInterval: 1000 * 60 * 5, // Cache for 5 minutes
-  });
+  const { currentPlant } = usePlantContext();
+  
+  const { data, error, isLoading } = useSWR(
+    currentPlant?.id ? `/api/dashboard?plant_id=${currentPlant.id}` : '/api/dashboard', 
+    fetcher, 
+    {
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
+      dedupingInterval: 1000 * 60 * 5, // Cache for 5 minutes
+    }
+  );
 
   return {
     dashboardData: data as DashboardData | undefined,
@@ -201,11 +208,17 @@ const useDashboardData = () => {
 
 // Create individual data hooks for each section to allow lazy loading
 const useQuotesData = () => {
-  const { data, error, isLoading } = useSWR('/api/dashboard/quotes', fetcher, {
-    revalidateOnFocus: false,
-    revalidateIfStale: false,
-    dedupingInterval: 1000 * 60 * 10, // Cache for 10 minutes
-  });
+  const { currentPlant } = usePlantContext();
+  
+  const { data, error, isLoading } = useSWR(
+    currentPlant?.id ? `/api/dashboard/quotes?plant_id=${currentPlant.id}` : '/api/dashboard/quotes', 
+    fetcher, 
+    {
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
+      dedupingInterval: 1000 * 60 * 10, // Cache for 10 minutes
+    }
+  );
 
   return {
     quotesData: data?.quotesData || [],
@@ -216,11 +229,17 @@ const useQuotesData = () => {
 };
 
 const useSalesData = () => {
-  const { data, error, isLoading } = useSWR('/api/dashboard/sales', fetcher, {
-    revalidateOnFocus: false,
-    revalidateIfStale: false,
-    dedupingInterval: 1000 * 60 * 10, // Cache for 10 minutes
-  });
+  const { currentPlant } = usePlantContext();
+  
+  const { data, error, isLoading } = useSWR(
+    currentPlant?.id ? `/api/dashboard/sales?plant_id=${currentPlant.id}` : '/api/dashboard/sales', 
+    fetcher, 
+    {
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
+      dedupingInterval: 1000 * 60 * 10, // Cache for 10 minutes
+    }
+  );
 
   return {
     salesData: data?.salesData || [],
@@ -230,11 +249,17 @@ const useSalesData = () => {
 };
 
 const useRecipeData = () => {
-  const { data, error, isLoading } = useSWR('/api/dashboard/recipes', fetcher, {
-    revalidateOnFocus: false,
-    revalidateIfStale: false,
-    dedupingInterval: 1000 * 60 * 10, // Cache for 10 minutes
-  });
+  const { currentPlant } = usePlantContext();
+  
+  const { data, error, isLoading } = useSWR(
+    currentPlant?.id ? `/api/dashboard/recipes?plant_id=${currentPlant.id}` : '/api/dashboard/recipes', 
+    fetcher, 
+    {
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
+      dedupingInterval: 1000 * 60 * 10, // Cache for 10 minutes
+    }
+  );
 
   return {
     recipeData: data?.recipeData || [],
@@ -244,11 +269,17 @@ const useRecipeData = () => {
 };
 
 const useActivityData = () => {
-  const { data, error, isLoading } = useSWR('/api/dashboard/activity', fetcher, {
-    revalidateOnFocus: false,
-    revalidateIfStale: false,
-    dedupingInterval: 1000 * 60 * 3, // Cache for 3 minutes
-  });
+  const { currentPlant } = usePlantContext();
+  
+  const { data, error, isLoading } = useSWR(
+    currentPlant?.id ? `/api/dashboard/activity?plant_id=${currentPlant.id}` : '/api/dashboard/activity', 
+    fetcher, 
+    {
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
+      dedupingInterval: 1000 * 60 * 3, // Cache for 3 minutes
+    }
+  );
 
   return {
     recentActivity: data?.recentActivity || [],

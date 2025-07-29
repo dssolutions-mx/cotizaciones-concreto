@@ -2,8 +2,12 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { recipeService } from '@/lib/supabase/recipes';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Get plant_id from query parameters
+    const { searchParams } = new URL(request.url);
+    const plantId = searchParams.get('plant_id');
+    
     // Use the same recipe service as finanzas and other pages
     const recipes = await recipeService.getRecipes();
     
@@ -23,7 +27,12 @@ export async function GET() {
     // Group recipes by type/strength for visualization
     const recipeGroups: Record<string, number> = {};
     
-    recipes.data.forEach(recipe => {
+    // Filter recipes by plant_id if provided
+    const filteredRecipes = plantId 
+      ? recipes.data.filter(recipe => recipe.plant_id === plantId)
+      : recipes.data;
+    
+    filteredRecipes.forEach(recipe => {
       const key = `${recipe.recipe_code}`;
       recipeGroups[key] = (recipeGroups[key] || 0) + 1;
     });
@@ -44,6 +53,8 @@ export async function GET() {
 
     console.log('Recipe chart data (using correct service):', {
       totalRecipes: recipes.data.length,
+      filteredRecipes: filteredRecipes.length,
+      plantId,
       groups: recipeGroups,
       chartData: recipeData
     });

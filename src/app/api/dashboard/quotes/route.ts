@@ -2,17 +2,27 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { format } from 'date-fns';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Get plant_id from query parameters
+    const { searchParams } = new URL(request.url);
+    const plantId = searchParams.get('plant_id');
+    
     // Create service client like finanzas pages do
     const serviceClient = createServiceClient();
     
     // Fetch quotes data from the database - using correct schema
-    const { data: quotes, error } = await serviceClient
+    let quotesQuery = serviceClient
       .from('quotes')
       .select('id, status, created_at, construction_site')
       .order('created_at', { ascending: false })
       .limit(100);
+    
+    if (plantId) {
+      quotesQuery = quotesQuery.eq('plant_id', plantId);
+    }
+    
+    const { data: quotes, error } = await quotesQuery;
 
     if (error) throw error;
 
@@ -46,7 +56,7 @@ export async function GET() {
     ];
 
     // Get pending quotes for the table - using correct schema
-    const { data: pendingQuotes, error: pendingError } = await serviceClient
+    let pendingQuotesQuery = serviceClient
       .from('quotes')
       .select(`
         id,
@@ -63,6 +73,12 @@ export async function GET() {
       .in('status', ['DRAFT', 'PENDING_APPROVAL'])
       .order('created_at', { ascending: false })
       .limit(10);
+    
+    if (plantId) {
+      pendingQuotesQuery = pendingQuotesQuery.eq('plant_id', plantId);
+    }
+    
+    const { data: pendingQuotes, error: pendingError } = await pendingQuotesQuery;
 
     if (pendingError) throw pendingError;
 

@@ -2,8 +2,12 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    // Get plant_id from query parameters
+    const { searchParams } = new URL(request.url);
+    const plantId = searchParams.get('plant_id');
+    
     // Create service client like finanzas pages do
     const serviceClient = createServiceClient();
     
@@ -17,11 +21,17 @@ export async function GET() {
       const monthEnd = endOfMonth(month);
       
       // Fetch remisiones data for this month using the same pattern as finanzas/ventas page
-      const { data: remisiones, error } = await serviceClient
+      let remisionesQuery = serviceClient
         .from('remisiones')
         .select('volumen_fabricado, fecha, tipo_remision')
         .gte('fecha', format(monthStart, 'yyyy-MM-dd'))
         .lte('fecha', format(monthEnd, 'yyyy-MM-dd'));
+      
+      if (plantId) {
+        remisionesQuery = remisionesQuery.eq('plant_id', plantId);
+      }
+      
+      const { data: remisiones, error } = await remisionesQuery;
       
       if (error) {
         console.error(`Error fetching remisiones for ${format(month, 'MMM')}:`, error);

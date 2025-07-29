@@ -36,6 +36,14 @@ export default function RemisionMaterialesModal({ isOpen, onClose, remision }: R
   const fetchMaterialDetails = async () => {
     setLoading(true);
     try {
+      // Validate that we have a valid recipe_id
+      if (!remision?.recipe_id) {
+        console.warn('No recipe_id found for remision:', remision);
+        setMaterialDetails([]);
+        setLoading(false);
+        return;
+      }
+
       // Get recipe version for this remision's recipe
       const { data: versionData, error: versionError } = await supabase
         .from('recipe_versions')
