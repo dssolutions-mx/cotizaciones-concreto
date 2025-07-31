@@ -31,104 +31,106 @@ interface GroupedOrders {
   };
 }
 
+// Helper functions for status and formatting
+function getStatusColor(status: string) {
+  switch (status) {
+    case 'created':
+      return 'bg-blue-500 text-white';
+    case 'validated':
+      return 'bg-green-500 text-white';
+    case 'scheduled':
+      return 'bg-purple-500 text-white';
+    case 'completed':
+      return 'bg-green-700 text-white';
+    case 'cancelled':
+      return 'bg-red-500 text-white';
+    default:
+      return 'bg-gray-500 text-white';
+  }
+}
+
+function getCreditStatusColor(status: string) {
+  switch (status) {
+    case 'pending':
+      return 'bg-yellow-500 text-white';
+    case 'approved':
+      return 'bg-green-500 text-white';
+    case 'rejected':
+      return 'bg-red-500 text-white';
+    case 'rejected_by_validator':
+      return 'bg-orange-500 text-white';
+    default:
+      return 'bg-gray-500 text-white';
+  }
+}
+
+function getPaymentTypeIndicator(requiresInvoice: boolean | undefined) {
+  if (requiresInvoice === true) {
+    return 'bg-indigo-100 text-indigo-800 border border-indigo-300';
+  } else if (requiresInvoice === false) {
+    return 'bg-green-100 text-green-800 border border-green-300';
+  }
+  return 'bg-gray-100 text-gray-800 border border-gray-300';
+}
+
+function translateStatus(status: string) {
+  switch (status) {
+    case 'created':
+      return 'Creada';
+    case 'validated':
+      return 'Validada';
+    case 'scheduled':
+      return 'Programada';
+    case 'completed':
+      return 'Completada';
+    case 'cancelled':
+      return 'Cancelada';
+    default:
+      return status;
+  }
+}
+
+function translateCreditStatus(status: string) {
+  switch (status) {
+    case 'pending':
+      return 'Crédito Pendiente';
+    case 'approved':
+      return 'Crédito Aprobado';
+    case 'rejected':
+      return 'Crédito Rechazado';
+    case 'rejected_by_validator':
+      return 'Rechazado por Validador';
+    default:
+      return status;
+  }
+}
+
+function formatTime(timeString: string) {
+  return timeString ? timeString.substring(0, 5) : '';
+}
+
+function formatDate(dateString: string) {
+  if (!dateString) return '';
+  // Asegurarnos de que estamos trabajando con una fecha válida
+  // El formato YYYY-MM-DD que viene de la base de datos
+  const parts = dateString.split('-');
+  if (parts.length !== 3) return dateString;
+  
+  const year = parseInt(parts[0], 10);
+  const month = parseInt(parts[1], 10) - 1; // Los meses en JS van de 0-11
+  const day = parseInt(parts[2], 10);
+  
+  const date = new Date(year, month, day);
+  // Usar el formato local español para la fecha: DD/MM/YYYY
+  return new Intl.DateTimeFormat('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  }).format(date);
+}
+
 // Define a basic OrderCard component
 function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onClick: () => void; groupKey: string }) {
-  function getStatusColor(status: string) {
-    switch (status) {
-      case 'created':
-        return 'bg-blue-500 text-white';
-      case 'validated':
-        return 'bg-green-500 text-white';
-      case 'scheduled':
-        return 'bg-purple-500 text-white';
-      case 'completed':
-        return 'bg-green-700 text-white';
-      case 'cancelled':
-        return 'bg-red-500 text-white';
-      default:
-        return 'bg-gray-500 text-white';
-    }
-  }
-
-  function getCreditStatusColor(status: string) {
-    switch (status) {
-      case 'pending':
-        return 'bg-yellow-500 text-white';
-      case 'approved':
-        return 'bg-green-500 text-white';
-      case 'rejected':
-        return 'bg-red-500 text-white';
-      case 'rejected_by_validator':
-        return 'bg-orange-500 text-white';
-      default:
-        return 'bg-gray-500 text-white';
-    }
-  }
-
-  function getPaymentTypeIndicator(requiresInvoice: boolean | undefined) {
-    if (requiresInvoice === true) {
-      return 'bg-indigo-100 text-indigo-800 border border-indigo-300';
-    } else if (requiresInvoice === false) {
-      return 'bg-green-100 text-green-800 border border-green-300';
-    }
-    return 'bg-gray-100 text-gray-800 border border-gray-300';
-  }
-
-  function translateStatus(status: string) {
-    switch (status) {
-      case 'created':
-        return 'Creada';
-      case 'validated':
-        return 'Validada';
-      case 'scheduled':
-        return 'Programada';
-      case 'completed':
-        return 'Completada';
-      case 'cancelled':
-        return 'Cancelada';
-      default:
-        return status;
-    }
-  }
-
-  function translateCreditStatus(status: string) {
-    switch (status) {
-      case 'pending':
-        return 'Crédito Pendiente';
-      case 'approved':
-        return 'Crédito Aprobado';
-      case 'rejected':
-        return 'Crédito Rechazado';
-      case 'rejected_by_validator':
-        return 'Rechazado por Validador';
-      default:
-        return status;
-    }
-  }
-
-  function formatTime(timeString: string) {
-    return timeString ? timeString.substring(0, 5) : '';
-  }
-
-  function formatDate(dateString: string) {
-    if (!dateString) return '';
-    // Asegurarnos de que estamos trabajando con una fecha válida
-    // El formato YYYY-MM-DD que viene de la base de datos
-    const parts = dateString.split('-');
-    if (parts.length !== 3) return dateString;
-    
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1; // Los meses en JS van de 0-11
-    const day = parseInt(parts[2], 10);
-    
-    const date = new Date(year, month, day);
-    // Usar el formato local español para la fecha: DD/MM/YYYY
-    return new Intl.DateTimeFormat('es-ES', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    }).format(date);
-  }
 
   // Determinar el monto a mostrar (final o preliminar)
   const finalAmount = (order as any).final_amount;
@@ -230,7 +232,7 @@ export default function OrdersList({
   const [error, setError] = useState<string | null>(null);
   
   // Estados para los filtros
-  const [searchClient, setSearchClient] = useState(clientFilter || '');
+  const [searchQuery, setSearchQuery] = useState(clientFilter || '');
   const [amountFilter, setAmountFilter] = useState<AmountFilter>('all');
   
   const router = useRouter();
@@ -282,13 +284,40 @@ export default function OrdersList({
     
     let result = [...allOrders];
     
-    // Filtrar por cliente
-    if (searchClient) {
-      const searchTerm = searchClient.toLowerCase();
+    // Búsqueda unificada (combina búsqueda global y búsqueda por cliente)
+    if (searchQuery) {
+      const searchTerm = searchQuery.toLowerCase();
       result = result.filter(order => {
+        // Buscar en número de orden
+        if (order.order_number.toLowerCase().includes(searchTerm)) return true;
+        
+        // Buscar en nombre y código de cliente
         const clientName = order.clients.business_name.toLowerCase();
         const clientCode = order.clients.client_code?.toLowerCase() || '';
-        return clientName.includes(searchTerm) || clientCode.includes(searchTerm);
+        if (clientName.includes(searchTerm) || clientCode.includes(searchTerm)) return true;
+        
+        // Buscar en sitio de construcción
+        if (order.construction_site.toLowerCase().includes(searchTerm)) return true;
+        
+        // Buscar en estado de orden
+        const orderStatus = translateStatus(order.order_status).toLowerCase();
+        if (orderStatus.includes(searchTerm)) return true;
+        
+        // Buscar en estado de crédito
+        const creditStatus = translateCreditStatus(order.credit_status).toLowerCase();
+        if (creditStatus.includes(searchTerm)) return true;
+        
+        // Buscar en fecha de entrega
+        const deliveryDate = formatDate(order.delivery_date);
+        if (deliveryDate.toLowerCase().includes(searchTerm)) return true;
+        
+        // Buscar en hora de entrega
+        if (order.delivery_time.toLowerCase().includes(searchTerm)) return true;
+        
+        // Buscar en requisitos especiales
+        if (order.special_requirements?.toLowerCase().includes(searchTerm)) return true;
+        
+        return false;
       });
     }
     
@@ -308,7 +337,7 @@ export default function OrdersList({
     }
     
     setFilteredOrders(result);
-  }, [allOrders, searchClient, amountFilter]);
+  }, [allOrders, searchQuery, amountFilter]);
 
   // Función para agrupar las órdenes por fecha
   const groupOrdersByDate = useCallback(() => {
@@ -460,7 +489,7 @@ export default function OrdersList({
   // Aplicar filtros cuando cambia cualquier filtro o los datos
   useEffect(() => {
     applyFilters();
-  }, [applyFilters, allOrders, searchClient, amountFilter]);
+  }, [applyFilters, allOrders, searchQuery, amountFilter]);
   
   // Agrupar los datos cuando cambian los datos filtrados
   useEffect(() => {
@@ -470,7 +499,7 @@ export default function OrdersList({
   // Actualizar el filtro de cliente cuando cambia el prop
   useEffect(() => {
     if (clientFilter !== undefined) {
-      setSearchClient(clientFilter);
+      setSearchQuery(clientFilter);
     }
   }, [clientFilter]);
 
@@ -502,13 +531,13 @@ export default function OrdersList({
     });
   }
 
-  function handleClientSearch(e: React.ChangeEvent<HTMLInputElement>) {
-    setSearchClient(e.target.value);
+  function handleSearchQueryChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setSearchQuery(e.target.value);
   }
 
-  function handleClientSearchSubmit(e: React.FormEvent) {
+  function handleSearchQuerySubmit(e: React.FormEvent) {
     e.preventDefault();
-    // No es necesario hacer nada aquí, ya que los filtros se aplican automáticamente
+    // Los filtros se aplican automáticamente
   }
 
   function handleAmountFilterChange(value: AmountFilter) {
@@ -546,6 +575,38 @@ export default function OrdersList({
       
       {/* Filtros */}
       <div className="bg-white rounded-lg overflow-hidden shadow-sm p-4 border border-gray-200">
+        {/* Búsqueda unificada */}
+        <div className="mb-4">
+          <h3 className="text-sm font-medium text-gray-700 mb-2">Buscar órdenes:</h3>
+          <form onSubmit={handleSearchQuerySubmit} className="flex flex-wrap gap-2">
+            <div className="flex-1 min-w-[300px]">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={handleSearchQueryChange}
+                placeholder="Buscar por número de orden, cliente, sitio, estado, fecha, hora..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              Buscar
+            </button>
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
+              >
+                Limpiar
+              </button>
+            )}
+          </form>
+        </div>
+
+        {/* Filtros específicos */}
         <div className="mb-4">
           <h3 className="text-sm font-medium text-gray-700 mb-2">Filtrar por tipo de monto:</h3>
           <div className="flex flex-wrap gap-2">
@@ -584,33 +645,6 @@ export default function OrdersList({
             </button>
           </div>
         </div>
-        
-        <form onSubmit={handleClientSearchSubmit} className="flex flex-wrap gap-2">
-          <div className="flex-1 min-w-[200px]">
-            <input
-              type="text"
-              value={searchClient}
-              onChange={handleClientSearch}
-              placeholder="Buscar por nombre o código de cliente"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <button
-            type="submit"
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            Filtrar
-          </button>
-          {searchClient && (
-            <button
-              type="button"
-              onClick={() => setSearchClient('')}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400"
-            >
-              Limpiar
-            </button>
-          )}
-        </form>
       </div>
       
       {/* Contador de resultados con información de filtro */}
@@ -622,7 +656,7 @@ export default function OrdersList({
               : amountFilter === 'preliminary' 
                 ? 'con monto preliminar' 
                 : ''
-          } {searchClient ? `para "${searchClient}"` : ''}
+          } {searchQuery ? `que coinciden con "${searchQuery}"` : ''}
         </div>
       )}
       
@@ -635,12 +669,12 @@ export default function OrdersList({
           </div>
           <h3 className="text-lg font-medium text-gray-900">No se encontraron pedidos</h3>
           <p className="mt-2 text-sm text-gray-500">
-            {amountFilter !== 'all' ? 
-              amountFilter === 'final' ? 
-                'No hay pedidos con monto final registrado' : 
-                'No hay pedidos con sólo monto preliminar' :
-              searchClient ? 
-                `No hay pedidos para el cliente "${searchClient}".` :
+            {searchQuery ? 
+              `No hay pedidos que coincidan con "${searchQuery}".` :
+              amountFilter !== 'all' ? 
+                amountFilter === 'final' ? 
+                  'No hay pedidos con monto final registrado' : 
+                  'No hay pedidos con sólo monto preliminar' :
                 filterStatus ? 
                   `No hay pedidos con el estado "${filterStatus}".` :
                   'No hay pedidos disponibles en este momento.'
