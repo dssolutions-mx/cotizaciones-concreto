@@ -5,7 +5,8 @@ import {
   OrderWithClient, 
   OrderWithDetails, 
   // Removed unused OrderItem
-  EmptyTruckDetails 
+  EmptyTruckDetails,
+  PumpServiceDetails 
 } from '@/types/orders';
 // Import the singleton Supabase client
 import { supabase } from '@/lib/supabase';
@@ -29,7 +30,7 @@ export interface OrderCreationParams {
   }>;
 }
 
-export async function createOrder(orderData: OrderCreationParams, emptyTruckData?: EmptyTruckDetails | null) {
+export async function createOrder(orderData: OrderCreationParams, emptyTruckData?: EmptyTruckDetails | null, pumpServiceData?: PumpServiceDetails | null) {
   try {
     // Use the singleton Supabase client instead of creating a new one each time
     // const supabase = createClientComponentClient<Database>();
@@ -133,7 +134,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
             (quoteDetail.recipes as any).recipe_code : 'Unknown') 
           : 'Unknown';
         
-        // Now include pump_volume field since it exists in the database
+        // No longer include pump_volume field for individual items (legacy approach removed)
         return {
           order_id: order.id,
           quote_detail_id: item.quote_detail_id,
@@ -141,9 +142,9 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           volume: item.volume,
           unit_price: quoteDetail?.final_price || 0,
           total_price: (quoteDetail?.final_price || 0) * item.volume,
-          has_pump_service: quoteDetail?.pump_service || false,
-          pump_price: quoteDetail?.pump_service ? quoteDetail?.pump_price : null,
-          pump_volume: item.pump_volume // Now we can include this field
+          has_pump_service: false, // Individual items don't have pump service anymore
+          pump_price: null,
+          pump_volume: null // Always null for individual items in new approach
         };
       });
       
@@ -172,6 +173,27 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
         });
       
       if (emptyTruckError) throw emptyTruckError;
+    }
+    
+    // If pump service data is provided, add it as a separate "SERVICIO DE BOMBEO" order item
+    if (pumpServiceData && pumpServiceData.volume > 0) {
+      const { error: pumpServiceError } = await supabase
+        .from('order_items')
+        .insert({
+          order_id: order.id,
+          quote_detail_id: null,
+          product_type: 'SERVICIO DE BOMBEO',
+          volume: pumpServiceData.volume,
+          unit_price: pumpServiceData.unit_price,
+          total_price: pumpServiceData.total_price,
+          has_pump_service: true,
+          pump_price: pumpServiceData.unit_price,
+          pump_volume: pumpServiceData.volume,
+          pump_volume_delivered: pumpServiceData.volume, // Add for automatic recalculation
+          has_empty_truck_charge: false
+        });
+      
+      if (pumpServiceError) throw pumpServiceError;
     }
     
     return order;

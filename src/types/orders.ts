@@ -129,6 +129,15 @@ export interface EmptyTruckDetails {
 }
 
 /**
+ * Pump service details for separate service row
+ */
+export interface PumpServiceDetails {
+  volume: number;
+  unit_price: number;
+  total_price: number;
+}
+
+/**
  * Order creation parameters
  */
 export interface OrderCreationParams {

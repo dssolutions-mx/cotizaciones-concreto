@@ -6,7 +6,7 @@ import { addDays, format, parseISO } from 'date-fns';
 import { clientService } from '@/lib/supabase/clients';
 import { supabase } from '@/lib/supabase';
 import orderService from '@/services/orderService';
-import { EmptyTruckDetails } from '@/types/orders';
+import { EmptyTruckDetails, PumpServiceDetails } from '@/types/orders';
 
 interface Client {
   id: string;
@@ -597,13 +597,22 @@ export default function ScheduleOrderForm({
         total_amount: calculateTotalAmount(),
         order_status: 'created',
         credit_status: 'pending',
-        // Add selected products with volumes, but now handle pump service at order level
+        // Add selected products with volumes (no more pump_volume on individual items)
         order_items: selectedProducts.map(p => ({
           quote_detail_id: p.quoteDetailId,
-          volume: p.scheduledVolume,
-          pump_volume: hasPumpService && pumpVolume > 0 ? pumpVolume : null // Single pump volume for the order
+          volume: p.scheduledVolume
         }))
       };
+      
+      // Prepare pump service data separately (new approach)
+      let pumpServiceData: PumpServiceDetails | null = null;
+      if (hasPumpService && pumpVolume > 0 && pumpPrice !== null) {
+        pumpServiceData = {
+          volume: pumpVolume,
+          unit_price: pumpPrice,
+          total_price: pumpPrice * pumpVolume
+        };
+      }
       
       // Prepare empty truck data if applicable
       let emptyTruckData: EmptyTruckDetails | null = null;
@@ -616,7 +625,7 @@ export default function ScheduleOrderForm({
       }
       
       // Create order
-      const result = await orderService.createOrder(orderData, emptyTruckData);
+      const result = await orderService.createOrder(orderData, emptyTruckData, pumpServiceData);
       
       console.log('Order created successfully:', result);
       
