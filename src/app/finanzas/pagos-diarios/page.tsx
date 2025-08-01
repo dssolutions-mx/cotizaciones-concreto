@@ -146,9 +146,17 @@ async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDa
     // Create a service client for data fetching
     const serviceClient = createServiceClient();
     
-    // Convert dates to the start and end of the day range in UTC format
+    // Convert dates to the start and end of the day range in local timezone (UTC-6)
+    // Adjust for timezone offset to ensure we capture the full day in local time
+    const timezoneOffset = 6 * 60 * 60 * 1000; // 6 hours in milliseconds (UTC-6)
+    
+    // Start of day in local timezone, converted to UTC
     const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
+    startDateTime.setTime(startDateTime.getTime() + timezoneOffset);
+    
+    // End of day in local timezone, converted to UTC
     const endDateTime = new Date(`${endDate}T23:59:59.999Z`);
+    endDateTime.setTime(endDateTime.getTime() + timezoneOffset);
     
     // Fetch payments for the selected date range
     const { data: payments, error } = await serviceClient
@@ -265,9 +273,17 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
     // Create a server-side Supabase client
     const supabase = await createServerSupabaseClient();
     
-    // Convert dates to the start and end of the day range in UTC format
+    // Convert dates to the start and end of the day range in local timezone (UTC-6)
+    // Adjust for timezone offset to ensure we capture the full day in local time
+    const timezoneOffset = 6 * 60 * 60 * 1000; // 6 hours in milliseconds (UTC-6)
+    
+    // Start of day in local timezone, converted to UTC
     const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
+    startDateTime.setTime(startDateTime.getTime() + timezoneOffset);
+    
+    // End of day in local timezone, converted to UTC
     const endDateTime = new Date(`${endDate}T23:59:59.999Z`);
+    endDateTime.setTime(endDateTime.getTime() + timezoneOffset);
     
     // Fetch payments for the selected date range with client information
     const { data, error } = await supabase
@@ -297,9 +313,10 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
     // If we have payments, enhance them with formatted data
     if (data && data.length > 0) {
       payments = data.map(payment => {
-        // Format the payment date to local time
+        // Convert UTC payment date to local timezone (UTC-6)
         const paymentDate = new Date(payment.payment_date);
-        const formattedDate = format(paymentDate, 'dd/MM/yyyy HH:mm');
+        const localPaymentDate = new Date(paymentDate.getTime());
+        const formattedDate = format(localPaymentDate, 'dd/MM/yyyy HH:mm');
         
         return {
           ...payment,
