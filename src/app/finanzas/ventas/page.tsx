@@ -427,57 +427,69 @@ export default function VentasDashboard() {
       );
       
       if (emptyTruckItem) {
-        // Create a virtual remision object for this vacío de olla item
-        const virtualRemision = {
-          id: `vacio-${order.id}-${emptyTruckItem.id}`, // Generate a unique ID
-          remision_number: `V-${order.order_number}`, // Prefix with V for Vacío
-          order_id: order.id,
-          fecha: order.delivery_date, // Use the order's delivery date
-          tipo_remision: 'VACÍO DE OLLA',
-          volumen_fabricado: parseFloat(emptyTruckItem.empty_truck_volume) || parseFloat(emptyTruckItem.volume) || 1,
-          recipe: { recipe_code: 'SER001' }, // Standard code for vacío de olla
-          order: {
-            client_id: order.client_id,
-            order_number: order.order_number,
-            clients: order.clients,
-            requires_invoice: order.requires_invoice
-          },
-          // Flag this as a virtual remision
-          isVirtualVacioDeOlla: true,
-          // Store the original order item for reference
-          originalOrderItem: emptyTruckItem
-        };
+        // Find the remision with the lowest volume for this order to assign its number
+        const orderRemisiones = remisionesData.filter(r => r.order_id === order.id);
         
-        // Apply search filter if needed
-        if (searchTerm) {
-          const term = searchTerm.toLowerCase();
-          const matchesSearch = 
-            virtualRemision.remision_number.toLowerCase().includes(term) ||
-            order.order_number.toLowerCase().includes(term) ||
-            (order.clientName && order.clientName.toLowerCase().includes(term)) ||
-            'VACÍO DE OLLA'.toLowerCase().includes(term) ||
-            'SER001'.includes(term);
+        // Only create virtual remision if there are actual remisiones for this order
+        if (orderRemisiones.length > 0) {
+          // Sort by volume ascending and take the first one (lowest volume)
+          const sortedRemisiones = orderRemisiones.sort((a, b) => 
+            (a.volumen_fabricado || 0) - (b.volumen_fabricado || 0)
+          );
+          const assignedRemisionNumber = sortedRemisiones[0].remision_number;
           
-          if (!matchesSearch) {
-            return; // Skip if doesn't match search
+                    // Create a virtual remision object for this vacío de olla item
+          const virtualRemision = {
+            id: `vacio-${order.id}-${emptyTruckItem.id}`, // Generate a unique ID
+            remision_number: assignedRemisionNumber, // Use the assigned remision number
+            order_id: order.id,
+            fecha: order.delivery_date, // Use the order's delivery date
+            tipo_remision: 'VACÍO DE OLLA',
+            volumen_fabricado: parseFloat(emptyTruckItem.empty_truck_volume) || parseFloat(emptyTruckItem.volume) || 1,
+            recipe: { recipe_code: 'SER001' }, // Standard code for vacío de olla
+            order: {
+              client_id: order.client_id,
+              order_number: order.order_number,
+              clients: order.clients,
+              requires_invoice: order.requires_invoice
+            },
+            // Flag this as a virtual remision
+            isVirtualVacioDeOlla: true,
+            // Store the original order item for reference
+            originalOrderItem: emptyTruckItem
+          };
+          
+          // Apply search filter if needed
+          if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            const matchesSearch = 
+              virtualRemision.remision_number.toLowerCase().includes(term) ||
+              order.order_number.toLowerCase().includes(term) ||
+              (order.clientName && order.clientName.toLowerCase().includes(term)) ||
+              'VACÍO DE OLLA'.toLowerCase().includes(term) ||
+              'SER001'.includes(term);
+            
+            if (!matchesSearch) {
+              return; // Skip if doesn't match search
+            }
           }
-        }
-        
-        // Apply tipo filter if needed in PowerBI layout
-        if (layoutType === 'powerbi' && tipoFilter && tipoFilter !== 'all' && tipoFilter !== 'VACÍO DE OLLA') {
-          return; // Skip if filtered by tipo and not matching
-        }
-        
-        // Apply efectivo/fiscal filter if needed in PowerBI layout
-        if (layoutType === 'powerbi' && efectivoFiscalFilter && efectivoFiscalFilter !== 'all') {
-          const requiresInvoice = efectivoFiscalFilter === 'fiscal';
-          if (order.requires_invoice !== requiresInvoice) {
-            return; // Skip if doesn't match efectivo/fiscal filter
+          
+          // Apply tipo filter if needed in PowerBI layout
+          if (layoutType === 'powerbi' && tipoFilter && tipoFilter !== 'all' && tipoFilter !== 'VACÍO DE OLLA') {
+            return; // Skip if filtered by tipo and not matching
           }
+          
+          // Apply efectivo/fiscal filter if needed in PowerBI layout
+          if (layoutType === 'powerbi' && efectivoFiscalFilter && efectivoFiscalFilter !== 'all') {
+            const requiresInvoice = efectivoFiscalFilter === 'fiscal';
+            if (order.requires_invoice !== requiresInvoice) {
+              return; // Skip if doesn't match efectivo/fiscal filter
+            }
+          }
+          
+          // Add the virtual remision to the combined list
+          combinedRemisiones.push(virtualRemision);
         }
-        
-        // Add the virtual remision to the combined list
-        combinedRemisiones.push(virtualRemision);
       }
     });
     
@@ -1171,16 +1183,18 @@ export default function VentasDashboard() {
           const volume = parseFloat(orderItem.empty_truck_volume) || parseFloat(orderItem.volume) || 1;
           const subtotal = parseFloat(orderItem.total_price) || (price * volume);
           
+          // The remision number should already be assigned correctly from the virtual remision creation
+          const assignedRemisionNumber = remision.remision_number;
+          
           const date = order?.delivery_date ? 
-            new Date(order.delivery_date) : 
+            new Date(order.delivery_date + 'T00:00:00') : 
             new Date();
           const formattedDate = isValid(date) ? 
             format(date, 'dd/MM/yyyy', { locale: es }) : 
             'Fecha inválida';
           
           return {
-            'Remisión': remision.remision_number,
-            'Tipo': remision.tipo_remision,
+            'Remisión': assignedRemisionNumber,
             'Fecha': formattedDate,
             'Cliente': order?.clientName || remision.order?.clients?.business_name || 'N/A',
             'Código Producto': 'SER001',
@@ -1189,8 +1203,7 @@ export default function VentasDashboard() {
             'Precio de Venta': `$${price.toFixed(2)}`,
             'SubTotal': `$${subtotal.toFixed(2)}`,
             'Tipo Facturación': order?.requires_invoice ? 'Fiscal' : 'Efectivo',
-            'Número de Orden': order?.order_number || 'N/A',
-            'Obra': order?.construction_site || 'N/A'
+            'Número de Orden': order?.order_number || 'N/A'
           };
         }
         
@@ -1223,8 +1236,9 @@ export default function VentasDashboard() {
         
         const subtotal = price * displayVolume;
         
+        // Fix date handling to avoid timezone issues
         const date = remision.fecha ? 
-          new Date(remision.fecha) : 
+          new Date(remision.fecha + 'T00:00:00') : 
           new Date();
         const formattedDate = isValid(date) ? 
           format(date, 'dd/MM/yyyy', { locale: es }) : 
@@ -1232,7 +1246,6 @@ export default function VentasDashboard() {
         
         return {
           'Remisión': remision.remision_number,
-          'Tipo': remision.tipo_remision,
           'Fecha': formattedDate,
           'Cliente': order?.clientName || remision.order?.clients?.business_name || 'N/A',
           'Código Producto': remision.tipo_remision === 'BOMBEO' ? 'SER002' : 
@@ -1245,16 +1258,13 @@ export default function VentasDashboard() {
           'Precio de Venta': `$${price.toFixed(2)}`,
           'SubTotal': `$${subtotal.toFixed(2)}`,
           'Tipo Facturación': order?.requires_invoice ? 'Fiscal' : 'Efectivo',
-          'Número de Orden': order?.order_number || 'N/A',
-          'Obra': order?.construction_site || 'N/A',
-          'Resistencia (fc)': remision.recipe?.strength_fc || 'N/A'
+          'Número de Orden': order?.order_number || 'N/A'
         };
       });
 
       // Add summary row
       const summaryRow = {
         'Remisión': 'TOTAL',
-        'Tipo': '',
         'Fecha': '',
         'Cliente': '',
         'Código Producto': '',
@@ -1263,9 +1273,7 @@ export default function VentasDashboard() {
         'Precio de Venta': '',
         'SubTotal': `$${summaryMetrics.totalAmount.toFixed(2)}`,
         'Tipo Facturación': '',
-        'Número de Orden': '',
-        'Obra': '',
-        'Resistencia (fc)': ''
+        'Número de Orden': ''
       };
 
       excelData.push(summaryRow);
@@ -1277,7 +1285,6 @@ export default function VentasDashboard() {
       // Set column widths
       const columnWidths = [
         { wch: 15 }, // Remisión
-        { wch: 12 }, // Tipo
         { wch: 12 }, // Fecha
         { wch: 25 }, // Cliente
         { wch: 15 }, // Código Producto
@@ -1286,9 +1293,7 @@ export default function VentasDashboard() {
         { wch: 15 }, // Precio de Venta
         { wch: 15 }, // SubTotal
         { wch: 15 }, // Tipo Facturación
-        { wch: 15 }, // Número de Orden
-        { wch: 25 }, // Obra
-        { wch: 12 }  // Resistencia
+        { wch: 15 }  // Número de Orden
       ];
       worksheet['!cols'] = columnWidths;
 
@@ -1588,7 +1593,7 @@ export default function VentasDashboard() {
                                 
                                 // Format date from order delivery_date
                                 const date = order?.delivery_date ? 
-                                  new Date(order.delivery_date) : 
+                                  new Date(order.delivery_date + 'T00:00:00') : 
                                   new Date();
                                 const formattedDate = isValid(date) ? 
                                   format(date, 'dd/MM/yyyy', { locale: es }) : 
@@ -1651,7 +1656,7 @@ export default function VentasDashboard() {
                               
                               // Format date
                               const date = remision.fecha ? 
-                                new Date(remision.fecha) : 
+                                new Date(remision.fecha + 'T00:00:00') : 
                                 new Date();
                               const formattedDate = isValid(date) ? 
                                 format(date, 'dd/MM/yyyy', { locale: es }) : 
