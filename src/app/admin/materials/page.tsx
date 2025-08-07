@@ -6,6 +6,9 @@ import { Material } from '@/types/recipes';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { Plus, Edit, Trash2, Eye, Search } from 'lucide-react';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import AddMaterialModal from '@/components/materials/AddMaterialModal';
+import EditMaterialModal from '@/components/materials/EditMaterialModal';
+import { showSuccess, showError } from '@/lib/utils/toast';
 
 export default function MaterialsManagementPage() {
   const { currentPlant } = usePlantContext();
@@ -15,7 +18,9 @@ export default function MaterialsManagementPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
+  const [materialToEdit, setMaterialToEdit] = useState<Material | null>(null);
 
   useEffect(() => {
     loadMaterials();
@@ -31,6 +36,28 @@ export default function MaterialsManagementPage() {
       setError('Error al cargar los materiales');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleMaterialSuccess = () => {
+    loadMaterials();
+  };
+
+  const handleEditMaterial = (material: Material) => {
+    setMaterialToEdit(material);
+    setShowEditModal(true);
+  };
+
+  const handleDeleteMaterial = async (material: Material) => {
+    if (confirm(`¿Está seguro de que desea eliminar el material "${material.material_name}"?`)) {
+      try {
+        await recipeService.deleteMaterial(material.id);
+        showSuccess('Material eliminado exitosamente');
+        loadMaterials();
+      } catch (error) {
+        console.error('Error deleting material:', error);
+        showError('Error al eliminar el material');
+      }
     }
   };
 
@@ -223,7 +250,7 @@ export default function MaterialsManagementPage() {
                       </button>
                       <RoleProtectedButton
                         allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
-                        onClick={() => {/* Handle edit */}}
+                        onClick={() => handleEditMaterial(material)}
                         className="text-green-600 hover:text-green-900"
                         showDisabled={false}
                       >
@@ -231,7 +258,7 @@ export default function MaterialsManagementPage() {
                       </RoleProtectedButton>
                       <RoleProtectedButton
                         allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
-                        onClick={() => {/* Handle delete */}}
+                        onClick={() => handleDeleteMaterial(material)}
                         className="text-red-600 hover:text-red-900"
                         showDisabled={false}
                       >
@@ -331,6 +358,25 @@ export default function MaterialsManagementPage() {
           </div>
         </div>
       )}
+
+      {/* Add Material Modal */}
+      <AddMaterialModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSuccess={handleMaterialSuccess}
+        plantId={currentPlant?.id}
+      />
+
+      {/* Edit Material Modal */}
+      <EditMaterialModal
+        isOpen={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setMaterialToEdit(null);
+        }}
+        onSuccess={handleMaterialSuccess}
+        material={materialToEdit}
+      />
     </div>
   );
 } 

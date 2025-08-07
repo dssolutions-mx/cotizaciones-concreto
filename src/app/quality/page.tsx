@@ -9,7 +9,7 @@ import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
 import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter } from 'lucide-react';
 import { fetchMetricasCalidad, fetchDatosGraficoResistencia, checkDatabaseContent } from '@/services/qualityService';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -51,7 +51,7 @@ import type { ScatterItemIdentifier } from '@mui/x-charts';
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 export default function QualityDashboardPage() {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: new Date('2025-03-28'),
     to: new Date('2025-05-28')

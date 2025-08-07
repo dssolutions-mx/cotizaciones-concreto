@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { UserRole } from '@/contexts/AuthContext';
+import type { UserRole } from '@/store/auth/types';
 
 export const dynamic = 'force-dynamic';
 

@@ -33,7 +33,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { fetchMuestrasPendientes } from '@/services/qualityService';
 import type { MuestraWithRelations } from '@/types/quality';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { DateFilter } from '@/components/ui/DateFilter';
 import { DayPicker, DayProps as RDPDayProps, Day as DefaultDay } from 'react-day-picker';
 import type { Modifiers } from 'react-day-picker';
@@ -41,7 +41,7 @@ import { formatDate, createSafeDate } from '@/lib/utils';
 
 export default function EnsayosPage() {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [muestras, setMuestras] = useState<MuestraWithRelations[]>([]);
   const [filteredMuestras, setFilteredMuestras] = useState<MuestraWithRelations[]>([]);
   const [loading, setLoading] = useState(true);

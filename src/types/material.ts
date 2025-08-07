@@ -20,6 +20,12 @@ export interface Material {
   plant_id?: string;
   created_at: string;
   updated_at: string;
+  cost?: number | null; // Cost from material_prices table
+}
+
+// Interface for materials with pricing information
+export interface MaterialWithPrice extends Material {
+  cost: number | null; // Required cost property for calculator
 }
 
 export interface MaterialCategory {

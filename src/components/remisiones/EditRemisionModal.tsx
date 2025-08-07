@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { toast } from 'sonner';
 
 interface EditRemisionModalProps {
@@ -50,7 +50,7 @@ const MATERIAL_NAMES: Record<string, string> = {
 };
 
 export default function EditRemisionModal({ isOpen, onClose, remision, onSuccess }: EditRemisionModalProps) {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [loading, setLoading] = useState(false);
   const [loadingData, setLoadingData] = useState(false);
   const [recipes, setRecipes] = useState<any[]>([]);

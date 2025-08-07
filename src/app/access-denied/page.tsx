@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 
 export default function AccessDeniedPage() {
-  const { isAuthenticated, signOut } = useAuth();
+  const { session, signOut } = useAuthBridge();
+  const isAuthenticated = !!session?.user;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 p-4">

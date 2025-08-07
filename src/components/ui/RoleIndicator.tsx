@@ -1,6 +1,7 @@
 'use client';
 
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import type { UserRole } from '@/store/auth/types';
 import { ReactNode } from 'react';
 
 interface RoleIndicatorProps {
@@ -27,7 +28,7 @@ export default function RoleIndicator({
   showIcon = true,
   className = '',
 }: RoleIndicatorProps) {
-  const { hasRole, profile } = useAuth();
+  const { hasRole, profile } = useAuthBridge();
   
   // Check if user has any of the allowed roles
   const hasPermission = hasRole(allowedRoles);

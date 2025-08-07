@@ -6,8 +6,7 @@ import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import orderService from '@/services/orderService';
 import { OrderWithClient, CreditStatus } from '@/types/orders';
-import { useAuth } from '@/contexts/AuthContext';
-import { UserRole } from '@/types/auth';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 
 export default function CreditValidationTab() {
   const [orders, setOrders] = useState<OrderWithClient[]>([]);
@@ -18,7 +17,7 @@ export default function CreditValidationTab() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   // Determine if user is a credit validator (fix type issue)
   const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;

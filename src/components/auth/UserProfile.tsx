@@ -2,12 +2,12 @@
 
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { UserCircle, LogOut, Settings, UserCog } from 'lucide-react';
 import Link from 'next/link';
 
 export default function UserProfile() {
-  const { profile, signOut, isLoading, session } = useAuth();
+  const { profile, signOut, isLoading, session } = useAuthBridge();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();

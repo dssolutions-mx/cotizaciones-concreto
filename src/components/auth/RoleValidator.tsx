@@ -1,11 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { ROLE_TEST_CASES, validateRoleChecks, ROLE_DESCRIPTIONS } from '@/lib/auth/roleUtils';
 
 export default function RoleValidator() {
-  const { profile, hasRole } = useAuth();
+  const { profile, hasRole } = useAuthBridge();
   const [showResults, setShowResults] = useState(false);
   const [testResults, setTestResults] = useState<ReturnType<typeof validateRoleChecks> | null>(null);
   

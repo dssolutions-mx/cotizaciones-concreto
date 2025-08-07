@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import type { UserRole } from '@/store/auth/types';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import RoleGuard from '@/components/auth/RoleGuard';
 import Link from 'next/link';
 import { authService } from '@/lib/supabase/auth';
@@ -15,7 +16,7 @@ export default function CreateUserPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { user } = useAuth(); // Get the current authenticated user
+  const { session } = useAuthBridge(); // Get the current authenticated user
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,8 +33,8 @@ export default function CreateUserPage() {
         firstName,
         lastName,
         role,
-        callerId: user?.id,
-        callerEmail: user?.email
+        callerId: session?.user?.id,
+        callerEmail: session?.user?.email
       });
 
       setSuccess(`Usuario ${email} creado con éxito`);

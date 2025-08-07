@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { es } from 'date-fns/locale';
 import {
@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDate, createSafeDate } from '@/lib/utils';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -67,10 +67,10 @@ const ensayoFormSchema = z.object({
 
 type EnsayoFormValues = z.infer<typeof ensayoFormSchema>;
 
-export default function NuevoEnsayoPage() {
+function NuevoEnsayoContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [muestra, setMuestra] = useState<MuestraWithRelations | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(true);
@@ -872,4 +872,23 @@ export default function NuevoEnsayoPage() {
       )}
     </div>
   );
-} 
+}
+
+function NuevoEnsayoLoading() {
+  return (
+    <div className="container mx-auto p-4 md:p-6">
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2 text-gray-600">Cargando formulario de ensayo...</span>
+      </div>
+    </div>
+  );
+}
+
+export default function NuevoEnsayoPage() {
+  return (
+    <Suspense fallback={<NuevoEnsayoLoading />}> 
+      <NuevoEnsayoContent />
+    </Suspense>
+  );
+}

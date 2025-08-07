@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { priceService } from '@/lib/supabase/prices';
 import { usePlantContext } from '@/contexts/PlantContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 
@@ -28,7 +28,7 @@ interface MaterialPriceFormProps {
 
 export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
   const { userAccess, isGlobalAdmin, currentPlant } = usePlantContext();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   // Plant selection state for material price creation
   const [selectedPlantId, setSelectedPlantId] = useState<string | null>(() => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, Suspense } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import QuoteBuilder from '@/components/prices/QuoteBuilder';
 import DraftQuotesTab from '@/components/quotes/DraftQuotesTab';
 import PendingApprovalTab from '@/components/quotes/PendingApprovalTab';
@@ -27,7 +27,7 @@ interface TabDefinition {
 
 // QuotesContent component to handle searchParams and navigation
 function QuotesContent() {
-  const { profile, hasRole } = useAuth();
+  const { profile, hasRole } = useAuthBridge();
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();

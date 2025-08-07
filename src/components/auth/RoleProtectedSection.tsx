@@ -1,7 +1,8 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import type { UserRole } from '@/store/auth/types';
 import AccessDeniedMessage from '@/components/ui/AccessDeniedMessage';
 
 interface RoleProtectedSectionProps {
@@ -29,7 +30,7 @@ export default function RoleProtectedSection({
   action = 'acceder a esta sección',
   className = '',
 }: RoleProtectedSectionProps) {
-  const { hasRole } = useAuth();
+  const { hasRole } = useAuthBridge();
   
   // Check if user has any of the allowed roles
   const hasPermission = hasRole(allowedRoles);

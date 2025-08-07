@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Plus, Search, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
@@ -22,7 +22,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
   onClose,
   onSuccess
 }) => {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const { userAccess, isGlobalAdmin, currentPlant } = usePlantContext();
   
   const [isSubmitting, setIsSubmitting] = useState(false);

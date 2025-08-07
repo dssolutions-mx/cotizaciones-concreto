@@ -38,6 +38,7 @@ export interface Material {
   primary_supplier?: string;
   supplier_code?: string;
   supplier_specifications?: Record<string, any>;
+  notes?: string;
   is_active: boolean;
   plant_id?: string;
   created_at?: Date;

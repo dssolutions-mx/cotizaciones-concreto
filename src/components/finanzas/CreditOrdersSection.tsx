@@ -26,8 +26,7 @@ import { orderService } from '@/lib/supabase/orders';
 import { useToast } from "@/components/ui/use-toast";
 import type { OrderWithClient } from '@/types/orders';
 import { formatCurrency } from '@/lib/utils';
-import { useAuth } from '@/contexts/AuthContext';
-import { UserRole } from '@/types/auth';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { 
   CalendarIcon, 
   ClockIcon, 
@@ -51,7 +50,7 @@ export function CreditOrdersSection({ orders }: CreditOrdersSectionProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [modifiedOrders, setModifiedOrders] = useState<OrderWithClient[]>(orders);
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const { toast } = useToast();
 
   // Determine user role and permissions

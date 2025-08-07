@@ -39,7 +39,7 @@ import {
   Calculator
 } from 'lucide-react';
 import { fetchEnsayoById } from '@/services/qualityService';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { EnsayoWithRelations } from '@/types/quality';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -48,7 +48,7 @@ import { formatDate, createSafeDate } from '@/lib/utils';
 export default function EnsayoDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [ensayo, setEnsayo] = useState<EnsayoWithRelations | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

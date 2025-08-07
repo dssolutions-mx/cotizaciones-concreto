@@ -4,7 +4,6 @@ import React, { useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import OrderDetails from '@/components/orders/OrderDetails';
 import RoleGuard from '@/components/auth/RoleGuard';
-import { useAuth } from '@/contexts/AuthContext';
 
 interface OrderDetailClientProps {
   orderId: string;

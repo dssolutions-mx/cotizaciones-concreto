@@ -1,7 +1,8 @@
 'use client';
 
 import { ReactNode, ButtonHTMLAttributes } from 'react';
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import type { UserRole } from '@/store/auth/types';
 
 interface RoleProtectedButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   allowedRoles: UserRole | UserRole[];
@@ -29,7 +30,7 @@ export default function RoleProtectedButton({
   disabledMessage = 'No tienes permiso para realizar esta acción',
   ...props
 }: RoleProtectedButtonProps) {
-  const { hasRole } = useAuth();
+  const { hasRole } = useAuthBridge();
   
   const hasPermission = hasRole(allowedRoles);
   

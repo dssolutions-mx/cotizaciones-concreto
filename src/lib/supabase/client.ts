@@ -14,12 +14,12 @@ export function createClient() {
     {
       auth: {
         // These are default values in ssr/browser client but explicitly set for clarity
-        persistSession: true, 
+        persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true, // Default: true
         flowType: 'pkce', // Default: 'pkce'
-        // Keep debug logs in development
-        debug: process.env.NODE_ENV === 'development', 
+        // Silence GoTrueClient debug logs universally
+        debug: false,
       },
       global: {
         // Keep essential headers

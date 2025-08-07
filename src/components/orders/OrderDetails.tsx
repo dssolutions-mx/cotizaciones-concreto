@@ -9,7 +9,8 @@ import { fetchAvailableRecipes } from '@/services/recipeService';
 import { OrderWithDetails, OrderStatus, CreditStatus } from '@/types/order';
 import { ConstructionSite, ClientBalance } from '@/types/client';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import type { UserRole } from '@/store/auth/types';
 import RegistroRemision from '@/components/remisiones/RegistroRemision';
 import RemisionesList, { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
 import OrderDetailsBalance from './OrderDetailsBalance';
@@ -68,7 +69,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = searchParams.get('returnTo');
-  const { profile, hasRole } = useAuth();
+  const { profile, hasRole } = useAuthBridge();
   const [order, setOrder] = useState<OrderWithDetails | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);

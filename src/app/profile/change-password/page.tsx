@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
 
 export default function ChangePasswordPage() {
-  const { session, isLoading: authLoading, signOut } = useAuth();
+  const { session, isLoading: authLoading, signOut } = useAuthBridge();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);

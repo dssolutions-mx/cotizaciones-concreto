@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useRouter } from 'next/navigation';
 import { authService } from '@/lib/supabase/auth';
 import PlantAssignmentDisplay from '@/components/plants/PlantAssignmentDisplay';
 
 export default function ProfilePage() {
-  const { profile, isLoading } = useAuth();
+  const { profile, isLoading } = useAuthBridge();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [saving, setSaving] = useState(false);

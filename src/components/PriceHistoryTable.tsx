@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { ClientPriceData, RecipePriceData, PriceEntry } from '@/types/priceHistory';
 
 interface PriceHistoryTableProps {
@@ -115,7 +115,7 @@ const calculateAveragePrice = (data: ClientPriceData[] | RecipePriceData[], reci
 };
 
 export const PriceHistoryTable: React.FC<PriceHistoryTableProps> = ({ data, groupBy }) => {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [expandedSites, setExpandedSites] = useState<Set<string>>(new Set());
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());

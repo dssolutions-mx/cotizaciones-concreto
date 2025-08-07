@@ -36,7 +36,7 @@ import {
   Clock
 } from 'lucide-react';
 import { fetchMuestreoById } from '@/services/qualityService';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { MuestreoWithRelations } from '@/types/quality';
 import Link from 'next/link';
 import { formatDate, createSafeDate } from '@/lib/utils';
@@ -44,7 +44,7 @@ import { formatDate, createSafeDate } from '@/lib/utils';
 export default function MuestreoDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [muestreo, setMuestreo] = useState<MuestreoWithRelations | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

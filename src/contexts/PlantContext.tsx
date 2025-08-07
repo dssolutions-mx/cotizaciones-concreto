@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase/client';
 import type { Plant, BusinessUnit, UserPlantAccess, PlantContextType } from '@/types/plant';
 
@@ -20,7 +20,7 @@ interface PlantProviderProps {
 }
 
 export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
-  const { profile, session } = useAuth();
+  const { profile, session } = useAuthBridge();
   const [currentPlant, setCurrentPlant] = useState<Plant | null>(null);
   const [availablePlants, setAvailablePlants] = useState<Plant[]>([]);
   const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);

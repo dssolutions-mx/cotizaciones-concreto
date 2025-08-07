@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { useAuthStore } from '@/store/auth';
 
 export default function AuthStatusIndicator() {
-  const { session, isLoading, refreshSession } = useAuth();
+  const { session, isLoading } = useAuthBridge();
+  const refreshSessionNow = useAuthStore((s) => s.refreshSessionNow);
   const [showDetails, setShowDetails] = useState(false);
   const [countdown, setCountdown] = useState<string>('');
   const [isClient, setIsClient] = useState(false);
@@ -140,7 +142,7 @@ export default function AuthStatusIndicator() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                refreshSession();
+                void refreshSessionNow();
               }}
               disabled={isLoading}
               className="text-xs bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded disabled:opacity-50"

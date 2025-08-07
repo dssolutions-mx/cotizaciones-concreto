@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 
 // Define Recipe type inline if import is problematic
 interface Recipe {
@@ -50,7 +50,7 @@ const MATERIAL_NAMES: Record<string, string> = {
 };
 
 export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeIds }: RemisionManualFormProps) {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [tipoRemision, setTipoRemision] = useState<'CONCRETO' | 'BOMBEO'>('BOMBEO');
   const [formData, setFormData] = useState({
     remisionNumber: '',

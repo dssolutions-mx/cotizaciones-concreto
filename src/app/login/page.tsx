@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 
@@ -16,7 +16,7 @@ function LoginForm() {
   const [loginAttempted, setLoginAttempted] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signIn, isAuthenticated } = useAuth();
+  const { signIn, session } = useAuthBridge();
 
   // Listen for auth state changes to improve login flow
   useEffect(() => {
@@ -142,7 +142,8 @@ function LoginForm() {
                   auth: { 
                     persistSession: false, // Critical: don't persist this session
                     storageKey: `logout-${Date.now()}`, // Use a unique key to avoid conflicts
-                    autoRefreshToken: false // Don't refresh tokens automatically
+                    autoRefreshToken: false, // Don't refresh tokens automatically
+                    debug: false
                   }
                 }
               );
@@ -161,7 +162,9 @@ function LoginForm() {
                 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
                 { 
                   auth: { 
-                    persistSession: false
+                    persistSession: false,
+                    autoRefreshToken: false,
+                    debug: false
                   }
                 }
               );
@@ -206,10 +209,10 @@ function LoginForm() {
 
   // Redirect to dashboard if already authenticated
   useEffect(() => {
-    if (isAuthenticated) {
+    if (session) {
       router.push('/dashboard');
     }
-  }, [isAuthenticated, router]);
+  }, [session, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,21 +223,18 @@ function LoginForm() {
 
     try {
       const { error } = await signIn(email, password);
-      
       if (error) {
+        const msg = typeof error === 'string' ? error : (error as any)?.message || '';
         console.error('Login error details:', error);
-        
-        // Check for specific error types
-        if (error.message?.includes('profile not found')) {
+        if (msg.includes('profile not found')) {
           setError('Tu cuenta existe pero no tiene un perfil asociado. Por favor, contacta al administrador.');
-        } else if (error.message?.includes('Invalid login credentials')) {
+        } else if (msg.includes('Invalid login credentials')) {
           setError('Credenciales inválidas. Por favor, verifica tu correo y contraseña.');
-        } else if (error.message?.includes('Email not confirmed')) {
+        } else if (msg.includes('Email not confirmed')) {
           setError('Tu correo electrónico no ha sido confirmado. Por favor, revisa tu bandeja de entrada.');
         } else {
-          setError(`Error al iniciar sesión: ${error.message || 'Credenciales inválidas'}`);
+          setError(`Error al iniciar sesión: ${msg || 'Credenciales inválidas'}`);
         }
-        
         setLoading(false);
         setLoginAttempted(false);
       }

@@ -6,7 +6,7 @@ import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import orderService from '@/services/orderService';
 import { OrderWithClient, OrderStatus, CreditStatus, OrderItem } from '@/types/orders';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
 import { supabase } from '@/lib/supabase';
 import { CalendarIcon, MixerHorizontalIcon } from '@radix-ui/react-icons';
@@ -58,7 +58,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   useEffect(() => {
     if (preferences.calendarViewType !== viewType) {

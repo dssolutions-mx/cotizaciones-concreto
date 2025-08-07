@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import RemisionPdfExtractor from './RemisionPdfExtractor';
 import VerificationModal from './VerificationModal';
 import RemisionManualForm from './RemisionManualForm';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { FileUp } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -63,7 +63,7 @@ export default function RegistroRemision({
     failed: 0,
     errors: [] as {remision: string; error: string}[]
   });
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   // Solo permitir a dosificadores y roles superiores
   const canCreateRemisiones = profile?.role === 'DOSIFICADOR' || 

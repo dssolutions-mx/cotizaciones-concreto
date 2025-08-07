@@ -1,4 +1,4 @@
-import { UserRole } from '@/contexts/AuthContext';
+import type { UserRole } from '@/store/auth/types';
 
 /**
  * Interface for user profile data to be cached

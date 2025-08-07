@@ -1,4 +1,4 @@
-import { UserRole } from '@/contexts/AuthContext';
+import type { UserRole } from '@/store/auth/types';
 
 /**
  * Type definitions for permission checking

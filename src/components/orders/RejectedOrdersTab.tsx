@@ -6,7 +6,7 @@ import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import orderService from '@/services/orderService';
 import { OrderWithClient } from '@/types/orders';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 
 // Define an extended type for orders with groupDate
 interface OrderWithGroupDate extends OrderWithClient {
@@ -18,7 +18,7 @@ export default function RejectedOrdersTab() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   useEffect(() => {
     loadRejectedOrders();

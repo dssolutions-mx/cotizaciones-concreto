@@ -4,18 +4,18 @@ import React, { useState } from 'react';
 import { RecipeList } from '@/components/recipes/RecipeList';
 import { RecipeSearchModal } from '@/components/recipes/RecipeSearchModal';
 import Link from 'next/link';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleIndicator from '@/components/ui/RoleIndicator';
 import * as XLSX from 'xlsx-js-style';
 import { recipeService } from '@/lib/supabase/recipes';
 import { calculateBasePrice } from '@/lib/utils/priceCalculator';
-import { FileDown, Plus, Upload, Search, Filter } from 'lucide-react';
+import { FileDown, Plus, Upload, Search, Filter, Calculator } from 'lucide-react';
 import { AddRecipeModal } from '@/components/recipes/AddRecipeModal';
 import { RecipeSearchResult } from '@/types/recipes';
 
 export default function RecipesPage() {
-  const { hasRole } = useAuth();
+  const { hasRole } = useAuthBridge();
   const [isExporting, setIsExporting] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
@@ -131,6 +131,20 @@ export default function RecipesPage() {
         <h1 className="text-2xl font-bold">Recetas de Concreto</h1>
         
         <div className="flex items-center gap-3">
+          {/* Mix Calculator Button */}
+          <RoleProtectedButton
+            allowedRoles={['QUALITY_TEAM', 'EXECUTIVE']}
+            onClick={() => {}} // Link handles the navigation
+            className="bg-indigo-500 text-white px-4 py-2 rounded hover:bg-indigo-600 inline-flex items-center gap-2"
+            showDisabled={true}
+            disabledMessage="Solo el equipo de calidad y ejecutivos pueden usar la calculadora de mezclas"
+          >
+            <Link href="/recipes/calculator" className="inline-flex items-center gap-2">
+              <Calculator size={18} />
+              Calculadora de Mezclas
+            </Link>
+          </RoleProtectedButton>
+
           {/* Search Button */}
           <RoleProtectedButton
             allowedRoles={['QUALITY_TEAM', 'EXECUTIVE', 'SALES_AGENT']}

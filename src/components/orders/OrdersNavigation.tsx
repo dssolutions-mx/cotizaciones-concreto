@@ -18,7 +18,7 @@ import {
   PlusIcon,
 } from '@radix-ui/react-icons';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 
 // Define Tab types for better management
 type OrderTab = 'list' | 'calendar' | 'credit' | 'rejected' | 'create';
@@ -71,7 +71,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   // Use refs for initial values to avoid re-renders
   const currentTab = React.useMemo(() => 

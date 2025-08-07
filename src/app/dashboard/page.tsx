@@ -18,7 +18,7 @@ import {
   Award,
   BarChart3
 } from 'lucide-react';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 
 // Componentes
@@ -622,7 +622,7 @@ const PendingQuotesList = ({ isLoading }: ChartProps) => {
 
 // Create a DashboardContent component to be wrapped in Suspense
 function DashboardContent() {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const { dashboardData, isLoading: isLoadingDashboard, isError } = useDashboardData();
   const { quotesData, pendingQuotes, isLoading: isLoadingQuotes } = useQuotesData();
   const { salesData, isLoading: isLoadingSales } = useSalesData();

@@ -37,7 +37,7 @@ import {
   ChevronRight
 } from 'lucide-react';
 import type { DateRange } from "react-day-picker";
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { 
   fetchResistenciaReporteData,
   fetchEficienciaReporteData,
@@ -163,7 +163,7 @@ const getResistenciaForDisplay = (muestras: any[], fallbackValue: number = 0): n
 };
 
 export default function ReportesPage() {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   // Estados para filtrado
   const [dateRange, setDateRange] = useState<DateRange | undefined>({

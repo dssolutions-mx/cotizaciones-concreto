@@ -33,13 +33,13 @@ import { Loader2, AlertTriangle, Plus, FileText, ChevronRight, Filter, X } from 
 import { Badge } from "@/components/ui/badge";
 import { fetchMuestreos } from '@/services/qualityService';
 import type { MuestreoWithRelations } from '@/types/quality';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { subMonths } from 'date-fns';
 import { formatDate } from '@/lib/utils';
 
 export default function MuestreosPage() {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [muestreos, setMuestreos] = useState<MuestreoWithRelations[]>([]);
   const [filteredMuestreos, setFilteredMuestreos] = useState<MuestreoWithRelations[]>([]);
   const [loading, setLoading] = useState(true);

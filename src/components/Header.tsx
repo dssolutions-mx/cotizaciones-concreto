@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { LogOut, User, Menu } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuthBridge } from "@/adapters/auth-context-bridge";
 
 export default function Header() {
-  const { session, profile, isLoading } = useAuth();
+  const { session, profile, isLoading } = useAuthBridge();
 
   return (
     <header className="h-16 border-b bg-white fixed top-0 left-0 right-0 z-10">

@@ -18,11 +18,11 @@ import { fetchPriceHistoryByClient, fetchPriceHistoryByRecipe } from '@/services
 import type { PriceHistoryFilters, ClientPriceHistory, RecipePriceHistory, ViewMode } from '@/types/priceHistory';
 import type { DateRange } from 'react-day-picker';
 import { PostgrestError } from '@supabase/supabase-js';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { QualityTeamAccessDenied } from '@/components/QualityTeamAccessDenied';
 
 export default function PriceHistoryPage() {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [groupBy, setGroupBy] = useState<'client' | 'recipe'>('client');
   const [filters, setFilters] = useState<PriceHistoryFilters>({});

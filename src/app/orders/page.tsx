@@ -2,8 +2,7 @@
 
 import React, { useState, Suspense, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { UserRole } from '@/types/auth';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import RoleGuard from '@/components/auth/RoleGuard';
 import OrdersList from '@/components/orders/OrdersList';
 import CreditValidationTab from '@/components/orders/CreditValidationTab';
@@ -19,7 +18,7 @@ const ORDERS_PAGE_STATE = 'orders_page_state';
 
 // Separate component to use searchParams
 function OrdersContent() {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const searchParams = useSearchParams();
   const router = useRouter();
   const { 

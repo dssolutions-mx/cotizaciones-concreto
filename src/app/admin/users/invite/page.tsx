@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { UserRole } from '@/contexts/AuthContext';
+import type { UserRole } from '@/store/auth/types';
 import RoleGuard from '@/components/auth/RoleGuard';
 import Link from 'next/link';
 import { authService } from '@/lib/supabase/auth';

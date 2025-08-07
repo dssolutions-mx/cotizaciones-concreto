@@ -1,6 +1,6 @@
 'use client';
 
-import { UserRole } from '@/contexts/AuthContext';
+import type { UserRole } from '@/store/auth/types';
 
 interface AccessDeniedMessageProps {
   action: string;

@@ -50,7 +50,7 @@ import {
 } from 'lucide-react';
 import RemisionesPicker from '@/components/quality/RemisionesPicker';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -400,7 +400,7 @@ export async function createMuestreoWithSamples(data: MuestreoFormValues & { cre
 
 export default function NuevoMuestreoPage() {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const [activeStep, setActiveStep] = useState(0);
   const [orders, setOrders] = useState<any[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<any[]>([]);

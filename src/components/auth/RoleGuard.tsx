@@ -2,8 +2,8 @@
 
 import { ReactNode, useEffect, useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
-import { UserRole } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import type { UserRole } from '@/store/auth/types';
 
 interface RoleGuardProps {
   children: ReactNode;
@@ -18,7 +18,7 @@ export default function RoleGuard({
   redirectTo = '/access-denied',
   showMessage = false
 }: RoleGuardProps) {
-  const { isLoading, profile, session } = useAuth();
+  const { isLoading, profile, session } = useAuthBridge();
   const router = useRouter();
   const [isClient, setIsClient] = useState(false);
   

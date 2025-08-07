@@ -27,8 +27,7 @@ import {
   CreditCard,
   Building2
 } from 'lucide-react';
-import { AuthContextProvider } from '@/contexts/AuthContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider } from '@/contexts/PlantContext';
 import ProfileMenu from '@/components/auth/ProfileMenu';
 import AuthStatusIndicator from '@/components/auth/AuthStatusIndicator';
@@ -36,8 +35,8 @@ import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { Inter } from 'next/font/google';
 import { OrderPreferencesProvider } from '@/contexts/OrderPreferencesContext';
 import { Toaster as SonnerToaster } from 'sonner';
-import SessionManager from '@/components/session-manager';
 import { cn } from '@/lib/utils';
+import AuthInitializer from '@/components/auth/auth-initializer';
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
@@ -115,7 +114,7 @@ const qualitySubMenuItems = [
 
 // Componente interno para navegación con soporte de roles
 function Navigation({ children }: { children: React.ReactNode }) {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const isLandingRoute = pathname?.startsWith('/landing');
@@ -598,19 +597,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       {/* Body doesn't need conditional class anymore based on route */}
       <body className="bg-gray-100" suppressHydrationWarning>
-        <AuthContextProvider>
-          <PlantProvider>
-            <OrderPreferencesProvider>
-              <SessionManager /> {/* Manage session within auth context */}
-              <ErrorBoundary>
-                {/* Always render Navigation; it will handle landing internally */}
-                <Navigation>{children}</Navigation> 
-              </ErrorBoundary>
-              <Toaster />
-              <SonnerToaster position="top-right" richColors/>
-            </OrderPreferencesProvider>
-          </PlantProvider>
-        </AuthContextProvider>
+        {/* Initialize Zustand auth store */}
+        <AuthInitializer />
+        <PlantProvider>
+          <OrderPreferencesProvider>
+            <ErrorBoundary>
+              {/* Always render Navigation; it will handle landing internally */}
+              <Navigation>{children}</Navigation>
+            </ErrorBoundary>
+            <Toaster />
+            <SonnerToaster position="top-right" richColors/>
+          </OrderPreferencesProvider>
+        </PlantProvider>
       </body>
     </html>
   );

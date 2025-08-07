@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase/client'; // Adjusted path
-import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
+import { useAuthBridge } from '@/adapters/auth-context-bridge'; // Import bridge
 
 interface RemisionProductosAdicionalesListProps {
   remisionId: string;
@@ -23,7 +23,7 @@ const RemisionProductosAdicionalesList: React.FC<RemisionProductosAdicionalesLis
 }) => {
   const [productos, setProductos] = useState<ProductoAdicional[]>([]);
   const [loading, setLoading] = useState(true);
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
 
   // Verificar permisos para eliminar productos
   const canDeleteProducts = profile?.role === 'PLANT_MANAGER' || profile?.role === 'EXECUTIVE';

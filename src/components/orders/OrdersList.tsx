@@ -6,7 +6,7 @@ import { es } from 'date-fns/locale';
 import orderService from '@/services/orderService';
 import { OrderWithClient, OrderStatus, CreditStatus } from '@/types/orders';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import Link from 'next/link';
 
 type AmountFilter = 'all' | 'final' | 'preliminary';
@@ -236,7 +236,7 @@ export default function OrdersList({
   const [amountFilter, setAmountFilter] = useState<AmountFilter>('all');
   
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   // Check if user is a dosificador
   const isDosificador = profile?.role === 'DOSIFICADOR';

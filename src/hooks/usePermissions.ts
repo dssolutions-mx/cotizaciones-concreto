@@ -1,4 +1,5 @@
-import { useAuth, UserRole } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import type { UserRole } from '@/store/auth/types';
 
 // Define the permissions map based on roles
 export const PERMISSIONS = {
@@ -71,7 +72,7 @@ const permissionsByRole: Record<UserRole, Permission[]> = {
 };
 
 export function usePermissions() {
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   /**
    * Check if the current user has the specified permission

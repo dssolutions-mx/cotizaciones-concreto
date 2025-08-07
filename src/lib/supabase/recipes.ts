@@ -684,5 +684,56 @@ export const recipeService = {
       console.error(errorMessage);
       return { data: null, error: errorMessage };
     }
+  },
+
+  // Material management functions
+  async createMaterial(materialData: Omit<Material, 'id' | 'created_at' | 'updated_at'>): Promise<Material> {
+    try {
+      const { data, error } = await supabase
+        .from('materials')
+        .insert([materialData])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      const errorMessage = handleError(error, 'createMaterial');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  async updateMaterial(materialId: string, materialData: Partial<Material>): Promise<Material> {
+    try {
+      const { data, error } = await supabase
+        .from('materials')
+        .update(materialData)
+        .eq('id', materialId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      const errorMessage = handleError(error, 'updateMaterial');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  async deleteMaterial(materialId: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('materials')
+        .delete()
+        .eq('id', materialId);
+
+      if (error) throw error;
+    } catch (error) {
+      const errorMessage = handleError(error, 'deleteMaterial');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
   }
 }; 

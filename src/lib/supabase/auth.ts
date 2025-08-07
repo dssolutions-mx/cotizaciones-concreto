@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { UserRole } from '@/contexts/AuthContext';
+import type { UserRole } from '@/store/auth/types';
 
 // Verify Supabase environment variables
 function verifySupabaseConfig() {

@@ -5,7 +5,7 @@ import { MaterialPriceForm } from '@/components/prices/MaterialPriceForm';
 import { MaterialPriceList } from '@/components/prices/MaterialPriceList';
 import { AdminCostForm } from '@/components/prices/AdminCostForm';
 import { AdminCostList } from '@/components/prices/AdminCostList';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import AccessDeniedMessage from '@/components/ui/AccessDeniedMessage';
 
@@ -20,7 +20,7 @@ type TabId = typeof TABS[number]['id'];
 export default function PricesPage() {
   const [activeTab, setActiveTab] = useState<TabId>('materials');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const { hasRole } = useAuth();
+  const { hasRole } = useAuthBridge();
 
   // Define which roles can edit which tabs
   const canEditMaterialPrices = hasRole(['QUALITY_TEAM', 'EXECUTIVE']);

@@ -10,13 +10,13 @@ import { ProcessingStatus } from './ProcessingStatus';
 import { Upload, AlertCircle } from 'lucide-react';
 import { saveRecipeReferenceMaterials } from '@/lib/recipes/recipeReferenceMaterials';
 import { usePlantContext } from '@/contexts/PlantContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 
 export const UploadExcel = () => {
   const { userAccess, isGlobalAdmin, currentPlant } = usePlantContext();
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [status, setStatus] = useState({

@@ -1,7 +1,7 @@
 'use client';
 
 import React from "react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuthBridge } from "@/adapters/auth-context-bridge";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -10,7 +10,7 @@ export default function FinanzasLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { session, profile, isLoading } = useAuth();
+  const { session, profile, isLoading } = useAuthBridge();
   const router = useRouter();
 
   useEffect(() => {

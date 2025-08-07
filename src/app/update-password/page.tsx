@@ -364,7 +364,9 @@ function UpdatePasswordForm() {
                   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
                   { 
                     auth: { 
-                      persistSession: false // Critical: don't persist this session
+                      persistSession: false, // Critical: don't persist this session
+                      autoRefreshToken: false,
+                      debug: false
                     }
                   }
                 );

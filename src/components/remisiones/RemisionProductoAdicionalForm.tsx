@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../../lib/supabase/client'; // Adjusted path
-import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
+import { useAuthBridge } from '@/adapters/auth-context-bridge'; // Import bridge
 
 interface RemisionProductoAdicionalFormProps {
   remisionId: string;
@@ -17,7 +17,7 @@ const RemisionProductoAdicionalForm: React.FC<RemisionProductoAdicionalFormProps
     precio_unitario: ''
   });
   const [submitting, setSubmitting] = useState(false);
-  const { profile } = useAuth();
+  const { profile } = useAuthBridge();
 
   // Verificar permisos
   const canAddProducts = profile?.role === 'DOSIFICADOR' || 

@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { productPriceService } from '@/lib/supabase/product-prices';
 import { QuotesService } from '@/services/quotes';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Checkbox from '@radix-ui/react-checkbox';
@@ -80,7 +80,7 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
   const [totalQuotes, setTotalQuotes] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const quotesPerPage = 10;
-  const { hasRole } = useAuth();
+  const { hasRole } = useAuthBridge();
 
   // Modal state
   const [selectedQuote, setSelectedQuote] = useState<PendingQuote | null>(null);
