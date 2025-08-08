@@ -22,7 +22,8 @@ interface RecipeTableProps {
   editingFCR: string | null;
   tempFCR: string;
   onToggleDetails: () => void;
-  onExportSelected: () => void;
+  onSaveSelected: () => void;
+  onExportArkik: () => void;
   onToggleRecipeSelection: (code: string) => void;
   onToggleAllRecipes: () => void;
   onStartEditingFCR: (code: string, fcr: number) => void;
@@ -40,7 +41,8 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
   editingFCR,
   tempFCR,
   onToggleDetails,
-  onExportSelected,
+  onSaveSelected,
+  onExportArkik,
   onToggleRecipeSelection,
   onToggleAllRecipes,
   onStartEditingFCR,
@@ -233,15 +235,25 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
             Mostrando pesos en estado: <strong>{showSSS ? 'Saturado Superficie Seca (SSS)' : 'Seco'}</strong>
           </div>
         </div>
-        
-        <Button
-          onClick={onExportSelected}
-          disabled={selectedRecipesForExport.size === 0}
-          className="flex items-center gap-2"
-        >
-          <Download className="h-4 w-4" />
-          Exportar Seleccionadas ({selectedRecipesForExport.size})
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={onSaveSelected}
+            disabled={selectedRecipesForExport.size === 0}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Guardar en sistema ({selectedRecipesForExport.size})
+          </Button>
+          <Button
+            onClick={onExportArkik}
+            disabled={selectedRecipesForExport.size === 0}
+            className="flex items-center gap-2"
+          >
+            <Download className="h-4 w-4" />
+            Exportar ARKIK
+          </Button>
+        </div>
       </div>
 
       {/* Table */}
@@ -338,7 +350,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
                   {strengthRecipes.map((recipe) => {
                     const materialsToShow = showSSS ? recipe.materialsSSS : recipe.materialsDry;
                     return (
-                      <>
+                      <React.Fragment key={`recipe-${recipe.code}`}>
                       <TableRow key={`${recipe.code}-main`} className={`hover:bg-gray-50 ${resistanceColor.split('bg-')[1]}`}>
                         <TableCell>
                           <Checkbox
@@ -456,7 +468,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
                           </TableCell>
                         </TableRow>
                       )}
-                      </>
+                      </React.Fragment>
                     );
                   })}
                 </React.Fragment>

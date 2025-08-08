@@ -66,6 +66,13 @@ export interface CalculatorRecipe {
   recipeType: 'FC' | 'MR';
 }
 
+export interface CalculatorMaterialSelection {
+  cementId?: string;
+  sandIds?: string[]; // index-aligned to sand0, sand1, ...
+  gravelIds?: string[]; // index-aligned to gravel0, ...
+  additiveIds?: string[]; // index-aligned to additive0, ...
+}
+
 export const calculatorService = {
   /**
    * Fetch materials from database and map to calculator format
@@ -92,11 +99,15 @@ export const calculatorService = {
 
       if (pricesError) throw pricesError;
 
-      // Create price lookup map
-      const priceMap = new Map();
-      prices?.forEach(price => {
-        if (!priceMap.has(price.material_type)) {
-          priceMap.set(price.material_type, price.price_per_unit);
+      // Create price lookup maps (prefer material_id UUID, fallback to material_type/code)
+      const priceById = new Map<string, number>();
+      const priceByType = new Map<string, number>();
+      prices?.forEach((price: any) => {
+        if (price.material_id && !priceById.has(price.material_id)) {
+          priceById.set(price.material_id, price.price_per_unit);
+        }
+        if (price.material_type && !priceByType.has(price.material_type)) {
+          priceByType.set(price.material_type, price.price_per_unit);
         }
       });
 
@@ -114,7 +125,7 @@ export const calculatorService = {
       };
 
       materials?.forEach((material: Material, index: number) => {
-        const cost = priceMap.get(material.material_code) || 0.25; // Default cost
+        const cost = (priceById.get(material.id) ?? priceByType.get(material.material_code)) ?? 0.25; // Default cost
         const density = (material.density || 2500) / 1000; // Convert kg/m³ to kg/L
         const absorption = material.absorption_rate || 0.05;
 
@@ -200,7 +211,8 @@ export const calculatorService = {
   async saveRecipesToDatabase(
     recipes: CalculatorRecipe[],
     plantId: string,
-    userId: string
+    userId: string,
+    selection?: CalculatorMaterialSelection
   ): Promise<void> {
     try {
       // Fetch material master to resolve material_ids by name mapping used in calculator
@@ -223,7 +235,9 @@ export const calculatorService = {
         const dryMaterials: Array<{ material_id: string; quantity: number; unit: string }> = [];
 
         // Cement
-        const cementRow = resolveMaterial('CEMENTO') || materialsMaster?.find(m => m.category === 'cemento');
+        const cementRow = (selection?.cementId
+          ? materialsMaster?.find(m => m.id === selection.cementId)
+          : null) || resolveMaterial('CEMENTO') || materialsMaster?.find(m => m.category === 'cemento');
         if (cementRow) {
           dryMaterials.push({ material_id: cementRow.id, quantity: recipe.materialsDry.cement, unit: 'kg/m³' });
         }
@@ -239,10 +253,10 @@ export const calculatorService = {
           .filter(k => k.startsWith('sand'))
           .forEach(key => {
             const idx = parseInt(key.replace('sand', ''));
-            const label = `ARENA ${idx + 1}`; // fallback label; try to find by calculator-selected list
-            // Try to map by index order to active sands
             const sands = materialsMaster?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_fino') || [];
-            const target = sands[idx] || resolveMaterial(label);
+            const target = (selection?.sandIds && selection.sandIds[idx]
+              ? materialsMaster?.find(m => m.id === selection.sandIds![idx])
+              : undefined) || sands[idx] || null;
             if (target && recipe.materialsDry[key] > 0) {
               dryMaterials.push({ material_id: target.id, quantity: recipe.materialsDry[key], unit: 'kg/m³' });
             }
@@ -253,9 +267,10 @@ export const calculatorService = {
           .filter(k => k.startsWith('gravel'))
           .forEach(key => {
             const idx = parseInt(key.replace('gravel', ''));
-            const label = `GRAVA ${idx + 1}`;
             const gravels = materialsMaster?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_grueso') || [];
-            const target = gravels[idx] || resolveMaterial(label);
+            const target = (selection?.gravelIds && selection.gravelIds[idx]
+              ? materialsMaster?.find(m => m.id === selection.gravelIds![idx])
+              : undefined) || gravels[idx] || null;
             if (target && recipe.materialsDry[key] > 0) {
               dryMaterials.push({ material_id: target.id, quantity: recipe.materialsDry[key], unit: 'kg/m³' });
             }
@@ -267,7 +282,9 @@ export const calculatorService = {
           .forEach(key => {
             const idx = parseInt(key.replace('additive', ''));
             const additives = materialsMaster?.filter(m => m.category === 'aditivo') || [];
-            const target = additives[idx];
+            const target = (selection?.additiveIds && selection.additiveIds[idx]
+              ? materialsMaster?.find(m => m.id === selection.additiveIds![idx])
+              : undefined) || additives[idx];
             if (target && recipe.materialsDry[key] > 0) {
               dryMaterials.push({ material_id: target.id, quantity: recipe.materialsDry[key], unit: 'L/m³' });
             }
@@ -338,7 +355,9 @@ export const calculatorService = {
             .forEach(key => {
               const idx = parseInt(key.replace('sand', ''));
               const sands = materialsMaster?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_fino') || [];
-              const target = sands[idx];
+              const target = (selection?.sandIds && selection.sandIds[idx]
+                ? materialsMaster?.find(m => m.id === selection.sandIds![idx])
+                : undefined) || sands[idx];
               const val = recipe.materialsSSS[key];
               if (target && val > 0) {
                 refRows.push({
@@ -357,7 +376,9 @@ export const calculatorService = {
             .forEach(key => {
               const idx = parseInt(key.replace('gravel', ''));
               const gravels = materialsMaster?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_grueso') || [];
-              const target = gravels[idx];
+              const target = (selection?.gravelIds && selection.gravelIds[idx]
+                ? materialsMaster?.find(m => m.id === selection.gravelIds![idx])
+                : undefined) || gravels[idx];
               const val = recipe.materialsSSS[key];
               if (target && val > 0) {
                 refRows.push({
@@ -376,7 +397,9 @@ export const calculatorService = {
             .forEach(key => {
               const idx = parseInt(key.replace('additive', ''));
               const additives = materialsMaster?.filter(m => m.category === 'aditivo') || [];
-              const target = additives[idx];
+              const target = (selection?.additiveIds && selection.additiveIds[idx]
+                ? materialsMaster?.find(m => m.id === selection.additiveIds![idx])
+                : undefined) || additives[idx];
               const val = recipe.materialsSSS[key];
               if (target && val > 0) {
                 refRows.push({

@@ -7,18 +7,17 @@ import { AlertCircle, Building2, Users } from 'lucide-react';
 interface PlantSelectionGuardProps {
   children: React.ReactNode;
   feature?: string;
+  requirePlant?: boolean;
 }
 
-export default function PlantSelectionGuard({ children, feature = "esta función" }: PlantSelectionGuardProps) {
+export default function PlantSelectionGuard({ children, feature = "esta función", requirePlant = false }: PlantSelectionGuardProps) {
   const { userAccess, isGlobalAdmin, availablePlants, businessUnits, isLoading } = usePlantContext();
 
-  // Show loading while plant context is loading
+  // IMPORTANT: To avoid hydration mismatches, do not swap to a different
+  // outer DOM tree during hydration. While loading, render children so the
+  // initial server and client markup remain consistent.
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
-      </div>
-    );
+    return <>{children}</>;
   }
 
   // Global admins always have access

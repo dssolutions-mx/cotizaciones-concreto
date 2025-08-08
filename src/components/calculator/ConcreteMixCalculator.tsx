@@ -9,6 +9,7 @@ import { Material, MaterialWithPrice } from '@/types/material';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+// Removed ARKIK export modal UI imports
 
 // Types
 import { 
@@ -159,6 +160,8 @@ const ConcreteMixCalculator = () => {
   const [tempFCR, setTempFCR] = useState<string>('');
   const [activeTab, setActiveTab] = useState('materials');
 
+  // Removed ARKIK export modal to enforce workflow (export from Recipes page)
+
   // Load available materials from database
   const loadAvailableMaterials = async () => {
     if (!currentPlant?.id) return;
@@ -186,11 +189,15 @@ const ConcreteMixCalculator = () => {
       
       if (pricesError) throw pricesError;
       
-      // Create price lookup map
-      const priceMap = new Map();
-      materialPrices?.forEach(price => {
-        if (!priceMap.has(price.material_type)) {
-          priceMap.set(price.material_type, price.price_per_unit);
+      // Create price lookup maps (prefer material_id, fallback to material_type/code)
+      const priceById = new Map<string, number>();
+      const priceByType = new Map<string, number>();
+      materialPrices?.forEach((price: any) => {
+        if (price.material_id && !priceById.has(price.material_id)) {
+          priceById.set(price.material_id, price.price_per_unit);
+        }
+        if (price.material_type && !priceByType.has(price.material_type)) {
+          priceByType.set(price.material_type, price.price_per_unit);
         }
       });
       
@@ -198,19 +205,19 @@ const ConcreteMixCalculator = () => {
       const categorized = {
         cements: materials?.filter(m => m.category === 'cemento').map(m => ({
           ...m,
-          cost: priceMap.get(m.material_code) || null
+          cost: priceById.get(m.id) ?? priceByType.get(m.material_code) ?? null
         })) || [],
         sands: materials?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_fino').map(m => ({
           ...m,
-          cost: priceMap.get(m.material_code) || null
+          cost: priceById.get(m.id) ?? priceByType.get(m.material_code) ?? null
         })) || [],
         gravels: materials?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_grueso').map(m => ({
           ...m,
-          cost: priceMap.get(m.material_code) || null
+          cost: priceById.get(m.id) ?? priceByType.get(m.material_code) ?? null
         })) || [],
         additives: materials?.filter(m => m.category === 'aditivo').map(m => ({
           ...m,
-          cost: priceMap.get(m.material_code) || null
+          cost: priceById.get(m.id) ?? priceByType.get(m.material_code) ?? null
         })) || []
       };
       
@@ -867,7 +874,7 @@ const ConcreteMixCalculator = () => {
     setTempFCR('');
   };
 
-  // Handle export
+  // Handle legacy JSON export (kept)
   const handleExportSelected = async () => {
     const recipesToExport = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
     if (recipesToExport.length === 0) {
@@ -916,6 +923,39 @@ const ConcreteMixCalculator = () => {
       setExportLoading(false);
     }
   };
+
+  // Persist selected recipes to system (DRY primary, SSS refs)
+  const handleSaveSelectedToSystem = async () => {
+    const selected = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
+    if (selected.length === 0 || !currentPlant?.id || !profile?.id) return;
+    try {
+      setLoading(true);
+      const payload = selected.map(r => ({ ...r, recipeType: designType }));
+      // Build strict material-id mapping from selected materials
+      const selectionMap = {
+        cementId: selectedMaterials.cement
+          ? String(availableMaterials.cements.find(c => c.id === String(selectedMaterials.cement))?.id || selectedMaterials.cement)
+          : undefined,
+        sandIds: selectedMaterials.sands.map(id => String(id)),
+        gravelIds: selectedMaterials.gravels.map(id => String(id)),
+        additiveIds: selectedMaterials.additives.map(id => String(id))
+      };
+      await calculatorService.saveRecipesToDatabase(
+        payload as unknown as CalculatorRecipe[],
+        currentPlant.id,
+        profile.id,
+        selectionMap
+      );
+      alert('Recetas guardadas en el sistema');
+    } catch (e) {
+      console.error(e);
+      alert('Error guardando recetas');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Removed ARKIK modal handlers to enforce save-first workflow
 
   // Handle material configuration updates
   const handleMaterialUpdate = (type: keyof Materials, index: number, field: string, value: any) => {
@@ -1192,7 +1232,8 @@ const ConcreteMixCalculator = () => {
               editingFCR={editingFCR}
               tempFCR={tempFCR}
               onToggleDetails={() => setShowDetails(!showDetails)}
-              onExportSelected={handleExportSelected}
+              onSaveSelected={handleSaveSelectedToSystem}
+              onExportArkik={() => alert('Exporta las recetas desde la sección Recetas, después de guardarlas en el sistema.')}
               onToggleRecipeSelection={(code) => {
                 setSelectedRecipesForExport(prev => {
                   const newSet = new Set(prev);
@@ -1230,6 +1271,8 @@ const ConcreteMixCalculator = () => {
             />
           </TabsContent>
         </Tabs>
+
+        {/* ARKIK export handled in Recipes page */}
       </div>
     </div>
   );

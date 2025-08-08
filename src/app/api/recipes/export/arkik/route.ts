@@ -9,13 +9,35 @@ function buildArkikHeader(materials: any[]) {
   ];
 
   const dynamic: string[] = [];
-  for (const m of materials) {
-    const code = m.material_code || m.arkik_code || '';
+  const cements = materials.filter(m => m.category === 'cemento');
+  const waters = materials.filter(m => m.category === 'agua');
+  const rest = materials.filter(m => m.category !== 'cemento' && m.category !== 'agua');
+
+  // Cement(s): single column per cement, no percentage
+  for (const m of cements) {
+    const code = m.material_code || '';
+    const shortCode = m.arkik_short_code || m.supplier_code || '';
+    const supplier = m.arkik_supplier || m.primary_supplier || '';
+    dynamic.push(`${code}${shortCode ? ' / ' + shortCode : ''}${supplier ? ' / ' + supplier : ''}`);
+  }
+
+  // Water(s): single column per water, no percentage
+  for (const m of waters) {
+    const code = m.material_code || '';
+    const shortCode = m.arkik_short_code || m.supplier_code || '';
+    const supplier = m.arkik_supplier || m.primary_supplier || '';
+    dynamic.push(`${code}${shortCode ? ' / ' + shortCode : ''}${supplier ? ' / ' + supplier : ''}`);
+  }
+
+  // Aggregates and additives: value + % columns
+  for (const m of rest) {
+    const code = m.material_code || '';
     const shortCode = m.arkik_short_code || m.supplier_code || '';
     const supplier = m.arkik_supplier || m.primary_supplier || '';
     const label = `${code}${shortCode ? ' / ' + shortCode : ''}${supplier ? ' / ' + supplier : ''}`;
     dynamic.push(label, `% - ${code}`);
   }
+
   return [...fixed, ...dynamic];
 }
 
@@ -24,6 +46,8 @@ export async function GET(req: Request) {
     const supabase = createServiceClient();
     const { searchParams } = new URL(req.url);
     const plantId = searchParams.get('plant_id');
+    const recipeCodesParam = searchParams.get('recipe_codes');
+    const recipeCodes = recipeCodesParam ? recipeCodesParam.split(',').map(s => s.trim()).filter(Boolean) : null;
     const varianteParam = searchParams.get('variante'); // '000' | 'PCE' | null (auto)
     const typeCode = searchParams.get('type_code') || 'B'; // unclear segment in long code
     const numSegment = searchParams.get('num') || '2';
@@ -56,25 +80,39 @@ export async function GET(req: Request) {
     let recipesQuery = supabase
       .from('recipes')
       .select(`
-        id, recipe_code, new_system_code, strength_fc, age_days, placement_type, max_aggregate_size, slump, recipe_type,
+        id, recipe_code, new_system_code, strength_fc, age_days, placement_type, max_aggregate_size, slump,
         recipe_versions!inner(id, version_number, is_current)
       `)
       .eq('recipe_versions.is_current', true)
       .order('recipe_code');
     if (plantId) recipesQuery = recipesQuery.eq('plant_id', plantId);
+    if (recipeCodes && recipeCodes.length > 0) recipesQuery = recipesQuery.in('recipe_code', recipeCodes);
     const { data: recipes, error: recipesError } = await recipesQuery;
     if (recipesError) throw recipesError;
 
     const versionIds = recipes.map(r => r.recipe_versions[0].id);
     const { data: refs, error: refsError } = await supabase
       .from('recipe_reference_materials')
-      .select('recipe_version_id, material_id, sss_value')
+      .select('recipe_version_id, material_id, material_type, sss_value')
       .in('recipe_version_id', versionIds);
     if (refsError) throw refsError;
+
+    // Fallback: load material_quantities for current versions
+    const { data: quants, error: quantsError } = await supabase
+      .from('material_quantities')
+      .select('recipe_version_id, material_id, material_type, quantity, unit')
+      .in('recipe_version_id', versionIds);
+    if (quantsError) throw quantsError;
 
     const header = buildArkikHeader(orderedMaterials);
     const rows: any[][] = [header];
     const materialIndexById = new Map(orderedMaterials.map((m, idx) => [m.id, idx]));
+    const materialIndexByCode = new Map(orderedMaterials.map((m, idx) => [String(m.material_code || '').toUpperCase(), idx]));
+    const firstCementIdx = orderedMaterials.findIndex(m => m.category === 'cemento');
+    const firstWaterIdx = orderedMaterials.findIndex(m => m.category === 'agua');
+    const fineAggregatesStart = orderedMaterials.findIndex(m => m.category === 'agregado' && m.subcategory === 'agregado_fino');
+    const coarseAggregatesStart = orderedMaterials.findIndex(m => m.category === 'agregado' && m.subcategory === 'agregado_grueso');
+    const additivesStart = orderedMaterials.findIndex(m => m.category === 'aditivo');
 
     for (const r of recipes) {
       const fc = r.strength_fc;
@@ -84,6 +122,7 @@ export async function GET(req: Request) {
       const rev = r.slump || 10;
       // Determine variant: if any PCE additive present and no explicit override, use PCE; else use provided or default '000'
       const rRefs = refs.filter(x => x.recipe_version_id === r.recipe_versions[0].id);
+      const rQuants = quants.filter(x => x.recipe_version_id === r.recipe_versions[0].id);
       const pcePresent = rRefs.some(ref => {
         const mat = orderedMaterials.find(m => m.id === ref.material_id);
         if (!mat) return false;
@@ -120,16 +159,51 @@ export async function GET(req: Request) {
         ''
       ];
 
-      const dynamicCells: any[] = new Array(orderedMaterials.length * 2).fill('');
-      for (const ref of rRefs) {
-        const idx = materialIndexById.get(ref.material_id);
-        if (idx === undefined) continue;
-        const qCol = idx * 2;
-        dynamicCells[qCol] = ref.sss_value ?? '';
-        dynamicCells[qCol + 1] = '';
-      }
+      // Build dynamic row respecting header order: cement(s) [1-col], water(s) [1-col], rest [pairs]
+      const cementValues: any[] = [];
+      const waterValues: any[] = [];
+      const restValues: any[] = [];
 
-      rows.push([...fixed, ...dynamicCells]);
+      const placeValue = (matIdx: number, value: any) => {
+        const m = orderedMaterials[matIdx];
+        if (!m) return;
+        if (m.category === 'cemento') {
+          // push single cell
+          cementValues.push(value ?? '');
+        } else if (m.category === 'agua') {
+          waterValues.push(value ?? '');
+        } else {
+          restValues.push(value ?? '', ''); // value + empty %
+        }
+      };
+
+      // Build quick maps for values
+      const valueById = new Map<string, number>();
+      const valueByType = new Map<string, number>();
+      rRefs.forEach(ref => {
+        if (ref.material_id) valueById.set(String(ref.material_id), Number(ref.sss_value));
+        if (ref.material_type) valueByType.set(String(ref.material_type).toUpperCase(), Number(ref.sss_value));
+      });
+      // Fallback fill with material_quantities where SSS missing
+      rQuants.forEach(q => {
+        const keyT = String(q.material_type || '').toUpperCase();
+        if (q.material_id && !valueById.has(String(q.material_id))) valueById.set(String(q.material_id), Number(q.quantity));
+        if (keyT && !valueByType.has(keyT)) valueByType.set(keyT, Number(q.quantity));
+      });
+
+      // Iterate ordered materials to align exactly with header
+      orderedMaterials.forEach((m, idx) => {
+        const val = (m.id && valueById.get(String(m.id))) ?? valueByType.get(String(m.material_code || '').toUpperCase()) ?? '';
+        if (m.category === 'cemento') {
+          cementValues.push(val);
+        } else if (m.category === 'agua') {
+          waterValues.push(val);
+        } else {
+          restValues.push(val, '');
+        }
+      });
+
+      rows.push([...fixed, ...cementValues, ...waterValues, ...restValues]);
     }
 
     if (preview) {

@@ -2,7 +2,7 @@
 
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import type { UserRole } from '@/store/auth/types';
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useState } from 'react';
 
 interface RoleIndicatorProps {
   allowedRoles: UserRole | UserRole[];
@@ -29,6 +29,9 @@ export default function RoleIndicator({
   className = '',
 }: RoleIndicatorProps) {
   const { hasRole, profile } = useAuthBridge();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
   
   // Check if user has any of the allowed roles
   const hasPermission = hasRole(allowedRoles);

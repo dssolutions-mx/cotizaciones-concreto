@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, ButtonHTMLAttributes } from 'react';
+import { ReactNode, ButtonHTMLAttributes, useEffect, useState } from 'react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import type { UserRole } from '@/store/auth/types';
 
@@ -31,6 +31,10 @@ export default function RoleProtectedButton({
   ...props
 }: RoleProtectedButtonProps) {
   const { hasRole } = useAuthBridge();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  // Avoid hydration mismatches by not rendering until mounted on client
+  if (!mounted) return null;
   
   const hasPermission = hasRole(allowedRoles);
   
