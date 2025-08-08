@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
+import { recipeService } from '@/lib/supabase/recipes';
 import { handleError } from '@/utils/errorHandler';
 import { Material } from '@/types/material';
 import { Recipe as DatabaseRecipe, MaterialQuantity } from '@/types/recipes';
@@ -192,115 +193,212 @@ export const calculatorService = {
   },
 
   /**
-   * Save calculator recipes to database
+   * Save calculator recipes to database using RPCs
+   * - Store DRY quantities in material_quantities
+   * - Store SSS (SSD) quantities in recipe_reference_materials
    */
   async saveRecipesToDatabase(
-    recipes: CalculatorRecipe[], 
-    plantId: string, 
+    recipes: CalculatorRecipe[],
+    plantId: string,
     userId: string
   ): Promise<void> {
     try {
-      const savedRecipes = [];
+      // Fetch material master to resolve material_ids by name mapping used in calculator
+      const { data: materialsMaster, error: materialsError } = await supabase
+        .from('materials')
+        .select('*')
+        .eq('is_active', true)
+        .eq('plant_id', plantId);
+
+      if (materialsError) throw materialsError;
+
+      // Build a simple resolver from calculator keys to material rows by name match
+      const resolveMaterial = (label: string) => {
+        if (!materialsMaster) return null;
+        return materialsMaster.find(m => m.material_name.trim().toUpperCase() === label.trim().toUpperCase()) || null;
+      };
 
       for (const recipe of recipes) {
-        // Create recipe record
-        const recipeData: Partial<DatabaseRecipe> = {
-          recipe_code: recipe.code,
+        // Build DRY materials array with material_id
+        const dryMaterials: Array<{ material_id: string; quantity: number; unit: string }> = [];
+
+        // Cement
+        const cementRow = resolveMaterial('CEMENTO') || materialsMaster?.find(m => m.category === 'cemento');
+        if (cementRow) {
+          dryMaterials.push({ material_id: cementRow.id, quantity: recipe.materialsDry.cement, unit: 'kg/m³' });
+        }
+
+        // Water
+        const waterRow = materialsMaster?.find(m => m.category === 'agua') || resolveMaterial('AGUA');
+        if (waterRow) {
+          dryMaterials.push({ material_id: waterRow.id, quantity: recipe.materialsDry.water, unit: 'L/m³' });
+        }
+
+        // Sands
+        Object.keys(recipe.materialsDry)
+          .filter(k => k.startsWith('sand'))
+          .forEach(key => {
+            const idx = parseInt(key.replace('sand', ''));
+            const label = `ARENA ${idx + 1}`; // fallback label; try to find by calculator-selected list
+            // Try to map by index order to active sands
+            const sands = materialsMaster?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_fino') || [];
+            const target = sands[idx] || resolveMaterial(label);
+            if (target && recipe.materialsDry[key] > 0) {
+              dryMaterials.push({ material_id: target.id, quantity: recipe.materialsDry[key], unit: 'kg/m³' });
+            }
+          });
+
+        // Gravels
+        Object.keys(recipe.materialsDry)
+          .filter(k => k.startsWith('gravel'))
+          .forEach(key => {
+            const idx = parseInt(key.replace('gravel', ''));
+            const label = `GRAVA ${idx + 1}`;
+            const gravels = materialsMaster?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_grueso') || [];
+            const target = gravels[idx] || resolveMaterial(label);
+            if (target && recipe.materialsDry[key] > 0) {
+              dryMaterials.push({ material_id: target.id, quantity: recipe.materialsDry[key], unit: 'kg/m³' });
+            }
+          });
+
+        // Additives (stored in liters)
+        Object.keys(recipe.materialsDry)
+          .filter(k => k.startsWith('additive'))
+          .forEach(key => {
+            const idx = parseInt(key.replace('additive', ''));
+            const additives = materialsMaster?.filter(m => m.category === 'aditivo') || [];
+            const target = additives[idx];
+            if (target && recipe.materialsDry[key] > 0) {
+              dryMaterials.push({ material_id: target.id, quantity: recipe.materialsDry[key], unit: 'L/m³' });
+            }
+          });
+
+        // Create via RPC (new recipe or new version if exists)
+        const specification = {
           strength_fc: recipe.strength,
           age_days: recipe.age,
           placement_type: recipe.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
           max_aggregate_size: recipe.aggregateSize,
           slump: recipe.slump,
-          recipe_type: recipe.recipeType,
           application_type: recipe.recipeType === 'MR' ? 'pavimento' : 'standard',
-          coding_system: 'new_system',
-          new_system_code: recipe.code
+          has_waterproofing: false,
+          performance_grade: 'standard',
+          recipe_type: recipe.recipeType
         };
 
-        const { data: recipeRecord, error: recipeError } = await supabase
-          .from('recipes')
-          .insert(recipeData)
-          .select()
-          .single();
+        const newRecipePayload: any = {
+          recipe_code: recipe.code,
+          new_system_code: recipe.code,
+          plant_id: plantId,
+          specification,
+          materials: dryMaterials,
+          notes: `Generado por calculadora automática - ${recipe.recipeType}`
+        };
 
-        if (recipeError) throw recipeError;
+        // Use RPC path for idempotent create/update
+        const created = await recipeService.createRecipeWithSpecifications(newRecipePayload);
 
-        // Create recipe version
-        const { data: versionData, error: versionError } = await supabase
+        // Fetch current version id
+        const { data: currentVersion } = await supabase
           .from('recipe_versions')
-          .insert({
-            recipe_id: recipeRecord.id,
-            version_number: 1,
-            is_current: true,
-            notes: `Generado por calculadora automática - ${recipe.recipeType}`,
-            created_by: userId
-          })
-          .select()
+          .select('id')
+          .eq('recipe_id', created.id)
+          .eq('is_current', true)
           .single();
 
-        if (versionError) throw versionError;
+        if (currentVersion) {
+          // Insert SSS references
+          const refRows: any[] = [];
 
-        // Create material quantities
-        const materialEntries: Partial<MaterialQuantity>[] = [];
-
-        // Add cement
-        materialEntries.push({
-          recipe_version_id: versionData.id,
-          material_type: 'CEMENTO',
-          quantity: recipe.materialsSSS.cement,
-          unit: 'kg/m³',
-          dry_quantity: recipe.materialsDry.cement,
-          notes: 'Cemento portland'
-        });
-
-        // Add water
-        materialEntries.push({
-          recipe_version_id: versionData.id,
-          material_type: 'AGUA',
-          quantity: recipe.materialsSSS.water,
-          unit: 'L/m³',
-          dry_quantity: recipe.materialsDry.water,
-          notes: 'Agua de mezclado'
-        });
-
-        // Add sands and gravels
-        Object.entries(recipe.materialsSSS).forEach(([materialName, quantity]) => {
-          if (!['cement', 'water'].includes(materialName) && !materialName.includes('ADITIVO')) {
-            materialEntries.push({
-              recipe_version_id: versionData.id,
-              material_type: materialName.toUpperCase(),
-              quantity: quantity,
-              unit: 'kg/m³',
-              dry_quantity: recipe.materialsDry[materialName] || quantity,
-              notes: `Agregado - ${materialName}`
+          // Cement SSS
+          if (cementRow) {
+            refRows.push({
+              recipe_version_id: currentVersion.id,
+              material_type: 'CEMENTO',
+              material_id: cementRow.id,
+              sss_value: recipe.materialsSSS.cement,
+              unit: 'kg/m³'
             });
           }
-        });
 
-        // Add additives
-        Object.entries(recipe.materialsSSS).forEach(([materialName, quantity]) => {
-          if (materialName.includes('ADITIVO')) {
-            materialEntries.push({
-              recipe_version_id: versionData.id,
-              material_type: materialName.toUpperCase(),
-              quantity: quantity,
-              unit: 'L/m³',
-              dry_quantity: recipe.materialsDry[materialName] || quantity,
-              notes: `Aditivo - ${materialName}`
+          // Water SSS
+          if (waterRow) {
+            refRows.push({
+              recipe_version_id: currentVersion.id,
+              material_type: 'AGUA',
+              material_id: waterRow.id,
+              sss_value: recipe.materialsSSS.water,
+              unit: 'L/m³'
             });
           }
-        });
 
-        const { error: quantitiesError } = await supabase
-          .from('material_quantities')
-          .insert(materialEntries);
+          // Sands SSS
+          Object.keys(recipe.materialsSSS)
+            .filter(k => k.startsWith('sand'))
+            .forEach(key => {
+              const idx = parseInt(key.replace('sand', ''));
+              const sands = materialsMaster?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_fino') || [];
+              const target = sands[idx];
+              const val = recipe.materialsSSS[key];
+              if (target && val > 0) {
+                refRows.push({
+                  recipe_version_id: currentVersion.id,
+                  material_type: target.material_code || `SAND_${idx + 1}`,
+                  material_id: target.id,
+                  sss_value: val,
+                  unit: 'kg/m³'
+                });
+              }
+            });
 
-        if (quantitiesError) throw quantitiesError;
+          // Gravels SSS
+          Object.keys(recipe.materialsSSS)
+            .filter(k => k.startsWith('gravel'))
+            .forEach(key => {
+              const idx = parseInt(key.replace('gravel', ''));
+              const gravels = materialsMaster?.filter(m => m.category === 'agregado' && m.subcategory === 'agregado_grueso') || [];
+              const target = gravels[idx];
+              const val = recipe.materialsSSS[key];
+              if (target && val > 0) {
+                refRows.push({
+                  recipe_version_id: currentVersion.id,
+                  material_type: target.material_code || `GRAVEL_${idx + 1}`,
+                  material_id: target.id,
+                  sss_value: val,
+                  unit: 'kg/m³'
+                });
+              }
+            });
 
-        savedRecipes.push(recipeRecord);
+          // Additives SSS
+          Object.keys(recipe.materialsSSS)
+            .filter(k => k.startsWith('additive'))
+            .forEach(key => {
+              const idx = parseInt(key.replace('additive', ''));
+              const additives = materialsMaster?.filter(m => m.category === 'aditivo') || [];
+              const target = additives[idx];
+              const val = recipe.materialsSSS[key];
+              if (target && val > 0) {
+                refRows.push({
+                  recipe_version_id: currentVersion.id,
+                  material_type: target.material_code || `ADITIVO_${idx + 1}`,
+                  material_id: target.id,
+                  sss_value: val,
+                  unit: 'L/m³'
+                });
+              }
+            });
+
+          if (refRows.length > 0) {
+            const { error: refsError } = await supabase
+              .from('recipe_reference_materials')
+              .insert(refRows);
+            if (refsError) throw refsError;
+          }
+        }
       }
 
-      console.log(`Successfully saved ${savedRecipes.length} recipes to database`);
+      console.log(`Successfully saved ${recipes.length} recipes (DRY primary, SSS references).`);
     } catch (error) {
       const errorMessage = handleError(error, 'saveRecipesToDatabase');
       console.error(errorMessage);

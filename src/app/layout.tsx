@@ -78,38 +78,21 @@ const finanzasSubMenuItems = [
   },
 ];
 
-// Define quality submenu items
-const qualitySubMenuItems = [
-  {
-    title: "Dashboard Calidad",
-    href: "/quality",
-    IconComponent: BarChart,
-  },
-  {
-    title: "Materiales",
-    href: "/admin/materials",
-    IconComponent: Package,
-  },
-  {
-    title: "Recetas",
-    href: "/recipes",
-    IconComponent: FileText,
-  },
-  {
-    title: "Muestreos",
-    href: "/quality/muestreos",
-    IconComponent: Beaker,
-  },
-  {
-    title: "Ensayos",
-    href: "/quality/ensayos",
-    IconComponent: FlaskConical,
-  },
-  {
-    title: "Reportes",
-    href: "/quality/reportes",
-    IconComponent: Clipboard,
-  },
+// Define quality submenu items (grouped for better UX)
+type QualityNavItem = 
+  | { title: string; href: string; IconComponent: React.ElementType }
+  | { type: 'group'; title: string };
+
+const qualitySubMenuItems: QualityNavItem[] = [
+  { title: "Dashboard Calidad", href: "/quality", IconComponent: BarChart },
+  { type: 'group', title: "Operación" },
+  { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
+  { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
+  { title: "Reportes", href: "/quality/reportes", IconComponent: Clipboard },
+  { type: 'group', title: "Gestión" },
+  { title: "Recetas", href: "/quality/recipes", IconComponent: FileText },
+  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
 ];
 
 // Componente interno para navegación con soporte de roles
@@ -295,6 +278,18 @@ function Navigation({ children }: { children: React.ReactNode }) {
                 {isQualityMainLink && isQualityRoute && (
                   <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
                     {qualitySubMenuItems.map((subItem, subIndex) => {
+                      // Render group header
+                      if (!('href' in subItem)) {
+                        return (
+                          <div
+                            key={`quality-group-${subIndex}`}
+                            className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
+                          >
+                            {subItem.title}
+                          </div>
+                        );
+                      }
+
                       const SubIcon = subItem.IconComponent;
                       return (
                         <Link
@@ -454,25 +449,36 @@ function Navigation({ children }: { children: React.ReactNode }) {
                       {item.href === '/quality' && isQualityRoute && (
                         <div className="pl-8 mb-2 space-y-1">
                           {qualitySubMenuItems.map((subItem, subIndex) => {
-                            const SubIcon = subItem.IconComponent;
-                            const isSubItemActive = pathname === subItem.href;
-                            return (
-                              <Link
-                                key={`mobile-quality-sub-${subIndex}`}
-                                href={subItem.href}
-                                onClick={() => setMobileMenuOpen(false)}
-                                className={`flex items-center py-2 px-3 rounded-md text-sm ${
-                                  isSubItemActive
-                                    ? "bg-green-400 text-white"
-                                    : "bg-gray-50 text-gray-600 active:bg-gray-100"
-                                }`}
-                              >
-                                <span className="mr-2.5">
-                                  {SubIcon && <SubIcon size={16} />}
-                                </span>
-                                {subItem.title}
-                              </Link>
-                            );
+                      if (!('href' in subItem)) {
+                        return (
+                          <div
+                            key={`mobile-quality-group-${subIndex}`}
+                            className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
+                          >
+                            {subItem.title}
+                          </div>
+                        );
+                      }
+
+                      const SubIcon = subItem.IconComponent;
+                      const isSubItemActive = pathname === subItem.href;
+                      return (
+                        <Link
+                          key={`mobile-quality-sub-${subIndex}`}
+                          href={subItem.href}
+                          onClick={() => setMobileMenuOpen(false)}
+                          className={`flex items-center py-2 px-3 rounded-md text-sm ${
+                            isSubItemActive
+                              ? "bg-green-400 text-white"
+                              : "bg-gray-50 text-gray-600 active:bg-gray-100"
+                          }`}
+                        >
+                          <span className="mr-2.5">
+                            {SubIcon && <SubIcon size={16} />}
+                          </span>
+                          {subItem.title}
+                        </Link>
+                      );
                           })}
                         </div>
                       )}

@@ -158,10 +158,11 @@ export default function QualityDashboardPage() {
           
         if (recipesData) {
           // Sort and extract the fields we need
-          const formattedRecipes = recipesData
-            .map(recipe => ({
-              id: recipe.id,
-              recipe_code: recipe.recipe_code
+          type MinimalRecipe = { id: string; recipe_code: string };
+          const formattedRecipes: MinimalRecipe[] = (recipesData as any[])
+            .map((recipe) => ({
+              id: recipe.id as string,
+              recipe_code: String(recipe.recipe_code || '')
             }))
             .sort((a, b) => a.recipe_code.localeCompare(b.recipe_code));
             
@@ -311,9 +312,9 @@ export default function QualityDashboardPage() {
                 
                 // Calculate corrected rendimiento volumétrico by ignoring zeros
                 if (results.length > 0) {
-                  const rendimientos = results
-                    .map(r => r.rendimiento_volumetrico)
-                    .filter(r => r !== null && r !== 0);
+                  const rendimientos = (results as Array<{ rendimiento_volumetrico: number | null }>)
+                    .map((r) => r.rendimiento_volumetrico)
+                    .filter((r): r is number => r !== null && r !== 0);
                     
                   if (rendimientos.length > 0) {
                     // Replace the global rendimiento with this corrected value
@@ -1249,7 +1250,7 @@ export default function QualityDashboardPage() {
                 <CardTitle>Acciones Rápidas</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <Link href="/quality/muestreos/new" className="bg-blue-50 hover:bg-blue-100 p-4 rounded-lg transition-colors">
                     <h3 className="font-medium text-blue-700 mb-1">Nuevo Muestreo</h3>
                     <p className="text-xs text-blue-600">Registrar un muestreo de concreto</p>
@@ -1268,6 +1269,16 @@ export default function QualityDashboardPage() {
                   <Link href="/quality/reportes" className="bg-amber-50 hover:bg-amber-100 p-4 rounded-lg transition-colors">
                     <h3 className="font-medium text-amber-700 mb-1">Reportes</h3>
                     <p className="text-xs text-amber-600">Generar reportes de calidad</p>
+                  </Link>
+
+                  <Link href="/quality/materials" className="bg-cyan-50 hover:bg-cyan-100 p-4 rounded-lg transition-colors">
+                    <h3 className="font-medium text-cyan-700 mb-1">Materiales</h3>
+                    <p className="text-xs text-cyan-600">Gestionar catálogo de materiales</p>
+                  </Link>
+
+                  <Link href="/quality/recipes" className="bg-rose-50 hover:bg-rose-100 p-4 rounded-lg transition-colors">
+                    <h3 className="font-medium text-rose-700 mb-1">Recetas</h3>
+                    <p className="text-xs text-rose-600">Ver y administrar recetas</p>
                   </Link>
                 </div>
               </CardContent>

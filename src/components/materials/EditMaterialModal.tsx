@@ -33,10 +33,25 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
     absorption_rate: '',
     fineness_modulus: '',
     strength_class: '',
-    primary_supplier: '',
-    supplier_code: '',
+    supplier_id: '',
+    aggregate_type: '',
+    aggregate_size: '',
+    aggregate_lithology: '',
+    aggregate_extraction: '',
     is_active: true,
     notes: ''
+  });
+
+  const [suppliers, setSuppliers] = useState<Array<{ id: string; name: string; provider_number: number; provider_letter?: string; internal_code?: string }>>([]);
+  const [builderState, setBuilderState] = useState({
+    aggregateType: '' as '' | 'AR' | 'GR',
+    aggregateSize: '' as '' | string,
+    lithology: '' as '' | 'A' | 'C' | 'B' | 'G' | 'R' | 'D',
+    extraction: '' as '' | 'T' | 'R' | 'M' | 'L',
+    providerNumber: '' as '' | string,
+    cementProviderLetter: '' as '' | string,
+    cementSpecification: '' as '' | string,
+    waterProviderNumber: '' as '' | string,
   });
 
   const categories = [
@@ -67,13 +82,39 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
         absorption_rate: material.absorption_rate?.toString() || '',
         fineness_modulus: material.fineness_modulus?.toString() || '',
         strength_class: material.strength_class || '',
-        primary_supplier: material.primary_supplier || '',
-        supplier_code: material.supplier_code || '',
+        supplier_id: (material as any).supplier_id || '',
+        aggregate_type: (material as any).aggregate_type || '',
+        aggregate_size: (material as any).aggregate_size?.toString() || '',
+        aggregate_lithology: (material as any).aggregate_lithology || '',
+        aggregate_extraction: (material as any).aggregate_extraction || '',
         is_active: material.is_active ?? true,
         notes: material.notes || ''
       });
+
+      setBuilderState({
+        aggregateType: ((material as any).aggregate_type || '') as any,
+        aggregateSize: (material as any).aggregate_size?.toString() || '',
+        lithology: ((material as any).aggregate_lithology || '') as any,
+        extraction: ((material as any).aggregate_extraction || '') as any,
+        providerNumber: '',
+        cementProviderLetter: '',
+        cementSpecification: material.category === 'cemento' ? material.material_code?.slice(1) || '' : '',
+        waterProviderNumber: '',
+      });
     }
   }, [isOpen, material]);
+
+  useEffect(() => {
+    // fetch suppliers for context
+    (async () => {
+      try {
+        const data = await recipeService.getSuppliers((material as any)?.plant_id);
+        setSuppliers(data);
+      } catch (e) {
+        console.error('Error fetching suppliers', e);
+      }
+    })();
+  }, [material]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -105,13 +146,20 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
 
     setIsSubmitting(true);
     try {
-      await recipeService.updateMaterial(material.id, {
+      const payload: any = {
         ...formData,
         density: formData.density ? parseFloat(formData.density) : undefined,
         specific_gravity: formData.specific_gravity ? parseFloat(formData.specific_gravity) : undefined,
         absorption_rate: formData.absorption_rate ? parseFloat(formData.absorption_rate) : undefined,
-        fineness_modulus: formData.fineness_modulus ? parseFloat(formData.fineness_modulus) : undefined
-      });
+        fineness_modulus: formData.fineness_modulus ? parseFloat(formData.fineness_modulus) : undefined,
+      };
+      if (formData.category !== 'agregado') {
+        payload.aggregate_type = undefined;
+        payload.aggregate_size = undefined;
+        payload.aggregate_lithology = undefined;
+        payload.aggregate_extraction = undefined;
+      }
+      await recipeService.updateMaterial(material.id, payload);
 
       showSuccess('Material actualizado exitosamente');
       onSuccess();
@@ -174,16 +222,18 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
               </Select>
             </div>
 
-            <div>
-              <Label htmlFor="subcategory">Subcategoría</Label>
-              <Input
-                id="subcategory"
-                name="subcategory"
-                value={formData.subcategory}
-                onChange={handleInputChange}
-                placeholder="Ej: Tipo I, 20mm, etc."
-              />
-            </div>
+            {['cemento','aditivo'].includes(formData.category) && (
+              <div>
+                <Label htmlFor="subcategory">Subcategoría</Label>
+                <Input
+                  id="subcategory"
+                  name="subcategory"
+                  value={formData.subcategory}
+                  onChange={handleInputChange}
+                  placeholder={formData.category === 'cemento' ? 'Ej: Tipo I' : 'Ej: Superplastificante A'}
+                />
+              </div>
+            )}
 
             <div>
               <Label htmlFor="unit_of_measure">Unidad de Medida *</Label>
@@ -201,16 +251,18 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
               </Select>
             </div>
 
-            <div>
-              <Label htmlFor="strength_class">Clase de Resistencia</Label>
-              <Input
-                id="strength_class"
-                name="strength_class"
-                value={formData.strength_class}
-                onChange={handleInputChange}
-                placeholder="Ej: 40 MPa"
-              />
-            </div>
+            {formData.category === 'cemento' && (
+              <div>
+                <Label htmlFor="strength_class">Clase de Resistencia</Label>
+                <Input
+                  id="strength_class"
+                  name="strength_class"
+                  value={formData.strength_class}
+                  onChange={handleInputChange}
+                  placeholder="Ej: 40 MPa"
+                />
+              </div>
+            )}
           </div>
 
           {/* Technical Properties */}
@@ -271,30 +323,30 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
             </div>
           </div>
 
-          {/* Supplier Information */}
+          {/* Supplier Information - normalized */}
           <div>
             <h3 className="text-lg font-semibold mb-3">Información del Proveedor</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <Label htmlFor="primary_supplier">Proveedor Principal</Label>
-                <Input
-                  id="primary_supplier"
-                  name="primary_supplier"
-                  value={formData.primary_supplier}
-                  onChange={handleInputChange}
-                  placeholder="Nombre del proveedor"
-                />
+                <Label>Proveedor</Label>
+                <Select value={formData.supplier_id} onValueChange={(v) => setFormData(prev => ({ ...prev, supplier_id: v }))}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {suppliers.map(s => (
+                      <SelectItem key={s.id} value={s.id}>{`${s.provider_number} - ${s.name}`}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-
               <div>
-                <Label htmlFor="supplier_code">Código del Proveedor</Label>
-                <Input
-                  id="supplier_code"
-                  name="supplier_code"
-                  value={formData.supplier_code}
-                  onChange={handleInputChange}
-                  placeholder="Código interno del proveedor"
-                />
+                <Label>Letra</Label>
+                <Input value={(suppliers.find(s => s.id === formData.supplier_id)?.provider_letter || '').toUpperCase()} disabled />
+              </div>
+              <div>
+                <Label>Código Interno</Label>
+                <Input value={suppliers.find(s => s.id === formData.supplier_id)?.internal_code || ''} disabled />
               </div>
             </div>
           </div>

@@ -38,6 +38,12 @@ export interface Material {
   primary_supplier?: string;
   supplier_code?: string;
   supplier_specifications?: Record<string, any>;
+  // New: normalized supplier and aggregate protocol fields
+  supplier_id?: string; // references suppliers.id
+  aggregate_type?: 'AR' | 'GR';
+  aggregate_size?: number; // 1-9
+  aggregate_lithology?: 'A' | 'C' | 'B' | 'G' | 'R' | 'D';
+  aggregate_extraction?: 'T' | 'R' | 'M' | 'L';
   notes?: string;
   is_active: boolean;
   plant_id?: string;

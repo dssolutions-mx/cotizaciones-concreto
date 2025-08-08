@@ -704,6 +704,76 @@ export const recipeService = {
     }
   },
 
+  // Suppliers
+  async getSuppliers(plantId?: string) {
+    try {
+      let query = supabase
+        .from('suppliers')
+        .select('*')
+        .eq('is_active', true)
+        .order('provider_number');
+      if (plantId) query = query.eq('plant_id', plantId);
+      const { data, error } = await query;
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      const errorMessage = handleError(error, 'getSuppliers');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  async createSupplier(supplier: { name: string; provider_number: number; plant_id?: string; is_active?: boolean; provider_letter?: string; internal_code?: string }) {
+    try {
+      const { data, error } = await supabase
+        .from('suppliers')
+        .insert({
+          name: supplier.name,
+          provider_number: supplier.provider_number,
+          plant_id: supplier.plant_id || null,
+          is_active: supplier.is_active ?? true,
+          provider_letter: supplier.provider_letter?.toUpperCase() || null,
+          internal_code: supplier.internal_code || null
+        })
+        .select('*')
+        .single();
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      const errorMessage = handleError(error, 'createSupplier');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  async updateSupplier(id: string, updates: Partial<{ name: string; provider_number: number; plant_id?: string; is_active: boolean }>) {
+    try {
+      const { data, error } = await supabase
+        .from('suppliers')
+        .update(updates)
+        .eq('id', id)
+        .select('*')
+        .single();
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      const errorMessage = handleError(error, 'updateSupplier');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
+  async deleteSupplier(id: string) {
+    try {
+      const { error } = await supabase.from('suppliers').delete().eq('id', id);
+      if (error) throw error;
+    } catch (error) {
+      const errorMessage = handleError(error, 'deleteSupplier');
+      console.error(errorMessage);
+      throw new Error(errorMessage);
+    }
+  },
+
   async updateMaterial(materialId: string, materialData: Partial<Material>): Promise<Material> {
     try {
       const { data, error } = await supabase
