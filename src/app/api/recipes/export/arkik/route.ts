@@ -81,6 +81,8 @@ export async function GET(req: Request) {
       .from('recipes')
       .select(`
         id, recipe_code, new_system_code, strength_fc, age_days, placement_type, max_aggregate_size, slump,
+        arkik_long_code, arkik_short_code, arkik_type_code, arkik_num, arkik_variante,
+        arkik_volumen_concreto, arkik_contenido_aire, arkik_factor_g,
         recipe_versions!inner(id, version_number, is_current)
       `)
       .eq('recipe_versions.is_current', true)
@@ -137,9 +139,12 @@ export async function GET(req: Request) {
       const edadCode = String(edad).padStart(2, '0');
       const revCode = String(rev).padStart(2, '0');
       const tmaFactor = tma === 40 ? '4' : '2';
-      const prefix = r.recipe_type === 'MR' ? 'PAV' : '5';
-      const codigoLargo = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSegment}-${varianteCode}`;
-      const shortCode = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
+      const prefix = '5'; // use saved codes instead when available
+      const savedType = r.arkik_type_code || typeCode;
+      const savedNum = r.arkik_num || numSegment;
+      const savedVar = r.arkik_variante || varianteCode;
+      const codigoLargo = r.arkik_long_code || `${prefix}-${fcCode}-${tmaFactor}-${savedType}-${edadCode}-${revCode}-${coloc}-${savedNum}-${savedVar}`;
+      const shortCode = r.arkik_short_code || `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
 
       const fixed = [
         '',
@@ -152,9 +157,9 @@ export async function GET(req: Request) {
         tma,
         rev,
         varianteCode,
-        volumenConcreto,
-        contenidoAire,
-        factorG ?? '',
+        r.arkik_volumen_concreto ?? volumenConcreto,
+        r.arkik_contenido_aire ?? contenidoAire,
+        (r.arkik_factor_g ?? factorG) ?? '',
         '',
         ''
       ];

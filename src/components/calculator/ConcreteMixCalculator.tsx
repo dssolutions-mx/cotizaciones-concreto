@@ -9,7 +9,9 @@ import { Material, MaterialWithPrice } from '@/types/material';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-// Removed ARKIK export modal UI imports
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 // Types
 import { 
@@ -160,7 +162,17 @@ const ConcreteMixCalculator = () => {
   const [tempFCR, setTempFCR] = useState<string>('');
   const [activeTab, setActiveTab] = useState('materials');
 
-  // Removed ARKIK export modal to enforce workflow (export from Recipes page)
+  // Save-to-system Arkik defaults modal
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [arkikDefaults, setArkikDefaults] = useState({
+    type_code: 'B',
+    num: '2',
+    variante: '000',
+    volumen_concreto: '1000',
+    contenido_aire: '1.5',
+    factor_g: ''
+  });
+  const [saving, setSaving] = useState(false);
 
   // Load available materials from database
   const loadAvailableMaterials = async () => {
@@ -924,14 +936,23 @@ const ConcreteMixCalculator = () => {
     }
   };
 
-  // Persist selected recipes to system (DRY primary, SSS refs)
-  const handleSaveSelectedToSystem = async () => {
+  // Persist selected recipes to system (open modal)
+  const handleSaveSelectedToSystem = () => {
     const selected = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
     if (selected.length === 0 || !currentPlant?.id || !profile?.id) return;
+    setSaveOpen(true);
+  };
+
+  const handleConfirmSave = async () => {
+    const selected = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
+    if (selected.length === 0 || !currentPlant?.id || !profile?.id) return;
+    if (!['000', 'PCE'].includes(arkikDefaults.variante.toUpperCase())) {
+      alert('Variante inválida. Use 000 o PCE.');
+      return;
+    }
     try {
-      setLoading(true);
+      setSaving(true);
       const payload = selected.map(r => ({ ...r, recipeType: designType }));
-      // Build strict material-id mapping from selected materials
       const selectionMap = {
         cementId: selectedMaterials.cement
           ? String(availableMaterials.cements.find(c => c.id === String(selectedMaterials.cement))?.id || selectedMaterials.cement)
@@ -944,14 +965,23 @@ const ConcreteMixCalculator = () => {
         payload as unknown as CalculatorRecipe[],
         currentPlant.id,
         profile.id,
-        selectionMap
+        selectionMap,
+        {
+          typeCode: arkikDefaults.type_code,
+          num: arkikDefaults.num,
+          variante: arkikDefaults.variante.toUpperCase(),
+          volumenConcreto: parseFloat(arkikDefaults.volumen_concreto) || 1000,
+          contenidoAire: parseFloat(arkikDefaults.contenido_aire) || 1.5,
+          factorG: arkikDefaults.factor_g === '' ? null : (parseFloat(arkikDefaults.factor_g) || null)
+        }
       );
       alert('Recetas guardadas en el sistema');
+      setSaveOpen(false);
     } catch (e) {
       console.error(e);
       alert('Error guardando recetas');
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -1272,7 +1302,44 @@ const ConcreteMixCalculator = () => {
           </TabsContent>
         </Tabs>
 
-        {/* ARKIK export handled in Recipes page */}
+        {/* Guardar en sistema - Parámetros ARKIK */}
+        <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Parámetros ARKIK para guardar</DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Tipo (type_code)</Label>
+                <Input value={arkikDefaults.type_code} onChange={e => setArkikDefaults({ ...arkikDefaults, type_code: e.target.value })} />
+              </div>
+              <div>
+                <Label>Número (num)</Label>
+                <Input value={arkikDefaults.num} onChange={e => setArkikDefaults({ ...arkikDefaults, num: e.target.value })} />
+              </div>
+              <div>
+                <Label>Variante (000 o PCE)</Label>
+                <Input value={arkikDefaults.variante} onChange={e => setArkikDefaults({ ...arkikDefaults, variante: e.target.value })} />
+              </div>
+              <div>
+                <Label>Volumen de concreto (L/m³)</Label>
+                <Input value={arkikDefaults.volumen_concreto} onChange={e => setArkikDefaults({ ...arkikDefaults, volumen_concreto: e.target.value })} />
+              </div>
+              <div>
+                <Label>% contenido de aire</Label>
+                <Input value={arkikDefaults.contenido_aire} onChange={e => setArkikDefaults({ ...arkikDefaults, contenido_aire: e.target.value })} />
+              </div>
+              <div>
+                <Label>Factor G (opcional)</Label>
+                <Input value={arkikDefaults.factor_g} onChange={e => setArkikDefaults({ ...arkikDefaults, factor_g: e.target.value })} placeholder="" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSaveOpen(false)}>Cancelar</Button>
+              <Button onClick={handleConfirmSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   );

@@ -73,6 +73,15 @@ export interface CalculatorMaterialSelection {
   additiveIds?: string[]; // index-aligned to additive0, ...
 }
 
+export interface ArkikDefaults {
+  typeCode?: string; // e.g., 'B'
+  num?: string; // e.g., '2'
+  variante?: string; // '000' | 'PCE'
+  volumenConcreto?: number; // 1000
+  contenidoAire?: number; // 1.5
+  factorG?: number | null; // blank if null
+}
+
 export const calculatorService = {
   /**
    * Fetch materials from database and map to calculator format
@@ -212,7 +221,8 @@ export const calculatorService = {
     recipes: CalculatorRecipe[],
     plantId: string,
     userId: string,
-    selection?: CalculatorMaterialSelection
+    selection?: CalculatorMaterialSelection,
+    arkik?: ArkikDefaults
   ): Promise<void> {
     try {
       // Fetch material master to resolve material_ids by name mapping used in calculator
@@ -314,23 +324,47 @@ export const calculatorService = {
 
         // Use RPC path for idempotent create/update
         const created = await recipeService.createRecipeWithSpecifications(newRecipePayload);
+        if (!created || !created.id) {
+          // As a fallback, fetch by recipe_code
+          const { data: fetchedByCode, error: fetchByCodeError } = await supabase
+            .from('recipes')
+            .select('id')
+            .eq('recipe_code', recipe.code)
+            .single();
+          if (fetchByCodeError || !fetchedByCode) {
+            throw new Error('No se pudo obtener el ID de la receta recién creada');
+          }
+          (created as any).id = fetchedByCode.id;
+        }
 
         // Fetch current version id
-        const { data: currentVersion } = await supabase
+        const { data: currentVersion, error: currentVersionError } = await supabase
           .from('recipe_versions')
           .select('id')
           .eq('recipe_id', created.id)
           .eq('is_current', true)
           .single();
+        let versionId = currentVersion?.id as string | undefined;
+        if (currentVersionError || !versionId) {
+          // Fallback to latest version
+          const { data: latest, error: latestErr } = await supabase
+            .from('recipe_versions')
+            .select('id')
+            .eq('recipe_id', created.id)
+            .order('version_number', { ascending: false })
+            .limit(1)
+            .single();
+          if (!latestErr && latest) versionId = latest.id;
+        }
 
-        if (currentVersion) {
+        if (versionId) {
           // Insert SSS references
           const refRows: any[] = [];
 
           // Cement SSS
           if (cementRow) {
             refRows.push({
-              recipe_version_id: currentVersion.id,
+              recipe_version_id: versionId,
               material_type: 'CEMENTO',
               material_id: cementRow.id,
               sss_value: recipe.materialsSSS.cement,
@@ -341,7 +375,7 @@ export const calculatorService = {
           // Water SSS
           if (waterRow) {
             refRows.push({
-              recipe_version_id: currentVersion.id,
+              recipe_version_id: versionId,
               material_type: 'AGUA',
               material_id: waterRow.id,
               sss_value: recipe.materialsSSS.water,
@@ -361,7 +395,7 @@ export const calculatorService = {
               const val = recipe.materialsSSS[key];
               if (target && val > 0) {
                 refRows.push({
-                  recipe_version_id: currentVersion.id,
+                  recipe_version_id: versionId,
                   material_type: target.material_code || `SAND_${idx + 1}`,
                   material_id: target.id,
                   sss_value: val,
@@ -382,7 +416,7 @@ export const calculatorService = {
               const val = recipe.materialsSSS[key];
               if (target && val > 0) {
                 refRows.push({
-                  recipe_version_id: currentVersion.id,
+                  recipe_version_id: versionId,
                   material_type: target.material_code || `GRAVEL_${idx + 1}`,
                   material_id: target.id,
                   sss_value: val,
@@ -403,7 +437,7 @@ export const calculatorService = {
               const val = recipe.materialsSSS[key];
               if (target && val > 0) {
                 refRows.push({
-                  recipe_version_id: currentVersion.id,
+                  recipe_version_id: versionId,
                   material_type: target.material_code || `ADITIVO_${idx + 1}`,
                   material_id: target.id,
                   sss_value: val,
@@ -418,6 +452,50 @@ export const calculatorService = {
               .insert(refRows);
             if (refsError) throw refsError;
           }
+
+          // Compute and persist ARKIK codes defaults on recipe
+          const fcCode = String(recipe.strength).padStart(3, '0');
+          const edadCode = String(recipe.age).padStart(2, '0');
+          const revCode = String(recipe.slump).padStart(2, '0');
+          const tmaFactor = recipe.aggregateSize >= 40 ? '4' : '2';
+          const coloc = recipe.placement; // 'D' or 'B'
+          const prefix = recipe.recipeType === 'MR' ? 'PAV' : '5';
+          const typeCode = arkik?.typeCode || 'B';
+          const numSeg = arkik?.num || '2';
+
+          // Detect variante PCE if any additive short/name suggests PCE
+          let variante = '000';
+          try {
+            const additiveIds = selection?.additiveIds || [];
+            if (additiveIds.length > 0) {
+              const additiveRows = (materialsMaster || []).filter(m => additiveIds.includes(String(m.id)));
+              const hasPCE = additiveRows.some(m => {
+                const name = String(m.material_name || '').toUpperCase();
+                const short = String((m as any).arkik_short_code || (m as any).supplier_code || '').toUpperCase();
+                return name.includes('PCE') || short.includes('PCE');
+              });
+              if (hasPCE) variante = 'PCE';
+            }
+          } catch (_) {
+            // ignore detection errors, keep default
+          }
+
+          const arkikLong = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSeg}-${variante}`;
+          const arkikShort = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
+
+          await supabase
+            .from('recipes')
+            .update({
+              arkik_long_code: arkikLong,
+              arkik_short_code: arkikShort,
+              arkik_type_code: typeCode,
+              arkik_num: numSeg,
+              arkik_variante: variante,
+              arkik_volumen_concreto: arkik?.volumenConcreto ?? null,
+              arkik_contenido_aire: arkik?.contenidoAire ?? null,
+              arkik_factor_g: arkik?.factorG ?? null
+            })
+            .eq('id', (created as any).id);
         }
       }
 
