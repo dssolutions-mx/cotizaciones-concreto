@@ -398,15 +398,26 @@ export async function getOrdersForDosificador() {
     const { data, error } = await browserClient
       .from('orders')
       .select(`
-        id, 
-        order_number, 
-        delivery_date, 
+        id,
+        order_number,
+        delivery_date,
         delivery_time,
+        construction_site,
+        requires_invoice,
+        special_requirements,
+        preliminary_amount,
+        final_amount,
+        credit_status,
         order_status,
-        clients:clients(business_name)
+        clients:clients(business_name, client_code)
       `)
       // Add any specific filters for Dosificador if needed, e.g., status
-      .in('order_status', ['scheduled', 'validated']) // Example: Show only scheduled or validated
+      .in('order_status', [
+        // Lowercase (current standard)
+        'created', 'validated', 'scheduled',
+        // Uppercase (legacy/inconsistent data safety)
+        'CREATED', 'VALIDATED', 'SCHEDULED'
+      ])
       .order('delivery_date', { ascending: true });
     
     if (error) throw error;
