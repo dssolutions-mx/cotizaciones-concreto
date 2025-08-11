@@ -414,7 +414,7 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
                           )}
                         </TableCell>
                         
-                        <TableCell className="text-center">{recipe.age}d</TableCell>
+                        <TableCell className="text-center">{recipe.age}{recipe.ageUnit}</TableCell>
                         <TableCell className="text-center">{recipe.slump}cm</TableCell>
                         <TableCell className="text-center">{recipe.placement}</TableCell>
                         <TableCell className="text-center">{recipe.acRatio.toFixed(2)}</TableCell>

@@ -58,7 +58,8 @@ export interface CalculatedAdditive {
 export interface Recipe {
   code: string;
   strength: number;
-  age: number;
+  age: number; // numeric value of age in selected unit
+  ageUnit: 'D' | 'H'; // D = days, H = hours
   slump: number;
   placement: string;
   aggregateSize: number;
@@ -150,6 +151,9 @@ export interface RecipeParams {
   // New fields for dynamic water definition
   waterDefinitions: WaterDefinition[]; // Defines which water combinations to use for recipe generation
   additiveSystemConfig: AdditiveSystemConfig; // Configuration for the additive system
+  // Optional precise age support
+  ageUnit?: 'D' | 'H';
+  ageHours?: number;
 }
 
 export interface Materials {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, ErrorInfo } from 'react';
+import React, { useEffect, useState, ErrorInfo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -37,6 +37,8 @@ import { OrderPreferencesProvider } from '@/contexts/OrderPreferencesContext';
 import { Toaster as SonnerToaster } from 'sonner';
 import { cn } from '@/lib/utils';
 import AuthInitializer from '@/components/auth/auth-initializer';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
@@ -100,9 +102,39 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const { profile } = useAuthBridge();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const isLandingRoute = pathname?.startsWith('/landing');
   const isFinanzasRoute = pathname?.startsWith('/finanzas');
   const isQualityRoute = pathname?.startsWith('/quality');
+  const isAdminRoute = pathname?.startsWith('/admin');
+
+  // Persist collapsed state (default collapsed)
+  useEffect(() => {
+    try {
+      const saved = typeof window !== 'undefined' ? window.localStorage.getItem('sidebar:collapsed') : null;
+      if (saved !== null) {
+        setIsSidebarCollapsed(saved === '1');
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('sidebar:collapsed', isSidebarCollapsed ? '1' : '0');
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [isSidebarCollapsed]);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    if (mobileMenuOpen) setMobileMenuOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   // If it's a landing route, just render children without the main layout
   if (isLandingRoute) {
@@ -123,6 +155,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
     let addFinanzasLink = false;
     // Flag to check if Quality link should be added
     let addQualityLink = false;
+    // Flag to check if Admin link should be added
+    let addAdminLink = false;
 
     // Específicos por rol
     switch (role) {
@@ -152,7 +186,6 @@ function Navigation({ children }: { children: React.ReactNode }) {
         break;
         
       case 'PLANT_MANAGER':
-        navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
         navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
         navItems.push({ href: '/price-history', label: 'Historial', IconComponent: BarChart2 });
         navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
@@ -163,20 +196,17 @@ function Navigation({ children }: { children: React.ReactNode }) {
         break;
         
       case 'EXECUTIVE':
-        navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
         navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
         navItems.push({ href: '/price-history', label: 'Historial', IconComponent: BarChart2 });
         navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
         navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        navItems.push({ href: '/admin/users', label: 'Gestión Usuarios', IconComponent: UserCog });
-        navItems.push({ href: '/admin/plants', label: 'Gestión Plantas', IconComponent: Building2 });
+        addAdminLink = true;
         addFinanzasLink = true;
         addQualityLink = true;
         break;
         
       case 'QUALITY_TEAM':
-        navItems.push({ href: '/recipes', label: 'Recetas', IconComponent: FileText });
         navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
         addQualityLink = true;
         break;
@@ -194,10 +224,17 @@ function Navigation({ children }: { children: React.ReactNode }) {
     if (addQualityLink) {
       navItems.push({ href: '/quality', label: 'Calidad', IconComponent: Beaker });
     }
-    
-    // EXECUTIVE puede gestionar usuarios
-    if (role === 'EXECUTIVE') {
-      navItems.push({ href: '/admin/users', label: 'Usuarios', IconComponent: UserCog });
+
+    // Add Admin link if applicable
+    if (addAdminLink) {
+      navItems.push({ href: '/admin', label: 'Administración', IconComponent: UserCog });
+    }
+
+    // Remove top-level Recipes when Quality section exists to prevent duplication
+    if (addQualityLink) {
+      for (let i = navItems.length - 1; i >= 0; i--) {
+        if (navItems[i].href === '/recipes') navItems.splice(i, 1);
+      }
     }
   }
 
@@ -209,92 +246,148 @@ function Navigation({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      {/* Sidebar - versión simple */}
-      <aside className="w-64 bg-white shadow-md hidden md:block">
-        <div className="p-6 border-b flex justify-between items-center">
-          <Link href="/dashboard">
-            <Image 
-              src="/images/dcconcretos/logo-dark.svg" 
-              alt="DC Concretos" 
-              width={120}
-              height={40}
-              className="h-10 w-auto"
+      {/* Sidebar - collapsible */}
+      <aside
+        className={cn(
+          "hidden md:flex flex-col bg-white shadow-md transition-all duration-300 ease-in-out",
+          isSidebarCollapsed ? "w-16" : "w-64"
+        )}
+      >
+        <div className={cn(
+          "border-b flex items-center relative",
+          isSidebarCollapsed ? "justify-center p-4" : "justify-between p-6"
+        )}
+        >
+          <Link href="/dashboard" className="flex items-center gap-2">
+            <Image
+              src="/images/dcconcretos/logo-dark.svg"
+              alt="DC Concretos"
+              width={isSidebarCollapsed ? 32 : 120}
+              height={isSidebarCollapsed ? 32 : 40}
+              className={cn(isSidebarCollapsed ? "h-8 w-8" : "h-10 w-auto")}
               priority
             />
+            {!isSidebarCollapsed && (
+              <span className="text-sm font-semibold text-gray-800">DC Concretos</span>
+            )}
           </Link>
+          {isSidebarCollapsed && (
+            <button
+              onClick={() => setIsSidebarCollapsed(false)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded hover:bg-gray-100"
+              aria-label="Expandir sidebar"
+              title="Expandir"
+            >
+              <span className="sr-only">Expandir</span>
+              <svg viewBox="0 0 24 24" className="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          )}
+          {!isSidebarCollapsed && (
+            <button
+              onClick={() => setIsSidebarCollapsed(true)}
+              className="p-2 rounded hover:bg-gray-100"
+              aria-label="Colapsar sidebar"
+              title="Colapsar"
+            >
+              <span className="sr-only">Colapsar</span>
+              <svg viewBox="0 0 24 24" className="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            </button>
+          )}
         </div>
-        <nav className="p-4 space-y-1">
-          {navItems.map((item, index) => {
-            const isFinanzasMainLink = item.href === '/finanzas';
-            const isQualityMainLink = item.href === '/quality';
-            const isActive = 
-              isFinanzasMainLink ? isFinanzasRoute : 
-              isQualityMainLink ? isQualityRoute :
-              pathname === item.href;
-            const Icon = item.IconComponent;
 
-            return (
-              <React.Fragment key={`nav-${index}`}>
-                <Link 
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-2 py-2 px-4 rounded transition-colors w-full",
-                    isActive 
-                      ? "bg-green-500 text-white"
-                      : "text-gray-700 hover:bg-gray-100"
-                  )}
-                >
-                  <span className="mr-2">
-                    {Icon && <Icon size={18} />}
-                  </span>
-                  {item.label}
-                </Link>
-                {/* Render Finanzas submenu if active */}
-                {isFinanzasMainLink && isFinanzasRoute && (
-                  <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
-                    {finanzasSubMenuItems.map((subItem, subIndex) => {
-                      const SubIcon = subItem.IconComponent;
-                      return (
-                        <Link
-                          key={`subnav-${subIndex}`}
-                          href={subItem.href}
-                          className={cn(
-                            "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
-                            pathname === subItem.href
-                              ? "bg-gray-200 text-gray-900 font-medium"
-                              : "text-gray-600 hover:bg-gray-100"
-                          )}
-                        >
-                          <span className="mr-2">
-                            {SubIcon && <SubIcon size={16} />}
-                          </span>
-                          {subItem.title}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-                
-                {/* Render Quality submenu if active */}
-                {isQualityMainLink && isQualityRoute && (
-                  <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
-                    {qualitySubMenuItems.map((subItem, subIndex) => {
-                      // Render group header
-                      if (!('href' in subItem)) {
+        {/* Navigation */}
+        {!isSidebarCollapsed ? (
+          <nav className="p-3 space-y-1 overflow-y-auto">
+            {navItems.map((item, index) => {
+              const isFinanzasMainLink = item.href === '/finanzas';
+              const isQualityMainLink = item.href === '/quality';
+              const isActive = isFinanzasMainLink
+                ? isFinanzasRoute
+                : isQualityMainLink
+                ? isQualityRoute
+                : item.href === '/admin'
+                ? isAdminRoute
+                : pathname === item.href;
+              const Icon = item.IconComponent;
+
+              return (
+                <React.Fragment key={`nav-${index}`}>
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-2 py-2 px-3 rounded transition-colors w-full",
+                      isActive ? "bg-green-500 text-white" : "text-gray-700 hover:bg-gray-100"
+                    )}
+                  >
+                    <span className="mr-1.5">{Icon && <Icon size={18} />}</span>
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+
+                  {isFinanzasMainLink && isFinanzasRoute && (
+                    <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
+                      {finanzasSubMenuItems.map((subItem, subIndex) => {
+                        const SubIcon = subItem.IconComponent;
                         return (
-                          <div
-                            key={`quality-group-${subIndex}`}
-                            className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
+                          <Link
+                            key={`subnav-${subIndex}`}
+                            href={subItem.href}
+                            className={cn(
+                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
+                              pathname === subItem.href
+                                ? "bg-gray-200 text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-gray-100"
+                            )}
                           >
+                            <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
                             {subItem.title}
-                          </div>
+                          </Link>
                         );
-                      }
+                      })}
+                    </div>
+                  )}
 
-                      const SubIcon = subItem.IconComponent;
-                      return (
+                  {isQualityMainLink && isQualityRoute && (
+                    <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
+                      {qualitySubMenuItems.map((subItem, subIndex) => {
+                        if (!('href' in subItem)) {
+                          return (
+                            <div
+                              key={`quality-group-${subIndex}`}
+                              className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
+                            >
+                              {subItem.title}
+                            </div>
+                          );
+                        }
+                        const SubIcon = subItem.IconComponent;
+                        return (
+                          <Link
+                            key={`quality-subnav-${subIndex}`}
+                            href={subItem.href}
+                            className={cn(
+                              "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
+                              pathname === subItem.href
+                                ? "bg-gray-200 text-gray-900 font-medium"
+                                : "text-gray-600 hover:bg-gray-100"
+                            )}
+                          >
+                            <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
+                            {subItem.title}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Render Admin submenu if active */}
+                  {item.href === '/admin' && isAdminRoute && (
+                    <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
+                      {[
+                        { title: 'Usuarios', href: '/admin/users', IconComponent: UserCog },
+                        { title: 'Plantas', href: '/admin/plants', IconComponent: Building2 },
+                      ].map((subItem, subIndex) => (
                         <Link
-                          key={`quality-subnav-${subIndex}`}
+                          key={`admin-subnav-${subIndex}`}
                           href={subItem.href}
                           className={cn(
                             "flex items-center gap-2 py-1.5 px-3 rounded transition-colors text-sm w-full",
@@ -303,19 +396,166 @@ function Navigation({ children }: { children: React.ReactNode }) {
                               : "text-gray-600 hover:bg-gray-100"
                           )}
                         >
-                          <span className="mr-2">
-                            {SubIcon && <SubIcon size={16} />}
-                          </span>
+                          <span className="mr-2">{subItem.IconComponent && <subItem.IconComponent size={16} />}</span>
                           {subItem.title}
                         </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </nav>
+                      ))}
+                    </div>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </nav>
+        ) : (
+          <nav className="py-3 px-2 space-y-1 overflow-y-auto">
+            <TooltipProvider>
+              {navItems.map((item, index) => {
+                const isFinanzasMainLink = item.href === '/finanzas';
+                const isQualityMainLink = item.href === '/quality';
+                const isAdminMainLink = item.href === '/admin';
+                const isActive = isFinanzasMainLink
+                  ? isFinanzasRoute
+                  : isQualityMainLink
+                  ? isQualityRoute
+                  : isAdminMainLink
+                  ? isAdminRoute
+                  : pathname === item.href;
+                const Icon = item.IconComponent;
+
+                const renderCollapsedItem = (content?: React.ReactNode) => (
+                  <Link
+                    href={item.href}
+                    className={cn(
+                      "flex items-center justify-center py-2 rounded-md transition-colors",
+                      isActive ? "bg-green-500 text-white" : "text-gray-700 hover:bg-gray-100"
+                    )}
+                    aria-label={item.label}
+                  >
+                    {Icon && <Icon size={20} />}
+                    {/* Hidden text for screen readers if no tooltip content */}
+                    {!content && <span className="sr-only">{item.label}</span>}
+                  </Link>
+                );
+
+                // Show submenu inside tooltip for Finanzas/Quality
+                if (isFinanzasMainLink) {
+                  return (
+                    <Tooltip key={`nav-col-${index}`}>
+                      <TooltipTrigger asChild>{renderCollapsedItem(<></>)}</TooltipTrigger>
+                      <TooltipContent sideOffset={8} side="right" className="p-0">
+                        <div className="min-w-48 bg-white text-gray-700 rounded-md shadow-md p-1">
+                          <div className="px-3 py-2 text-xs font-semibold text-gray-500">Finanzas</div>
+                          {finanzasSubMenuItems.map((subItem, subIndex) => (
+                            <Link
+                              key={`fin-sub-${subIndex}`}
+                              href={subItem.href}
+                              className={cn(
+                                "flex items-center gap-2 px-3 py-2 rounded text-sm",
+                                pathname === subItem.href ? "bg-gray-100" : "hover:bg-gray-50"
+                              )}
+                            >
+                              <subItem.IconComponent size={16} />
+                              {subItem.title}
+                            </Link>
+                          ))}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                if (isQualityMainLink) {
+                  return (
+                    <Tooltip key={`nav-col-${index}`}>
+                      <TooltipTrigger asChild>{renderCollapsedItem(<></>)}</TooltipTrigger>
+                      <TooltipContent sideOffset={8} side="right" className="p-0">
+                        <div className="min-w-56 bg-white text-gray-700 rounded-md shadow-md p-1">
+                          <div className="px-3 py-2 text-xs font-semibold text-gray-500">Calidad</div>
+                          {qualitySubMenuItems.map((subItem, subIndex) => {
+                            if (!('href' in subItem)) {
+                              return (
+                                <div
+                                  key={`q-group-${subIndex}`}
+                                  className="px-3 pt-2 pb-1 text-[10px] tracking-wider uppercase text-gray-400"
+                                >
+                                  {subItem.title}
+                                </div>
+                              );
+                            }
+                            return (
+                              <Link
+                                key={`q-sub-${subIndex}`}
+                                href={subItem.href}
+                                className={cn(
+                                  "flex items-center gap-2 px-3 py-2 rounded text-sm",
+                                  pathname === subItem.href ? "bg-gray-100" : "hover:bg-gray-50"
+                                )}
+                              >
+                                <subItem.IconComponent size={16} />
+                                {subItem.title}
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                if (isAdminMainLink) {
+                  return (
+                    <Tooltip key={`nav-col-${index}`}>
+                      <TooltipTrigger asChild>{renderCollapsedItem(<></>)}</TooltipTrigger>
+                      <TooltipContent sideOffset={8} side="right" className="p-0">
+                        <div className="min-w-48 bg-white text-gray-700 rounded-md shadow-md p-1">
+                          <div className="px-3 py-2 text-xs font-semibold text-gray-500">Administración</div>
+                          {[
+                            { title: 'Usuarios', href: '/admin/users', IconComponent: UserCog },
+                            { title: 'Plantas', href: '/admin/plants', IconComponent: Building2 },
+                          ].map((subItem, subIndex) => (
+                            <Link
+                              key={`ad-sub-${subIndex}`}
+                              href={subItem.href}
+                              className={cn(
+                                "flex items-center gap-2 px-3 py-2 rounded text-sm",
+                                pathname === subItem.href ? "bg-gray-100" : "hover:bg-gray-50"
+                              )}
+                            >
+                              <subItem.IconComponent size={16} />
+                              {subItem.title}
+                            </Link>
+                          ))}
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                return (
+                  <Tooltip key={`nav-col-${index}`}>
+                    <TooltipTrigger asChild>{renderCollapsedItem()}</TooltipTrigger>
+                    <TooltipContent sideOffset={8} side="right">{item.label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </TooltipProvider>
+          </nav>
+        )}
+
+        {/* Expand handle when collapsed */}
+        {isSidebarCollapsed && (
+          <div className="mt-auto p-2 flex justify-center border-t">
+            <button
+              onClick={() => setIsSidebarCollapsed(false)}
+              className="p-2 rounded hover:bg-gray-100"
+              aria-label="Expandir sidebar"
+              title="Expandir"
+            >
+              <span className="sr-only">Expandir</span>
+              <svg viewBox="0 0 24 24" className="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          </div>
+        )}
       </aside>
 
       {/* Contenido principal */}
@@ -372,124 +612,132 @@ function Navigation({ children }: { children: React.ReactNode }) {
           <AuthStatusIndicator />
         </div>
         
-        {/* Menú móvil desplegable */}
-        {mobileMenuOpen && (
-          <div 
-            id="mobile-menu"
-            className="md:hidden fixed inset-0 z-50 bg-white pt-16 mobile-menu-overlay"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Menú de navegación"
-          >
-            <div className="p-4">
-              <button
-                onClick={() => setMobileMenuOpen(false)}
-                className="absolute top-4 right-4 p-2 rounded-full bg-gray-100 
-                          hover:bg-gray-200 active:bg-gray-300 
-                          focus:outline-hidden focus:ring-2 focus:ring-green-500
-                          transition-all transform active:scale-95"
-                aria-label="Cerrar menú"
-              >
-                <X className="w-6 h-6 text-gray-700" />
-              </button>
-              
-              <div className="mt-6">
-                {navItems.map((item, index) => {
-                  const Icon = item.IconComponent;
-                  const isCurrentItemActive = item.href === '/finanzas' 
-                    ? isFinanzasRoute 
-                    : item.href === '/quality'
-                    ? isQualityRoute
-                    : pathname === item.href;
-
-                  return (
-                    <React.Fragment key={`mobile-full-${index}`}>
-                      <Link 
-                        href={item.href}
-                        onClick={() => setMobileMenuOpen(false)}
-                        className={`flex items-center py-3 px-4 rounded-lg mb-1 ${
-                          isCurrentItemActive 
-                            ? "bg-green-500 text-white" 
-                            : "bg-gray-100 text-gray-700 active:bg-gray-200"
-                        }`}
-                      >
-                        <span className="text-xl mr-3">
-                          {Icon && <Icon size={20} />}
-                        </span>
-                        <span className="text-lg">{item.label}</span>
-                      </Link>
-                      
-                      {/* Render Finanzas submenu in mobile if active */}
-                      {item.href === '/finanzas' && isFinanzasRoute && (
-                        <div className="pl-8 mb-2 space-y-1">
-                          {finanzasSubMenuItems.map((subItem, subIndex) => {
-                            const SubIcon = subItem.IconComponent;
-                            const isSubItemActive = pathname === subItem.href;
-                            return (
-                              <Link
-                                key={`mobile-finanzas-sub-${subIndex}`}
-                                href={subItem.href}
-                                onClick={() => setMobileMenuOpen(false)}
-                                className={`flex items-center py-2 px-3 rounded-md text-sm ${
-                                  isSubItemActive
-                                    ? "bg-green-400 text-white"
-                                    : "bg-gray-50 text-gray-600 active:bg-gray-100"
-                                }`}
-                              >
-                                <span className="mr-2.5">
-                                  {SubIcon && <SubIcon size={16} />}
-                                </span>
-                                {subItem.title}
-                              </Link>
-                            );
-                          })}
-                        </div>
-                      )}
-                      
-                      {/* Render Quality submenu in mobile if active */}
-                      {item.href === '/quality' && isQualityRoute && (
-                        <div className="pl-8 mb-2 space-y-1">
-                          {qualitySubMenuItems.map((subItem, subIndex) => {
-                      if (!('href' in subItem)) {
-                        return (
-                          <div
-                            key={`mobile-quality-group-${subIndex}`}
-                            className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
-                          >
-                            {subItem.title}
-                          </div>
-                        );
-                      }
-
-                      const SubIcon = subItem.IconComponent;
-                      const isSubItemActive = pathname === subItem.href;
-                      return (
-                        <Link
-                          key={`mobile-quality-sub-${subIndex}`}
-                          href={subItem.href}
-                          onClick={() => setMobileMenuOpen(false)}
-                          className={`flex items-center py-2 px-3 rounded-md text-sm ${
-                            isSubItemActive
-                              ? "bg-green-400 text-white"
-                              : "bg-gray-50 text-gray-600 active:bg-gray-100"
-                          }`}
-                        >
-                          <span className="mr-2.5">
-                            {SubIcon && <SubIcon size={16} />}
-                          </span>
-                          {subItem.title}
-                        </Link>
-                      );
-                          })}
-                        </div>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </div>
+        {/* Menú móvil: Sheet lateral */}
+        <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+          <SheetContent side="left" className="w-64 p-0">
+            <div className="p-4 border-b">
+              <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)} className="inline-flex items-center gap-2">
+                <Image
+                  src="/images/dcconcretos/logo-dark.svg"
+                  alt="DC Concretos"
+                  width={120}
+                  height={40}
+                  className="h-10 w-auto"
+                  priority
+                />
+              </Link>
             </div>
-          </div>
-        )}
+            <div className="p-2">
+              {navItems.map((item, index) => {
+                const Icon = item.IconComponent;
+                const isCurrentItemActive = item.href === '/finanzas'
+                  ? isFinanzasRoute
+                  : item.href === '/quality'
+                  ? isQualityRoute
+                  : item.href === '/admin'
+                  ? isAdminRoute
+                  : pathname === item.href;
+
+                return (
+                  <React.Fragment key={`mobile-full-${index}`}>
+                    <Link
+                      href={item.href}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={cn(
+                        "flex items-center py-2.5 px-3 rounded-md mb-1",
+                        isCurrentItemActive ? "bg-green-500 text-white" : "text-gray-700 hover:bg-gray-100"
+                      )}
+                    >
+                      <span className="mr-2">{Icon && <Icon size={18} />}</span>
+                      <span>{item.label}</span>
+                    </Link>
+
+                    {item.href === '/finanzas' && isFinanzasRoute && (
+                      <div className="pl-6 mb-2 space-y-1">
+                        {finanzasSubMenuItems.map((subItem, subIndex) => {
+                          const SubIcon = subItem.IconComponent;
+                          const isSubItemActive = pathname === subItem.href;
+                          return (
+                            <Link
+                              key={`mobile-finanzas-sub-${subIndex}`}
+                              href={subItem.href}
+                              onClick={() => setMobileMenuOpen(false)}
+                              className={cn(
+                                "flex items-center py-1.5 px-2 rounded-md text-sm",
+                                isSubItemActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-100"
+                              )}
+                            >
+                              <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
+                              {subItem.title}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {item.href === '/quality' && isQualityRoute && (
+                      <div className="pl-6 mb-2 space-y-1">
+                        {qualitySubMenuItems.map((subItem, subIndex) => {
+                          if (!('href' in subItem)) {
+                            return (
+                              <div
+                                key={`mobile-quality-group-${subIndex}`}
+                                className="text-[10px] tracking-wider uppercase text-gray-400 font-semibold mt-3 mb-1 pl-1"
+                              >
+                                {subItem.title}
+                              </div>
+                            );
+                          }
+                          const SubIcon = subItem.IconComponent;
+                          const isSubItemActive = pathname === subItem.href;
+                          return (
+                            <Link
+                              key={`mobile-quality-sub-${subIndex}`}
+                              href={subItem.href}
+                              onClick={() => setMobileMenuOpen(false)}
+                              className={cn(
+                                "flex items-center py-1.5 px-2 rounded-md text-sm",
+                                isSubItemActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-100"
+                              )}
+                            >
+                              <span className="mr-2">{SubIcon && <SubIcon size={16} />}</span>
+                              {subItem.title}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {item.href === '/admin' && isAdminRoute && (
+                      <div className="pl-6 mb-2 space-y-1">
+                        {[
+                          { title: 'Usuarios', href: '/admin/users', IconComponent: UserCog },
+                          { title: 'Plantas', href: '/admin/plants', IconComponent: Building2 },
+                        ].map((subItem, subIndex) => {
+                          const isSubItemActive = pathname === subItem.href;
+                          return (
+                            <Link
+                              key={`mobile-admin-sub-${subIndex}`}
+                              href={subItem.href}
+                              onClick={() => setMobileMenuOpen(false)}
+                              className={cn(
+                                "flex items-center py-1.5 px-2 rounded-md text-sm",
+                                isSubItemActive ? "bg-gray-200 text-gray-900" : "text-gray-600 hover:bg-gray-100"
+                              )}
+                            >
+                              <span className="mr-2">{subItem.IconComponent && <subItem.IconComponent size={16} />}</span>
+                              {subItem.title}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </SheetContent>
+        </Sheet>
         
         {/* Contenido de la página */}
         <div className="mt-4">

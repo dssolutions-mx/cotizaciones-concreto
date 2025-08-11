@@ -36,6 +36,7 @@ export interface CalculatorRecipe {
   code: string;
   strength: number;
   age: number;
+  ageUnit: 'D' | 'H';
   slump: number;
   placement: string;
   aggregateSize: number;
@@ -303,8 +304,8 @@ export const calculatorService = {
         // Create via RPC (new recipe or new version if exists)
         const specification = {
           strength_fc: recipe.strength,
-          age_days: recipe.age,
-          age_hours: undefined as number | undefined,
+          age_days: recipe.ageUnit === 'D' ? recipe.age : null,
+          age_hours: recipe.ageUnit === 'H' ? recipe.age : null,
           placement_type: recipe.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
           max_aggregate_size: recipe.aggregateSize,
           slump: recipe.slump,
@@ -480,7 +481,7 @@ export const calculatorService = {
           } catch (_) {
             // ignore detection errors, keep default
           }
-
+          // For ARKIK codes, we keep the edad segment numeric. If hours are used, we still include the numeric value.
           const arkikLong = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSeg}-${variante}`;
           const arkikShort = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
 

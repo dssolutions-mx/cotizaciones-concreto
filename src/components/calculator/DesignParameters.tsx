@@ -237,34 +237,52 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
         <CardContent className="space-y-4">
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <Label htmlFor="age">Edad de Diseño (días)</Label>
-              <Input
-                id="age"
-                type="number"
-                value={designParams.age}
-                onChange={(e) => onDesignParamsChange({ age: parseInt(e.target.value) || 28 })}
-                min="1"
-                max="365"
-                step="1"
-                className="h-10"
-                placeholder="28"
-              />
+              <Label>Unidad de Edad</Label>
+              <Select
+                value={(recipeParams.ageUnit as any) || 'D'}
+                onValueChange={(v) => onRecipeParamsChange({ ...(recipeParams as any), ageUnit: v as any })}
+              >
+                <SelectTrigger className="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="D">Días</SelectItem>
+                  <SelectItem value="H">Horas</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <div>
-              <Label htmlFor="ageHours">Edad (horas, opcional)</Label>
-              <Input
-                id="ageHours"
-                type="number"
-                value={(recipeParams as any).ageHours || ''}
-                onChange={(e) => onRecipeParamsChange({ ...(recipeParams as any), ageHours: e.target.value ? parseInt(e.target.value) : undefined })}
-                min="1"
-                max="720"
-                step="1"
-                className="h-10"
-                placeholder="Ej. 12"
-              />
-            </div>
+            {(recipeParams.ageUnit || 'D') === 'D' ? (
+              <div>
+                <Label htmlFor="age">Edad de Diseño (días)</Label>
+                <Input
+                  id="age"
+                  type="number"
+                  value={designParams.age}
+                  onChange={(e) => onDesignParamsChange({ age: parseInt(e.target.value) || 28 })}
+                  min="1"
+                  max="365"
+                  step="1"
+                  className="h-10"
+                  placeholder="28"
+                />
+              </div>
+            ) : (
+              <div>
+                <Label htmlFor="ageHours">Edad de Diseño (horas)</Label>
+                <Input
+                  id="ageHours"
+                  type="number"
+                  value={(recipeParams as any).ageHours || ''}
+                  onChange={(e) => onRecipeParamsChange({ ...(recipeParams as any), ageHours: e.target.value ? parseInt(e.target.value) : undefined })}
+                  min="1"
+                  max="720"
+                  step="1"
+                  className="h-10"
+                  placeholder="Ej. 12"
+                />
+              </div>
+            )}
 
             <div>
               <Label htmlFor="aggregate-size">Tamaño Máximo del Agregado (mm)</Label>

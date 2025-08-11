@@ -146,7 +146,9 @@ const ConcreteMixCalculator = () => {
     waterQuantitiesTD: DEFAULT_WATER_QUANTITIES_TD,
     waterQuantitiesBomb: DEFAULT_WATER_QUANTITIES_BOMB,
     waterDefinitions: DEFAULT_WATER_DEFINITIONS,
-    additiveSystemConfig: DEFAULT_ADDITIVE_SYSTEM_CONFIG
+    additiveSystemConfig: DEFAULT_ADDITIVE_SYSTEM_CONFIG,
+    ageUnit: 'D',
+    ageHours: undefined
   });
   
   // Generated recipes
@@ -555,10 +557,14 @@ const ConcreteMixCalculator = () => {
       }
     });
     
+    const ageUnit: 'D' | 'H' = (recipeParams as any).ageUnit === 'H' ? 'H' : 'D';
+    const ageValue = ageUnit === 'H' && (recipeParams as any).ageHours ? (recipeParams as any).ageHours : designParams.age;
+
     return {
-      code: generateRecipeCode(designType, strength, slump, placement, designParams.age),
+      code: generateRecipeCode(designType, strength, slump, placement, ageValue, ageUnit),
       strength,
-      age: designParams.age,
+      age: ageValue,
+      ageUnit,
       slump,
       placement,
       aggregateSize,
@@ -702,10 +708,14 @@ const ConcreteMixCalculator = () => {
       typeof val === 'number' ? sum + val : sum, 0
     );
     
+    const ageUnit: 'D' | 'H' = (recipeParams as any).ageUnit === 'H' ? 'H' : 'D';
+    const ageValue = ageUnit === 'H' && (recipeParams as any).ageHours ? (recipeParams as any).ageHours : designParams.age;
+
     return {
-      code: generateRecipeCode(designType, strength, slump, placement, designParams.age),
+      code: generateRecipeCode(designType, strength, slump, placement, ageValue, ageUnit),
       strength,
-      age: designParams.age,
+      age: ageValue,
+      ageUnit,
       slump,
       placement,
       aggregateSize,

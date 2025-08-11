@@ -309,12 +309,14 @@ export const generateRecipeCode = (
   strength: number,
   slump: number,
   placement: string,
-  age: number
+  age: number,
+  ageUnit: 'D' | 'H' = 'D'
 ): string => {
+  const unitSuffix = ageUnit;
   if (designType === 'MR') {
-    return `MR${strength}-${slump}${placement}-${age}D`;
+    return `MR${strength}-${slump}${placement}-${age}${unitSuffix}`;
   }
-  return `FC${strength}-${slump}${placement}-${age}D`;
+  return `FC${strength}-${slump}${placement}-${age}${unitSuffix}`;
 };
 
 // Calculate additives based on the new dynamic system (consolidated by material ID)
