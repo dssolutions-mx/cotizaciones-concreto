@@ -31,7 +31,26 @@ function LoginForm() {
           console.log('Login confirmed through auth event');
           setLoading(false);
           setLoginAttempted(false);
-          router.push('/dashboard');
+          try {
+            const { data: sessionData } = await supabase.auth.getSession();
+            let target = '/dashboard';
+            const qualityRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER'];
+            const userId = sessionData?.session?.user?.id;
+            if (userId) {
+              const { data: profileData } = await supabase
+                .from('user_profiles')
+                .select('role')
+                .eq('id', userId)
+                .single();
+              const role = (profileData as any)?.role as string | undefined;
+              if (role && qualityRoles.includes(role)) {
+                target = '/quality';
+              }
+            }
+            router.push(target);
+          } catch {
+            router.push('/dashboard');
+          }
         }
       }
     );
@@ -210,7 +229,26 @@ function LoginForm() {
   // Redirect to dashboard if already authenticated
   useEffect(() => {
     if (session) {
-      router.push('/dashboard');
+      // If already authenticated, route to role-based home
+      (async () => {
+        try {
+          let target = '/dashboard';
+          const qualityRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER'];
+          const userId = session.user.id;
+          const { data: profileData } = await supabase
+            .from('user_profiles')
+            .select('role')
+            .eq('id', userId)
+            .single();
+          const role = (profileData as any)?.role as string | undefined;
+          if (role && qualityRoles.includes(role)) {
+            target = '/quality';
+          }
+          router.push(target);
+        } catch {
+          router.push('/dashboard');
+        }
+      })();
     }
   }, [session, router]);
 

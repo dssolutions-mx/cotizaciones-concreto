@@ -13,6 +13,8 @@ import {
   DatoGraficoResistencia
 } from '@/types/quality';
 import { format, subMonths } from 'date-fns';
+import { v4 as uuidv4 } from 'uuid';
+import { formatDate, createSafeDate } from '@/lib/utils';
 
 // Muestreos
 export async function fetchMuestreos(filters?: FiltrosCalidad) {
@@ -107,6 +109,136 @@ export async function createMuestreo(muestreo: Partial<Muestreo>) {
   } catch (error) {
     handleError(error, 'createMuestreo');
     throw new Error('Error al crear muestreo');
+  }
+}
+
+// UI planning type for explicit sample creation (duplicate kept local to service)
+export type PlannedSample = {
+  id: string;
+  tipo_muestra: 'CILINDRO' | 'VIGA' | 'CUBO';
+  fecha_programada_ensayo: Date;
+  diameter_cm?: number; // only for cylinders
+  cube_side_cm?: number; // only for cubes
+  age_days?: number; // days
+  age_hours?: number; // optional precise age in hours
+};
+
+type NewMuestreoInput = Omit<Partial<Muestreo>, 'fecha_muestreo'> & {
+  fecha_muestreo: Date | string;
+  created_by?: string;
+};
+
+export async function createMuestreoWithSamples(
+  data: NewMuestreoInput,
+  plannedSamples: PlannedSample[]
+) {
+  try {
+    const { 
+      numero_cilindros, 
+      numero_vigas,
+      peso_recipiente_vacio,
+      peso_recipiente_lleno,
+      factor_recipiente,
+      ...muestreoData 
+    } = data as any;
+
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const baseDateVal = typeof muestreoData.fecha_muestreo === 'string'
+      ? new Date(`${muestreoData.fecha_muestreo}T00:00:00`)
+      : muestreoData.fecha_muestreo;
+    const muestreoToCreate = {
+      ...muestreoData,
+      fecha_muestreo: typeof muestreoData.fecha_muestreo === 'string' 
+        ? muestreoData.fecha_muestreo 
+        : formatDate(muestreoData.fecha_muestreo, 'yyyy-MM-dd'),
+      fecha_muestreo_ts: baseDateVal ? new Date(baseDateVal).toISOString() : new Date().toISOString(),
+      event_timezone: tz
+    } as any;
+
+    const { data: muestreo, error } = await supabase
+      .from('muestreos')
+      .insert(muestreoToCreate)
+      .select()
+      .single();
+    if (error) throw error;
+
+    if (plannedSamples && plannedSamples.length > 0) {
+      let counter = 1;
+      const samplesToInsert = plannedSamples.map((s) => {
+        const baseDateStr = typeof muestreoToCreate.fecha_muestreo === 'string'
+          ? muestreoToCreate.fecha_muestreo
+          : formatDate(muestreoToCreate.fecha_muestreo, 'yyyy-MM-dd');
+
+        // Use the precise sampling timestamp (including hour/minute) as the base for age calculations
+        const baseTs = muestreoToCreate.fecha_muestreo_ts
+          ? new Date(muestreoToCreate.fecha_muestreo_ts)
+          : createSafeDate(baseDateStr)!;
+
+        const idClas = s.tipo_muestra === 'VIGA' ? 'MR' : 'FC';
+        const diameterSuffix = s.tipo_muestra === 'CILINDRO' && s.diameter_cm ? `-D${s.diameter_cm}` : '';
+        const cubeSuffix = s.tipo_muestra === 'CUBO' && s.cube_side_cm ? `-S${s.cube_side_cm}` : '';
+        const identification = `${idClas}-${baseDateStr.replace(/-/g, '')}-${String(counter++).padStart(3, '0')}${diameterSuffix}${cubeSuffix}`;
+
+        // Programmed date derived from age_hours > age_days > given, preserving the sampling time of day
+        let programmedDate = s.fecha_programada_ensayo;
+        if (typeof s.age_hours === 'number' && isFinite(s.age_hours)) {
+          const byHours = new Date(baseTs);
+          byHours.setHours(byHours.getHours() + s.age_hours);
+          programmedDate = byHours;
+        } else if (typeof s.age_days === 'number' && isFinite(s.age_days)) {
+          const byDays = new Date(baseTs);
+          byDays.setDate(byDays.getDate() + s.age_days);
+          programmedDate = byDays;
+        }
+
+        return {
+          id: uuidv4(),
+          muestreo_id: muestreo.id,
+          tipo_muestra: s.tipo_muestra,
+          identificacion: identification,
+          fecha_programada_ensayo: formatDate(programmedDate, 'yyyy-MM-dd'),
+          fecha_programada_ensayo_ts: programmedDate.toISOString(),
+          event_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          estado: 'PENDIENTE',
+          created_at: new Date().toISOString(),
+          diameter_cm: s.tipo_muestra === 'CILINDRO' ? (s.diameter_cm ?? null) : null,
+          cube_side_cm: s.tipo_muestra === 'CUBO' ? (s.cube_side_cm ?? null) : null,
+        } as any;
+      });
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from('muestras')
+        .insert(samplesToInsert)
+        .select('id');
+      if (insertErr) throw insertErr;
+
+      if (inserted && inserted.length > 0) {
+        const alertsToCreate = samplesToInsert.map((sample: any) => {
+          const tz2 = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const testTs = sample.fecha_programada_ensayo_ts ? new Date(sample.fecha_programada_ensayo_ts) : createSafeDate(sample.fecha_programada_ensayo)!;
+          const alertTs = new Date(testTs.getTime() - 24 * 3600 * 1000);
+          const alertLocal = new Date(alertTs);
+          alertLocal.setUTCHours(9, 0, 0, 0);
+          return {
+            muestra_id: sample.id,
+            fecha_alerta: formatDate(alertLocal, 'yyyy-MM-dd'),
+            fecha_alerta_ts: alertLocal.toISOString(),
+            event_timezone: tz2,
+            estado: 'PENDIENTE',
+            created_at: new Date().toISOString(),
+          };
+        });
+        const { error: alertErr } = await supabase
+          .from('alertas_ensayos')
+          .insert(alertsToCreate);
+        if (alertErr) throw alertErr;
+      }
+    }
+
+    return muestreo.id as string;
+  } catch (error) {
+    handleError(error, 'createMuestreoWithSamples');
+    throw new Error('Error al crear muestreo y muestras');
   }
 }
 
@@ -443,6 +575,7 @@ export async function fetchMetricasCalidad(
       .select(`
         id,
         fecha_ensayo,
+        fecha_ensayo_ts,
         resistencia_calculada,
         porcentaje_cumplimiento,
         muestra:muestra_id (
@@ -450,9 +583,11 @@ export async function fetchMetricasCalidad(
           identificacion,
           tipo_muestra,
           fecha_programada_ensayo,
+          fecha_programada_ensayo_ts,
           muestreo:muestreo_id (
             id,
             fecha_muestreo,
+            fecha_muestreo_ts,
             planta,
             remision:remision_id (
               id,
@@ -465,7 +600,8 @@ export async function fetchMetricasCalidad(
                 id,
                 recipe_code,
                 strength_fc,
-                age_days
+                age_days,
+                age_hours
               )
             )
           )
@@ -986,7 +1122,7 @@ export async function fetchDatosGraficoResistencia(
 
         // Calculate the guarantee age date
         const fechaMuestreo = new Date(muestreo.fecha_muestreo);
-        const edadGarantia = recipe.age_days || 28;
+    const edadGarantia = (recipe.age_hours ?? null) ? (recipe.age_hours / 24) : (recipe.age_days || 28);
         const fechaEdadGarantia = new Date(fechaMuestreo);
         fechaEdadGarantia.setDate(fechaMuestreo.getDate() + edadGarantia);
 
@@ -2921,11 +3057,11 @@ export async function fetchEficienciaReporteDataFixed(
         const remision = remisionesMap.get(muestreo.remision_id);
         
         // Get materiales for this remision
-        const materiales = materialsByRemision.get(muestreo.remision_id) || [];
+        const materiales: any[] = materialsByRemision.get(muestreo.remision_id) || [];
         
         // Calculate sums and totals
-        const sumaMateriales = materiales.reduce((sum, mat) => sum + (mat.cantidad_real || 0), 0);
-        const kgCemento = materiales.find(m => m.material_type === 'cement')?.cantidad_real || 0;
+        const sumaMateriales = materiales.reduce((sum: number, mat: any) => sum + (mat.cantidad_real || 0), 0);
+        const kgCemento = (materiales.find((m: any) => m.material_type === 'cement')?.cantidad_real) || 0;
         
         // Get recipe data from nested object
         const recipeData = muestreo.remision?.recipe;
@@ -2944,7 +3080,7 @@ export async function fetchEficienciaReporteDataFixed(
           .eq('muestra.muestreo_id', muestreo.id);
           
         if (resistenciaData && resistenciaData.length > 0) {
-          resistenciaPromedio = resistenciaData.reduce((sum, item) => 
+          resistenciaPromedio = resistenciaData.reduce((sum: number, item: any) => 
             sum + (item.resistencia_calculada || 0), 0) / resistenciaData.length;
         }
         
@@ -2960,12 +3096,12 @@ export async function fetchEficienciaReporteDataFixed(
         
         // Process muestras - EXACTLY the same as debugMuestreosMuestras
         const muestras = muestreoMuestrasMap.get(muestreo.id) || [];
-        const muestrasProcessed = muestras.map(muestra => {
+        const muestrasProcessed = muestras.map((muestra: any) => {
           // Get ensayos for this muestra
           const ensayos = muestra.ensayos || [];
           
           // Add edad_dias and is_edad_garantia to each ensayo
-          const ensayosWithAge = ensayos.map(ensayo => {
+          const ensayosWithAge = ensayos.map((ensayo: any) => {
             const fechaEnsayoStr = ensayo.fecha_ensayo.split('T')[0];
             const fechaEnsayo = createUTCDate(fechaEnsayoStr);
             const diffTime = Math.abs(fechaEnsayo.getTime() - fechaMuestreo.getTime());
@@ -2986,9 +3122,9 @@ export async function fetchEficienciaReporteDataFixed(
             tipo_muestra: muestra.tipo_muestra,
             fecha_programada: muestra.fecha_programada_ensayo,
             fecha_programada_matches_garantia: muestra.fecha_programada_ensayo === fechaEdadGarantiaStr,
-            is_edad_garantia: ensayosWithAge.some(e => e.is_edad_garantia),
-            resistencia: ensayosWithAge.find(e => e.is_edad_garantia)?.resistencia_calculada,
-            cumplimiento: ensayosWithAge.find(e => e.is_edad_garantia)?.porcentaje_cumplimiento,
+            is_edad_garantia: ensayosWithAge.some((e: any) => e.is_edad_garantia),
+            resistencia: ensayosWithAge.find((e: any) => e.is_edad_garantia)?.resistencia_calculada,
+            cumplimiento: ensayosWithAge.find((e: any) => e.is_edad_garantia)?.porcentaje_cumplimiento,
             ensayos: ensayosWithAge
           };
         });
@@ -3029,7 +3165,7 @@ export async function fetchEficienciaReporteDataFixed(
           fecha_garantia: fechaEdadGarantiaStr,
           muestras: muestrasProcessed,
           muestras_count: muestras.length,
-          muestras_garantia_count: muestras.filter(m => m.fecha_programada_ensayo === fechaEdadGarantiaStr).length
+          muestras_garantia_count: muestras.filter((m: any) => m.fecha_programada_ensayo === fechaEdadGarantiaStr).length
         };
       } catch (err) {
         console.error('Error calculando métricas para muestreo:', muestreo.id, err);

@@ -216,9 +216,10 @@ function Navigation({ children }: { children: React.ReactNode }) {
             <Image 
               src="/images/dcconcretos/logo-dark.svg" 
               alt="DC Concretos" 
-              className="h-10 w-auto"
               width={120}
               height={40}
+              className="h-10 w-auto"
+              priority
             />
           </Link>
         </div>
@@ -325,9 +326,9 @@ function Navigation({ children }: { children: React.ReactNode }) {
             <Image 
               src="/images/dcconcretos/logo-dark.svg" 
               alt="DC Concretos" 
-              className="h-8 w-auto"
               width={96}
               height={32}
+              className="h-8 w-auto"
             />
           </Link>
           

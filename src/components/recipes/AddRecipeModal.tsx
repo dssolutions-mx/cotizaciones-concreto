@@ -50,6 +50,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     recipeType: 'FC' as 'FC' | 'MR',
     strengthFc: '',
     ageDays: '28',
+    ageHours: '',
     placementType: 'D',
     maxAggregateSize: '',
     slump: '',
@@ -115,6 +116,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
       const specification: RecipeSpecification = {
         strength_fc: parseFloat(formData.strengthFc),
         age_days: parseInt(formData.ageDays),
+        age_hours: formData.ageHours ? parseInt(formData.ageHours) : undefined,
         placement_type: formData.placementType,
         max_aggregate_size: parseFloat(formData.maxAggregateSize),
         slump: parseFloat(formData.slump),
@@ -155,6 +157,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
         recipeType: 'FC',
         strengthFc: '',
         ageDays: '28',
+        ageHours: '',
         placementType: 'D',
         maxAggregateSize: '',
         slump: '',
@@ -339,6 +342,23 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
+            </div>
+
+            {/* Age Hours (optional) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Edad (horas)
+              </label>
+              <input
+                type="number"
+                name="ageHours"
+                value={formData.ageHours}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Defínelo para edades sub-día (ej. 12, 18)"
+                min={0}
+              />
+              <p className="text-xs text-gray-500 mt-1">Si se define, el sistema usará horas para programar y evaluar calidad. Si no, se usará días.</p>
             </div>
 
             {/* Placement Type */}

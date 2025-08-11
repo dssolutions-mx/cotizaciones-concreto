@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 // Use createMiddlewareClient from the auth-helpers package
 import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
-import type { Database } from '@/types/supabase';
+// Avoid importing project-specific DB types in middleware to prevent module resolution issues
 
 // Generate a random nonce for CSP using Web Crypto API
 function generateNonce() {
@@ -37,7 +37,7 @@ export async function middleware(request: NextRequest) {
   response.headers.set('X-CSP-Nonce', nonce); // Make nonce available if needed client-side
 
   // Create Supabase client configured for middleware
-  const supabase = createMiddlewareClient<Database>({ req: request, res: response });
+  const supabase = createMiddlewareClient({ req: request, res: response });
 
   // Extract pathname for logic
   const url = request.nextUrl.clone();
@@ -142,12 +142,38 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  // If authenticated and trying to access login/register pages, redirect to dashboard
+  // Determine user's default home based on role (Quality roles land on /quality)
+  let defaultHome: string = '/dashboard';
+  if (user) {
+    try {
+      const { data: profileData } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      const role = (profileData as any)?.role as string | undefined;
+      const qualityRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER'];
+      if (role && qualityRoles.includes(role)) {
+        defaultHome = '/quality';
+      }
+    } catch (err) {
+      // On error, keep default to /dashboard
+    }
+  }
+
+  // If authenticated and trying to access login/register pages, redirect to role-based home
   if (user && (pathname === '/login' || pathname === '/register')) {
-    console.log(`Authenticated user accessing ${pathname}, redirecting to dashboard.`);
-    const dashboardUrl = request.nextUrl.clone();
-    dashboardUrl.pathname = '/dashboard';
-    return NextResponse.redirect(dashboardUrl);
+    console.log(`Authenticated user accessing ${pathname}, redirecting to ${defaultHome}.`);
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = defaultHome;
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // If authenticated user hits root '/', send them to their role-based home
+  if (user && pathname === '/') {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = defaultHome;
+    return NextResponse.redirect(redirectUrl);
   }
 
   // Debug log for orders page access

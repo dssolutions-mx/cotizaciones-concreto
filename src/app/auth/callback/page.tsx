@@ -44,16 +44,31 @@ function AuthCallbackHandler() {
     }
   }, [router]);
   
-  const redirectToDashboard = useCallback(() => {
-    console.log('Executing redirect to dashboard');
+  // Redirect to role-based home: Quality roles -> /quality, others -> /dashboard
+  const redirectToHome = useCallback(async () => {
     try {
-      router.push('/dashboard');
+      const { data: sessionData } = await supabase.auth.getSession();
+      let target = '/dashboard';
+      const qualityRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER'];
+      const userId = sessionData?.session?.user?.id;
+      if (userId) {
+        const { data: profileData } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('id', userId)
+          .single();
+        const role = (profileData as any)?.role as string | undefined;
+        if (role && qualityRoles.includes(role)) {
+          target = '/quality';
+        }
+      }
+      router.push(target);
       setTimeout(() => {
-        window.location.href = '/dashboard';
+        window.location.href = target;
       }, 1000);
     } catch (err) {
-      console.error('Error in redirect:', err);
-      window.location.href = '/dashboard';
+      console.error('Error resolving home redirect, falling back to /dashboard:', err);
+      router.push('/dashboard');
     }
   }, [router]);
 
@@ -107,8 +122,8 @@ function AuthCallbackHandler() {
           console.log('Redirecting to update-password after SIGNED_IN event (new user or invite)');
           redirectToUpdatePassword();
         } else {
-          console.log('Redirecting to dashboard after SIGNED_IN event (existing user)');
-          redirectToDashboard();
+          console.log('Redirecting to home after SIGNED_IN event (existing user)');
+          redirectToHome();
         }
       }
     });
@@ -116,7 +131,7 @@ function AuthCallbackHandler() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [authEventHandled, redirectToDashboard, redirectToUpdatePassword]);
+  }, [authEventHandled, redirectToHome, redirectToUpdatePassword]);
 
   // Check first if we already have a session, regardless of URL parameters
   useEffect(() => {
@@ -135,8 +150,8 @@ function AuthCallbackHandler() {
             console.log('Redirecting new user to update-password');
             redirectToUpdatePassword();
           } else {
-            console.log('Redirecting existing user to dashboard');
-            redirectToDashboard();
+            console.log('Redirecting existing user to home');
+            redirectToHome();
           }
           
           return true; // Session found and handled
@@ -153,7 +168,7 @@ function AuthCallbackHandler() {
     };
     
     checkExistingSession();
-  }, [redirectToDashboard, redirectToUpdatePassword]);
+  }, [redirectToHome, redirectToUpdatePassword]);
 
   // Process URL parameters for authentication
   useEffect(() => {
@@ -214,7 +229,7 @@ function AuthCallbackHandler() {
                 if (type === 'invite' || type === 'signup') {
                   redirectToUpdatePassword();
                 } else {
-                  redirectToDashboard();
+                  redirectToHome();
                 }
               }
             }, 2000);
@@ -243,7 +258,7 @@ function AuthCallbackHandler() {
             setTimeout(() => {
               if (!authEventHandled) {
                 console.log('Failsafe redirect after exchanging code');
-                redirectToDashboard();
+                redirectToHome();
               }
             }, 2000);
           } catch (err) {
@@ -264,7 +279,7 @@ function AuthCallbackHandler() {
             if (isNewUser) {
               redirectToUpdatePassword();
             } else {
-              redirectToDashboard();
+              redirectToHome();
             }
           } else {
             console.error('No auth parameters found in URL and no session established');
@@ -301,7 +316,7 @@ function AuthCallbackHandler() {
           if (isNewUser || isInviteFlow) {
             redirectToUpdatePassword();
           } else {
-            redirectToDashboard();
+            redirectToHome();
           }
         } else {
           console.log('No session in fallback timer');

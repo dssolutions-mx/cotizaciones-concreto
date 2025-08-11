@@ -304,6 +304,7 @@ export const calculatorService = {
         const specification = {
           strength_fc: recipe.strength,
           age_days: recipe.age,
+          age_hours: undefined as number | undefined,
           placement_type: recipe.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
           max_aggregate_size: recipe.aggregateSize,
           slump: recipe.slump,

@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Search, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { formatDate } from '@/lib/utils';
+import RemisionesList from '@/components/quality/muestreos/RemisionesList';
 import { es } from 'date-fns/locale';
 
 interface RemisionData {
@@ -142,49 +143,7 @@ export default function RemisionesPicker({ onRemisionSelected }: RemisionesPicke
           </div>
         )}
         
-        <div className="space-y-2">
-          {remisiones.map(remision => (
-            <div
-              key={remision.id}
-              className="border rounded-md p-3 hover:bg-gray-50 cursor-pointer transition-colors"
-              onClick={() => {
-                console.log('Selected remision with fecha:', remision.fecha);
-                onRemisionSelected(remision);
-              }}
-            >
-              <div className="flex justify-between">
-                <div className="font-medium">Remisión #{remision.remision_number}</div>
-                <div className="text-sm text-gray-500">
-                  {formatDate(remision.fecha, 'PPP')}
-                </div>
-              </div>
-              
-              <div className="flex justify-between mt-1">
-                <div className="text-sm text-gray-600">
-                  {remision.orders?.clients?.business_name || 'Cliente no especificado'}
-                </div>
-                <div className="text-sm font-medium">
-                  {remision.volumen_fabricado} m³
-                </div>
-              </div>
-              
-              <div className="flex flex-wrap gap-2 mt-2">
-                <div className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs">
-                  {remision.recipe?.recipe_code || 'Receta no especificada'}
-                </div>
-                <div className="bg-green-50 text-green-700 px-2 py-1 rounded text-xs">
-                  {remision.recipe?.strength_fc || '-'} kg/cm²
-                </div>
-                <div className="bg-orange-50 text-orange-700 px-2 py-1 rounded text-xs">
-                  Rev: {remision.recipe?.slump || '-'} cm
-                </div>
-                <div className="bg-purple-50 text-purple-700 px-2 py-1 rounded text-xs">
-                  {remision.recipe?.age_days || '-'} días
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        <RemisionesList remisiones={remisiones as any[]} selectedRemisionId={null} onSelect={onRemisionSelected as any} />
         
         {remisiones.length > 0 && (
           <div className="mt-4 text-center">

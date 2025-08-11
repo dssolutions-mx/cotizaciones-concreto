@@ -1387,7 +1387,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                       <option value="" disabled>Seleccionar receta</option>
                                       {filteredRecipes.map((recipe) => (
                                         <option key={recipe.id} value={recipe.id}>
-                                          {recipe.recipe_code} - {recipe.strength_fc}kg/cm² {recipe.slump}cm {recipe.age_days}d {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
+                                          {recipe.recipe_code} - {recipe.strength_fc}kg/cm² {recipe.slump}cm {(recipe as any).age_hours ? `${(recipe as any).age_hours}h` : `${recipe.age_days}d`} {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
                                         </option>
                                       ))}
                                     </select>

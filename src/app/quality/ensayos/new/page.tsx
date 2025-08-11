@@ -145,22 +145,26 @@ function NuevoEnsayoContent() {
     if (muestra) {
       let resistencia = 0;
       
-      // Calculate resistance based on specimen type
+      // Calculate resistance based on specimen type and dimensions when available
       if (muestra.tipo_muestra === 'CILINDRO') {
-        // Area of a 15 cm diameter cylinder in cm²
-        const area = Math.PI * 7.5 * 7.5;
+        const diameter = typeof (muestra as any).diameter_cm === 'number' && (muestra as any).diameter_cm > 0
+          ? (muestra as any).diameter_cm
+          : 15; // default 15 cm
+        const radius = diameter / 2;
+        const area = Math.PI * radius * radius; // cm²
         
-        // Default to standard compression test
-        const isMRTest = false; // MR test type not currently tracked in data model
-        
+        // Default to FC; MR factor via cylinder when applicable (not tracked explicitly yet)
+        const isMRTest = false;
         resistencia = value / area;
-        
-        // If it's an MR test through a cylinder, multiply by 0.13
-        if (isMRTest) {
-          resistencia = resistencia * 0.13;
-        }
+        if (isMRTest) resistencia = resistencia * 0.13;
+      } else if (muestra.tipo_muestra === 'CUBO') {
+        const side = typeof (muestra as any).cube_side_cm === 'number' && (muestra as any).cube_side_cm > 0
+          ? (muestra as any).cube_side_cm
+          : 15; // default 15 cm
+        const area = side * side; // cm²
+        resistencia = value / area;
       } else if (muestra.tipo_muestra === 'VIGA') {
-        // For beams, use the simplified formula: 45 * carga / 3375
+        // Company simplified MR formula
         resistencia = (45 * value) / 3375;
       }
       
@@ -545,7 +549,7 @@ function NuevoEnsayoContent() {
                   <div>
                     <h3 className="text-sm font-medium text-gray-500">Tipo de Muestra</h3>
                     <Badge variant="outline" className="mt-1">
-                      {muestra.tipo_muestra === 'CILINDRO' ? 'Cilindro' : 'Viga'}
+                      {muestra.tipo_muestra === 'CILINDRO' ? 'Cilindro' : muestra.tipo_muestra === 'VIGA' ? 'Viga' : 'Cubo'}
                     </Badge>
                   </div>
                   

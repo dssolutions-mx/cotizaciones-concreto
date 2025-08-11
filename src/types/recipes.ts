@@ -3,6 +3,7 @@ export interface Recipe {
   recipe_code: string;
   strength_fc: number;
   age_days: number;
+  age_hours?: number; // optional, enables sub-day ages
   placement_type: string;
   max_aggregate_size: number;
   slump: number;
@@ -109,6 +110,7 @@ export interface ExcelRecipeData {
 export interface RecipeSpecification {
   strength_fc: number;
   age_days: number;
+  age_hours?: number;
   placement_type: string;
   max_aggregate_size: number;
   slump: number;
@@ -143,6 +145,7 @@ export interface NewRecipeData {
 export interface RecipeSearchFilters {
   strength_fc?: number;
   age_days?: number;
+  age_hours?: number;
   placement_type?: string;
   max_aggregate_size?: number;
   slump?: number;

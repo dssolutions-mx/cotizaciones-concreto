@@ -20,10 +20,16 @@ export interface Muestreo {
 export interface Muestra {
   id: string;
   muestreo_id: string;
-  tipo_muestra: 'CILINDRO' | 'VIGA';
+  tipo_muestra: 'CILINDRO' | 'VIGA' | 'CUBO';
   identificacion: string;
   fecha_programada_ensayo: string;
   estado: 'PENDIENTE' | 'ENSAYADO' | 'DESCARTADO';
+  // Optional specimen dimensions (persisted in DB after migration)
+  diameter_cm?: number | null; // for cylinders
+  cube_side_cm?: number | null; // for cubes
+  beam_width_cm?: number | null; // for beams (optional future use)
+  beam_height_cm?: number | null; // for beams (optional future use)
+  beam_span_cm?: number | null; // for beams (optional future use)
   created_at?: string;
   updated_at?: string;
 }

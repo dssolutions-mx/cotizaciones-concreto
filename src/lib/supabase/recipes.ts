@@ -45,6 +45,7 @@ export const recipeService = {
       const { data: existingRecipes, error: searchError } = await supabase.rpc('find_recipes_by_specifications', {
         p_strength_fc: recipeData.specification.strength_fc,
         p_age_days: recipeData.specification.age_days,
+        p_age_hours: recipeData.specification.age_hours || null,
         p_placement_type: recipeData.specification.placement_type,
         p_max_aggregate_size: recipeData.specification.max_aggregate_size,
         p_slump: recipeData.specification.slump,
@@ -105,6 +106,7 @@ export const recipeService = {
         p_new_system_code: recipeData.new_system_code || null,
         p_strength_fc: recipeData.specification.strength_fc,
         p_age_days: recipeData.specification.age_days,
+        p_age_hours: recipeData.specification.age_hours || null,
         p_placement_type: recipeData.specification.placement_type,
         p_max_aggregate_size: recipeData.specification.max_aggregate_size,
         p_slump: recipeData.specification.slump,
@@ -156,6 +158,7 @@ export const recipeService = {
       const { data, error } = await supabase.rpc('find_recipes_by_specifications', {
         p_strength_fc: filters.strength_fc || null,
         p_age_days: filters.age_days || null,
+        p_age_hours: filters.age_hours || null,
         p_placement_type: filters.placement_type || null,
         p_max_aggregate_size: filters.max_aggregate_size || null,
         p_slump: filters.slump || null,
@@ -575,6 +578,7 @@ export const recipeService = {
           recipe_code,
           strength_fc,
           age_days,
+          age_hours,
           placement_type,
           max_aggregate_size,
           slump,

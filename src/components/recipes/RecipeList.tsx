@@ -246,7 +246,7 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
                                       <div className="grid grid-cols-2 gap-3 text-sm mb-4">
                                         <div className="flex flex-col">
                                           <span className="text-gray-600 mb-1">Edad:</span>
-                                          <span className="font-medium">{recipe.age_days} días</span>
+                                          <span className="font-medium">{(recipe as any).age_hours ? `${(recipe as any).age_hours} horas` : `${recipe.age_days} días`}</span>
                                         </div>
                                         <div className="flex flex-col">
                                           <span className="text-gray-600 mb-1">Colocación:</span>

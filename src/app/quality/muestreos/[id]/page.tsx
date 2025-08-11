@@ -151,6 +151,7 @@ export default function MuestreoDetailPage() {
   // Agrupar muestras por tipo
   const cilindros = muestreo.muestras?.filter(m => m.tipo_muestra === 'CILINDRO') || [];
   const vigas = muestreo.muestras?.filter(m => m.tipo_muestra === 'VIGA') || [];
+  const cubos = muestreo.muestras?.filter(m => m.tipo_muestra === 'CUBO') || [];
 
   return (
     <div className="container mx-auto p-4 md:p-6">
@@ -222,10 +223,7 @@ export default function MuestreoDetailPage() {
                   </div>
                 </div>
                 
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Tipo de Muestreo</p>
-                  <Badge variant="outline">{muestreo.tipo_muestreo}</Badge>
-                </div>
+                {/* Tipo de muestreo no disponible en el tipo actual */}
                 
                 {muestreo.revenimiento_sitio && (
                   <div>
@@ -264,13 +262,7 @@ export default function MuestreoDetailPage() {
               </div>
             </div>
             
-            {muestreo.observaciones && (
-              <div className="mt-6">
-                <Separator className="mb-4" />
-                <p className="text-sm font-medium text-gray-500 mb-2">Observaciones</p>
-                <p className="text-gray-700">{muestreo.observaciones}</p>
-              </div>
-            )}
+            {/* Observaciones removidas: campo no definido en el tipo */}
           </CardContent>
         </Card>
         
@@ -297,6 +289,14 @@ export default function MuestreoDetailPage() {
                 <div className="flex justify-between items-center mt-1">
                   <p className="text-2xl font-bold">{vigas.length}</p>
                   <Badge variant="outline">{vigas.filter(v => v.estado === 'ENSAYADO').length} ensayadas</Badge>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-gray-500">Cubos</p>
+                <div className="flex justify-between items-center mt-1">
+                  <p className="text-2xl font-bold">{cubos.length}</p>
+                  <Badge variant="outline">{cubos.filter(c => c.estado === 'ENSAYADO').length} ensayados</Badge>
                 </div>
               </div>
               
@@ -370,12 +370,8 @@ export default function MuestreoDetailPage() {
                 >
                   <div className="p-4">
                     <div className="flex justify-between items-start mb-2">
-                      <Badge 
-                        variant={
-                          muestra.tipo_muestra === 'CILINDRO' ? 'default' : 'secondary'
-                        }
-                      >
-                        {muestra.tipo_muestra}
+                      <Badge variant={muestra.tipo_muestra === 'CILINDRO' ? 'default' : 'secondary'}>
+                        {muestra.tipo_muestra === 'CILINDRO' ? 'Cilindro' : muestra.tipo_muestra === 'VIGA' ? 'Viga' : 'Cubo'}
                       </Badge>
                       <Badge 
                         variant={
@@ -404,13 +400,13 @@ export default function MuestreoDetailPage() {
                           Registrar Ensayo
                         </Button>
                       </Link>
-                    ) : muestra.ensayos?.length ? (
-                      <Link href={`/quality/ensayos/${muestra.ensayos[0].id}`}>
+                    ) : (
+                      <Link href={`/quality/ensayos`}>
                         <Button size="sm" variant="outline" className="w-full">
-                          Ver Ensayo
+                          Ver Ensayos
                         </Button>
                       </Link>
-                    ) : null}
+                    )}
                   </div>
                 </div>
               ))}

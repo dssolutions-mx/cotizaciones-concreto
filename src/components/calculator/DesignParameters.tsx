@@ -252,6 +252,21 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
             </div>
 
             <div>
+              <Label htmlFor="ageHours">Edad (horas, opcional)</Label>
+              <Input
+                id="ageHours"
+                type="number"
+                value={(recipeParams as any).ageHours || ''}
+                onChange={(e) => onRecipeParamsChange({ ...(recipeParams as any), ageHours: e.target.value ? parseInt(e.target.value) : undefined })}
+                min="1"
+                max="720"
+                step="1"
+                className="h-10"
+                placeholder="Ej. 12"
+              />
+            </div>
+
+            <div>
               <Label htmlFor="aggregate-size">Tamaño Máximo del Agregado (mm)</Label>
               <Input
                 id="aggregate-size"
