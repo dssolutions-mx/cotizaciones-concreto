@@ -254,11 +254,16 @@ function Navigation({ children }: { children: React.ReactNode }) {
         )}
       >
         <div className={cn(
-          "border-b flex items-center relative",
-          isSidebarCollapsed ? "justify-center p-4" : "justify-between p-6"
+          "border-b flex items-center",
+          isSidebarCollapsed ? "justify-center p-4" : "justify-center p-6"
         )}
         >
-          <Link href="/dashboard" className="flex items-center gap-2">
+          <button
+            onClick={() => setIsSidebarCollapsed(prev => !prev)}
+            className="flex items-center gap-2 rounded hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-green-500 p-1"
+            aria-label={isSidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+            title={isSidebarCollapsed ? "Expandir" : "Colapsar"}
+          >
             <Image
               src="/images/dcconcretos/logo-dark.svg"
               alt="DC Concretos"
@@ -267,32 +272,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
               className={cn(isSidebarCollapsed ? "h-8 w-8" : "h-10 w-auto")}
               priority
             />
-            {!isSidebarCollapsed && (
-              <span className="text-sm font-semibold text-gray-800">DC Concretos</span>
-            )}
-          </Link>
-          {isSidebarCollapsed && (
-            <button
-              onClick={() => setIsSidebarCollapsed(false)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded hover:bg-gray-100"
-              aria-label="Expandir sidebar"
-              title="Expandir"
-            >
-              <span className="sr-only">Expandir</span>
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-            </button>
-          )}
-          {!isSidebarCollapsed && (
-            <button
-              onClick={() => setIsSidebarCollapsed(true)}
-              className="p-2 rounded hover:bg-gray-100"
-              aria-label="Colapsar sidebar"
-              title="Colapsar"
-            >
-              <span className="sr-only">Colapsar</span>
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-            </button>
-          )}
+          </button>
         </div>
 
         {/* Navigation */}
@@ -542,20 +522,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
           </nav>
         )}
 
-        {/* Expand handle when collapsed */}
-        {isSidebarCollapsed && (
-          <div className="mt-auto p-2 flex justify-center border-t">
-            <button
-              onClick={() => setIsSidebarCollapsed(false)}
-              className="p-2 rounded hover:bg-gray-100"
-              aria-label="Expandir sidebar"
-              title="Expandir"
-            >
-              <span className="sr-only">Expandir</span>
-              <svg viewBox="0 0 24 24" className="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>
-            </button>
-          </div>
-        )}
+        {/* No explicit footer handle; logo toggles sidebar */}
       </aside>
 
       {/* Contenido principal */}
