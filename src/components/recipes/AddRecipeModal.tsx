@@ -10,6 +10,7 @@ import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 import { recipeService } from '@/lib/supabase/recipes';
 import { Material, NewRecipeData, RecipeSpecification, MaterialSelection, ReferenceMaterialSelection } from '@/types/recipes';
+import { generateRecipeCode } from '@/lib/calculator/calculations';
 
 interface AddRecipeModalProps {
   isOpen: boolean;
@@ -49,6 +50,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     newSystemCode: '',
     recipeType: 'FC' as 'FC' | 'MR',
     strengthFc: '',
+    ageUnit: 'D' as 'D' | 'H',
     ageDays: '28',
     ageHours: '',
     placementType: 'D',
@@ -115,8 +117,8 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     try {
       const specification: RecipeSpecification = {
         strength_fc: parseFloat(formData.strengthFc),
-        age_days: parseInt(formData.ageDays),
-        age_hours: formData.ageHours ? parseInt(formData.ageHours) : undefined,
+        age_days: formData.ageUnit === 'D' ? parseInt(formData.ageDays) : null as unknown as number,
+        age_hours: formData.ageUnit === 'H' && formData.ageHours ? parseInt(formData.ageHours) : undefined,
         placement_type: formData.placementType,
         max_aggregate_size: parseFloat(formData.maxAggregateSize),
         slump: parseFloat(formData.slump),
@@ -137,7 +139,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
 
       const recipeData: NewRecipeData = {
         recipe_code: formData.recipeCode,
-        new_system_code: formData.newSystemCode || undefined,
+        new_system_code: formData.recipeCode,
         specification,
         materials: selectedMaterials,
         reference_materials: refMaterials.length > 0 ? refMaterials : undefined,
@@ -145,7 +147,41 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
         plant_id: selectedPlantId
       };
 
-      await recipeService.createRecipeWithSpecifications(recipeData);
+      const created = await recipeService.createRecipeWithSpecifications(recipeData);
+
+      // After creation, compute ARKIK codes like the calculator and update the recipe row
+      try {
+        const strength = Math.round(parseFloat(formData.strengthFc));
+        const ageVal = formData.ageUnit === 'D' ? parseInt(formData.ageDays || '0', 10) : parseInt(formData.ageHours || '0', 10);
+        const slump = Math.round(parseFloat(formData.slump));
+        const tmaFactor = parseFloat(formData.maxAggregateSize) >= 40 ? '4' : '2';
+        const fcCode = String(strength).padStart(3, '0');
+        const edadCode = String(ageVal).padStart(2, '0');
+        const revCode = String(slump).padStart(2, '0');
+        const coloc = formData.placementType;
+        const prefix = formData.recipeType === 'MR' ? 'PAV' : '5';
+
+        // Variante detection by selected materials (PCE)
+        const selectedRows = selectedMaterials.map(sm => materials.find(m => m.id === sm.material_id)).filter(Boolean) as Material[];
+        const hasPCE = selectedRows.some(m => (m.material_name || '').toUpperCase().includes('PCE'));
+        const variante = hasPCE ? 'PCE' : '000';
+
+        const longCode = `${prefix}-${fcCode}-${tmaFactor}-B-${edadCode}-${revCode}-${coloc}-2-${variante}`;
+        const shortCode = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
+
+        await supabase
+          .from('recipes')
+          .update({
+            arkik_long_code: longCode,
+            arkik_short_code: shortCode,
+            arkik_type_code: 'B',
+            arkik_num: '2',
+            arkik_variante: variante
+          })
+          .eq('id', created.id);
+      } catch (e) {
+        console.warn('ARKIK post-update skipped:', e);
+      }
 
       onSuccess();
       onClose();
@@ -156,6 +192,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
         newSystemCode: '',
         recipeType: 'FC',
         strengthFc: '',
+        ageUnit: 'D',
         ageDays: '28',
         ageHours: '',
         placementType: 'D',
@@ -269,31 +306,29 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Código de Receta *
               </label>
-              <input
-                type="text"
-                name="recipeCode"
-                value={formData.recipeCode}
-                onChange={handleInputChange}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Ej: FC-25-28-D-20-10"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  name="recipeCode"
+                  value={formData.recipeCode}
+                  onChange={handleInputChange}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Ej: FC150-14D-28D"
+                />
+                <button type="button" onClick={() => {
+                  const strength = parseFloat(formData.strengthFc);
+                  const slump = parseFloat(formData.slump);
+                  const ageVal = formData.ageUnit === 'D' ? parseInt(formData.ageDays || '0', 10) : parseInt(formData.ageHours || '0', 10);
+                  if (!Number.isNaN(strength) && !Number.isNaN(slump) && ageVal > 0) {
+                    const code = generateRecipeCode(formData.recipeType as any, strength, slump, formData.placementType, ageVal, formData.ageUnit);
+                    setFormData(prev => ({ ...prev, recipeCode: code }));
+                  }
+                }} className="px-2 py-1 text-xs bg-gray-100 border rounded hover:bg-gray-200">Usar sugerido</button>
+              </div>
             </div>
 
-            {/* New System Code */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Código Nuevo Sistema
-              </label>
-              <input
-                type="text"
-                name="newSystemCode"
-                value={formData.newSystemCode}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Código del nuevo sistema"
-              />
-            </div>
+            {/* Código Nuevo Sistema: ahora se rellena automáticamente con el Código de Receta */}
 
             {/* Recipe Type */}
             <div>
@@ -329,37 +364,53 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               />
             </div>
 
-            {/* Age Days */}
+            {/* Age Unit */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Edad (días) *
-              </label>
-              <input
-                type="number"
-                name="ageDays"
-                value={formData.ageDays}
-                onChange={handleInputChange}
+              <label className="block text-sm font-medium text-gray-700 mb-1">Unidad de Edad *</label>
+              <select
+                name="ageUnit"
+                value={formData.ageUnit}
+                onChange={(e) => {
+                  const unit = e.target.value as 'D' | 'H';
+                  setFormData(prev => ({ ...prev, ageUnit: unit, ...(unit === 'D' ? { ageHours: '' } : { }) }));
+                }}
                 required
                 className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+              >
+                <option value="D">Días</option>
+                <option value="H">Horas</option>
+              </select>
             </div>
 
-            {/* Age Hours (optional) */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Edad (horas)
-              </label>
-              <input
-                type="number"
-                name="ageHours"
-                value={formData.ageHours}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Defínelo para edades sub-día (ej. 12, 18)"
-                min={0}
-              />
-              <p className="text-xs text-gray-500 mt-1">Si se define, el sistema usará horas para programar y evaluar calidad. Si no, se usará días.</p>
-            </div>
+            {/* Age Value based on unit */}
+            {formData.ageUnit === 'D' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Edad (días) *</label>
+                <input
+                  type="number"
+                  name="ageDays"
+                  value={formData.ageDays}
+                  onChange={handleInputChange}
+                  required
+                  min={1}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Edad (horas) *</label>
+                <input
+                  type="number"
+                  name="ageHours"
+                  value={formData.ageHours}
+                  onChange={handleInputChange}
+                  required
+                  min={1}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Ej: 12, 18"
+                />
+              </div>
+            )}
 
             {/* Placement Type */}
             <div>
@@ -412,57 +463,60 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
               />
             </div>
 
-            {/* Application Type */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tipo de Aplicación *
-              </label>
-              <select
-                name="applicationType"
-                value={formData.applicationType}
-                onChange={handleInputChange}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="standard">Estándar</option>
-                <option value="pavimento">Pavimento</option>
-                <option value="relleno_fluido">Relleno Fluido</option>
-                <option value="mortero">Mortero</option>
-              </select>
-            </div>
-
-            {/* Performance Grade */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Grado de Rendimiento *
-              </label>
-              <select
-                name="performanceGrade"
-                value={formData.performanceGrade}
-                onChange={handleInputChange}
-                required
-                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="standard">Estándar</option>
-                <option value="high_performance">Alto Rendimiento</option>
-                <option value="rapid">Rápido</option>
-              </select>
-            </div>
-
-            {/* Has Waterproofing */}
-            <div className="flex items-center">
-              <input
-                type="checkbox"
-                name="hasWaterproofing"
-                checked={formData.hasWaterproofing}
-                onChange={handleInputChange}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-              />
-              <label className="ml-2 block text-sm text-gray-700">
-                Incluye Impermeabilización
-              </label>
-            </div>
+            {/* Tipo de Aplicación / Grado de Rendimiento / Impermeabilizante: se fijan por defecto como en la calculadora */}
           </div>
+
+          {/* Preview helper: Suggested code and ARKIK codes */}
+          {(() => {
+            const strength = parseFloat(formData.strengthFc);
+            const slump = parseFloat(formData.slump);
+            const placement = formData.placementType;
+            const ageUnit = formData.ageUnit;
+            const ageVal = ageUnit === 'D' ? parseInt(formData.ageDays || '0', 10) : parseInt(formData.ageHours || '0', 10);
+            const canPreview = !Number.isNaN(strength) && !Number.isNaN(slump) && ageVal > 0 && (placement === 'D' || placement === 'B');
+            if (!canPreview) return null;
+
+            const code = generateRecipeCode(formData.recipeType as any, strength, slump, placement, ageVal, ageUnit);
+
+            // Detect variante by additives in selected materials
+            const selectedRows = selectedMaterials.map(sm => materials.find(m => m.id === sm.material_id)).filter(Boolean) as Material[];
+            const hasPCE = selectedRows.some(m => (m.material_name || '').toUpperCase().includes('PCE'));
+            const variante = hasPCE ? 'PCE' : '000';
+
+            const fcCode = String(Math.round(strength)).padStart(3, '0');
+            const edadCode = String(ageVal).padStart(2, '0');
+            const revCode = String(Math.round(slump)).padStart(2, '0');
+            const tmaFactor = parseFloat(formData.maxAggregateSize) >= 40 ? '4' : '2';
+            const coloc = placement; // 'D' | 'B'
+            const prefix = formData.recipeType === 'MR' ? 'PAV' : '5';
+            const typeCode = 'B';
+            const numSeg = '2';
+            const arkikLong = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSeg}-${variante}`;
+            const arkikShort = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
+
+            return (
+              <div className="mt-2 p-3 bg-gray-50 border rounded">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="text-gray-600">Código sugerido</div>
+                    <div className="font-mono font-semibold">{code}</div>
+                  </div>
+                  <div className="text-right md:text-left">
+                    <div className="text-gray-600">ARKIK Long</div>
+                    <div className="font-mono font-semibold break-all">{arkikLong}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600">ARKIK Short</div>
+                    <div className="font-mono font-semibold">{arkikShort}</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600">Edad</div>
+                    <div className="font-mono">{ageVal}{ageUnit}</div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Material Selection */}
           <div>
@@ -555,7 +609,7 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
                 {/* Water SSS */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Agua SSS (kg/m³)
+                    Agua SSS (L/m³)
                   </label>
                   <input
                     type="number"

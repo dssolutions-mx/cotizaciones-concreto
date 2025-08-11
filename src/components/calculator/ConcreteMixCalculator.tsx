@@ -175,6 +175,7 @@ const ConcreteMixCalculator = () => {
     factor_g: ''
   });
   const [saving, setSaving] = useState(false);
+  const [previewShowSSS, setPreviewShowSSS] = useState(true);
 
   // Load available materials from database
   const loadAvailableMaterials = async () => {
@@ -1344,6 +1345,126 @@ const ConcreteMixCalculator = () => {
                 <Input value={arkikDefaults.factor_g} onChange={e => setArkikDefaults({ ...arkikDefaults, factor_g: e.target.value })} placeholder="" />
               </div>
             </div>
+
+            {/* Design summary for consistency with calculator */}
+            <div className="mt-4 p-3 bg-gray-50 rounded border">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-gray-600">Tipo de diseño:</span>{' '}
+                  <span className="font-medium">{designType}</span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Edad de diseño:</span>{' '}
+                  <span className="font-medium">{(recipeParams as any).ageUnit === 'H' ? ((recipeParams as any).ageHours || '—') + 'H' : designParams.age + 'D'}</span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Tamaño máx. agregado:</span>{' '}
+                  <span className="font-medium">{recipeParams.aggregateSize} mm</span>
+                </div>
+                <div>
+                  <span className="text-gray-600">Combinaciones habilitadas:</span>{' '}
+                  <span className="font-medium">
+                    {recipeParams.waterDefinitions.filter(d => d.enabled).map(d => `${d.slump}cm${d.placement}`).join(', ') || '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Preview of codes and materials to aid verification */}
+            {(() => {
+              const selectedForPreview = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
+              if (selectedForPreview.length === 0) return null;
+
+              const detectVariante = () => {
+                // If any selected additive name contains PCE, suggest PCE
+                try {
+                  const selectedAdditiveNames = selectedMaterials.additives
+                    .map(id => availableMaterials.additives.find(a => a.id === id.toString())?.material_name?.toUpperCase() || '')
+                    .filter(Boolean);
+                  const anyPCE = selectedAdditiveNames.some(n => n.includes('PCE'));
+                  return anyPCE ? 'PCE' : (arkikDefaults.variante || '000').toUpperCase();
+                } catch {
+                  return (arkikDefaults.variante || '000').toUpperCase();
+                }
+              };
+
+              const variante = detectVariante();
+
+              const computeArkikCodes = (r: Recipe) => {
+                const fcCode = String(r.strength).padStart(3, '0');
+                const edadCode = String(r.age).padStart(2, '0'); // keep numeric part
+                const revCode = String(r.slump).padStart(2, '0');
+                const tmaFactor = r.aggregateSize >= 40 ? '4' : '2';
+                const coloc = r.placement; // 'D' or 'B'
+                const prefix = designType === 'MR' ? 'PAV' : '5';
+                const typeCode = arkikDefaults.type_code || 'B';
+                const numSeg = arkikDefaults.num || '2';
+                const longCode = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSeg}-${variante}`;
+                const shortCode = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
+                return { longCode, shortCode };
+              };
+
+              const formatMaterialName = (key: string): string => {
+                if (key === 'cement') return materials.cement.name;
+                if (key === 'water') return 'AGUA';
+                if (key.startsWith('sand')) {
+                  const idx = parseInt(key.replace('sand', ''));
+                  return materials.sands[idx]?.name || key;
+                }
+                if (key.startsWith('gravel')) {
+                  const idx = parseInt(key.replace('gravel', ''));
+                  return materials.gravels[idx]?.name || key;
+                }
+                if (key.startsWith('additive')) {
+                  const idx = parseInt(key.replace('additive', ''));
+                  return materials.additives[idx]?.name || key;
+                }
+                return key;
+              };
+
+              return (
+                <div className="mt-4 max-h-96 overflow-auto rounded border">
+                  <div className="flex items-center justify-between p-2 bg-gray-50 border-b">
+                    <div className="text-sm text-gray-700">Vista previa de recetas seleccionadas</div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" onClick={() => setPreviewShowSSS(!previewShowSSS)}>
+                        {previewShowSSS ? 'Mostrar Seco' : 'Mostrar SSS'}
+                      </Button>
+                    </div>
+                  </div>
+                  {selectedForPreview.map((r) => {
+                    const { longCode, shortCode } = computeArkikCodes(r);
+                    const materialsToShow = previewShowSSS ? r.materialsSSS : r.materialsDry;
+                    const materialEntries = Object.entries(materialsToShow).filter(([_, v]) => typeof v === 'number');
+                    return (
+                      <div key={r.code} className="p-3 border-b last:border-b-0 bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="font-mono font-semibold">{r.code}</div>
+                            <div className="text-xs text-gray-600">F'c/MR: {r.strength} | Rev: {r.slump}cm | Coloc: {r.placement} | Edad: {r.age}{r.ageUnit}</div>
+                            <div className="text-xs text-gray-600">F'cr: {r.fcr} | A/C: {r.acRatio.toFixed(2)} | Masa Unitaria (SSS/Seco): {r.unitMass.sss}/{r.unitMass.dry} kg/m³</div>
+                          </div>
+                          <div className="text-right text-xs">
+                            <div><span className="text-gray-600">ARKIK Long:</span> <span className="font-mono font-semibold">{longCode}</span></div>
+                            <div><span className="text-gray-600">ARKIK Short:</span> <span className="font-mono font-semibold">{shortCode}</span></div>
+                          </div>
+                        </div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                          {materialEntries.map(([k, v]) => (
+                            <div key={k} className="flex justify-between bg-white rounded p-2 border">
+                              <span className="text-gray-600">{formatMaterialName(k)}</span>
+                              <span className="font-mono">
+                                {v} {k === 'water' || k.startsWith('additive') ? 'L' : 'kg'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
             <DialogFooter>
               <Button variant="outline" onClick={() => setSaveOpen(false)}>Cancelar</Button>
               <Button onClick={handleConfirmSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
