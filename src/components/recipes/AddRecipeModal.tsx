@@ -62,11 +62,6 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     notes: '',
   });
 
-  // Reference materials state
-  const [referenceMaterials, setReferenceMaterials] = useState<{
-    water?: number;
-  }>({});
-
   // Dynamic SSS map for selected materials (by material_id)
   const [referenceSSS, setReferenceSSS] = useState<Record<string, number | undefined>>({});
 
@@ -150,14 +145,8 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
         recipe_type: formData.recipeType
       };
 
-      // Prepare reference materials (dynamic SSS): includes water and selected materials with SSS provided
+      // Prepare reference materials (dynamic SSS only): includes any selected material with SSS provided
       const refMaterials: ReferenceMaterialSelection[] = [];
-      if (referenceMaterials.water && referenceMaterials.water > 0) {
-        refMaterials.push({
-          material_type: 'water',
-          sss_value: referenceMaterials.water
-        });
-      }
       selectedMaterials.forEach(sel => {
         const val = referenceSSS[sel.material_id];
         if (typeof val === 'number' && isFinite(val) && val > 0) {
@@ -237,7 +226,6 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
         notes: '',
       });
       setSelectedMaterials([]);
-      setReferenceMaterials({});
       setReferenceSSS({});
       
     } catch (err: any) {
@@ -644,27 +632,6 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
                   Los materiales agregados arriba representan cantidades en estado seco para propósitos de costeo.
                   Esta sección captura los equivalentes en estado SSS (Saturado Superficie Seca) usados para codificación ARKIK y referencias técnicas.
                 </div>
-                {/* Water SSS */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Agua SSS (L/m³)
-                  </label>
-                  <input
-                    type="number"
-                    value={referenceMaterials.water || ''}
-                    onChange={(e) => setReferenceMaterials(prev => ({
-                      ...prev,
-                      water: e.target.value ? parseFloat(e.target.value) : undefined
-                    }))}
-                    step="0.01"
-                    min="0"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Ej: 180.5 (solo ARKIK/SSS)"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Valor de saturación superficial seca para agua
-                  </p>
-                </div>
 
                 {/* Dynamic SSS for selected materials */}
                 {selectedMaterials.length > 0 && (
@@ -682,27 +649,19 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
                             <div className="text-sm">
                               <div className="font-medium">{mat.material_name}</div>
                               <div className="text-xs text-gray-600">Unidad SSS: {unit}</div>
-                              {isWater && (
-                                <div className="text-xs text-blue-700 mt-1">El SSS de agua se gestiona en el campo "Agua SSS" superior.</div>
-                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <input
                                 type="number"
-                                value={isWater ? (referenceMaterials.water ?? '') : (referenceSSS[sel.material_id] ?? '')}
+                                value={referenceSSS[sel.material_id] ?? ''}
                                 onChange={(e) => {
                                   const val = e.target.value ? parseFloat(e.target.value) : undefined;
-                                  if (isWater) {
-                                    setReferenceMaterials(prev => ({ ...prev, water: val }));
-                                  } else {
-                                    setReferenceSSS(prev => ({ ...prev, [sel.material_id]: val }));
-                                  }
+                                  setReferenceSSS(prev => ({ ...prev, [sel.material_id]: val }));
                                 }}
                                 step="0.01"
                                 min="0"
-                                className={`w-28 px-2 py-1 border rounded text-sm ${isWater ? 'bg-gray-100 border-gray-200 cursor-not-allowed' : 'border-gray-300'}`}
+                                className={`w-28 px-2 py-1 border rounded text-sm border-gray-300`}
                                 placeholder={String(sel.quantity || '')}
-                                disabled={isWater}
                               />
                               <span className="text-xs text-gray-600">{unit}</span>
                             </div>
