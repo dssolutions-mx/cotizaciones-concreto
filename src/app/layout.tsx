@@ -258,21 +258,27 @@ function Navigation({ children }: { children: React.ReactNode }) {
           isSidebarCollapsed ? "justify-center p-4" : "justify-center p-6"
         )}
         >
-          <button
-            onClick={() => setIsSidebarCollapsed(prev => !prev)}
-            className="flex items-center gap-2 rounded hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-green-500 p-1"
-            aria-label={isSidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
-            title={isSidebarCollapsed ? "Expandir" : "Colapsar"}
-          >
-            <Image
-              src="/images/dcconcretos/logo-dark.svg"
-              alt="DC Concretos"
-              width={isSidebarCollapsed ? 32 : 120}
-              height={isSidebarCollapsed ? 32 : 40}
-              className={cn(isSidebarCollapsed ? "h-8 w-8" : "h-10 w-auto")}
-              priority
-            />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setIsSidebarCollapsed(prev => !prev)}
+                className="flex items-center gap-2 rounded hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-green-500 p-1"
+                aria-label={isSidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+              >
+                <Image
+                  src="/images/dcconcretos/logo-dark.svg"
+                  alt="DC Concretos"
+                  width={isSidebarCollapsed ? 32 : 120}
+                  height={isSidebarCollapsed ? 32 : 40}
+                  className={cn(isSidebarCollapsed ? "h-8 w-8" : "h-10 w-auto")}
+                  priority
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={10}>
+              <p>{isSidebarCollapsed ? "Expandir sidebar" : "Colapsar sidebar"}</p>
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         {/* Navigation */}
