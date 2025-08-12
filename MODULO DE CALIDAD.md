@@ -10,7 +10,7 @@ El módulo de Control de Calidad está diseñado para gestionar el proceso compl
 - Visualizar KPIs en un dashboard integral
 - Recibir alertas de ensayos pendientes
 
-## 2. Esquema de Base de Datos
+## 2. Esquema de Base de Datos hjvhvhgvhghgvhj
 
 ### 2.1 Nuevas Tablas Requeridas - COMPLETADO ✅
 
