@@ -159,11 +159,14 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
         }
       });
 
+      // Only include materials with valid positive quantities
+      const validMaterials = selectedMaterials.filter(m => Number.isFinite(m.quantity) && (m.quantity as number) > 0);
+
       const recipeData: NewRecipeData = {
         recipe_code: formData.recipeCode,
         new_system_code: formData.recipeCode,
         specification,
-        materials: selectedMaterials,
+        materials: validMaterials,
         reference_materials: refMaterials.length > 0 ? refMaterials : undefined,
         notes: formData.notes || undefined,
         plant_id: selectedPlantId
@@ -251,27 +254,50 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
       const updated = [...selectedMaterials];
       updated[existingIndex] = {
         ...updated[existingIndex],
-        quantity: updated[existingIndex].quantity + 1
+        // Keep quantity as-is if not set yet (NaN). If it's a number, increment.
+        quantity: Number.isFinite(updated[existingIndex].quantity)
+          ? (updated[existingIndex].quantity + 1)
+          : Number.NaN
       };
       setSelectedMaterials(updated);
     } else {
       // Add new material
       setSelectedMaterials(prev => [...prev, {
         material_id: material.id,
-        quantity: 1,
+        // Start empty for better UX (no spinners, user can paste/type freely)
+        quantity: Number.NaN,
         unit: material.unit_of_measure
       }]);
     }
   };
 
   const updateMaterialQuantity = (materialId: string, quantity: number) => {
-    setSelectedMaterials(prev => 
-      prev.map(m => 
-        m.material_id === materialId 
-          ? { ...m, quantity: Math.max(0, quantity) }
+    const sanitized = Number.isFinite(quantity) && quantity >= 0 ? quantity : Number.NaN;
+    setSelectedMaterials(prev =>
+      prev.map(m =>
+        m.material_id === materialId
+          ? { ...m, quantity: sanitized }
           : m
-      ).filter(m => m.quantity > 0)
+      )
     );
+  };
+
+  const handleQuantityInputChange = (materialId: string, raw: string) => {
+    // Normalize decimal separator and parse
+    const value = raw.replace(/,/g, '.').trim();
+    if (value === '') {
+      updateMaterialQuantity(materialId, Number.NaN);
+      return;
+    }
+    const parsed = parseFloat(value);
+    updateMaterialQuantity(materialId, parsed);
+  };
+
+  const preventEnterKey: React.KeyboardEventHandler<HTMLInputElement> = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   };
 
   const removeMaterial = (materialId: string) => {
@@ -563,14 +589,15 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
                     <div key={material.material_id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                       <span className="flex-1">{getMaterialName(material.material_id)}</span>
                       <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          value={material.quantity}
-                          onChange={(e) => updateMaterialQuantity(material.material_id, parseFloat(e.target.value))}
-                          className="w-20 px-2 py-1 border border-gray-300 rounded text-sm"
-                          min="0"
-                          step="0.01"
-                        />
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={Number.isFinite(material.quantity) ? String(material.quantity) : ''}
+                              onChange={(e) => handleQuantityInputChange(material.material_id, e.target.value)}
+                              onKeyDown={preventEnterKey}
+                              className="w-24 px-2 py-1 border border-gray-300 rounded text-sm"
+                              placeholder="Cantidad"
+                            />
                         <span className="text-sm text-gray-600">{material.unit}</span>
                         <button
                           type="button"
@@ -652,16 +679,17 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
                             </div>
                             <div className="flex items-center gap-2">
                               <input
-                                type="number"
-                                value={referenceSSS[sel.material_id] ?? ''}
+                                type="text"
+                                inputMode="decimal"
+                                value={(referenceSSS[sel.material_id] ?? '') as any}
                                 onChange={(e) => {
-                                  const val = e.target.value ? parseFloat(e.target.value) : undefined;
+                                  const raw = e.target.value.replace(/,/g, '.');
+                                  const val = raw.trim() === '' ? undefined : parseFloat(raw);
                                   setReferenceSSS(prev => ({ ...prev, [sel.material_id]: val }));
                                 }}
-                                step="0.01"
-                                min="0"
+                                onKeyDown={preventEnterKey}
                                 className={`w-28 px-2 py-1 border rounded text-sm border-gray-300`}
-                                placeholder={String(sel.quantity || '')}
+                                placeholder={Number.isFinite(sel.quantity) ? String(sel.quantity) : ''}
                               />
                               <span className="text-xs text-gray-600">{unit}</span>
                             </div>
@@ -704,7 +732,12 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || !selectedPlantId || selectedMaterials.length === 0}
+              disabled={
+                isSubmitting ||
+                !selectedPlantId ||
+                selectedMaterials.length === 0 ||
+                selectedMaterials.every(m => !Number.isFinite(m.quantity) || (m.quantity as number) <= 0)
+              }
               className="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? 'Creando...' : 'Crear Receta'}
