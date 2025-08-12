@@ -43,7 +43,7 @@ create table if not exists public.site_checks (
   -- Manual remision number for on‑site capture (kept even after linking)
   remision_number_manual text not null,
   -- Core context
-  planta text not null check (planta in ('P1','P2','P3','P4','P5')),
+  plant_id uuid not null references public.plants(id),
   fecha_muestreo timestamptz not null default now(),
   hora_salida_planta time null,
   hora_llegada_obra time null,
@@ -70,6 +70,7 @@ Indexes and helpers:
 
 ```sql
 create index if not exists site_checks_created_at_idx on public.site_checks (created_at desc);
+create index if not exists site_checks_plant_id_idx on public.site_checks (plant_id);
 create index if not exists site_checks_remision_id_idx on public.site_checks (remision_id);
 create index if not exists site_checks_remision_number_manual_idx on public.site_checks (remision_number_manual);
 ```
@@ -145,12 +146,11 @@ Create `src/services/siteChecksService.ts` with:
 ### Routes and pages
 
 - New route: `app/quality/site-checks/new/page.tsx`
-  - Mobile‑first single page form. No multi‑step wizard.
-  - Two capture modes at the top: `Remisión existente` | `Remisión manual`.
-    - Existing: search by número; if found, prefill `planta`, `fecha`, and hide fields that come from the remisión.
-    - Manual: show inputs for `remision_number_manual` and `planta`.
+  - Mobile‑first form with two modes surfaced via segmented control:
+    - `Remisión existente` (scheduler‑style, same pattern as current muestreo): Steps → 1) Seleccionar Orden → 2) Seleccionar Remisión → 3) Capturar datos en obra. On Step 3, prefill fields from remisión (plant via `plant_id`, date, etc.) and lock any that must come from the remisión.
+    - `Remisión manual` (single‑step capture): inputs for `remision_number_manual` and `plant_id` are enabled; later auto‑link will associate the remisión.
   - Inputs (order optimized for field staff):
-    1) Número de remisión (search or manual)  2) Planta  3) Fecha y hora del muestreo  4) Salida de planta (hora)  5) Llegada a obra (hora)
+    1) Número de remisión (search or manual)  2) Planta (via `plant_id`)  3) Fecha y hora del muestreo  4) Salida de planta (hora)  5) Llegada a obra (hora)
     6) Tipo de prueba (SLUMP/EXTENSIBILIDAD)  7) Medición inicial (cm)
     8) Toggle "¿Se realizó ajuste?" → if true: `detalle_ajuste` + `Medición final (cm)`
     9) Temperatura ambiente  10) Temperatura del concreto  11) Observaciones
@@ -163,8 +163,11 @@ Create `src/services/siteChecksService.ts` with:
 
 ### Validation (zod)
 
-- Safe ranges similar to existing schema: temperatures −10..60°C (ambiente) and 5..60°C (concreto).
-- Slump/Extensibilidad 0..25 cm (configurable constants per test type).
+- Temperatures: ambiente −10..60°C; concreto 5..60°C.
+- Measurement ranges depend on `test_type`:
+  - `SLUMP`: default 0..25 cm.
+  - `EXTENSIBILIDAD`: default 30..100 cm.
+  - Both ranges must be configurable (constants or settings table) to match plant policy.
 - If `fue_ajustado = true` then require `detalle_ajuste` and `valor_final_cm`.
 
 ### UX details (mobile‑first)
