@@ -13,12 +13,12 @@ type Props = {
 
 export default function AgePlanSelector({ agePlanUnit, onAgePlanUnitChange, edadGarantia, onEdadGarantiaChange }: Props) {
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <div>
-        <FormLabel>Unidad</FormLabel>
+    <div className="grid grid-cols-2 gap-2 items-start w-full">
+      <div className="w-full">
+        <FormLabel className="h-12 flex items-end leading-tight">Unidad</FormLabel>
         <FormControl>
           <Select value={agePlanUnit} onValueChange={(v) => onAgePlanUnitChange(v as 'days' | 'hours')}>
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue placeholder="Unidad" />
             </SelectTrigger>
             <SelectContent>
@@ -28,11 +28,11 @@ export default function AgePlanSelector({ agePlanUnit, onAgePlanUnitChange, edad
           </Select>
         </FormControl>
       </div>
-      <div>
-        <FormLabel>{agePlanUnit === 'hours' ? 'Edad (horas)' : 'Edad garantía (días)'}</FormLabel>
+      <div className="w-full">
+        <FormLabel className="h-12 flex items-end leading-tight">{agePlanUnit === 'hours' ? 'Edad (horas)' : 'Edad garantía (días)'}</FormLabel>
         <FormControl>
           <Select value={String(edadGarantia)} onValueChange={(v) => onEdadGarantiaChange(parseInt(v, 10))}>
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <SelectValue placeholder={agePlanUnit === 'hours' ? 'Selecciona horas' : 'Selecciona días'} />
             </SelectTrigger>
             <SelectContent>

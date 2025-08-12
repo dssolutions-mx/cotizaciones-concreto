@@ -734,12 +734,12 @@ export default function NuevoMuestreoPage() {
                   <CardContent>
                     <Form {...form}>
                       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                           <FormField
                             control={form.control}
                             name="fecha_muestreo"
                             render={({ field }) => (
-                              <FormItem className="flex flex-col">
+                              <FormItem className="flex flex-col md:col-span-4">
                                 <FormLabel>Fecha de Muestreo</FormLabel>
                                 <Popover>
                                   <PopoverTrigger asChild>
@@ -769,7 +769,7 @@ export default function NuevoMuestreoPage() {
                             )}
                           />
 
-                          <FormItem>
+                          <FormItem className="md:col-span-4">
                             <FormLabel>Hora de Muestreo</FormLabel>
                             <Input
                               type="time"
@@ -805,7 +805,7 @@ export default function NuevoMuestreoPage() {
                             control={form.control}
                             name="numero_muestreo"
                             render={({ field }) => (
-                              <FormItem>
+                              <FormItem className="md:col-span-4">
                                 <FormLabel>Número de Muestreo</FormLabel>
                                 <FormControl>
                                   <Input type="number" min="1" {...field} onChange={(e) => field.onChange(parseInt(e.target.value) || 1)} />
@@ -816,28 +816,42 @@ export default function NuevoMuestreoPage() {
                           />
 
                           {/* Controles manuales */}
-                          <div className="md:col-span-2">
+                          <div className="md:col-span-12">
                             <FormItem>
                               <FormLabel>Remisión (manual)</FormLabel>
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                                <Input placeholder="Número de remisión" />
-                                <AgePlanSelector
-                                  agePlanUnit={agePlanUnit}
-                                  onAgePlanUnitChange={setAgePlanUnit}
-                                  edadGarantia={edadGarantia}
-                                  onEdadGarantiaChange={setEdadGarantia}
-                                />
-                                <Select value={clasificacion} onValueChange={(v) => setClasificacion(v as 'FC' | 'MR')}>
-                                  <FormControl>
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Clasificación" />
-                                    </SelectTrigger>
-                                  </FormControl>
-                                  <SelectContent>
-                                    <SelectItem value="FC">FC (Compresión)</SelectItem>
-                                    <SelectItem value="MR">MR (Flexión)</SelectItem>
-                                  </SelectContent>
-                                </Select>
+                              <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                                <div className="md:col-span-4">
+                                  <FormItem>
+                                    <FormLabel className="h-12 flex items-end">Número de remisión</FormLabel>
+                                    <FormControl>
+                                      <Input placeholder="Número de remisión" className="w-full" />
+                                    </FormControl>
+                                  </FormItem>
+                                </div>
+                                <div className="md:col-span-4">
+                                  <AgePlanSelector
+                                    agePlanUnit={agePlanUnit}
+                                    onAgePlanUnitChange={setAgePlanUnit}
+                                    edadGarantia={edadGarantia}
+                                    onEdadGarantiaChange={setEdadGarantia}
+                                  />
+                                </div>
+                                <div className="md:col-span-4">
+                                  <FormItem>
+                                    <FormLabel className="h-12 flex items-end">Clasificación</FormLabel>
+                                    <FormControl>
+                                      <Select value={clasificacion} onValueChange={(v) => setClasificacion(v as 'FC' | 'MR')}>
+                                        <SelectTrigger>
+                                          <SelectValue placeholder="Clasificación" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="FC">FC (Compresión)</SelectItem>
+                                          <SelectItem value="MR">MR (Flexión)</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                    </FormControl>
+                                  </FormItem>
+                                </div>
                               </div>
                             </FormItem>
                           </div>
@@ -846,7 +860,7 @@ export default function NuevoMuestreoPage() {
                             control={form.control}
                             name="planta"
                             render={({ field }) => (
-                              <FormItem>
+                              <FormItem className="md:col-span-4">
                                 <FormLabel>Planta</FormLabel>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                   <FormControl>

@@ -1,18 +1,10 @@
-import { useState, useEffect } from 'react';
-import { priceService } from '@/lib/supabase/prices';
+import { useEffect, useMemo, useState } from 'react';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import { usePlantAwareMaterialPrices } from '@/hooks/usePlantAwareMaterialPrices';
+import { recipeService } from '@/lib/supabase/recipes';
+import type { Material as RecipeMaterial } from '@/types/recipes';
 
-const MATERIAL_TYPES = [
-  { id: 'cement', name: 'Cemento', unit: 'kg' },
-  { id: 'water', name: 'Agua', unit: 'L' },
-  { id: 'gravel', name: 'Grava 20mm', unit: 'kg' },
-  { id: 'gravel40mm', name: 'Grava 40mm', unit: 'kg' },
-  { id: 'volcanicSand', name: 'Arena Volcánica', unit: 'kg' },
-  { id: 'basalticSand', name: 'Arena Basáltica', unit: 'kg' },
-  { id: 'additive1', name: 'Aditivo 1', unit: 'L' },
-  { id: 'additive2', name: 'Aditivo 2', unit: 'L' }
-];
+// We now resolve names primarily through materials table via material_id
 
 interface MaterialPrice {
   id: string;
@@ -31,14 +23,45 @@ export const MaterialPriceList = ({ hasEditPermission = false }: MaterialPriceLi
     autoRefresh: true
   });
 
-  const getMaterialName = (materialType: string) => {
-    const material = MATERIAL_TYPES.find(m => m.id === materialType);
-    return material ? material.name : materialType;
-  };
+  // Load all materials for mapping (ideally by plant, but prices may span plants via access; keep broad for now)
+  const [materials, setMaterials] = useState<RecipeMaterial[]>([]);
+  useEffect(() => {
+    const fetchAllActiveMaterials = async () => {
+      try {
+        // recipeService.getMaterials optionally accepts plantId; here we fetch across all (undefined)
+        const list = await recipeService.getMaterials();
+        setMaterials(list || []);
+      } catch (e) {
+        console.error('Error loading materials for price list', e);
+        setMaterials([]);
+      }
+    };
+    fetchAllActiveMaterials();
+  }, []);
 
-  const getMaterialUnit = (materialType: string) => {
-    const material = MATERIAL_TYPES.find(m => m.id === materialType);
-    return material ? material.unit : '';
+  const materialById = useMemo(() => {
+    const map = new Map<string, RecipeMaterial>();
+    materials.forEach(m => map.set(m.id, m));
+    return map;
+  }, [materials]);
+
+  // Resolve display values preferring material_id mapping; fallback to legacy material_type string
+  const getDisplay = (price: MaterialPrice & { material_id?: string }) => {
+    if (price && (price as any).material_id) {
+      const m = materialById.get((price as any).material_id!);
+      if (m) {
+        return {
+          title: `${m.material_code} — ${m.material_name}`,
+          unit: m.unit_of_measure
+        };
+      }
+    }
+    // Fallback to legacy mapping
+    const legacyType = price.material_type;
+    return {
+      title: legacyType,
+      unit: ''
+    };
   };
 
   return (
@@ -58,11 +81,13 @@ export const MaterialPriceList = ({ hasEditPermission = false }: MaterialPriceLi
       ) : (
         <div className="px-4 py-5 sm:p-6">
           <div className="grid grid-cols-1 gap-4">
-            {prices.map((price) => (
+            {prices.map((price) => {
+              const display = getDisplay(price as any);
+              return (
               <div key={price.id} className="border rounded p-3 hover:bg-gray-50">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="font-medium">{getMaterialName(price.material_type)}</h4>
+                    <h4 className="font-medium">{display.title}</h4>
                     <p className="text-sm text-gray-500">
                       Vigente desde: {new Date(price.effective_date).toLocaleDateString()}
                     </p>
@@ -71,9 +96,11 @@ export const MaterialPriceList = ({ hasEditPermission = false }: MaterialPriceLi
                     <span className="text-xl font-semibold">
                       ${price.price_per_unit.toFixed(2)}
                     </span>
-                    <span className="text-sm text-gray-500 ml-1">
-                      por {getMaterialUnit(price.material_type)}
-                    </span>
+                    {display.unit && (
+                      <span className="text-sm text-gray-500 ml-1">
+                        por {display.unit}
+                      </span>
+                    )}
                   </div>
                 </div>
                 {hasEditPermission && (
@@ -91,7 +118,7 @@ export const MaterialPriceList = ({ hasEditPermission = false }: MaterialPriceLi
                   </div>
                 )}
               </div>
-            ))}
+            );})}
           </div>
         </div>
       )}

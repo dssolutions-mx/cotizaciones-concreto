@@ -1,26 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { priceService } from '@/lib/supabase/prices';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import EnhancedPlantSelector from '@/components/plants/EnhancedPlantSelector';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
+import { recipeService } from '@/lib/supabase/recipes';
+import type { Material as RecipeMaterial } from '@/types/recipes';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface MaterialPriceFormData {
+  // legacy field maintained for backward compatibility in the API
   materialType: string;
   pricePerUnit: number;
   effectiveDate: string;
 }
-
-const MATERIAL_TYPES = [
-  { id: 'cement', name: 'Cemento', unit: 'kg' },
-  { id: 'water', name: 'Agua', unit: 'L' },
-  { id: 'gravel', name: 'Grava 20mm', unit: 'kg' },
-  { id: 'gravel40mm', name: 'Grava 40mm', unit: 'kg' },
-  { id: 'volcanicSand', name: 'Arena Volcánica', unit: 'kg' },
-  { id: 'basalticSand', name: 'Arena Basáltica', unit: 'kg' },
-  { id: 'additive1', name: 'Aditivo 1', unit: 'L' },
-  { id: 'additive2', name: 'Aditivo 2', unit: 'L' }
-];
 
 interface MaterialPriceFormProps {
   onPriceSaved?: () => void;
@@ -51,6 +44,35 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [materials, setMaterials] = useState<RecipeMaterial[]>([]);
+  const [loadingMaterials, setLoadingMaterials] = useState(false);
+
+  // Load available materials for the selected plant
+  useEffect(() => {
+    const fetchMaterials = async () => {
+      if (!selectedPlantId) {
+        setMaterials([]);
+        return;
+      }
+      try {
+        setLoadingMaterials(true);
+        const list = await recipeService.getMaterials(selectedPlantId);
+        setMaterials(list);
+      } catch (e) {
+        console.error('Error loading materials for plant', e);
+        setMaterials([]);
+      } finally {
+        setLoadingMaterials(false);
+      }
+    };
+    fetchMaterials();
+  }, [selectedPlantId]);
+
+  // Selected material from list (derived from formData.materialType which now stores the material ID)
+  const selectedMaterial: RecipeMaterial | undefined = useMemo(
+    () => materials.find(m => m.id === formData.materialType),
+    [materials, formData.materialType]
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,11 +109,16 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       setIsSubmitting(true);
       
       // Create material price with plant assignment
+      // Persist both material_id (new standard) and a material_type string (compatibility)
+      const fallbackType = selectedMaterial?.material_code || selectedMaterial?.category?.toUpperCase() || 'MATERIAL';
       const materialPriceData = {
-        ...formData,
+        materialType: fallbackType,
+        material_id: selectedMaterial?.id,
+        pricePerUnit: formData.pricePerUnit,
+        effectiveDate: formData.effectiveDate,
         plant_id: selectedPlantId,
         created_by: profile?.id
-      };
+      } as const;
       
       const { error: supabaseError } = await priceService.saveMaterialPrice(materialPriceData);
       
@@ -115,8 +142,6 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       setIsSubmitting(false);
     }
   };
-
-  const selectedMaterial = MATERIAL_TYPES.find(m => m.id === formData.materialType);
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm border">
@@ -148,30 +173,36 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
           />
         </div>
 
-        {/* Material Type */}
+        {/* Material selection (plant-aware) */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             Material *
           </label>
-          <select
+          <Select
             value={formData.materialType}
-            onChange={(e) => setFormData(prev => ({ ...prev, materialType: e.target.value }))}
-            required
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            onValueChange={(value) => setFormData(prev => ({ ...prev, materialType: value }))}
+            disabled={!selectedPlantId || loadingMaterials}
           >
-            <option value="">Seleccionar material</option>
-            {MATERIAL_TYPES.map(material => (
-              <option key={material.id} value={material.id}>
-                {material.name} ({material.unit})
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={selectedPlantId ? (loadingMaterials ? 'Cargando materiales...' : 'Seleccionar material') : 'Selecciona una planta primero'} />
+            </SelectTrigger>
+            <SelectContent className="max-h-80">
+              {materials.map((material) => (
+                <SelectItem key={material.id} value={material.id}>
+                  <div className="flex flex-col text-left">
+                    <span className="font-medium">{material.material_code} — {material.material_name}</span>
+                    <span className="text-xs text-muted-foreground">{material.unit_of_measure}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Price */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Precio por {selectedMaterial?.unit || 'unidad'} *
+            Precio por {selectedMaterial?.unit_of_measure || 'unidad'} *
           </label>
           <input
             type="number"

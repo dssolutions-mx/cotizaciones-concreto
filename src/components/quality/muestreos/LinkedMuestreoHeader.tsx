@@ -20,12 +20,12 @@ type Props = {
 
 export default function LinkedMuestreoHeader({ form, onDateChange, onTimeChange, highlightFromRemision }: Props) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
       <FormField
         control={form.control}
         name="fecha_muestreo"
         render={({ field }) => (
-          <FormItem className="flex flex-col">
+          <FormItem className="flex flex-col md:col-span-4">
             <FormLabel>
               Fecha de Muestreo
             </FormLabel>
@@ -65,7 +65,7 @@ export default function LinkedMuestreoHeader({ form, onDateChange, onTimeChange,
         )}
       />
 
-      <FormItem>
+      <FormItem className="md:col-span-4">
         <FormLabel>Hora de Muestreo</FormLabel>
         <Input
           type="time"
@@ -79,6 +79,7 @@ export default function LinkedMuestreoHeader({ form, onDateChange, onTimeChange,
         />
         <FormDescription>Define la hora exacta del muestreo para planear ensayos.</FormDescription>
       </FormItem>
+      <div className="hidden md:block md:col-span-4" />
     </div>
   );
 }

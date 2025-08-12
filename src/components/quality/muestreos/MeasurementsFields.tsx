@@ -12,12 +12,12 @@ type Props = {
 
 export default function MeasurementsFields({ form }: Props) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
       <FormField
         control={form.control}
         name="revenimiento_sitio"
         render={({ field }) => (
-          <FormItem>
+          <FormItem className="md:col-span-6">
             <FormLabel className="flex items-center gap-1">
               Revenimiento en Sitio (cm)
               <Tooltip>
@@ -38,7 +38,7 @@ export default function MeasurementsFields({ form }: Props) {
         )}
       />
 
-      <div className="space-y-2">
+      <div className="space-y-2 md:col-span-6">
         <FormItem>
           <FormLabel className="flex items-center gap-1">
             Masa Unitaria (kg/m³)
@@ -51,13 +51,13 @@ export default function MeasurementsFields({ form }: Props) {
               <TooltipContent>Ingresa los pesos y el factor del recipiente; calculamos la masa unitaria automáticamente.</TooltipContent>
             </Tooltip>
           </FormLabel>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
             <FormField
               control={form.control}
               name="peso_recipiente_vacio"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">Recipiente vacío (kg)</FormLabel>
+                  <FormLabel className="text-xs leading-tight min-h-[40px] flex items-end">Recipiente vacío (kg)</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -77,7 +77,7 @@ export default function MeasurementsFields({ form }: Props) {
               name="peso_recipiente_lleno"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">Recipiente lleno (kg)</FormLabel>
+                  <FormLabel className="text-xs leading-tight min-h-[40px] flex items-end">Recipiente lleno (kg)</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -97,7 +97,7 @@ export default function MeasurementsFields({ form }: Props) {
               name="factor_recipiente"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs">Factor recipiente</FormLabel>
+                  <FormLabel className="text-xs leading-tight min-h-[40px] flex items-end">Factor recipiente</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -134,7 +134,7 @@ export default function MeasurementsFields({ form }: Props) {
         control={form.control}
         name="temperatura_ambiente"
         render={({ field }) => (
-          <FormItem>
+          <FormItem className="md:col-span-6">
             <FormLabel className="flex items-center gap-1">
               Temperatura Ambiente (°C)
               <Tooltip>
@@ -159,7 +159,7 @@ export default function MeasurementsFields({ form }: Props) {
         control={form.control}
         name="temperatura_concreto"
         render={({ field }) => (
-          <FormItem>
+          <FormItem className="md:col-span-6">
             <FormLabel className="flex items-center gap-1">
               Temperatura del Concreto (°C)
               <Tooltip>

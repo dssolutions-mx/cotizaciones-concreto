@@ -4,17 +4,22 @@ import { handleError } from '@/utils/errorHandler';
 export const priceService = {
   // Precios de materiales
   async saveMaterialPrice(priceData: {
-    materialType: string;
+    // New standard
+    material_id?: string;
+    // Legacy compatibility (falls back if no material_id)
+    materialType?: string;
     pricePerUnit: number;
     effectiveDate: string;
     plant_id?: string;
     created_by?: string;
   }) {
     // Cerrar precio actual para esta planta
-    const updateConditions: any = { 
-      material_type: priceData.materialType,
-      end_date: null 
-    };
+    const updateConditions: any = { end_date: null };
+    if (priceData.material_id) {
+      updateConditions.material_id = priceData.material_id;
+    } else if (priceData.materialType) {
+      updateConditions.material_type = priceData.materialType;
+    }
     
     // Si hay plant_id, solo cerrar precios de esa planta
     if (priceData.plant_id) {
@@ -28,10 +33,15 @@ export const priceService = {
 
     // Insertar nuevo precio
     const insertData: any = {
-      material_type: priceData.materialType,
       price_per_unit: priceData.pricePerUnit,
       effective_date: priceData.effectiveDate
     };
+    if (priceData.material_id) {
+      insertData.material_id = priceData.material_id;
+    }
+    if (priceData.materialType) {
+      insertData.material_type = priceData.materialType;
+    }
     
     // Agregar plant_id si se proporciona
     if (priceData.plant_id) {
