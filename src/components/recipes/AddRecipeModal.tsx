@@ -304,11 +304,13 @@ export const AddRecipeModal: React.FC<AddRecipeModalProps> = ({
     setSelectedMaterials(prev => prev.filter(m => m.material_id !== materialId));
   };
 
-  const filteredMaterials = materials.filter(material =>
-    material.material_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    material.material_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    material.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredMaterials = materials.filter((material) => {
+    const name = (material.material_name || '').toLowerCase();
+    const code = (material.material_code || '').toLowerCase();
+    const category = (material.category || '').toLowerCase();
+    const term = (searchTerm || '').toLowerCase();
+    return name.includes(term) || code.includes(term) || category.includes(term);
+  });
 
   const getMaterialName = (materialId: string) => {
     const material = materials.find(m => m.id === materialId);
