@@ -19,6 +19,8 @@ We will keep the existing order grouping algorithm, but make material parsing fu
 - Volumen ➜ `volumen_fabricado`
 - Tipo Remisión ➜ `tipo_remision` = 'CONCRETO' (constante)
 - Materiales ➜ `remision_materiales` con solo `cantidad_teorica` y `cantidad_real` por material (identificado por código Arkik o mapeo por planta)
+- Product Description (Arkik) ➜ `remisiones.designacion_ehe` (estandarizado)
+- Comentarios Externos (Arkik) ➜ `orders.elemento` (nivel orden)
 
 ## 1. Type Definitions (`/types/arkik.ts`)
 
