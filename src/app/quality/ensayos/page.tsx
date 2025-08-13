@@ -38,10 +38,12 @@ import { DateFilter } from '@/components/ui/DateFilter';
 import { DayPicker, DayProps as RDPDayProps, Day as DefaultDay } from 'react-day-picker';
 import type { Modifiers } from 'react-day-picker';
 import { formatDate, createSafeDate } from '@/lib/utils';
+import { usePlantContext } from '@/contexts/PlantContext';
 
 export default function EnsayosPage() {
   const router = useRouter();
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   const [muestras, setMuestras] = useState<MuestraWithRelations[]>([]);
   const [filteredMuestras, setFilteredMuestras] = useState<MuestraWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,7 +57,9 @@ export default function EnsayosPage() {
         setLoading(true);
         setError(null);
         
-        const data = await fetchMuestrasPendientes();
+        const data = await fetchMuestrasPendientes({
+          plant_id: currentPlant?.id
+        });
         setMuestras(data);
         
         // Apply initial date filter
@@ -69,7 +73,7 @@ export default function EnsayosPage() {
     };
     
     loadPendingEnsayos();
-  }, []);
+  }, [currentPlant?.id]);
 
   // Filter samples by selected date
   const filterMuestrasByDate = (data: MuestraWithRelations[] = muestras, date: Date | undefined) => {

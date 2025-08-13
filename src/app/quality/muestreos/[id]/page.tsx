@@ -178,7 +178,7 @@ export default function MuestreoDetailPage() {
             Muestreo #{muestreo.numero_muestreo}
           </h1>
           <p className="text-gray-500">
-            Remisión {muestreo.remision?.remision_number || 'Sin remisión'}
+            Remisión {muestreo.remision?.remision_number || muestreo.manual_reference || 'Sin remisión'}
           </p>
         </div>
         
@@ -246,7 +246,7 @@ export default function MuestreoDetailPage() {
                   <p className="text-sm font-medium text-gray-500">Remisión</p>
                   <div className="flex items-center gap-2">
                     <Truck className="h-4 w-4 text-gray-400" />
-                    <p className="font-medium">{muestreo.remision?.remision_number || 'No disponible'}</p>
+                    <p className="font-medium">{muestreo.remision?.remision_number || muestreo.manual_reference || 'No disponible'}</p>
                   </div>
                 </div>
                 
