@@ -382,6 +382,7 @@ export async function fetchEnsayoById(id: string) {
           *,
           muestreo:muestreo_id (
             *,
+            concrete_specs,
             remision:remision_id (
               *,
               recipe:recipes(

@@ -152,10 +152,21 @@ export default function EnsayoDetailPage() {
     );
   }
 
-  // Determinar el clasificación del concreto
+  // Determinar clasificación y edad programada desde muestreos.concrete_specs (con fallback a receta)
+  const concreteSpecs = ensayo.muestra?.muestreo?.concrete_specs as any | undefined;
   const recipeVersions = ensayo.muestra?.muestreo?.remision?.recipe?.recipe_versions || [];
   const currentVersion = recipeVersions.find((v: any) => v.is_current === true);
-  const clasificacion = currentVersion?.notes?.includes('MR') ? 'MR' : 'FC';
+  const fallbackClasificacion = currentVersion?.notes?.includes('MR') ? 'MR' : 'FC';
+  const clasificacion = (concreteSpecs?.clasificacion as 'FC' | 'MR') || fallbackClasificacion;
+  const plannedAgeValue: number | undefined = concreteSpecs?.valor_edad ?? ensayo.muestra?.muestreo?.remision?.recipe?.age_days;
+  const plannedAgeUnitRaw: string | undefined = concreteSpecs?.unidad_edad;
+  const formatUnidadEdad = (u?: string) => {
+    if (!u) return 'días';
+    const v = u.toUpperCase();
+    if (v === 'H' || v === 'HORA' || v === 'HORAS') return 'horas';
+    return 'días';
+  };
+  const plannedAgeUnit = formatUnidadEdad(plannedAgeUnitRaw);
   
   // Calcular la edad del ensayo
   const fechaMuestreo = createSafeDate(ensayo.muestra?.muestreo?.fecha_muestreo);
@@ -229,8 +240,8 @@ export default function EnsayoDetailPage() {
                 </div>
                 
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Edad Programada</p>
-                  <p className="font-medium">{edadEnsayo} días</p>
+                  <p className="text-sm font-medium text-gray-500">Edad Programada y Unidad</p>
+                  <p className="font-medium">{plannedAgeValue ?? '—'} {plannedAgeUnit}</p>
                 </div>
                 
                 <div>
@@ -245,7 +256,7 @@ export default function EnsayoDetailPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-500">Clasificación</p>
                   <Badge variant={clasificacion === 'MR' ? 'outline' : 'default'}>
-                    {clasificacion} {ensayo.muestra?.muestreo?.remision?.recipe?.age_days} días
+                    {clasificacion} {plannedAgeValue ?? ''} {plannedAgeUnit}
                   </Badge>
                 </div>
                 
