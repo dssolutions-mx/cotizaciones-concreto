@@ -8,14 +8,15 @@ type MaterialColumnBlock = {
 
 export class ArkikRawParser {
   private static readonly STABLE_HEADERS = {
-    orden: /orden/i,
+    orden: /\borden\b/i,
     remision: /remisi[oó]n/i,
     estatus: /estatus/i,
     volumen: /volumen/i,
-    cliente_codigo: /cliente.*c[oó]digo/i,
-    cliente_nombre: /cliente.*nombre/i,
-    rfc: /rfc/i,
-    obra: /obra/i,
+    // Arkik has two columns: "#Cliente" (code) and "Cliente" (name)
+    cliente_codigo: /^\s*#\s*cliente\b/i,
+    cliente_nombre: /^(?!\s*#)\s*cliente\b/i,
+    rfc: /\brfc\b/i,
+    obra: /\bobra\b/i,
     punto_entrega: /punto.*entrega/i,
     prod_comercial: /prod.*comercial/i,
     prod_tecnico: /prod.*t[eé]cnico/i,
@@ -26,8 +27,9 @@ export class ArkikRawParser {
     camion: /cam[ií]on/i,
     placas: /placas/i,
     chofer: /chofer/i,
-    bombeable: /bombeable/i,
-    fecha: /fecha/i,
+    // Sometimes "B/NB" instead of "Bombeable"
+    bombeable: /(b\/nb|bombeable)/i,
+    fecha: /\bfecha\b/i,
     hora_carga: /hora.*carga/i
   } as const;
 
@@ -51,19 +53,28 @@ export class ArkikRawParser {
     const errors: ValidationError[] = [];
     const data: ArkikRawRow[] = [];
 
-    const arrayBuffer = await file.arrayBuffer();
-    const workbook = XLSX.read(arrayBuffer, {
-      cellDates: true,
-      raw: false,
-      dateNF: 'yyyy-mm-dd'
-    });
+    const isCsv = /\.csv$/i.test(file.name) || (file.type && file.type.includes('csv'));
+    let workbook: XLSX.WorkBook;
+    if (isCsv) {
+      const text = await file.text();
+      workbook = XLSX.read(text, { type: 'string', raw: false });
+    } else {
+      const arrayBuffer = await file.arrayBuffer();
+      workbook = XLSX.read(arrayBuffer, {
+        type: 'array',
+        cellDates: true,
+        raw: false,
+        dateNF: 'yyyy-mm-dd'
+      });
+    }
 
     const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[];
 
     const headerRowIndex = this.findHeaderRowIndex(rawData as any[][]);
     const header = (rawData[headerRowIndex] as any[]).map(v => String(v ?? '').trim());
-    const materialBlocks = this.detectMaterialBlocks(header);
+    const preHeader = headerRowIndex > 0 ? (rawData[headerRowIndex - 1] as any[]).map(v => String(v ?? '').trim()) : [];
+    const materialBlocks = this.detectMaterialBlocks(header, preHeader);
     const metadata = this.extractMetadata(rawData);
 
     const remisionIdx = header.findIndex(h => ArkikRawParser.STABLE_HEADERS.remision.test(h));
@@ -196,7 +207,14 @@ export class ArkikRawParser {
 
   private parseNumber(value: any): number | null {
     if (value === null || value === undefined || value === '') return null;
-    const num = parseFloat(value);
+    if (typeof value === 'number') return value;
+    let s = String(value).trim();
+    if (s.includes(',') && s.includes('.')) {
+      s = s.replace(/,/g, '');
+    } else if (s.includes(',') && !s.includes('.')) {
+      s = s.replace(/\./g, '').replace(/,/g, '.');
+    }
+    const num = parseFloat(s);
     return isNaN(num) ? null : num;
   }
 
@@ -229,7 +247,7 @@ export class ArkikRawParser {
     return bestIdx;
   }
 
-  private detectMaterialBlocks(header: string[]): MaterialColumnBlock[] {
+  private detectMaterialBlocks(header: string[], preHeader?: string[]): MaterialColumnBlock[] {
     const aliases = { ...ArkikRawParser.DEFAULT_MEASURE_ALIASES, ...(this.options?.measureAliases || {}) };
     const measures: ArkikMeasureKey[] = ['teorica', 'real'];
 
@@ -243,11 +261,15 @@ export class ArkikRawParser {
     const candidates: Candidate[] = [];
     tokens.forEach(({ h, idx }) => {
       const normalized = h.replace(/\s+/g, ' ').trim();
-      const parts = normalized.split(' ');
-      if (parts.length < 1) return;
       (['teorica', 'real'] as ArkikMeasureKey[]).forEach(m => {
         if (measureRegex[m].test(normalized)) {
-          const code = normalized.replace(measureRegex[m], '').trim().replace(/[-–]/g, '').trim().split(' ')[0];
+          let code = normalized.replace(measureRegex[m], '').trim().replace(/[-–]/g, '').trim().split(' ')[0];
+          if (!code && preHeader && preHeader[idx]) {
+            const ph = preHeader[idx].trim();
+            if (ph && ph !== '-' && ph.length <= 6) {
+              code = ph;
+            }
+          }
           if (code) candidates.push({ code: code.toUpperCase(), measure: m, idx });
         }
       });
