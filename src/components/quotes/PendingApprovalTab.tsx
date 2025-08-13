@@ -34,6 +34,7 @@ interface SupabaseQuoteDetail {
   final_price: number;
   pump_service: boolean;
   pump_price: number | null;
+  includes_vat?: boolean;
   recipe_id: string;
   recipes: {
     recipe_code: string;
@@ -62,6 +63,7 @@ interface PendingQuote {
     final_price: number;
     pump_service: boolean;
     pump_price: number | null;
+    includes_vat?: boolean;
     recipe: {
       recipe_code: string;
       strength_fc: number;
@@ -93,6 +95,7 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
     final_price: number;
     pump_service: boolean;
     pump_price: number | null;
+    includes_vat?: boolean;
     base_price: number;
     volume: number;
     recipe?: {
@@ -128,6 +131,7 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
             final_price,
             pump_service,
             pump_price,
+            includes_vat,
             recipe_id,
             recipes (
               recipe_code,
@@ -180,7 +184,8 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
               base_price: detail.base_price,
               final_price: detail.final_price,
               pump_service: detail.pump_service,
-              pump_price: detail.pump_price,
+            pump_price: detail.pump_price,
+            includes_vat: detail.includes_vat,
               recipe: recipeData ? {
                 recipe_code: recipeData.recipe_code,
                 strength_fc: recipeData.strength_fc,
@@ -234,7 +239,8 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
                 final_price: detail.final_price,
                 profit_margin: detail.profit_margin * 100, // Convert to percentage
                 pump_service: detail.pump_service,
-                pump_price: detail.pump_service ? detail.pump_price : null
+                pump_price: detail.pump_service ? detail.pump_price : null,
+                includes_vat: detail.includes_vat ?? false
               })
               .eq('id', detail.id);
 
@@ -294,7 +300,8 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
                 final_price: detail.final_price,
                 profit_margin: detail.profit_margin * 100, // Convert to percentage
                 pump_service: detail.pump_service,
-                pump_price: detail.pump_service ? detail.pump_price : null
+                pump_price: detail.pump_service ? detail.pump_price : null,
+                includes_vat: detail.includes_vat ?? false
               })
               .eq('id', detail.id);
 
@@ -424,12 +431,22 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
     setEditingQuoteDetails(updatedDetails);
   };
 
+  // Function to toggle VAT for the entire quote
+  const updateQuoteVAT = (includesVAT: boolean) => {
+    const updatedDetails = [...editingQuoteDetails].map(detail => ({
+      ...detail,
+      includes_vat: includesVAT,
+    }));
+    setEditingQuoteDetails(updatedDetails);
+  };
+
   // Override openQuoteDetails to prepare editing state
   const openQuoteDetails = (quote: PendingQuote) => {
     // Create a deep copy of quote details for editing
     const editableDetails = quote.quote_details.map(detail => ({
       ...detail,
-      profit_margin: detail.final_price / detail.base_price - 1
+      profit_margin: detail.final_price / detail.base_price - 1,
+      includes_vat: (detail as any).includes_vat ?? false
     }));
     
     setSelectedQuote(quote);
@@ -448,7 +465,8 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
             final_price: detail.final_price,
             profit_margin: detail.profit_margin * 100, // Convert to percentage
             pump_service: detail.pump_service,
-            pump_price: detail.pump_service ? detail.pump_price : null
+            pump_price: detail.pump_service ? detail.pump_price : null,
+            includes_vat: detail.includes_vat ?? false
           })
           .eq('id', detail.id);
 
@@ -695,8 +713,8 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
           <Dialog.Root open={!!selectedQuote} onOpenChange={(open) => !open && closeQuoteDetails()}>
             <Dialog.Portal>
               <Dialog.Overlay className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40" />
-              <Dialog.Content className="fixed inset-0 flex justify-center items-center z-50 p-4">
-                <div className="bg-white rounded-xl shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in duration-200">
+              <Dialog.Content className="fixed inset-0 flex justify-center items-end sm:items-center z-50 p-0 sm:p-4">
+                <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:w-11/12 md:max-w-4xl h-[92vh] sm:max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in duration-200">
                   <Dialog.Title className="p-6 border-b border-gray-200 flex justify-between items-center">
                     <div className="text-xl font-bold text-gray-800">Detalles de Cotización</div>
                     <Dialog.Close className="text-gray-500 hover:text-gray-700 focus:outline-none" aria-label="Cerrar">
@@ -719,7 +737,7 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
                     </div>
 
                     {/* Pump Service Control */}
-                    <div className="mb-6 p-4 border rounded-lg bg-gray-50 @container">
+                    <div className="mb-4 p-4 border rounded-lg bg-gray-50 @container">
                       <div className="flex items-center mb-2">
                         <Checkbox.Root
                           id="pumpService"
@@ -763,31 +781,140 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
                       )}
                     </div>
 
-                    {/* Quote Details Table */}
-                    <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
-                      <table className="w-full text-sm text-left text-gray-600">
-                        <thead className="text-xs uppercase bg-gray-50 text-gray-700">
-                          <tr>
-                            <th className="px-4 py-3 font-medium">Código de Receta</th>
-                            <th className="px-4 py-3 font-medium">Tipo de Colocación</th>
-                            <th className="px-4 py-3 font-medium">Resistencia</th>
-                            <th className="px-4 py-3 font-medium">Volumen</th>
-                            <th className="px-4 py-3 font-medium">Precio Base</th>
-                            <th className="px-4 py-3 font-medium">Margen (%)</th>
-                            <th className="px-4 py-3 font-medium">Precio Final</th>
-                            <th className="px-4 py-3 font-medium">Total</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200">
-                          {editingQuoteDetails.map((detail, index) => (
-                            <tr key={detail.id} className="hover:bg-gray-50">
-                              <td className="px-4 py-3">{detail.recipe?.recipe_code || 'Sin código'}</td>
-                              <td className="px-4 py-3">{detail.recipe?.placement_type || 'Sin tipo'}</td>
-                              <td className="px-4 py-3">{detail.recipe?.strength_fc || 'N/A'} fc</td>
-                              <td className="px-4 py-3">{detail.volume} m³</td>
-                              <td className="px-4 py-3">
-                                <input 
-                                  type="number" 
+                    {/* VAT Control */}
+                    <div className="mb-6 p-4 border rounded-lg bg-gray-50 @container">
+                      <div className="flex items-center">
+                        <Checkbox.Root
+                          id="includesVAT"
+                          checked={editingQuoteDetails.length > 0 && editingQuoteDetails.every(d => d.includes_vat)}
+                          onCheckedChange={(checked: boolean | 'indeterminate') => {
+                            const isChecked = checked === true;
+                            const updated = editingQuoteDetails.map(d => ({ ...d, includes_vat: isChecked }));
+                            setEditingQuoteDetails(updated);
+                          }}
+                          className="h-4 w-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
+                        >
+                          <Checkbox.Indicator>
+                            <CheckIcon className="h-3 w-3 text-white" />
+                          </Checkbox.Indicator>
+                        </Checkbox.Root>
+                        <label htmlFor="includesVAT" className="ms-2 font-medium text-gray-700">
+                          Incluir IVA en la cotización
+                        </label>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2">Esta opción aplicará IVA a todos los conceptos de la cotización.</p>
+                    </div>
+
+                    {/* Quote Details Table - Responsive */}
+                    <div className="rounded-lg border border-gray-200 shadow-sm">
+                      {/* Desktop/Table view */}
+                      <div className="hidden md:block overflow-x-auto">
+                        <table className="w-full text-sm text-left text-gray-600">
+                          <thead className="text-xs uppercase bg-gray-50 text-gray-700">
+                            <tr>
+                              <th className="px-4 py-3 font-medium">Código de Receta</th>
+                              <th className="px-4 py-3 font-medium">Tipo de Colocación</th>
+                              <th className="px-4 py-3 font-medium">Resistencia</th>
+                              <th className="px-4 py-3 font-medium">Volumen</th>
+                              <th className="px-4 py-3 font-medium">Precio Base</th>
+                              <th className="px-4 py-3 font-medium">Margen (%)</th>
+                              <th className="px-4 py-3 font-medium">Precio Final</th>
+                              <th className="px-4 py-3 font-medium">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {editingQuoteDetails.map((detail, index) => (
+                              <tr key={detail.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3">{detail.recipe?.recipe_code || 'Sin código'}</td>
+                                <td className="px-4 py-3">{detail.recipe?.placement_type || 'Sin tipo'}</td>
+                                <td className="px-4 py-3">{detail.recipe?.strength_fc || 'N/A'} fc</td>
+                                <td className="px-4 py-3">{detail.volume} m³</td>
+                                <td className="px-4 py-3">
+                                  <input 
+                                    type="number" 
+                                    value={detail.base_price.toFixed(2)}
+                                    onChange={(e) => {
+                                      if (e.target.value === '') {
+                                        updateQuoteDetailBasePrice(index, 0);
+                                        return;
+                                      }
+                                      const value = parseFloat(e.target.value);
+                                      if (!isNaN(value)) updateQuoteDetailBasePrice(index, value);
+                                    }}
+                                    placeholder="0.00"
+                                    step="0.01"
+                                    className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                  />
+                                </td>
+                                <td className="px-4 py-3">
+                                  <input 
+                                    type="number" 
+                                    value={Math.round(detail.profit_margin * 10000) / 100}
+                                    onChange={(e) => {
+                                      if (e.target.value === '') {
+                                        updateQuoteDetailMargin(index, 0);
+                                        return;
+                                      }
+                                      const value = parseFloat(e.target.value);
+                                      if (!isNaN(value)) updateQuoteDetailMargin(index, value);
+                                    }}
+                                    onBlur={(e) => {
+                                      if (e.target.value === '') {
+                                        updateQuoteDetailMargin(index, 4);
+                                        return;
+                                      }
+                                      const value = parseFloat(e.target.value);
+                                      updateQuoteDetailMargin(index, Math.max(4, value));
+                                    }}
+                                    placeholder="4%"
+                                    step="0.01"
+                                    className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                  />
+                                </td>
+                                <td className="px-4 py-3 font-medium">${detail.final_price.toFixed(2)}</td>
+                                <td className="px-4 py-3 font-medium">${(detail.final_price * detail.volume).toFixed(2)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Mobile card view */}
+                      <div className="md:hidden divide-y divide-gray-200">
+                        {editingQuoteDetails.map((detail, index) => (
+                          <div key={detail.id} className="p-4">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm text-gray-500">Código</p>
+                                <p className="font-medium text-gray-900">{detail.recipe?.recipe_code || 'Sin código'}</p>
+                              </div>
+                              <span className={`text-xs px-2 py-0.5 rounded-full ${detail.includes_vat ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-gray-50 text-gray-700 border border-gray-200'}`}>
+                                {detail.includes_vat ? 'IVA incluido' : 'Sin IVA'}
+                              </span>
+                            </div>
+                            <div className="mt-2 grid grid-cols-2 gap-3 text-sm text-gray-600">
+                              <div>
+                                <p className="text-gray-500">Tipo</p>
+                                <p>{detail.recipe?.placement_type || 'Sin tipo'}</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500">Resistencia</p>
+                                <p>{detail.recipe?.strength_fc || 'N/A'} fc</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500">Volumen</p>
+                                <p>{detail.volume} m³</p>
+                              </div>
+                              <div>
+                                <p className="text-gray-500">Total</p>
+                                <p className="font-medium">${(detail.final_price * detail.volume).toFixed(2)}</p>
+                              </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-1 gap-3">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Precio Base</label>
+                                <input
+                                  type="number"
                                   value={detail.base_price.toFixed(2)}
                                   onChange={(e) => {
                                     if (e.target.value === '') {
@@ -799,12 +926,13 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
                                   }}
                                   placeholder="0.00"
                                   step="0.01"
-                                  className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                                 />
-                              </td>
-                              <td className="px-4 py-3">
-                                <input 
-                                  type="number" 
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Margen (%)</label>
+                                <input
+                                  type="number"
                                   value={Math.round(detail.profit_margin * 10000) / 100}
                                   onChange={(e) => {
                                     if (e.target.value === '') {
@@ -824,15 +952,31 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
                                   }}
                                   placeholder="4%"
                                   step="0.01"
-                                  className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                                 />
-                              </td>
-                              <td className="px-4 py-3 font-medium">${detail.final_price.toFixed(2)}</td>
-                              <td className="px-4 py-3 font-medium">${(detail.final_price * detail.volume).toFixed(2)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1">Precio Final</label>
+                                <input
+                                  type="number"
+                                  value={detail.final_price.toFixed(2)}
+                                  onChange={(e) => {
+                                    if (e.target.value === '') {
+                                      updateQuoteDetailFinalPrice(index, 0);
+                                      return;
+                                    }
+                                    const value = parseFloat(e.target.value);
+                                    if (!isNaN(value)) updateQuoteDetailFinalPrice(index, value);
+                                  }}
+                                  placeholder="0.00"
+                                  step="0.01"
+                                  className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
