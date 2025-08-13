@@ -476,12 +476,12 @@ export default function QuoteBuilder() {
     
     const searchLower = recipeSearch.toLowerCase();
     return (
-      recipe.recipe_code.toLowerCase().includes(searchLower) ||
-      recipe.strength_fc.toString().includes(searchLower) ||
-      (recipe.age_days?.toString() || '').includes(searchLower) ||
-      recipe.placement_type.toLowerCase().includes(searchLower) ||
-      recipe.max_aggregate_size.toString().includes(searchLower) ||
-      recipe.slump.toString().includes(searchLower)
+      (recipe.recipe_code || '').toLowerCase().includes(searchLower) ||
+      String(recipe.strength_fc ?? '').includes(searchLower) ||
+      String(recipe.age_days ?? '').includes(searchLower) ||
+      (recipe.placement_type || '').toLowerCase().includes(searchLower) ||
+      String(recipe.max_aggregate_size ?? '').includes(searchLower) ||
+      String(recipe.slump ?? '').includes(searchLower)
     );
   });
 
@@ -505,8 +505,8 @@ export default function QuoteBuilder() {
     
     const searchLower = clientSearch.toLowerCase();
     return (
-      client.business_name.toLowerCase().includes(searchLower) ||
-      client.client_code.toLowerCase().includes(searchLower)
+      (client.business_name || '').toLowerCase().includes(searchLower) ||
+      (client.client_code || '').toLowerCase().includes(searchLower)
     );
   });
 
