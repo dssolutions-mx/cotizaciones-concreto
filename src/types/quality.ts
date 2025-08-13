@@ -12,13 +12,14 @@ export interface Muestreo {
   masa_unitaria: number;
   temperatura_ambiente: number;
   temperatura_concreto: number;
-  // Optional linkage fields and specs captured at sampling time
+
   concrete_specs?: {
     clasificacion?: 'FC' | 'MR';
     unidad_edad?: 'DÍA' | 'HORA' | 'D' | 'H' | string;
     valor_edad?: number;
     fc?: number;
   } | null;
+
   manual_reference?: string;
   created_by?: string;
   created_at?: string;
@@ -81,7 +82,7 @@ export interface Alerta {
 
 // Extended types for data with joined relations
 export interface MuestreoWithRelations extends Muestreo {
-  muestras?: Muestra[];
+  muestras?: MuestraWithRelations[];
   remision?: {
     id: string;
     remision_number: string;

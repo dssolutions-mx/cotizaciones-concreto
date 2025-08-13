@@ -152,6 +152,9 @@ export default function MuestreoDetailPage() {
   const cilindros = muestreo.muestras?.filter(m => m.tipo_muestra === 'CILINDRO') || [];
   const vigas = muestreo.muestras?.filter(m => m.tipo_muestra === 'VIGA') || [];
   const cubos = muestreo.muestras?.filter(m => m.tipo_muestra === 'CUBO') || [];
+  const firstEnsayoId = (
+    muestreo.muestras?.flatMap(m => m.ensayos || []) || []
+  ).map(e => e.id)[0];
 
   return (
     <div className="container mx-auto p-4 md:p-6">
@@ -332,11 +335,17 @@ export default function MuestreoDetailPage() {
               </div>
               
               <div className="pt-4">
-                <Link href={`/quality/ensayos?muestreo=${muestreo.id}`}>
-                  <Button className="w-full">
-                    Ver Ensayos
+                {firstEnsayoId ? (
+                  <Link href={`/quality/ensayos/${firstEnsayoId}`}>
+                    <Button className="w-full">
+                      Ver Ensayo
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button className="w-full" variant="outline" disabled>
+                    No hay ensayos
                   </Button>
-                </Link>
+                )}
               </div>
             </div>
           </CardContent>
@@ -401,11 +410,17 @@ export default function MuestreoDetailPage() {
                         </Button>
                       </Link>
                     ) : (
-                      <Link href={`/quality/ensayos`}>
-                        <Button size="sm" variant="outline" className="w-full">
-                          Ver Ensayos
+                      (muestra.ensayos && muestra.ensayos.length > 0) ? (
+                        <Link href={`/quality/ensayos/${muestra.ensayos[0].id}`}>
+                          <Button size="sm" variant="outline" className="w-full">
+                            Ver Ensayo
+                          </Button>
+                        </Link>
+                      ) : (
+                        <Button size="sm" variant="outline" className="w-full" disabled>
+                          Ver Ensayo
                         </Button>
-                      </Link>
+                      )
                     )}
                   </div>
                 </div>
