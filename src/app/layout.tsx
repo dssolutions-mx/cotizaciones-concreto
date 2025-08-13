@@ -25,7 +25,8 @@ import {
   Clipboard,
   BarChart,
   CreditCard,
-  Building2
+  Building2,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider } from '@/contexts/PlantContext';
@@ -162,6 +163,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
     switch (role) {
       case 'DOSIFICADOR':
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        navItems.push({ href: '/arkik', label: 'Arkik', IconComponent: FileSpreadsheet });
         addQualityLink = true;
         break;
         
@@ -191,6 +193,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
         navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        navItems.push({ href: '/arkik', label: 'Arkik', IconComponent: FileSpreadsheet });
         addFinanzasLink = true;
         addQualityLink = true;
         break;
@@ -201,6 +204,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
         navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        navItems.push({ href: '/arkik', label: 'Arkik', IconComponent: FileSpreadsheet });
         addAdminLink = true;
         addFinanzasLink = true;
         addQualityLink = true;
