@@ -10,14 +10,24 @@ We will keep the existing order grouping algorithm, but make material parsing fu
 - Persist per-plant material code mapping in `arkik_material_mapping`; parser resolves Arkik header codes to internal material IDs via this mapping.
 - Keep order grouping unchanged.
 
+### Required data mapping (Excel ➜ DB)
+
+- Placas ➜ `unidad`
+- Chofer ➜ `conductor`
+- Fecha ➜ `fecha`
+- Hora Carga ➜ `hora_carga`
+- Volumen ➜ `volumen_fabricado`
+- Tipo Remisión ➜ `tipo_remision` = 'CONCRETO' (constante)
+- Materiales ➜ `remision_materiales` con solo `cantidad_teorica` y `cantidad_real` por material (identificado por código Arkik o mapeo por planta)
+
 ## 1. Type Definitions (`/types/arkik.ts`)
 
 ```typescript
 // Arkik material codes are dynamic per plant
 export type ArkikMaterialCode = string;
 
-// Normalized measures present for each material
-export type ArkikMeasureKey = 'teorica' | 'real' | 'retrabajo' | 'manual';
+// Measures we will persist per material in remision_materiales
+export type ArkikMeasureKey = 'teorica' | 'real';
 
 // Error types
 export enum ArkikErrorType {
@@ -161,9 +171,31 @@ export interface PlantMeasureAliases {
   aliases: {
     teorica: string[];   // e.g. ['teorica', 'teórica', 'teo']
     real: string[];      // e.g. ['real']
-    retrabajo: string[]; // e.g. ['retrabajo', 're-trabajo']
-    manual: string[];    // e.g. ['manual']
   };
+}
+```
+
+### DB Insert Types (minimal fields)
+
+```typescript
+// Payload to insert into `remisiones`
+export interface RemisionInsertPayload {
+  order_id: string;
+  remision_number: string;
+  fecha: string;            // ISO date (yyyy-mm-dd)
+  hora_carga: string;       // HH:mm:ss
+  volumen_fabricado: number;
+  conductor?: string | null;
+  unidad?: string | null;   // from Placas
+  tipo_remision: 'CONCRETO';
+}
+
+// Payload to insert into `remision_materiales`
+export interface RemisionMaterialInsert {
+  remision_id: string;
+  material_type: string;       // or material_id if preferred
+  cantidad_teorica: number;    // per remision (already multiplied by volumen)
+  cantidad_real: number;       // total real dosificado
 }
 ```
 
@@ -207,9 +239,7 @@ export class ArkikRawParser {
   // Measure aliases; can be overridden per-plant at runtime
   private static readonly DEFAULT_MEASURE_ALIASES: Record<ArkikMeasureKey, string[]> = {
     teorica: ['teorica', 'teórica', 'teo'],
-    real: ['real'],
-    retrabajo: ['retrabajo', 're-trabajo'],
-    manual: ['manual']
+    real: ['real']
   };
 
   constructor(private options?: { measureAliases?: Partial<Record<ArkikMeasureKey, string[]>> }) {}
@@ -249,11 +279,12 @@ export class ArkikRawParser {
       const metadata = this.extractMetadata(rawData);
       
       // Parse data starting from the first data row after header
+      const remisionIdx = header.findIndex(h => ArkikRawParser.STABLE_HEADERS.remision.test(h));
       for (let i = headerRowIndex + 1; i < rawData.length; i++) {
         const row = rawData[i] as any[];
         
         // Skip empty rows
-        if (!row || !row[this.COLUMNS.remision]) continue;
+        if (!row || remisionIdx === -1 || !row[remisionIdx]) continue;
         
         try {
           const parsedRow = this.parseRow(row, i + 1, header, materialBlocks);
@@ -305,15 +336,13 @@ export class ArkikRawParser {
       return idx >= 0 ? row[idx] : undefined;
     };
 
-    // Parse materials dynamically
+    // Parse materials dynamically (only teorica and real)
     const materials: ArkikRawRow['materials'] = {};
     materialBlocks.forEach(block => {
       materials[block.arkikCode] = {
         teorica: this.parseNumber(row[block.indicesByMeasure.teorica]) || 0,
-        real: this.parseNumber(row[block.indicesByMeasure.real]) || 0,
-        retrabajo: this.parseNumber(row[block.indicesByMeasure.retrabajo]) || 0,
-        manual: this.parseNumber(row[block.indicesByMeasure.manual]) || 0
-      };
+        real: this.parseNumber(row[block.indicesByMeasure.real]) || 0
+      } as Record<ArkikMeasureKey, number>;
     });
 
     return {
@@ -434,14 +463,12 @@ export class ArkikRawParser {
 
   private detectMaterialBlocks(header: string[]): MaterialColumnBlock[] {
     const aliases = { ...ArkikRawParser.DEFAULT_MEASURE_ALIASES, ...(this.options?.measureAliases || {}) };
-    const measures: ArkikMeasureKey[] = ['teorica', 'real', 'retrabajo', 'manual'];
+    const measures: ArkikMeasureKey[] = ['teorica', 'real'];
 
     // Build regex per measure
     const measureRegex: Record<ArkikMeasureKey, RegExp> = {
       teorica: new RegExp(`(${aliases.teorica.join('|')})`, 'i'),
-      real: new RegExp(`(${aliases.real.join('|')})`, 'i'),
-      retrabajo: new RegExp(`(${aliases.retrabajo.join('|')})`, 'i'),
-      manual: new RegExp(`(${aliases.manual.join('|')})`, 'i')
+      real: new RegExp(`(${aliases.real.join('|')})`, 'i')
     } as const;
 
     // Heuristic: Arkik labels often are like "A1 Teórica", "A1 Real", ... or in adjacent columns.
@@ -474,7 +501,7 @@ export class ArkikRawParser {
     byCode.forEach((list, code) => {
       const idxByMeasure = {} as Record<ArkikMeasureKey, number>;
       let hasAll = true;
-      (['teorica', 'real', 'retrabajo', 'manual'] as ArkikMeasureKey[]).forEach(m => {
+      (['teorica', 'real'] as ArkikMeasureKey[]).forEach(m => {
         const found = list.find(c => c.measure === m);
         if (!found) hasAll = false; else idxByMeasure[m] = found.idx;
       });
@@ -932,24 +959,16 @@ export default function ArkikProcessor() {
     sessionId: string,
     rowNumber: number
   ): StagingRemision => {
-    // Extract recipe code from prod_tecnico
-    const recipeCode = row.prod_tecnico; // This might need transformation
-    
-    // Convert materials to separate objects
+    // Convert materials to separate objects (only teorico & real)
     const materials_teorico: Record<string, number> = {};
     const materials_real: Record<string, number> = {};
-    const materials_retrabajo: Record<string, number> = {};
-    const materials_manual: Record<string, number> = {};
-    
     Object.entries(row.materials).forEach(([code, values]) => {
       if (values) {
         materials_teorico[code] = values.teorica;
         materials_real[code] = values.real;
-        materials_retrabajo[code] = values.retrabajo;
-        materials_manual[code] = values.manual;
       }
     });
-    
+
     return {
       id: crypto.randomUUID(),
       session_id: sessionId,
@@ -962,28 +981,43 @@ export default function ArkikProcessor() {
       volumen_fabricado: row.volumen,
       cliente_codigo: row.cliente_codigo,
       cliente_name: row.cliente_nombre,
-      rfc: row.rfc,
       obra_name: row.obra,
-      punto_entrega: row.punto_entrega,
-      comentarios_externos: row.comentarios_externos,
-      comentarios_internos: row.comentarios_internos,
-      prod_comercial: row.prod_comercial,
       prod_tecnico: row.prod_tecnico,
-      product_description: row.product_description,
-      recipe_code: recipeCode,
-      camion: row.camion,
-      placas: row.placas,
-      conductor: row.chofer,
-      bombeable: row.bombeable === 'Bombeable',
-      elementos: row.elementos,
+      placas: row.placas,           // maps to unidad
+      chofer: row.chofer,           // maps to conductor
       suggested_order_group: '',
       materials_teorico,
       materials_real,
-      materials_retrabajo,
-      materials_manual,
       validation_status: 'pending',
       validation_errors: []
-    };
+    } as unknown as StagingRemision;
+  };
+
+  // Build DB insert payloads (minimal fields)
+  const buildRemisionInsertPayload = (
+    orderId: string,
+    r: StagingRemision
+  ): RemisionInsertPayload => ({
+    order_id: orderId,
+    remision_number: r.remision_number,
+    fecha: r.fecha.toISOString().split('T')[0],
+    hora_carga: r.hora_carga.toISOString().split('T')[1].split('.')[0],
+    volumen_fabricado: r.volumen_fabricado,
+    conductor: (r as any).chofer || null,
+    unidad: (r as any).placas || null,
+    tipo_remision: 'CONCRETO'
+  });
+
+  const buildRemisionMaterialsInsert = (
+    remisionId: string,
+    r: StagingRemision
+  ): RemisionMaterialInsert[] => {
+    return Object.keys(r.materials_teorico).map(code => ({
+      remision_id: remisionId,
+      material_type: code,
+      cantidad_teorica: r.materials_teorico[code] * r.volumen_fabricado,
+      cantidad_real: r.materials_real[code]
+    }));
   };
 
   // UI Components

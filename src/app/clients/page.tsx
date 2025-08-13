@@ -59,10 +59,12 @@ export default function ClientsPage() {
     }
   };
 
-  const filteredClients = clients.filter(client =>
-    client.business_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    client.client_code.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredClients = clients.filter((client) => {
+    const name = (client.business_name || '').toLowerCase();
+    const code = (client.client_code || '').toLowerCase();
+    const term = (searchTerm || '').toLowerCase();
+    return name.includes(term) || code.includes(term);
+  });
 
   return (
     <div className="container mx-auto p-4">

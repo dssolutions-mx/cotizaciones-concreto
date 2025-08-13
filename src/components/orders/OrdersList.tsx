@@ -286,36 +286,36 @@ export default function OrdersList({
     
     // Búsqueda unificada (combina búsqueda global y búsqueda por cliente)
     if (searchQuery) {
-      const searchTerm = searchQuery.toLowerCase();
+      const searchTerm = (searchQuery || '').toLowerCase();
       result = result.filter(order => {
         // Buscar en número de orden
-        if (order.order_number.toLowerCase().includes(searchTerm)) return true;
+        if ((order.order_number || '').toLowerCase().includes(searchTerm)) return true;
         
         // Buscar en nombre y código de cliente
-        const clientName = order.clients.business_name.toLowerCase();
-        const clientCode = order.clients.client_code?.toLowerCase() || '';
+        const clientName = (order.clients?.business_name || '').toLowerCase();
+        const clientCode = (order.clients?.client_code || '').toLowerCase();
         if (clientName.includes(searchTerm) || clientCode.includes(searchTerm)) return true;
         
         // Buscar en sitio de construcción
-        if (order.construction_site.toLowerCase().includes(searchTerm)) return true;
+        if ((order.construction_site || '').toLowerCase().includes(searchTerm)) return true;
         
         // Buscar en estado de orden
-        const orderStatus = translateStatus(order.order_status).toLowerCase();
+        const orderStatus = (translateStatus(order.order_status) || '').toLowerCase();
         if (orderStatus.includes(searchTerm)) return true;
         
         // Buscar en estado de crédito
-        const creditStatus = translateCreditStatus(order.credit_status).toLowerCase();
+        const creditStatus = (translateCreditStatus(order.credit_status) || '').toLowerCase();
         if (creditStatus.includes(searchTerm)) return true;
         
         // Buscar en fecha de entrega
-        const deliveryDate = formatDate(order.delivery_date);
-        if (deliveryDate.toLowerCase().includes(searchTerm)) return true;
+        const deliveryDate = (formatDate(order.delivery_date) || '').toLowerCase();
+        if (deliveryDate.includes(searchTerm)) return true;
         
         // Buscar en hora de entrega
-        if (order.delivery_time.toLowerCase().includes(searchTerm)) return true;
+        if ((order.delivery_time || '').toLowerCase().includes(searchTerm)) return true;
         
         // Buscar en requisitos especiales
-        if (order.special_requirements?.toLowerCase().includes(searchTerm)) return true;
+        if ((order.special_requirements || '').toLowerCase().includes(searchTerm)) return true;
         
         return false;
       });
