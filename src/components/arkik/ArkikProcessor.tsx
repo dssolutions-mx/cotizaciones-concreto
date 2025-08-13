@@ -456,7 +456,14 @@ function convertToStagingRemision(row: any, sessionId: string, rowNumber: number
     camion: String(row.camion || ''),
     placas: String(row.placas || ''),
     conductor: String(row.chofer || ''),
-    bombeable: String(row.bombeable || '').toUpperCase().includes('SI'),
+    bombeable: (() => {
+      const s = String(row.bombeable || '').toLowerCase();
+      if (!s) return false;
+      if (s.includes('no')) return false;
+      if (s.includes('bombeable')) return true;
+      if (s.includes('si')) return true;
+      return false;
+    })(),
     elementos: String(row.elementos || ''),
     suggested_order_group: '',
     materials_teorico,
