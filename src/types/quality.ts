@@ -7,10 +7,12 @@ export interface Muestreo {
   fecha_muestreo: string;
   numero_muestreo: number;
   planta: 'P1' | 'P2' | 'P3' | 'P4';
+  plant_id?: string; // prefer server-side filtering by plant_id
   revenimiento_sitio: number;
   masa_unitaria: number;
   temperatura_ambiente: number;
   temperatura_concreto: number;
+  manual_reference?: string;
   created_by?: string;
   created_at?: string;
   updated_at?: string;
@@ -99,6 +101,17 @@ export interface MuestreoWithRelations extends Muestreo {
       };
     };
   };
+  plant?: {
+    id: string;
+    name: string;
+    code: string;
+    business_unit_id: string;
+    business_unit?: {
+      id: string;
+      name: string;
+      code: string;
+    };
+  };
 }
 
 export interface MuestraWithRelations extends Muestra {
@@ -144,4 +157,7 @@ export interface FiltrosCalidad {
   estadoMuestra?: 'PENDIENTE' | 'ENSAYADO' | 'DESCARTADO';
   cliente?: string;
   receta?: string;
+  plant_id?: string;
+  plant_ids?: string[];
+  business_unit_id?: string;
 } 

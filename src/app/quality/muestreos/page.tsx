@@ -36,10 +36,12 @@ import type { MuestreoWithRelations } from '@/types/quality';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { subMonths } from 'date-fns';
 import { formatDate } from '@/lib/utils';
+import { usePlantContext } from '@/contexts/PlantContext';
 
 export default function MuestreosPage() {
   const router = useRouter();
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   const [muestreos, setMuestreos] = useState<MuestreoWithRelations[]>([]);
   const [filteredMuestreos, setFilteredMuestreos] = useState<MuestreoWithRelations[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,7 +67,8 @@ export default function MuestreosPage() {
         
         const data = await fetchMuestreos({
           fechaDesde: dateRange?.from,
-          fechaHasta: dateRange?.to
+          fechaHasta: dateRange?.to,
+          plant_id: currentPlant?.id
         });
         setMuestreos(data);
         applyFilters(data);
@@ -78,7 +81,7 @@ export default function MuestreosPage() {
     };
     
     loadMuestreos();
-  }, [dateRange]);
+  }, [dateRange, currentPlant?.id]);
 
   // Aplicar filtros y ordenación
   const applyFilters = (data: MuestreoWithRelations[] = muestreos) => {
@@ -90,7 +93,8 @@ export default function MuestreosPage() {
       filtered = filtered.filter(m => 
         m.remision?.remision_number?.toString().toLowerCase().includes(search) ||
         m.remision?.orders?.clients?.business_name?.toLowerCase().includes(search) ||
-        m.remision?.recipe?.recipe_code?.toLowerCase().includes(search)
+        m.remision?.recipe?.recipe_code?.toLowerCase().includes(search) ||
+        m.manual_reference?.toLowerCase().includes(search)
       );
     }
     
@@ -198,7 +202,7 @@ export default function MuestreosPage() {
   const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE'];
   const hasAccess = profile && allowedRoles.includes(profile.role);
   
-  // Plantas disponibles
+  // Plantas disponibles para el select local (si se quiere usar por código)
   const plantas = ['P1', 'P2', 'P3', 'P4'];
   
   // Clasificaciones
@@ -295,6 +299,7 @@ export default function MuestreosPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {/* Nota: para alinear con plant_id y business unit, el filtrado principal se hace usando currentPlant (contexto) */}
               </div>
               
               <div className="space-y-2">
@@ -468,7 +473,7 @@ export default function MuestreosPage() {
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">
-                      {muestreo.remision?.remision_number || 'N/A'}
+                      {muestreo.remision?.remision_number || muestreo.manual_reference || 'N/A'}
                     </div>
                     <div className="text-xs text-gray-500">
                       {muestreo.planta || 'Sin planta'}
