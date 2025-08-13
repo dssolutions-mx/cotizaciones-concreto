@@ -437,11 +437,13 @@ export default function ScheduleOrderForm({
     loadPumpServicePricing();
   }, [selectedClientId, selectedConstructionSite?.name]);
   
-  // Filter clients based on search query
-  const filteredClients = clients.filter(client => 
-    client.business_name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    client.client_code.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter clients based on search query (null-safe)
+  const filteredClients = clients.filter(client => {
+    const name = (client.business_name || '').toLowerCase();
+    const code = (client.client_code || '').toLowerCase();
+    const query = (searchQuery || '').toLowerCase();
+    return name.includes(query) || code.includes(query);
+  });
   
   // Go to next step
   const nextStep = () => {
