@@ -19,6 +19,17 @@ import { formatDate, createSafeDate } from '@/lib/utils';
 // Muestreos
 export async function fetchMuestreos(filters?: FiltrosCalidad) {
   try {
+    // If filtering by business unit, resolve to plant_ids first
+    let resolvedPlantIds: string[] | undefined = filters?.plant_ids;
+    if (!resolvedPlantIds && filters?.business_unit_id && !filters?.plant_id) {
+      const { data: buPlants } = await supabase
+        .from('plants')
+        .select('id')
+        .eq('business_unit_id', filters.business_unit_id)
+        .eq('is_active', true);
+      resolvedPlantIds = (buPlants || []).map(p => p.id);
+    }
+
     let query = supabase
       .from('muestreos')
       .select(`
@@ -30,6 +41,7 @@ export async function fetchMuestreos(filters?: FiltrosCalidad) {
             clients(*)
           )
         ),
+        plant:plant_id (*, business_unit:business_units(*)),
         muestras(*)
       `)
       .order('fecha_muestreo', { ascending: false });
@@ -45,6 +57,14 @@ export async function fetchMuestreos(filters?: FiltrosCalidad) {
       if (filters.planta) {
         query = query.eq('planta', filters.planta);
       }
+      if (filters.plant_id) {
+        query = query.eq('plant_id', filters.plant_id);
+      }
+      const plantIdsToUse = resolvedPlantIds && resolvedPlantIds.length > 0 ? resolvedPlantIds : filters?.plant_ids;
+      if (plantIdsToUse && plantIdsToUse.length > 0) {
+        query = query.in('plant_id', plantIdsToUse);
+      }
+      // Note: business_unit_id is handled via resolvedPlantIds
       if (filters.cliente) {
         query = query.filter('remision.orders.clients.business_name', 'ilike', `%${filters.cliente}%`);
       }
@@ -284,6 +304,7 @@ export async function fetchMuestrasPendientes(filters?: FiltrosCalidad) {
         *,
         muestreo:muestreo_id (
           *,
+          plant:plant_id (*, business_unit:business_units(*)),
           remision:remision_id (
             *,
             recipe:recipes(*),
@@ -308,6 +329,16 @@ export async function fetchMuestrasPendientes(filters?: FiltrosCalidad) {
       if (filters.planta) {
         query = query.filter('muestreo.planta', 'eq', filters.planta);
       }
+      if (filters.plant_id) {
+        query = query.filter('muestreo.plant_id', 'eq', filters.plant_id);
+      }
+      if (filters.plant_ids && filters.plant_ids.length > 0) {
+        query = query.filter('muestreo.plant_id', 'in', `(${filters.plant_ids.map(id => `'${id}'`).join(',')})`);
+      }
+      if (filters.business_unit_id) {
+        // Need to join plants; not supported directly via dot syntax on m2o in filter for RPC
+        // We'll filter client-side once fetched
+      }
       if (filters.clasificacion) {
         // This would need a join with recipes and recipe_versions to filter by clasificacion
         // For simplicity, we'll filter on the client side for classification
@@ -320,6 +351,11 @@ export async function fetchMuestrasPendientes(filters?: FiltrosCalidad) {
     
     // Filter by classification if needed (client-side)
     let filteredData = data as MuestraWithRelations[];
+    
+    // Client-side BU filter if requested
+    if (filters?.business_unit_id) {
+      filteredData = filteredData.filter(m => (m.muestreo as any)?.plant?.business_unit_id === filters.business_unit_id);
+    }
     if (filters?.clasificacion) {
       filteredData = filteredData.filter(muestra => {
         const recipeNotes = muestra.muestreo?.remision?.recipe?.recipe_versions?.[0]?.notes || '';
