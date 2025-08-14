@@ -24,6 +24,10 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
   const [debug, setDebug] = useState<string>('');
   const [showDebug, setShowDebug] = useState(false);
   const [autoSeeded, setAutoSeeded] = useState<Set<string>>(new Set());
+  // Cache construction sites per client to avoid repeated network calls
+  const sitesCacheRef = React.useRef<Map<string, any[]>>(new Map());
+  const inFlightClientsRef = React.useRef<Set<string>>(new Set());
+  const [lastSitesClientId, setLastSitesClientId] = useState<string | null>(null);
 
   const visibleRows = useMemo(() => {
     if (!showOnlyIssues) return rows;
@@ -109,18 +113,43 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
         return;
       }
 
+      // Serve from cache when available and no query filter
+      if (!obraQuery && sitesCacheRef.current.has(clientId)) {
+        const cached = sitesCacheRef.current.get(clientId)!;
+        setSiteResults(cached);
+        setLastSitesClientId(clientId);
+        if (currentRowId && cached.length === 1) {
+          updateRow(currentRowId, { construction_site_id: cached[0].id });
+          setAutoSeeded(prev => new Set(prev).add(currentRowId));
+        }
+        return;
+      }
+
+      // Prevent duplicate inflight fetches for the same client
+      if (inFlightClientsRef.current.has(clientId)) return;
+      inFlightClientsRef.current.add(clientId);
+
       console.log(`[ValidationTable] Loading sites for client ${clientId}, query: "${obraQuery}"`);
 
       // Primary approach: Get all construction sites for this client
-      const { data: clientSites, error: sitesError } = await supabase
-        .from('construction_sites')
-        .select('id, name, location')
-        .eq('client_id', clientId)
-        .limit(100);
+      let clientSites: any[] = [];
+      let sitesError: any = null;
+      try {
+        const { data, error } = await supabase
+          .from('construction_sites')
+          .select('id, name, location')
+          .eq('client_id', clientId)
+          .limit(100);
+        clientSites = data || [];
+        sitesError = error;
+      } catch (e) {
+        sitesError = e;
+      }
 
       if (sitesError) {
         console.error('[ValidationTable] Error loading construction sites:', sitesError);
         setSiteResults([]);
+        inFlightClientsRef.current.delete(clientId);
         return;
       }
 
@@ -141,12 +170,18 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
       }
 
       // Enhanced: Also check for sites mentioned in active prices for this client
-      const { data: priceRows } = await supabase
-        .from('product_prices')
-        .select('construction_site')
-        .eq('client_id', clientId)
-        .eq('is_active', true)
-        .not('construction_site', 'is', null);
+      let priceRows: any[] = [];
+      try {
+        const { data } = await supabase
+          .from('product_prices')
+          .select('construction_site')
+          .eq('client_id', clientId)
+          .eq('is_active', true)
+          .not('construction_site', 'is', null);
+        priceRows = data || [];
+      } catch {
+        priceRows = [];
+      }
 
       const pricedSiteNames = new Set((priceRows || []).map(p => String(p.construction_site).trim().toLowerCase()));
       
@@ -160,6 +195,8 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
       });
 
       setSiteResults(filteredSites);
+      sitesCacheRef.current.set(clientId, filteredSites);
+      setLastSitesClientId(clientId);
       console.log(`[ValidationTable] Found ${filteredSites.length} sites for client, ${pricedSiteNames.size} have prices`);
 
       // Auto-select if only one site exists
@@ -179,14 +216,17 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
     } catch (e) {
       console.error('[Arkik][ValidationTable] loadSitesForClientWithPlantFilter error', e);
       setSiteResults([]);
+    } finally {
+      inFlightClientsRef.current.delete(clientId);
     }
   };
 
   // Auto-apply validated suggestions and infer client/site (enhanced based on ScheduleOrderForm pattern)
   React.useEffect(() => {
     if (!plantId || !rows.length) return;
-    
-    rows.forEach(r => {
+
+    // Only seed for the first 50 rows to avoid stampede on first render
+    rows.slice(0, 50).forEach(r => {
       if (!autoSeeded.has(r.id)) {
         // First priority: Apply validated suggestions automatically
         if (r.suggested_client_id && !r.client_id) {
@@ -217,11 +257,14 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
         // Third priority: Site matching for existing clients
         if ((r.client_id || r.suggested_client_id) && (r.obra_name || '').trim().length > 0 && !r.construction_site_id) {
           const clientId = r.client_id || r.suggested_client_id!;
-          loadSitesForClientWithPlantFilter(clientId, r.id, r.obra_name);
+          // Debounce site loading per client
+          if (lastSitesClientId !== clientId && !inFlightClientsRef.current.has(clientId)) {
+            loadSitesForClientWithPlantFilter(clientId, r.id, r.obra_name);
+          }
         }
       }
     });
-  }, [rows, plantId]);
+  }, [rows, plantId, lastSitesClientId]);
 
   const findClients = async (query: string) => {
     // Kept for generic search if needed elsewhere
@@ -410,6 +453,10 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
                       disabled={!r.client_id && !r.suggested_client_id}
                     >
                       <option value="">{!r.client_id && !r.suggested_client_id ? 'Selecciona cliente primero' : 'Selecciona obra'}</option>
+                      {/* Ensure the currently inferred site is visible even if options aren't loaded yet */}
+                      {r.construction_site_id && !siteResults.some(s => s.id === r.construction_site_id) && (
+                        <option value={r.construction_site_id}>{r.obra_name || 'Obra inferida'}</option>
+                      )}
                       {siteResults.map(s => (
                         <option key={s.id} value={s.id}>{s.name} {s.location ? `(${s.location})` : ''}</option>
                       ))}
