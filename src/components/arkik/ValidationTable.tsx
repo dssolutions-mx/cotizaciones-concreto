@@ -3,7 +3,8 @@
 import React, { useMemo, useState } from 'react';
 import type { StagingRemision } from '@/types/arkik';
 import { supabase } from '@/lib/supabase/client';
-import { ArkikValidator } from '@/services/arkikValidator';
+import { DebugArkikValidator } from '@/services/debugArkikValidator';
+import { TrendingUp, DollarSign, MapPin, User, Zap, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
 
 type Props = {
   rows: StagingRemision[];
@@ -24,6 +25,8 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
   const [debug, setDebug] = useState<string>('');
   const [showDebug, setShowDebug] = useState(false);
   const [autoSeeded, setAutoSeeded] = useState<Set<string>>(new Set());
+  const [showDetails, setShowDetails] = useState<Set<string>>(new Set());
+  // Simplified: no global validation stats here; rely on debug logs
   // Cache construction sites per client to avoid repeated network calls
   const sitesCacheRef = React.useRef<Map<string, any[]>>(new Map());
   const inFlightClientsRef = React.useRef<Set<string>>(new Set());
@@ -34,10 +37,27 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
     return rows.filter(r => (r.validation_errors?.length || 0) > 0 || r.validation_status !== 'valid');
   }, [rows, showOnlyIssues]);
 
+  const summaryStats = useMemo(() => {
+    const total = rows.length;
+    const valid = rows.filter(r => r.validation_status === 'valid').length;
+    const warning = rows.filter(r => r.validation_status === 'warning').length;
+    const error = rows.filter(r => r.validation_status === 'error').length;
+    const withPrices = rows.filter(r => r.unit_price != null).length;
+    const avgPrice = rows.filter(r => r.unit_price != null).reduce((sum, r) => sum + (r.unit_price || 0), 0) / (withPrices || 1);
+    
+    return { total, valid, warning, error, withPrices, avgPrice };
+  }, [rows]);
+
   const toggleSelect = (id: string, checked: boolean) => {
     const next = new Set(selected);
     if (checked) next.add(id); else next.delete(id);
     setSelected(next);
+  };
+
+  const toggleDetails = (id: string) => {
+    const next = new Set(showDetails);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setShowDetails(next);
   };
 
   const updateRow = (id: string, patch: Partial<StagingRemision>) => {
@@ -49,13 +69,13 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
     if (!plantId || !rows.length || validating) return;
     setValidating(true);
     try {
-      console.log('[Arkik][ValidationTable] validateAll start', { plantId, rowCount: rows.length });
-      const validator = new ArkikValidator(plantId);
+      console.log('[UpdatedValidationTable] Re-validating using DebugArkikValidator (simplified)');
+      const validator = new DebugArkikValidator(plantId);
       const { validated } = await validator.validateBatch(rows);
-      console.log('[Arkik][ValidationTable] validateAll result sample', validated?.[0]);
+      console.log('[UpdatedValidationTable] Validation completed');
       onRowsChange(validated as unknown as StagingRemision[]);
     } catch (err) {
-      console.error('Arkik validation error:', err);
+      console.error('Price-driven validation error:', err);
       setDebug(String(err));
     } finally {
       setValidating(false);
@@ -306,24 +326,82 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
     }
   };
 
+  const getPriceSourceIcon = (source?: string) => {
+    switch (source) {
+      case 'client_site': return <span title="Precio específico cliente-obra"><DollarSign className="h-3 w-3 text-green-600" /></span>;
+      case 'client': return <span title="Precio por cliente"><User className="h-3 w-3 text-blue-600" /></span>;
+      case 'plant': return <span title="Precio general de planta"><MapPin className="h-3 w-3 text-gray-600" /></span>;
+      case 'quotes': return <span title="Precio de cotización"><TrendingUp className="h-3 w-3 text-purple-600" /></span>;
+      default: return <span title="Sin precio"><AlertTriangle className="h-3 w-3 text-amber-600" /></span>;
+    }
+  };
+
+  const getValidationIcon = (status: StagingRemision['validation_status']) => {
+    switch (status) {
+      case 'valid': return <CheckCircle className="h-4 w-4 text-green-600" />;
+      case 'warning': return <AlertTriangle className="h-4 w-4 text-amber-600" />;
+      case 'error': return <AlertTriangle className="h-4 w-4 text-red-600" />;
+      default: return <Clock className="h-4 w-4 text-gray-400" />;
+    }
+  };
+
   return (
     <div className="mt-4">
-      <div className="flex items-center justify-between mb-2">
+      {/* Enhanced Header with Stats */}
+      <div className="flex items-center justify-between mb-4 p-4 bg-gray-50 rounded">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
+          <div className="text-center">
+            <div className="font-bold text-lg text-green-600">{summaryStats.valid}</div>
+            <div className="text-green-700">Válidas</div>
+          </div>
+          <div className="text-center">
+            <div className="font-bold text-lg text-amber-600">{summaryStats.warning}</div>
+            <div className="text-amber-700">Avisos</div>
+          </div>
+          <div className="text-center">
+            <div className="font-bold text-lg text-red-600">{summaryStats.error}</div>
+            <div className="text-red-700">Errores</div>
+          </div>
+          <div className="text-center">
+            <div className="font-bold text-lg text-blue-600">{summaryStats.withPrices}</div>
+            <div className="text-blue-700">Con Precio</div>
+          </div>
+          <div className="text-center">
+            <div className="font-bold text-lg text-gray-600">${summaryStats.avgPrice.toLocaleString('es-MX', { maximumFractionDigits: 0 })}</div>
+            <div className="text-gray-700">Precio Prom.</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Validation Stats */}
+      {/* Simplified: remove validation stats block */}
+
+      {/* Controls */}
+      <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3 text-sm">
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={showOnlyIssues} onChange={e => setShowOnlyIssues(e.target.checked)} />
-            Mostrar sólo filas con incidencias
+            Mostrar sólo incidencias
           </label>
-          <span className="text-gray-500">Filas: {visibleRows.length}</span>
+          <span className="text-gray-500">Mostrando: {visibleRows.length} de {rows.length}</span>
         </div>
         <div className="flex items-center gap-2">
           <button
-            className="text-xs px-3 py-1 border rounded disabled:opacity-50"
+            className="flex items-center gap-2 text-xs px-3 py-1 border rounded disabled:opacity-50 bg-blue-50 hover:bg-blue-100"
             onClick={validateAll}
             disabled={!plantId || validating || rows.length === 0}
-            title={!plantId ? 'Selecciona una planta' : 'Ejecutar validación y vinculación (recetas, precios, cliente/obra)'}
           >
-            {validating ? 'Validando…' : 'Validar y Vincular'}
+            {validating ? (
+              <>
+                <Zap className="h-3 w-3 animate-pulse" />
+                Validando…
+              </>
+            ) : (
+              <>
+                <Zap className="h-3 w-3" />
+                Re-validar Price-Driven
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -347,6 +425,7 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
         </pre>
       )}
 
+      {/* Enhanced Table */}
       <div className="overflow-auto border rounded">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50">
@@ -355,176 +434,182 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
               <th className="p-2">Estado</th>
               <th className="p-2">Remisión</th>
               <th className="p-2">Fecha</th>
-              <th className="p-2">Cliente</th>
-              <th className="p-2">Obra</th>
-              <th className="p-2">Placas</th>
-              <th className="p-2">Chofer</th>
-              <th className="p-2">B/NB</th>
-              <th className="p-2">Receta</th>
-              <th className="p-2">Materiales</th>
+              <th className="p-2">Cliente Detectado</th>
+              <th className="p-2">Obra Detectada</th>
               <th className="p-2">Precio</th>
+              <th className="p-2">Receta</th>
               <th className="p-2">Vol</th>
-              <th className="p-2">Comentarios</th>
-              <th className="p-2">Materiales</th>
-              <th className="p-2">Acciones</th>
+              <th className="p-2">Detalles</th>
             </tr>
           </thead>
           <tbody>
             {visibleRows.map(r => (
-              <tr key={r.id} className="border-t align-top">
-                <td className="p-2">
-                  <input type="checkbox" checked={selected.has(r.id)} onChange={e => toggleSelect(r.id, e.target.checked)} />
-                </td>
-                <td className="p-2">
-                  <StatusBadge status={r.validation_status} count={(r.validation_errors || []).length} />
-                </td>
-                <td className="p-2 font-medium">{r.remision_number}</td>
-                <td className="p-2">
-                  <div>{r.fecha.toISOString().split('T')[0]}</div>
-                  <div className="text-xs text-gray-500">{formatTime(r.hora_carga)}</div>
-                </td>
-                <td className="p-2 min-w-[220px]">
-                  <div className="flex flex-col gap-1">
-                    <input
-                      className="border rounded px-2 py-1"
-                      value={r.cliente_name}
-                      onChange={e => updateRow(r.id, { cliente_name: e.target.value })}
-                      onBlur={e => findClientsForPlant(e.target.value, r.id)}
-                    />
-                    <div className="flex gap-2">
-                      <select className="border rounded px-2 py-1 flex-1" onFocus={() => { setActiveRowId(r.id); findClientsForPlant('', r.id); }} onChange={async e => {
-                        const clientId = e.target.value;
-                        updateRow(r.id, { client_id: clientId });
-                        await loadSitesForClientWithPlantFilter(clientId, r.id, r.obra_name);
-                      }} value={r.client_id || r.suggested_client_id || ''}>
-                        <option value="">Selecciona cliente</option>
-                        {clientResults.map(c => (
-                          <option key={c.id} value={c.id}>{c.business_name} {c.client_code ? `(${c.client_code})` : ''}</option>
-                        ))}
-                      </select>
+              <React.Fragment key={r.id}>
+                <tr className="border-t hover:bg-gray-50">
+                  <td className="p-2">
+                    <input type="checkbox" checked={selected.has(r.id)} onChange={e => toggleSelect(r.id, e.target.checked)} />
+                  </td>
+                  <td className="p-2">
+                    <div className="flex items-center gap-1">
+                      {getValidationIcon(r.validation_status)}
+                      <span className="text-xs">
+                        {r.validation_status === 'valid' ? 'OK' : 
+                         r.validation_status === 'warning' ? 'Aviso' : 
+                         r.validation_status === 'error' ? 'Error' : 'Pendiente'}
+                      </span>
                     </div>
-                    {r.suggested_client_id && (
-                      <div className="text-[11px] text-emerald-700">
-                        💰 Sugerido por precio
-                        {!r.client_id && (
-                          <button 
-                            className="ml-2 text-xs underline"
-                            onClick={() => {
-                              updateRow(r.id, { client_id: r.suggested_client_id });
-                              if (r.suggested_site_name) {
-                                loadSitesForClientWithPlantFilter(r.suggested_client_id!, r.id, r.suggested_site_name);
-                              }
-                            }}
-                          >
-                            Aplicar
-                          </button>
-                        )}
+                  </td>
+                  <td className="p-2 font-medium">{r.remision_number}</td>
+                  <td className="p-2">
+                    <div>{r.fecha.toISOString().split('T')[0]}</div>
+                    <div className="text-xs text-gray-500">{formatTime(r.hora_carga)}</div>
+                  </td>
+                  <td className="p-2">
+                    <div className="max-w-[200px]">
+                      <div className="font-medium text-xs">
+                        {r.suggested_client_id ? '✓ Auto-detectado' : r.cliente_name}
                       </div>
-                    )}
-                  </div>
-                </td>
-                <td className="p-2 min-w-[220px]">
-                  <div className="flex flex-col gap-1">
-                    <input
-                      className="border rounded px-2 py-1"
-                      value={r.obra_name}
-                      onChange={e => updateRow(r.id, { obra_name: e.target.value })}
-                      onBlur={e => (r.client_id || r.suggested_client_id) && loadSitesForClientWithPlantFilter((r.client_id || r.suggested_client_id)!, r.id, e.target.value)}
-                    />
-                    <select 
-                      className="border rounded px-2 py-1" 
-                      onFocus={() => {
-                        const clientId = r.client_id || r.suggested_client_id;
-                        if (clientId) {
-                          loadSitesForClientWithPlantFilter(clientId, r.id, r.obra_name);
-                        }
-                      }} 
-                      onChange={e => {
-                        updateRow(r.id, { construction_site_id: e.target.value });
-                        // Also update the obra_name to match selected site
-                        if (e.target.value) {
-                          const selectedSite = siteResults.find(s => s.id === e.target.value);
-                          if (selectedSite) {
-                            updateRow(r.id, { obra_name: selectedSite.name });
-                          }
-                        }
-                      }} 
-                      value={r.construction_site_id || ''}
-                      disabled={!r.client_id && !r.suggested_client_id}
-                    >
-                      <option value="">{!r.client_id && !r.suggested_client_id ? 'Selecciona cliente primero' : 'Selecciona obra'}</option>
-                      {/* Ensure the currently inferred site is visible even if options aren't loaded yet */}
-                      {r.construction_site_id && !siteResults.some(s => s.id === r.construction_site_id) && (
-                        <option value={r.construction_site_id}>{r.obra_name || 'Obra inferida'}</option>
+                      <div className="text-xs text-gray-600 truncate">
+                        Original: {r.cliente_name}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        Código: {r.cliente_codigo}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="p-2">
+                    <div className="max-w-[200px]">
+                      <div className="font-medium text-xs">
+                        {r.suggested_site_name || r.obra_name}
+                      </div>
+                      {r.suggested_site_name && r.suggested_site_name !== r.obra_name && (
+                        <div className="text-xs text-gray-500 truncate">
+                          Original: {r.obra_name}
+                        </div>
                       )}
-                      {siteResults.map(s => (
-                        <option key={s.id} value={s.id}>{s.name} {s.location ? `(${s.location})` : ''}</option>
-                      ))}
-                    </select>
-                    {r.suggested_site_name && (
-                      <div className="text-[11px] text-emerald-700">
-                        💰 Sugerida: {r.suggested_site_name}
-                        {!r.construction_site_id && r.client_id && (
-                          <button 
-                            className="ml-2 text-xs underline"
-                            onClick={() => loadSitesForClientWithPlantFilter(r.client_id!, r.id, r.suggested_site_name!)}
-                          >
-                            Buscar
-                          </button>
-                        )}
+                    </div>
+                  </td>
+                  <td className="p-2">
+                    <div className="flex items-center gap-1">
+                      {getPriceSourceIcon(r.price_source)}
+                      {r.unit_price != null ? (
+                        <span className="text-xs font-mono">
+                          ${Number(r.unit_price).toLocaleString('es-MX')}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">Sin precio</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-2">
+                    <div className="max-w-[150px]">
+                      <div className="text-xs font-mono truncate" title={r.product_description}>
+                        {r.product_description}
                       </div>
-                    )}
-                  </div>
-                </td>
-                <td className="p-2 min-w-[140px]">
-                  <input className="border rounded px-2 py-1 w-full" value={r.placas || ''} onChange={e => updateRow(r.id, { placas: e.target.value })} />
-                </td>
-                <td className="p-2 min-w-[140px]">
-                  <input className="border rounded px-2 py-1 w-full" value={r.conductor || ''} onChange={e => updateRow(r.id, { conductor: e.target.value })} />
-                </td>
-                <td className="p-2">
-                  <input type="checkbox" checked={!!r.bombeable} onChange={e => updateRow(r.id, { bombeable: e.target.checked })} />
-                </td>
-                <td className="p-2 min-w-[200px]">
-                  <div className="text-xs text-gray-900">
-                    <div>Arkik: {r.product_description || '-'}</div>
-                    <div className="text-gray-600">Recipe: {r.recipe_code || '-'}</div>
-                  </div>
-                  <div className="text-[11px] text-gray-400">{r.recipe_id ? `ID: ${r.recipe_id}` : ''}</div>
-                </td>
-                <td className="p-2">
-                  <MaterialsCell remision={r} />
-                </td>
-                <td className="p-2 min-w-[140px]">
-                  {r.unit_price != null ? (
-                    <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">
-                      {Number(r.unit_price).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-gray-400">Sin precio</span>
-                  )}
-                </td>
-                <td className="p-2">{r.volumen_fabricado}</td>
-                <td className="p-2 max-w-[280px] truncate" title={r.comentarios_externos || ''}>{r.comentarios_externos || ''}</td>
-                <td className="p-2">
-                  <button className="text-xs px-2 py-1 border rounded" onClick={() => setActiveRowId(r.id)}>Editar</button>
-                </td>
-              </tr>
+                      {r.recipe_id && (
+                        <div className="text-xs text-green-600">✓ Vinculada</div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-2 text-center">{r.volumen_fabricado}</td>
+                  <td className="p-2">
+                    <button 
+                      className="text-xs px-2 py-1 border rounded hover:bg-gray-50"
+                      onClick={() => toggleDetails(r.id)}
+                    >
+                      {showDetails.has(r.id) ? 'Ocultar' : 'Ver'}
+                    </button>
+                  </td>
+                </tr>
+
+                {/* Expanded Details Row */}
+                {showDetails.has(r.id) && (
+                  <tr className="border-t bg-gray-50">
+                    <td colSpan={10} className="p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                        {/* Price-Driven Results */}
+                        <div className="space-y-2">
+                          <h4 className="font-semibold text-blue-900">Resultado Price-Driven</h4>
+                          <div>
+                            <span className="font-medium">Cliente ID:</span> {r.client_id || 'No asignado'}
+                          </div>
+                          <div>
+                            <span className="font-medium">Obra ID:</span> {r.construction_site_id || 'No asignada'}
+                          </div>
+                          <div>
+                            <span className="font-medium">Receta ID:</span> {r.recipe_id || 'No encontrada'}
+                          </div>
+                          <div>
+                            <span className="font-medium">Fuente de precio:</span> {r.price_source || 'N/A'}
+                          </div>
+                        </div>
+
+                        {/* Original Data */}
+                        <div className="space-y-2">
+                          <h4 className="font-semibold text-gray-900">Datos Originales</h4>
+                          <div>
+                            <span className="font-medium">Cliente:</span> {r.cliente_name}
+                          </div>
+                          <div>
+                            <span className="font-medium">Código:</span> {r.cliente_codigo}
+                          </div>
+                          <div>
+                            <span className="font-medium">Obra:</span> {r.obra_name}
+                          </div>
+                          <div>
+                            <span className="font-medium">Conductor:</span> {r.conductor}
+                          </div>
+                          <div>
+                            <span className="font-medium">Placas:</span> {r.placas}
+                          </div>
+                        </div>
+
+                        {/* Validation Issues */}
+                        <div className="space-y-2">
+                          <h4 className="font-semibold text-amber-900">Incidencias ({(r.validation_errors || []).length})</h4>
+                          <div className="max-h-32 overflow-auto space-y-1">
+                            {(r.validation_errors || []).map((error, idx) => (
+                              <div key={idx} className="text-xs p-2 bg-amber-50 border border-amber-200 rounded">
+                                <div className="font-medium text-amber-800">{error.error_type}</div>
+                                <div className="text-amber-700">{error.message}</div>
+                              </div>
+                            ))}
+                            {(r.validation_errors || []).length === 0 && (
+                              <div className="text-green-600">No hay incidencias</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Materials Summary */}
+                      <div className="mt-4 pt-3 border-t">
+                        <h4 className="font-semibold text-sm mb-2">Materiales</h4>
+                        <MaterialsPreview remision={r} />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
 
-function StatusBadge({ status, count }: { status: StagingRemision['validation_status']; count: number }) {
-  const color = status === 'valid' ? 'bg-emerald-100 text-emerald-700' : status === 'warning' ? 'bg-amber-100 text-amber-700' : status === 'error' ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-700';
-  const label = status === 'valid' ? 'Válida' : status === 'warning' ? 'Avisos' : status === 'error' ? 'Error' : 'Pendiente';
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded ${color}`}>
-      {label}{count ? <span className="text-[10px]">({count})</span> : null}
-    </span>
+      {/* Selection Actions */}
+      {selected.size > 0 && (
+        <div className="mt-3 p-3 bg-blue-50 rounded border flex items-center justify-between">
+          <span className="text-sm text-blue-900">{selected.size} remisiones seleccionadas</span>
+          <div className="flex gap-2">
+            <button 
+              className="text-xs px-3 py-1 border rounded bg-white"
+              onClick={() => setSelected(new Set())}
+            >
+              Limpiar selección
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -534,38 +619,32 @@ function formatTime(d?: Date | string | null) {
     const date = d instanceof Date ? d : new Date(d);
     const hh = String(date.getHours()).padStart(2, '0');
     const mm = String(date.getMinutes()).padStart(2, '0');
-    const ss = String(date.getSeconds()).padStart(2, '0');
-    return `${hh}:${mm}:${ss}`;
+    return `${hh}:${mm}`;
   } catch {
     return '';
   }
 }
 
-function MaterialsCell({ remision }: { remision: StagingRemision }) {
-  const [open, setOpen] = useState(false);
+function MaterialsPreview({ remision }: { remision: StagingRemision }) {
   const codes = useMemo(() => {
     const s = new Set<string>();
     Object.keys(remision.materials_teorico || {}).forEach(c => s.add(c));
     Object.keys(remision.materials_real || {}).forEach(c => s.add(c));
     return Array.from(s).sort();
   }, [remision]);
+
   if (!codes.length) return <span className="text-xs text-gray-400">Sin materiales</span>;
+
   return (
-    <div>
-      <button className="text-xs px-2 py-1 border rounded" onClick={() => setOpen(v => !v)}>
-        {open ? 'Ocultar' : 'Ver'} ({codes.length})
-      </button>
-      {open && (
-        <div className="mt-2 p-2 border rounded bg-gray-50 max-h-48 overflow-auto text-[12px]">
-          {codes.map(code => (
-            <div key={code} className="flex justify-between py-0.5">
-              <span className="font-mono mr-3">{code}</span>
-              <span className="text-gray-600">T: {remision.materials_teorico[code] ?? 0}</span>
-              <span className="text-gray-600">R: {remision.materials_real[code] ?? 0}</span>
-            </div>
-          ))}
+    <div className="flex flex-wrap gap-2">
+      {codes.map(code => (
+        <div key={code} className="text-xs px-2 py-1 bg-gray-100 rounded border">
+          <span className="font-mono font-medium">{code}</span>
+          <span className="text-gray-600 ml-1">
+            T:{remision.materials_teorico[code] || 0} R:{remision.materials_real[code] || 0}
+          </span>
         </div>
-      )}
+      ))}
     </div>
   );
 }

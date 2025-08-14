@@ -7,7 +7,8 @@ import type { StagingRemision, OrderSuggestion, ValidationError, RemisionInsertP
 import { FileSpreadsheet, Loader2, AlertCircle, CheckCircle2, XCircle, ArrowRightLeft } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase/client';
-import { ArkikValidator } from '@/services/arkikValidator';
+// Using DebugArkikValidator as the main validator (it works!)
+import { DebugArkikValidator } from '@/services/debugArkikValidator';
 import ValidationTable from '@/components/arkik/ValidationTable';
 
 type Step = 'upload' | 'validate' | 'group' | 'confirm';
@@ -22,10 +23,14 @@ export default function ArkikProcessor() {
   const [orderSuggestions, setOrderSuggestions] = useState<OrderSuggestion[]>([]);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [testMode, setTestMode] = useState(true);
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [showDetailedLogs, setShowDetailedLogs] = useState(false);
+  const [debugMode, setDebugMode] = useState(true);
 
   const stats = useMemo(() => ({
     totalRows: stagingData.length + validationErrors.filter(e => !e.recoverable).length,
-    validRows: stagingData.length,
+    validRows: stagingData.filter(r => r.validation_status === 'valid').length,
+    warningRows: stagingData.filter(r => r.validation_status === 'warning').length,
     errorRows: validationErrors.filter(e => !e.recoverable).length,
     ordersToCreate: orderSuggestions.filter(s => !s.remisiones[0]?.orden_original).length,
     remisionsWithoutOrder: stagingData.filter(r => !r.orden_original).length,
@@ -77,11 +82,17 @@ export default function ArkikProcessor() {
     if (!sessionId || !currentPlant) return;
     setLoading(true);
     try {
-      // Validate against DB, including backward price linking as needed
-      const validator = new ArkikValidator(currentPlant.id);
-      const { validated, errors } = await validator.validateBatch(stagingData);
+      // Always use the working debug validator (simplified approach)
+      console.log('[ArkikProcessor] Starting validation with working debug validator...');
+      
+      const validator = new DebugArkikValidator(currentPlant.id);
+      const { validated, errors, debugLogs: logs } = await validator.validateBatch(stagingData);
+      
+      console.log('[ArkikProcessor] Validation completed successfully');
+      
       setStagingData(validated);
       setValidationErrors(prev => [...prev, ...errors]);
+      setDebugLogs(logs);
 
       // Persist to staging
       const payload = validated.map(r => ({
@@ -119,11 +130,26 @@ export default function ArkikProcessor() {
         fecha_hora_carga: null,
         materials_retrabajo: r.materials_retrabajo || {},
         materials_manual: r.materials_manual || {},
+        client_id: r.client_id || null,
+        construction_site_id: r.construction_site_id || null,
+        recipe_id: r.recipe_id || null
       }));
       // Clean existing rows for this session to avoid duplicates on re-run
       await supabase.from('arkik_staging_remisiones').delete().eq('session_id', sessionId);
       const { error } = await supabase.from('arkik_staging_remisiones').insert(payload);
       if (error) throw error;
+
+      // Update session stats
+      await supabase.from('arkik_import_sessions').update({
+        processed_rows: validated.length,
+        successful_rows: validated.filter(r => r.validation_status !== 'error').length,
+        error_summary: {
+          parsing_errors: validationErrors.filter(e => e.error_type === 'DATA_TYPE_ERROR').length,
+          validation_errors: errors.length,
+          total_processed: validated.length,
+          successful_validations: validated.filter(r => r.validation_status !== 'error').length
+        }
+      }).eq('id', sessionId);
 
       setStep('group');
     } catch (err: any) {
@@ -228,7 +254,7 @@ export default function ArkikProcessor() {
             special_requirements: suggestion.comentarios_externos.join(' | '),
             order_status: 'created',
             auto_generated: true,
-            generation_criteria: { source: 'ARKIK', group_key: suggestion.group_key, test_mode: testMode },
+            generation_criteria: { source: 'ARKIK_PRICE_DRIVEN', group_key: suggestion.group_key, test_mode: testMode },
             import_session_id: sessionId,
             plant_id: currentPlant.id,
             elemento: suggestion.suggested_name,
@@ -263,7 +289,7 @@ export default function ArkikProcessor() {
         completed_at: new Date().toISOString(),
       }).eq('id', sessionId);
 
-      alert('Procesamiento completado.');
+      alert('Procesamiento completado exitosamente con el nuevo sistema price-driven.');
       resetState();
     } catch (err: any) {
       console.error(err);
@@ -279,6 +305,7 @@ export default function ArkikProcessor() {
     setStagingData([]);
     setOrderSuggestions([]);
     setValidationErrors([]);
+    setDebugLogs([]);
     setStep('upload');
   };
 
@@ -286,13 +313,19 @@ export default function ArkikProcessor() {
     <div className="max-w-7xl mx-auto p-4 space-y-4">
       <div className="bg-white rounded-lg shadow p-4 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold">Procesador de Reportes Arkik</h1>
-          <p className="text-gray-600 text-sm">Sube y valida remisiones con revisión interactiva.</p>
+          <h1 className="text-xl font-bold">Procesador Arkik Simplificado (Debug Validator)</h1>
+          <p className="text-gray-600 text-sm">
+            Sistema inteligente price-driven: Receta → Precios → Cliente/Obra
+          </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-6">
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={testMode} onChange={e => setTestMode(e.target.checked)} />
             Modo prueba (etiquetar para borrar)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={debugMode} onChange={e => setDebugMode(e.target.checked)} />
+            Modo debug (logging detallado)
           </label>
         </div>
       </div>
@@ -320,15 +353,40 @@ export default function ArkikProcessor() {
 
       {step === 'validate' && (
         <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center gap-6 text-sm">
+          <div className="flex items-center gap-6 text-sm mb-4">
             <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Válidas: {stats.validRows}</div>
-            <div className="flex items-center gap-2 text-amber-700"><AlertCircle className="h-4 w-4" /> Errores: {stats.errorRows}</div>
-            <div className="flex items-center gap-2 text-slate-700">Total filas: {stats.totalRows}</div>
+            <div className="flex items-center gap-2 text-amber-700"><AlertCircle className="h-4 w-4" /> Avisos: {stats.warningRows}</div>
+            <div className="flex items-center gap-2 text-rose-700"><XCircle className="h-4 w-4" /> Errores: {stats.errorRows}</div>
+            <div className="flex items-center gap-2 text-slate-700">Total: {stats.totalRows}</div>
+            {/* Simplified: remove cache stats */}
           </div>
+
+          {/* Price Matching Stats */}
+          {/* Simplified: remove price matching stats */}
           <ValidationTable rows={stagingData} onRowsChange={setStagingData} plantId={currentPlant?.id} />
-          <div className="mt-4 flex justify-end">
+          
+          {/* Debug Logs */}
+          {debugMode && debugLogs.length > 0 && (
+            <div className="mt-4">
+              <h4 className="font-semibold text-sm mb-2">Debug Logs</h4>
+              <div className="bg-black text-green-400 p-4 rounded font-mono text-xs overflow-auto max-h-96">
+                {debugLogs.map((log, idx) => (
+                  <div key={idx} className="mb-1">{log}</div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <div className="mt-4 flex justify-between items-center">
+            <div className="text-sm text-gray-600">
+              {debugMode && (
+                <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs">
+                  DEBUG MODE: Detailed logging enabled
+                </span>
+              )}
+            </div>
             <button disabled={loading} onClick={handleValidation} className="px-4 py-2 rounded bg-green-600 text-white disabled:opacity-50">
-              {loading ? 'Guardando…' : 'Guardar y continuar'}
+              {loading ? 'Validando...' : 'Validar y Guardar'}
             </button>
           </div>
         </div>
