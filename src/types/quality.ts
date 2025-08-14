@@ -95,6 +95,7 @@ export interface MuestreoWithRelations extends Muestreo {
       strength_fc: number;
       slump: number;
       age_days: number;
+      age_hours?: number;
       recipe_versions?: {
         id: string;
         notes?: string;

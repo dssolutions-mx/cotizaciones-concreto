@@ -152,9 +152,63 @@ export default function MuestreoDetailPage() {
   const cilindros = muestreo.muestras?.filter(m => m.tipo_muestra === 'CILINDRO') || [];
   const vigas = muestreo.muestras?.filter(m => m.tipo_muestra === 'VIGA') || [];
   const cubos = muestreo.muestras?.filter(m => m.tipo_muestra === 'CUBO') || [];
-  const firstEnsayoId = (
-    muestreo.muestras?.flatMap(m => m.ensayos || []) || []
-  ).map(e => e.id)[0];
+  const firstEnsayoId = (() => {
+		const all = muestreo.muestras?.flatMap(m => m.ensayos || []) || [];
+		if (all.length === 0) return undefined;
+		const sorted = [...all].sort((a: any, b: any) => {
+			const at = (a as any).fecha_ensayo_ts || a.fecha_ensayo || '';
+			const bt = (b as any).fecha_ensayo_ts || b.fecha_ensayo || '';
+			return (new Date(at).getTime()) - (new Date(bt).getTime());
+		});
+		return sorted[0]?.id;
+	})();
+
+	// Ordenar muestras de izquierda a derecha por fecha programada (TS > DATE > real > created_at)
+	const getDateForSort = (m: any): Date => {
+		const ts = (m as any).fecha_programada_ensayo_ts as string | undefined;
+		const byTs = ts ? createSafeDate(ts) : null;
+		if (byTs) return byTs;
+		const byDate = m.fecha_programada_ensayo ? createSafeDate(m.fecha_programada_ensayo) : null;
+		if (byDate) return byDate;
+		const ensayo = (m.ensayos && m.ensayos[0]) ? m.ensayos[0] as any : null;
+		const realTs = ensayo?.fecha_ensayo_ts ? createSafeDate(ensayo.fecha_ensayo_ts) : null;
+		if (realTs) return realTs;
+		const real = ensayo?.fecha_ensayo ? createSafeDate(ensayo.fecha_ensayo) : null;
+		if (real) return real;
+		return createSafeDate((m as any).created_at) || new Date(0);
+	};
+
+	const muestrasOrdenadas = [...(muestreo.muestras || [])].sort((a, b) => {
+		const ad = getDateForSort(a).getTime();
+		const bd = getDateForSort(b).getTime();
+		if (ad !== bd) return ad - bd;
+		// desempate estable por identificacion
+		const ai = (a.identificacion || '').localeCompare(b.identificacion || '');
+		if (ai !== 0) return ai;
+		return ((a as any).created_at || '').localeCompare((b as any).created_at || '');
+	});
+
+	// Construir etiquetas de visualización consecutivas por tipo/dimensión
+	const prefixFor = (m: any) => {
+		const tipo = m.tipo_muestra as string | undefined;
+		if (tipo === 'CUBO') {
+			const side = (m as any).cube_side_cm ?? 15;
+			return `CUBO-${String(side)}X${String(side)}`;
+		}
+		if (tipo === 'CILINDRO') {
+			const dia = (m as any).diameter_cm ?? 15;
+			return `CILINDRO-${String(dia)}`;
+		}
+		return 'VIGA';
+	};
+
+	const counters: Record<string, number> = {};
+	const displayNameById = new Map<string, string>();
+	muestrasOrdenadas.forEach((m) => {
+		const pref = prefixFor(m as any);
+		counters[pref] = (counters[pref] || 0) + 1;
+		displayNameById.set(m.id, `${pref}-${counters[pref]}`);
+	});
 
   return (
     <div className="container mx-auto p-4 md:p-6">
@@ -312,17 +366,18 @@ export default function MuestreoDetailPage() {
                     <Clock className="h-4 w-4 text-amber-600" />
                     <p className="text-amber-600 font-medium">
                       {(() => {
-                        const proxima = [...muestreo.muestras]
-                          .filter(m => m.estado === 'PENDIENTE' && m.fecha_programada_ensayo)
-                          .sort((a, b) => {
-                            const dateA = createSafeDate(a.fecha_programada_ensayo!) || new Date();
-                            const dateB = createSafeDate(b.fecha_programada_ensayo!) || new Date();
-                            return dateA.getTime() - dateB.getTime();
-                          })[0];
-                        
-                        return proxima?.fecha_programada_ensayo 
-                          ? formatDate(proxima.fecha_programada_ensayo, 'PPP')
-                          : 'Fecha no programada';
+                        const asDate = (d?: string) => (d ? createSafeDate(d) : null);
+                        const pending = [...(muestreo.muestras || [])]
+                          .filter(m => m.estado === 'PENDIENTE')
+                          .map(m => {
+                            const ts = (m as any).fecha_programada_ensayo_ts as string | undefined;
+                            const dstr = ts || m.fecha_programada_ensayo;
+                            return { m, d: asDate(dstr || undefined) };
+                          })
+                          .filter(x => !!x.d)
+                          .sort((a, b) => (a.d!.getTime() - b.d!.getTime()));
+                        const next = pending[0]?.d;
+                        return next ? formatDate(next, 'PPP') : 'Fecha no programada';
                       })()}
                     </p>
                   </div>
@@ -366,7 +421,7 @@ export default function MuestreoDetailPage() {
         <CardContent>
           {muestreo.muestras && muestreo.muestras.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-              {muestreo.muestras.map((muestra) => (
+              {muestrasOrdenadas.map((muestra) => (
                 <div 
                   key={muestra.id} 
                   className={`border rounded-lg overflow-hidden ${
@@ -395,13 +450,27 @@ export default function MuestreoDetailPage() {
                       </Badge>
                     </div>
                     
-                    <h3 className="font-medium mb-1">{muestra.identificacion}</h3>
+                    <h3 className="font-medium mb-1">{displayNameById.get(muestra.id) || muestra.identificacion}</h3>
                     
-                    {muestra.fecha_programada_ensayo && (
-                      <div className="text-xs text-gray-600 mb-2">
-                        Ensayo programado: {formatDate(muestra.fecha_programada_ensayo, 'PPP')}
-                      </div>
-                    )}
+                    {(() => {
+                      const ensayo = (muestra.ensayos && muestra.ensayos.length > 0) ? muestra.ensayos[0] : null;
+                      const realTs = ensayo ? ((ensayo as any).fecha_ensayo_ts as string | undefined) : undefined;
+                      const realDateStr = realTs || (ensayo ? ensayo.fecha_ensayo : undefined);
+                      const schedTs = (muestra as any).fecha_programada_ensayo_ts as string | undefined;
+                      const schedDateStr = schedTs || muestra.fecha_programada_ensayo;
+                      if (muestra.estado === 'ENSAYADO' && realDateStr) {
+                        return (
+                          <div className="text-xs text-gray-600 mb-2">
+                            Ensayo realizado: {formatDate(realDateStr, 'PPP')}
+                          </div>
+                        );
+                      }
+                      return schedDateStr ? (
+                        <div className="text-xs text-gray-600 mb-2">
+                          Ensayo programado: {formatDate(schedDateStr, 'PPP')}
+                        </div>
+                      ) : null;
+                    })()}
                     
                     {muestra.estado === 'PENDIENTE' ? (
                       <Link href={`/quality/ensayos/new?muestra=${muestra.id}`}>
@@ -410,13 +479,28 @@ export default function MuestreoDetailPage() {
                         </Button>
                       </Link>
                     ) : (
-                      (muestra.ensayos && muestra.ensayos.length > 0) ? (
-                        <Link href={`/quality/ensayos/${muestra.ensayos[0].id}`}>
-                          <Button size="sm" variant="outline" className="w-full">
-                            Ver Ensayo
-                          </Button>
-                        </Link>
-                      ) : (
+                      (muestra.ensayos && muestra.ensayos.length > 0) ? (() => {
+                        const sorted = [...muestra.ensayos].sort((a: any, b: any) => {
+                          const at = (a as any).fecha_ensayo_ts || a.fecha_ensayo || '';
+                          const bt = (b as any).fecha_ensayo_ts || b.fecha_ensayo || '';
+                          return (new Date(at).getTime()) - (new Date(bt).getTime());
+                        });
+                        const targetId = sorted[0]?.id;
+                        if (!targetId) {
+                          return (
+                            <Button size="sm" variant="outline" className="w-full" disabled>
+                              Ver Ensayo
+                            </Button>
+                          );
+                        }
+                        return (
+                          <Link href={`/quality/ensayos/${targetId}`}>
+                            <Button size="sm" variant="outline" className="w-full">
+                              Ver Ensayo
+                            </Button>
+                          </Link>
+                        );
+                      })() : (
                         <Button size="sm" variant="outline" className="w-full" disabled>
                           Ver Ensayo
                         </Button>

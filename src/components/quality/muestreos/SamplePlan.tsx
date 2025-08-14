@@ -43,7 +43,7 @@ export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues
     if (!base) return;
 
     if (agePlanUnit === 'hours') {
-      const hoursSet = [12, 16, 18];
+      const hoursSet = [12, 14, 16, 18, 20];
       const additions: PlannedSample[] = hoursSet.map((h) => {
         const d = new Date(base);
         d.setHours(d.getHours() + h);
@@ -111,9 +111,11 @@ export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <h3 className="text-sm font-semibold">Plan de Muestras</h3>
         <div className="grid grid-cols-2 sm:flex sm:flex-row gap-2 w-full sm:w-auto">
-          <Button type="button" variant="outline" size="sm" onClick={handleAddSuggested}>
-            <Plus className="h-4 w-4 mr-1" /> Agregar conjunto sugerido
-          </Button>
+          {agePlanUnit !== 'hours' && (
+            <Button type="button" variant="outline" size="sm" onClick={handleAddSuggested}>
+              <Plus className="h-4 w-4 mr-1" /> Agregar conjunto sugerido
+            </Button>
+          )}
           <Button type="button" size="sm" onClick={handleAddSingle}>
             <Plus className="h-4 w-4 mr-1" /> Agregar muestra
           </Button>
@@ -182,6 +184,44 @@ export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues
                     </Select>
                   </div>
                 )}
+
+                {/* Unidad por muestra */}
+                <div className="md:col-span-2">
+                  <FormLabel className="text-xs">Unidad</FormLabel>
+                  <Select
+                    value={useHours ? 'hours' : 'days'}
+                    onValueChange={(val) => {
+                      const base = form.getValues('fecha_muestreo') as unknown as Date;
+                      if (!base) return;
+                      if (val === 'hours') {
+                        const diffMs = (s.fecha_programada_ensayo as Date).getTime() - base.getTime();
+                        const hours = Math.max(1, Math.round(diffMs / 3600000));
+                        setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
+                          ...p,
+                          age_hours: hours,
+                          age_days: undefined,
+                          fecha_programada_ensayo: (() => { const d = new Date(base); d.setHours(d.getHours() + hours); return d; })(),
+                        } : p)));
+                      } else {
+                        const days = computeAgeDays(base, s.fecha_programada_ensayo);
+                        setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
+                          ...p,
+                          age_days: days,
+                          age_hours: undefined,
+                          fecha_programada_ensayo: addDaysSafe(base, days),
+                        } : p)));
+                      }
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Unidad" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="days">Días</SelectItem>
+                      <SelectItem value="hours">Horas</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 {useHours ? (
                   <div className="md:col-span-2">

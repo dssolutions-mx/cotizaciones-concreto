@@ -157,6 +157,45 @@ export default function NuevoMuestreoPage() {
     }
   }, [pesoVacio, pesoLleno, factorRecipiente]);
 
+  // When planning by hours: ensure there is at least one sample matching the selected warranty age in hours
+  useEffect(() => {
+    if (agePlanUnit !== 'hours') return;
+    const base = form.getValues('fecha_muestreo') as Date;
+    const ageHours = Number(edadGarantia);
+    if (!base || !isFinite(ageHours)) return;
+    setPlannedSamples((previous) => {
+      const indexOfHourSample = previous.findIndex((s) => typeof s.age_hours === 'number' && isFinite(s.age_hours));
+      const computeTestDate = (): Date => {
+        const d = new Date(base);
+        d.setHours(d.getHours() + ageHours);
+        return d;
+      };
+      if (indexOfHourSample >= 0) {
+        const copy = [...previous];
+        const existing = copy[indexOfHourSample];
+        copy[indexOfHourSample] = {
+          ...existing,
+          tipo_muestra: clasificacion === 'MR' ? 'VIGA' : 'CILINDRO',
+          age_hours: ageHours,
+          age_days: undefined,
+          fecha_programada_ensayo: computeTestDate(),
+          diameter_cm: existing.tipo_muestra === 'CILINDRO' ? (existing.diameter_cm || 15) : existing.diameter_cm,
+        };
+        return copy;
+      }
+      return [
+        ...previous,
+        {
+          id: uuidv4(),
+          tipo_muestra: clasificacion === 'MR' ? 'VIGA' : 'CILINDRO',
+          fecha_programada_ensayo: computeTestDate(),
+          diameter_cm: 15,
+          age_hours: ageHours,
+        },
+      ];
+    });
+  }, [agePlanUnit, edadGarantia, clasificacion]);
+
   // Cargar órdenes solo cuando el flujo es "Remisión existente"
   useEffect(() => {
     const loadOrders = async () => {
@@ -344,46 +383,8 @@ export default function NuevoMuestreoPage() {
         setClasificacion(derivedClas as 'FC' | 'MR');
         const edad = remision?.recipe?.age_days || 28;
         setEdadGarantia(edad);
-        try {
-          const baseDate = form.getValues('fecha_muestreo') as Date;
-          const dateStr = baseDate ? formatDate(baseDate, 'yyyy-MM-dd') : (remision.fecha || formatDate(new Date(), 'yyyy-MM-dd'));
-          const getDays = (cls: 'FC' | 'MR', ed: number): number[] => {
-            if (cls === 'FC') {
-              switch (ed) {
-                case 1: return [1, 1, 3];
-                case 3: return [1, 1, 3, 3];
-                case 7: return [1, 3, 7, 7];
-                case 14: return [3, 7, 14, 14];
-                case 28: return [7, 14, 28, 28];
-                default: return [7, 14, 28, 28];
-              }
-            } else {
-              switch (ed) {
-                case 1: return [1, 1, 3];
-                case 3: return [1, 3, 3];
-                case 7: return [3, 7, 7];
-                case 14: return [7, 14, 14];
-                case 28: return [7, 28, 28];
-                default: return [7, 28, 28];
-              }
-            }
-          };
-          const days = getDays(derivedClas as 'FC' | 'MR', Number((remision?.recipe?.age_days || 28)));
-          const newPlan: PlannedSample[] = days.map((d) => {
-            const base = createSafeDate(dateStr)!;
-            base.setDate(base.getDate() + d);
-            return {
-              id: uuidv4(),
-              tipo_muestra: derivedClas === 'MR' ? 'VIGA' : 'CILINDRO',
-              fecha_programada_ensayo: base,
-              diameter_cm: 15,
-              age_days: d,
-            };
-          });
-          setPlannedSamples(newPlan);
-        } catch {
-          setPlannedSamples([]);
-        }
+        // No precargar muestras automáticamente en remisión existente
+        setPlannedSamples([]);
         setActiveStep(2);
       }
     });
@@ -658,16 +659,31 @@ export default function NuevoMuestreoPage() {
                               <FormDescription>Se toma de la remisión seleccionada.</FormDescription>
                             </FormItem>
                           </div>
+
+                          {/* Selector de unidad/edad para plan de muestras (misma lógica que en captura manual) */}
+                          <div>
+                            <FormItem>
+                              <FormLabel>Plan de edades</FormLabel>
+                              <div className="md:col-span-4">
+                                <AgePlanSelector
+                                  agePlanUnit={agePlanUnit}
+                                  onAgePlanUnitChange={setAgePlanUnit}
+                                  edadGarantia={edadGarantia}
+                                  onEdadGarantiaChange={setEdadGarantia}
+                                />
+                              </div>
+                            </FormItem>
+                          </div>
                         
                         <MeasurementsFields form={form} />
                         
-                        <SamplePlan
+                         <SamplePlan
                           plannedSamples={plannedSamples as any}
                           setPlannedSamples={setPlannedSamples as any}
                           form={form as any}
                           clasificacion={clasificacion}
                           edadGarantia={edadGarantia}
-                          agePlanUnit={"days"}
+                           agePlanUnit={agePlanUnit}
                           computeAgeDays={computeAgeDays}
                           addDaysSafe={addDaysSafe}
                           formatAgeSummary={formatAgeSummary as any}
