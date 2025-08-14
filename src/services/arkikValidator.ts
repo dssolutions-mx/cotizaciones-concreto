@@ -9,6 +9,7 @@ type BatchMaps = {
   recipeByCode: Map<string, any>;
   recipeByArkikCode: Map<string, any>; // arkik_long_code -> recipe
   pricesByRecipeId: Map<string, any[]>; // recipe_id -> price rows
+  quoteSitesByClientAndRecipe: Map<string, Set<string>>; // `${clientId}::${recipe_code}` -> site name set
   mappedMaterialCodes: Set<string>;
   duplicateRemisiones: Set<string>;
 };
@@ -192,15 +193,23 @@ export class ArkikValidator {
           }
         }
 
-        if (!site && clientSitePrice?.construction_site && client) {
-          // Find the construction site by name for this client
+        // Deterministic site inference: from price, quote narrowing, or unique site
+        if (!site && client) {
           const siteMap = maps.sitesByClientId.get(client.id);
-          if (siteMap) {
-            const siteName = String(clientSitePrice.construction_site).trim().toLowerCase();
-            site = siteMap.get(siteName);
-            if (site) {
-              console.log(`[Arkik][Validator] Auto-assigned site from price for row ${r.row_number}:`, site.name);
+          const siteNameFromPrice = String(clientSitePrice?.construction_site || '').trim();
+          if (siteMap && siteNameFromPrice) {
+            site = siteMap.get(siteNameFromPrice.toLowerCase()) || null;
+          }
+          if (!site && siteMap) {
+            const key = `${client.id}::${recipe.recipe_code}`;
+            const quoteSites = maps.quoteSitesByClientAndRecipe.get(key);
+            if (quoteSites && quoteSites.size === 1) {
+              const only = Array.from(quoteSites.values())[0];
+              site = siteMap.get(String(only).toLowerCase()) || null;
             }
+          }
+          if (!site && siteMap && siteMap.size === 1) {
+            site = Array.from(siteMap.values())[0];
           }
         }
 
@@ -229,6 +238,12 @@ export class ArkikValidator {
           r.suggested_site_name = clientSitePrice.construction_site || null;
         } else if (clientOnlyPrice) {
           r.suggested_client_id = clientOnlyPrice.client_id || null;
+        }
+
+        // If site is inferred, assign to row
+        if (site) {
+          r.construction_site_id = site.id;
+          r.obra_name = site.name; // keep UI consistent even if already filled with trailing spaces
         }
       }
     }
@@ -342,25 +357,45 @@ export class ArkikValidator {
     const pricesByRecipeId = new Map<string, any[]>();
     const allRecipes = [...Array.from(recipeByCode.values()), ...Array.from(recipeByArkikCode.values())];
     const recipeCodes = Array.from(new Set(allRecipes.map((r: any) => r.recipe_code).filter(Boolean)));
+    // Quotes-derived site hints per client and recipe
+    const quoteSitesByClientAndRecipe = new Map<string, Set<string>>();
     
     if (recipeCodes.length) {
       console.log(`[Arkik][Validator] Loading prices for ${recipeCodes.length} recipe codes`);
-      // ONE QUERY: Get ALL active prices that match our recipe codes (handles data integrity automatically)
-      const { data: allPrices } = await supabase
-        .from('product_prices')
-        .select(`
-          id, recipe_id, original_recipe_id, code, client_id, construction_site, plant_id, is_active, base_price, effective_date, updated_at,
-          recipes!inner(recipe_code, arkik_long_code, plant_id)
-        `)
-        .eq('is_active', true)
-        .in('recipes.recipe_code', recipeCodes);
-      
-      // Map prices to our plant's recipe IDs by recipe_code (ignoring plant mismatches)
+      // Step 1: Fetch ALL recipes (any plant) that match our recipe codes
+      const { data: recipeRowsAllPlants } = await supabase
+        .from('recipes')
+        .select('id, recipe_code, arkik_long_code, plant_id')
+        .in('recipe_code', recipeCodes);
+
+      const allRecipeIdByCode = new Map<string, string[]>();
+      (recipeRowsAllPlants || []).forEach((r: any) => {
+        const arr = allRecipeIdByCode.get(r.recipe_code) || [];
+        arr.push(r.id);
+        allRecipeIdByCode.set(r.recipe_code, arr);
+      });
+
+      const allRecipeIds = Array.from(new Set((recipeRowsAllPlants || []).map((r: any) => r.id)));
+
+      // Step 2: Fetch prices by those recipe_ids (fast, no join quirks)
+      let allPrices: any[] = [];
+      if (allRecipeIds.length) {
+        const { data: priceRows } = await supabase
+          .from('product_prices')
+          .select('id, recipe_id, code, client_id, construction_site, plant_id, is_active, base_price, effective_date, updated_at')
+          .eq('is_active', true)
+          .in('recipe_id', allRecipeIds);
+        allPrices = priceRows || [];
+      }
+
+      // Map prices to OUR plant's recipe IDs by recipe_code
       (allPrices || []).forEach(p => {
-        const priceRecipeCode = p.recipes?.recipe_code;
+        // Find the recipe_code for this recipe_id
+        const match = (recipeRowsAllPlants || []).find((r: any) => r.id === p.recipe_id);
+        if (!match) return;
+        const priceRecipeCode = match.recipe_code;
         if (!priceRecipeCode) return;
-        
-        // Find our plant's recipe with the same code
+
         const ourRecipe = allRecipes.find((r: any) => r.recipe_code === priceRecipeCode);
         if (ourRecipe) {
           const list = pricesByRecipeId.get(ourRecipe.id) || [];
@@ -372,15 +407,37 @@ export class ArkikValidator {
           pricesByRecipeId.set(ourRecipe.id, list);
         }
       });
-      
+
       console.log(`[Arkik][Validator] Loaded prices for ${pricesByRecipeId.size}/${allRecipes.length} recipes`);
-      
-      // Log successful price mappings for major recipes
       const successfulRecipes = Array.from(pricesByRecipeId.keys()).slice(0, 5);
       if (successfulRecipes.length) {
         const sampleRecipe = allRecipes.find((r: any) => r.id === successfulRecipes[0]);
         console.log(`[Arkik][Validator] Sample successful recipe mapping: ${sampleRecipe?.recipe_code} -> ${pricesByRecipeId.get(successfulRecipes[0])?.length} prices`);
       }
+    }
+
+    // STEP: Aggressive quote-based narrowing (plant+recipe_code -> client/site)
+    try {
+      if (recipeCodes.length) {
+        const { data: quoteRows } = await supabase
+          .from('quotes')
+          .select('id, client_id, construction_site, status, plant_id, quote_details(recipe_id, recipes:recipe_id(recipe_code))')
+          .eq('plant_id', this.plantId)
+          .eq('status', 'APPROVED');
+        (quoteRows || []).forEach((q: any) => {
+          const site = String(q.construction_site || '').trim();
+          (q.quote_details || []).forEach((d: any) => {
+            const rc = d.recipes?.recipe_code;
+            if (!rc) return;
+            const key = `${q.client_id}::${rc}`;
+            const set = quoteSitesByClientAndRecipe.get(key) || new Set<string>();
+            if (site) set.add(site);
+            quoteSitesByClientAndRecipe.set(key, set);
+          });
+        });
+      }
+    } catch {
+      // ignore quote fetch errors, not critical
     }
 
     // Material mapping per plant
@@ -405,7 +462,7 @@ export class ArkikValidator {
       (rems || []).forEach(r => duplicateRemisiones.add(String(r.remision_number)));
     }
 
-    return { clientByCode, clientByName, sitesByClientId, recipeByCode, recipeByArkikCode, pricesByRecipeId, mappedMaterialCodes, duplicateRemisiones };
+    return { clientByCode, clientByName, sitesByClientId, recipeByCode, recipeByArkikCode, pricesByRecipeId, quoteSitesByClientAndRecipe, mappedMaterialCodes, duplicateRemisiones };
   }
 }
 
