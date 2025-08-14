@@ -7,6 +7,7 @@ type BatchMaps = {
   clientByName: Map<string, any>;
   sitesByClientId: Map<string, Map<string, any>>; // client_id -> (lower(name) -> site)
   recipeByCode: Map<string, any>;
+  recipeByArkikCode: Map<string, any>; // arkik_long_code -> recipe
   pricesByRecipeId: Map<string, any[]>; // recipe_id -> price rows
   mappedMaterialCodes: Set<string>;
   duplicateRemisiones: Set<string>;
@@ -17,6 +18,16 @@ export class ArkikValidator {
 
   async validateBatch(rows: StagingRemision[]): Promise<{ validated: StagingRemision[]; errors: ValidationError[] }>{
     const maps = await this.buildMaps(rows);
+    console.log('[Arkik][Validator] buildMaps summary', {
+      clientsByCode: maps.clientByCode.size,
+      clientsByName: maps.clientByName.size,
+      sitesByClient: maps.sitesByClientId.size,
+      recipesByCode: maps.recipeByCode.size,
+      recipesByArkikCode: maps.recipeByArkikCode.size,
+      pricesForRecipes: Array.from(maps.pricesByRecipeId.keys()).length,
+      materialCodesMapped: maps.mappedMaterialCodes.size,
+      duplicateRemisiones: maps.duplicateRemisiones.size,
+    });
     const allErrors: ValidationError[] = [];
     const validated = rows.map(r => this.validateRow(r, maps, allErrors));
     return { validated, errors: allErrors };
@@ -43,7 +54,8 @@ export class ArkikValidator {
     let site: any | null = null;
     if (client) {
       const byName = maps.sitesByClientId.get(client.id);
-      if (byName) site = byName.get((r.obra_name || '').toLowerCase()) || null;
+      const obraKey = String(r.obra_name || '').trim().toLowerCase();
+      if (byName) site = byName.get(obraKey) || null;
     }
     if (client && !site) {
       errors.push({
@@ -58,14 +70,69 @@ export class ArkikValidator {
     }
 
     // Recipe
-    const recipe = maps.recipeByCode.get((r.recipe_code || r.prod_tecnico || '').toLowerCase());
+    // Recipe lookup must use Arkik long code stored in Product Description (designacion_ehe)
+    // Try matching against arkik_long_code first (primary), then recipe_code as fallback
+    const arkikLongCode = (r.product_description || '').toLowerCase();
+    let recipe = maps.recipeByArkikCode.get(arkikLongCode) || maps.recipeByCode.get(arkikLongCode);
+    
+    if (!recipe && arkikLongCode) {
+      // Fallback: try sanitized matching (remove spaces, hyphens, accents)
+      const sanitize = (s: string) => s
+        .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+        .replace(/\s+/g, '')
+        .replace(/-/g, '')
+        .toLowerCase();
+      const target = sanitize(arkikLongCode);
+      
+      // Try arkik_long_code first
+      for (const [code, rec] of maps.recipeByArkikCode.entries()) {
+        if (sanitize(code) === target) { recipe = rec; break; }
+      }
+      
+      // Then try recipe_code as fallback
+      if (!recipe) {
+        for (const [code, rec] of maps.recipeByCode.entries()) {
+          if (sanitize(code) === target) { recipe = rec; break; }
+        }
+      }
+    }
+    if (!recipe && r.recipe_code) {
+      // Fallback: try short technical code
+      const key = String(r.recipe_code).toLowerCase();
+      recipe = maps.recipeByCode.get(key) || null;
+      if (!recipe) {
+        const target = key.replace(/\s+/g, '').replace(/-/g, '');
+        for (const [code, rec] of maps.recipeByCode.entries()) {
+          const cand = code.replace(/\s+/g, '').replace(/-/g, '');
+          if (cand === target) { recipe = rec; break; }
+        }
+      }
+    }
+    if (!recipe && arkikLongCode) {
+      // Last resort: contains check (sanitized) across both arkik_long_code and recipe_code maps
+      const sanitize = (s: string) => s.replace(/\s+/g, '').replace(/-/g, '').toLowerCase();
+      const target = sanitize(arkikLongCode);
+      const candidates: any[] = [];
+      for (const [code, rec] of maps.recipeByArkikCode.entries()) {
+        const cand = sanitize(code);
+        if (cand.includes(target) || target.includes(cand)) candidates.push(rec);
+      }
+      if (!candidates.length) {
+        for (const [code, rec] of maps.recipeByCode.entries()) {
+          const cand = sanitize(code);
+          if (cand.includes(target) || target.includes(cand)) candidates.push(rec);
+        }
+      }
+      if (candidates.length === 1) recipe = candidates[0];
+    }
     if (!recipe) {
+      // Recipe not found - logging reduced for performance
       errors.push({
         row_number: r.row_number,
         error_type: ArkikErrorType.RECIPE_NOT_FOUND,
-        field_name: 'recipe_code',
-        field_value: r.recipe_code || r.prod_tecnico,
-        message: 'Receta no encontrada en la planta',
+        field_name: 'product_description',
+        field_value: r.product_description,
+        message: `Receta no encontrada en la planta para "${r.product_description}"`,
         suggestion: null,
         recoverable: true,
       });
@@ -78,26 +145,90 @@ export class ArkikValidator {
           error_type: ArkikErrorType.RECIPE_NO_PRICE,
           field_name: 'recipe_id',
           field_value: recipe.id,
-          message: 'La receta no tiene precio en esta planta',
-          suggestion: null,
+          message: `La receta "${recipe.recipe_code || recipe.arkik_long_code}" no tiene precio configurado en esta planta. Necesita crear un precio en el catálogo.`,
+          suggestion: { 
+            action: 'create_price', 
+            recipe_id: recipe.id, 
+            recipe_code: recipe.recipe_code,
+            arkik_long_code: recipe.arkik_long_code 
+          },
           recoverable: true,
         });
-      } else if (!client || !site) {
-        // Try infer client/site from prices if unique
-        const priceWithClient = prices.filter(p => p.client_id);
-        const uniqueClientId = Array.from(new Set(priceWithClient.map(p => p.client_id))).filter(Boolean);
-        if (!client && uniqueClientId.length === 1) {
-          client = { id: uniqueClientId[0] };
-        }
-        if (!site && client) {
-          const candidateSites = priceWithClient
-            .filter(p => p.client_id === client.id && p.construction_site)
-            .map(p => p.construction_site as string);
-          const uniqueSite = Array.from(new Set(candidateSites));
-          if (uniqueSite.length === 1) {
-            const byName = maps.sitesByClientId.get(client.id);
-            if (byName) site = byName.get(uniqueSite[0].toLowerCase()) || null;
+      } else {
+        // Prefer newest by effective_date/updated_at
+        const sorted = [...prices].sort((a: any, b: any) => new Date(b.effective_date || b.updated_at || 0).getTime() - new Date(a.effective_date || a.updated_at || 0).getTime());
+        const clientSitePrice = sorted.find(p => p.client_id && p.construction_site);
+        const clientOnlyPrice = sorted.find(p => p.client_id && !p.construction_site);
+        const anyPlantPrice = sorted[0];
+        let unitPrice: number | null = null;
+        let priceSource: 'client_site' | 'client' | 'plant' | 'none' = 'none';
+        if (clientSitePrice) { unitPrice = Number(clientSitePrice.base_price ?? null); priceSource = 'client_site'; }
+        else if (clientOnlyPrice) { unitPrice = Number(clientOnlyPrice.base_price ?? null); priceSource = 'client'; }
+        else if (anyPlantPrice) { unitPrice = Number(anyPlantPrice.base_price ?? null); priceSource = 'plant'; }
+        r.unit_price = unitPrice;
+        r.price_source = priceSource;
+
+        // Auto-assign client and site from prices if we found them and they're missing
+        if (!client && (clientSitePrice || clientOnlyPrice)) {
+          const priceWithClient = clientSitePrice || clientOnlyPrice;
+          if (priceWithClient?.client_id) {
+            // Find the actual client object from our maps
+            for (const [, clientObj] of maps.clientByCode.entries()) {
+              if (clientObj.id === priceWithClient.client_id) {
+                client = clientObj;
+                console.log(`[Arkik][Validator] Auto-assigned client from price for row ${r.row_number}:`, client.business_name);
+                break;
+              }
+            }
+            if (!client) {
+              for (const [, clientObj] of maps.clientByName.entries()) {
+                if (clientObj.id === priceWithClient.client_id) {
+                  client = clientObj;
+                  console.log(`[Arkik][Validator] Auto-assigned client from price for row ${r.row_number}:`, client.business_name);
+                  break;
+                }
+              }
+            }
           }
+        }
+
+        if (!site && clientSitePrice?.construction_site && client) {
+          // Find the construction site by name for this client
+          const siteMap = maps.sitesByClientId.get(client.id);
+          if (siteMap) {
+            const siteName = String(clientSitePrice.construction_site).trim().toLowerCase();
+            site = siteMap.get(siteName);
+            if (site) {
+              console.log(`[Arkik][Validator] Auto-assigned site from price for row ${r.row_number}:`, site.name);
+            }
+          }
+        }
+
+        // Fallback: Try infer client/site from prices if still missing and unique
+        if (!client || !site) {
+          const priceWithClient = prices.filter(p => p.client_id);
+          const uniqueClientId = Array.from(new Set(priceWithClient.map(p => p.client_id))).filter(Boolean);
+          if (!client && uniqueClientId.length === 1) {
+            client = { id: uniqueClientId[0] };
+          }
+          if (!site && client) {
+            const candidateSites = priceWithClient
+              .filter(p => p.client_id === client.id && p.construction_site)
+              .map(p => p.construction_site as string);
+            const uniqueSite = Array.from(new Set(candidateSites));
+            if (uniqueSite.length === 1) {
+              const byName = maps.sitesByClientId.get(client.id);
+              if (byName) site = byName.get(uniqueSite[0].toLowerCase()) || null;
+            }
+          }
+        }
+
+        // Set suggestions for UI (fallback for manual selection)
+        if (clientSitePrice) {
+          r.suggested_client_id = clientSitePrice.client_id || null;
+          r.suggested_site_name = clientSitePrice.construction_site || null;
+        } else if (clientOnlyPrice) {
+          r.suggested_client_id = clientOnlyPrice.client_id || null;
         }
       }
     }
@@ -152,7 +283,7 @@ export class ArkikValidator {
     const clientCodes = Array.from(new Set(rows.map(r => lower(r.cliente_codigo)).filter(Boolean)));
     const clientNames = Array.from(new Set(rows.map(r => lower(r.cliente_name)).filter(Boolean)));
     const obraNames = Array.from(new Set(rows.map(r => lower(r.obra_name)).filter(Boolean)));
-    const recipeCodes = Array.from(new Set(rows.map(r => lower(r.recipe_code || r.prod_tecnico)).filter(Boolean)));
+    const recipeCodesLower = Array.from(new Set(rows.map(r => lower(r.product_description)).filter(Boolean)));
     const remisionNumbers = Array.from(new Set(rows.map(r => r.remision_number)));
     const materialCodes = Array.from(new Set(rows.flatMap(r => [
       ...Object.keys(r.materials_teorico || {}),
@@ -182,37 +313,74 @@ export class ArkikValidator {
         .in('client_id', clientIds);
       (sites || []).forEach(s => {
         const map = sitesByClientId.get(s.client_id) || new Map<string, any>();
-        map.set(String(s.name).toLowerCase(), s);
+        map.set(String(s.name).trim().toLowerCase(), s);
         sitesByClientId.set(s.client_id, map);
       });
     }
 
-    // Recipes by code in plant
+    // Recipes by code and arkik_long_code in plant
     const recipeByCode = new Map<string, any>();
-    if (recipeCodes.length) {
+    const recipeByArkikCode = new Map<string, any>();
+    {
+      // Fetch all recipes for this plant and index case-insensitively by both recipe_code and arkik_long_code
       const { data: recipes } = await supabase
         .from('recipes')
-        .select('id, recipe_code, plant_id')
-        .eq('plant_id', this.plantId)
-        .in('recipe_code', recipeCodes);
-      (recipes || []).forEach(r => recipeByCode.set(String(r.recipe_code).toLowerCase(), r));
+        .select('id, recipe_code, arkik_long_code, plant_id')
+        .eq('plant_id', this.plantId);
+      (recipes || []).forEach(r => {
+        if (r.recipe_code) {
+          recipeByCode.set(String(r.recipe_code).toLowerCase(), r);
+        }
+        if (r.arkik_long_code) {
+          recipeByArkikCode.set(String(r.arkik_long_code).toLowerCase(), r);
+        }
+      });
+      console.log(`[Arkik][Validator] Loaded ${recipes?.length || 0} recipes for plant ${this.plantId}: ${recipeByCode.size} by recipe_code, ${recipeByArkikCode.size} by arkik_long_code`);
     }
 
-    // Prices by recipe in plant
+    // SIMPLIFIED Prices loading - handles data integrity issues efficiently
     const pricesByRecipeId = new Map<string, any[]>();
-    const recipeIds = Array.from(new Set(Array.from(recipeByCode.values()).map((r: any) => r.id)));
-    if (recipeIds.length) {
-      const { data: prices } = await supabase
+    const allRecipes = [...Array.from(recipeByCode.values()), ...Array.from(recipeByArkikCode.values())];
+    const recipeCodes = Array.from(new Set(allRecipes.map((r: any) => r.recipe_code).filter(Boolean)));
+    
+    if (recipeCodes.length) {
+      console.log(`[Arkik][Validator] Loading prices for ${recipeCodes.length} recipe codes`);
+      // ONE QUERY: Get ALL active prices that match our recipe codes (handles data integrity automatically)
+      const { data: allPrices } = await supabase
         .from('product_prices')
-        .select('id, recipe_id, client_id, construction_site, plant_id, is_active')
-        .eq('plant_id', this.plantId)
-        .in('recipe_id', recipeIds)
-        .eq('is_active', true);
-      (prices || []).forEach(p => {
-        const list = pricesByRecipeId.get(p.recipe_id) || [];
-        list.push(p);
-        pricesByRecipeId.set(p.recipe_id, list);
+        .select(`
+          id, recipe_id, original_recipe_id, code, client_id, construction_site, plant_id, is_active, base_price, effective_date, updated_at,
+          recipes!inner(recipe_code, arkik_long_code, plant_id)
+        `)
+        .eq('is_active', true)
+        .in('recipes.recipe_code', recipeCodes);
+      
+      // Map prices to our plant's recipe IDs by recipe_code (ignoring plant mismatches)
+      (allPrices || []).forEach(p => {
+        const priceRecipeCode = p.recipes?.recipe_code;
+        if (!priceRecipeCode) return;
+        
+        // Find our plant's recipe with the same code
+        const ourRecipe = allRecipes.find((r: any) => r.recipe_code === priceRecipeCode);
+        if (ourRecipe) {
+          const list = pricesByRecipeId.get(ourRecipe.id) || [];
+          list.push({
+            ...p,
+            plant_mismatch: p.plant_id !== this.plantId,
+            mapped_to_recipe_id: ourRecipe.id
+          });
+          pricesByRecipeId.set(ourRecipe.id, list);
+        }
       });
+      
+      console.log(`[Arkik][Validator] Loaded prices for ${pricesByRecipeId.size}/${allRecipes.length} recipes`);
+      
+      // Log successful price mappings for major recipes
+      const successfulRecipes = Array.from(pricesByRecipeId.keys()).slice(0, 5);
+      if (successfulRecipes.length) {
+        const sampleRecipe = allRecipes.find((r: any) => r.id === successfulRecipes[0]);
+        console.log(`[Arkik][Validator] Sample successful recipe mapping: ${sampleRecipe?.recipe_code} -> ${pricesByRecipeId.get(successfulRecipes[0])?.length} prices`);
+      }
     }
 
     // Material mapping per plant
@@ -237,7 +405,7 @@ export class ArkikValidator {
       (rems || []).forEach(r => duplicateRemisiones.add(String(r.remision_number)));
     }
 
-    return { clientByCode, clientByName, sitesByClientId, recipeByCode, pricesByRecipeId, mappedMaterialCodes, duplicateRemisiones };
+    return { clientByCode, clientByName, sitesByClientId, recipeByCode, recipeByArkikCode, pricesByRecipeId, mappedMaterialCodes, duplicateRemisiones };
   }
 }
 

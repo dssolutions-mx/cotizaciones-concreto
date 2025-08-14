@@ -8,6 +8,7 @@ import { FileSpreadsheet, Loader2, AlertCircle, CheckCircle2, XCircle, ArrowRigh
 import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase/client';
 import { ArkikValidator } from '@/services/arkikValidator';
+import ValidationTable from '@/components/arkik/ValidationTable';
 
 type Step = 'upload' | 'validate' | 'group' | 'confirm';
 
@@ -241,6 +242,7 @@ export default function ArkikProcessor() {
               ...remPayload,
               plant_id: currentPlant.id,
               designacion_ehe: r.product_description || null,
+              recipe_id: r.recipe_id || null,
               created_by: null,
             }).select().single();
             if (remError) throw remError;
@@ -323,6 +325,7 @@ export default function ArkikProcessor() {
             <div className="flex items-center gap-2 text-amber-700"><AlertCircle className="h-4 w-4" /> Errores: {stats.errorRows}</div>
             <div className="flex items-center gap-2 text-slate-700">Total filas: {stats.totalRows}</div>
           </div>
+          <ValidationTable rows={stagingData} onRowsChange={setStagingData} plantId={currentPlant?.id} />
           <div className="mt-4 flex justify-end">
             <button disabled={loading} onClick={handleValidation} className="px-4 py-2 rounded bg-green-600 text-white disabled:opacity-50">
               {loading ? 'Guardando…' : 'Guardar y continuar'}
