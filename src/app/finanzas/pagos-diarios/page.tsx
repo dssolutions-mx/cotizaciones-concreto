@@ -1,5 +1,4 @@
 import { Suspense } from 'react';
-import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
@@ -19,7 +18,7 @@ export default async function DailyPaymentsReportPage({
   searchParams: { [key: string]: string | string[] | undefined };
 }) {
   // Get the date range from query params or use today's date as default
-  const today = format(new Date(), 'yyyy-MM-dd');
+  const today = new Date().toISOString().slice(0, 10);
   const startDateParam = searchParams.start_date ? String(searchParams.start_date) : today;
   const endDateParam = searchParams.end_date ? String(searchParams.end_date) : today;
   
@@ -52,6 +51,18 @@ export default async function DailyPaymentsReportPage({
       </div>
     </Suspense>
   );
+}
+
+// Helper to format ISO datetime without timezone conversion
+function formatIsoToDisplay(isoString: string): string {
+  if (!isoString) return 'N/A';
+  // Expected formats like: YYYY-MM-DDTHH:mm:ss.sssZ or with timezone offset
+  const [datePart, timeAndZone = ''] = isoString.split('T');
+  const [year, month, day] = datePart.split('-');
+  const timePart = timeAndZone.replace('Z', '');
+  const timeHHMM = timePart.slice(0, 5); // HH:mm
+  if (!year || !month || !day || !timeHHMM) return isoString;
+  return `${day}/${month}/${year} ${timeHHMM}`;
 }
 
 // Date Picker with Button Component - Modified to support date ranges
@@ -146,17 +157,9 @@ async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDa
     // Create a service client for data fetching
     const serviceClient = createServiceClient();
     
-    // Convert dates to the start and end of the day range in local timezone (UTC-6)
-    // Adjust for timezone offset to ensure we capture the full day in local time
-    const timezoneOffset = 6 * 60 * 60 * 1000; // 6 hours in milliseconds (UTC-6)
-    
-    // Start of day in local timezone, converted to UTC
+    // Start and end of day in UTC without timezone transformations
     const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
-    startDateTime.setTime(startDateTime.getTime() + timezoneOffset);
-    
-    // End of day in local timezone, converted to UTC
     const endDateTime = new Date(`${endDate}T23:59:59.999Z`);
-    endDateTime.setTime(endDateTime.getTime() + timezoneOffset);
     
     // Fetch payments for the selected date range
     const { data: payments, error } = await serviceClient
@@ -273,17 +276,9 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
     // Create a server-side Supabase client
     const supabase = await createServerSupabaseClient();
     
-    // Convert dates to the start and end of the day range in local timezone (UTC-6)
-    // Adjust for timezone offset to ensure we capture the full day in local time
-    const timezoneOffset = 6 * 60 * 60 * 1000; // 6 hours in milliseconds (UTC-6)
-    
-    // Start of day in local timezone, converted to UTC
+    // Start and end of day in UTC without timezone transformations
     const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
-    startDateTime.setTime(startDateTime.getTime() + timezoneOffset);
-    
-    // End of day in local timezone, converted to UTC
     const endDateTime = new Date(`${endDate}T23:59:59.999Z`);
-    endDateTime.setTime(endDateTime.getTime() + timezoneOffset);
     
     // Fetch payments for the selected date range with client information
     const { data, error } = await supabase
@@ -313,14 +308,9 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
     // If we have payments, enhance them with formatted data
     if (data && data.length > 0) {
       payments = data.map(payment => {
-        // Convert UTC payment date to local timezone (UTC-6)
-        const paymentDate = new Date(payment.payment_date);
-        const localPaymentDate = new Date(paymentDate.getTime());
-        const formattedDate = format(localPaymentDate, 'dd/MM/yyyy HH:mm');
-        
         return {
           ...payment,
-          formattedDate,
+          formattedDate: formatIsoToDisplay(payment.payment_date),
           formattedAmount: formatCurrency(payment.amount),
         };
       });
