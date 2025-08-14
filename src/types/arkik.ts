@@ -89,6 +89,14 @@ export interface StagingRemision {
   materials_manual?: Record<string, number>;
   validation_status: 'pending' | 'valid' | 'warning' | 'error';
   validation_errors: ValidationError[];
+  // Pricing (derived)
+  unit_price?: number | null;
+  price_source?: 'client_site' | 'client' | 'plant' | 'none';
+  // Suggestions (derived)
+  suggested_client_id?: string;
+  suggested_client_name?: string;
+  suggested_site_id?: string;
+  suggested_site_name?: string;
 }
 
 export interface OrderSuggestion {

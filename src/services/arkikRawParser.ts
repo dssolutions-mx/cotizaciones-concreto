@@ -132,7 +132,7 @@ export class ArkikRawParser {
 
     return {
       orden: String(getByHeader(ArkikRawParser.STABLE_HEADERS.orden) ?? '') || null,
-      remision: String(getByHeader(ArkikRawParser.STABLE_HEADERS.remision) ?? ''),
+      remision: this.normalizeRemision(String(getByHeader(ArkikRawParser.STABLE_HEADERS.remision) ?? '')),
       estatus: String(getByHeader(ArkikRawParser.STABLE_HEADERS.estatus) ?? ''),
       volumen: this.parseNumber(getByHeader(ArkikRawParser.STABLE_HEADERS.volumen)) || 0,
       cliente_codigo: String(getByHeader(ArkikRawParser.STABLE_HEADERS.cliente_codigo) ?? ''),
@@ -154,6 +154,18 @@ export class ArkikRawParser {
       hora_carga: this.parseDate(getByHeader(ArkikRawParser.STABLE_HEADERS.hora_carga)),
       materials
     };
+  }
+
+  private normalizeRemision(value: string): string {
+    // Extract trailing numeric portion, e.g., P002-007789 -> 007789 -> 7789
+    const m = value.match(/(\d{3,})\s*$/);
+    let digits = m ? m[1] : value.replace(/\D+/g, '');
+    if (digits) {
+      // Normalize to integer to drop leading zeros
+      const n = parseInt(digits, 10);
+      if (!isNaN(n)) return String(n);
+    }
+    return digits || value;
   }
 
   private validateRow(row: ArkikRawRow, rowNumber: number): ValidationError[] {
@@ -191,13 +203,14 @@ export class ArkikRawParser {
       });
     }
 
-    if (!row.prod_tecnico) {
+    // Product Description (Arkik long code) is the required product identity
+    if (!row.product_description) {
       errors.push({
         row_number: rowNumber,
         error_type: ArkikErrorType.RECIPE_NOT_FOUND,
-        field_name: 'prod_tecnico',
-        field_value: row.prod_tecnico,
-        message: 'Código de producto técnico faltante',
+        field_name: 'product_description',
+        field_value: row.product_description,
+        message: 'Descripción de producto (Arkik) faltante',
         recoverable: true
       });
     }
