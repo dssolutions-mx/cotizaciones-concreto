@@ -39,8 +39,10 @@ export default function AgePlanSelector({ agePlanUnit, onAgePlanUnitChange, edad
               {agePlanUnit === 'hours' ? (
                 <>
                   <SelectItem value="12">12 horas</SelectItem>
+                  <SelectItem value="14">14 horas</SelectItem>
                   <SelectItem value="16">16 horas</SelectItem>
                   <SelectItem value="18">18 horas</SelectItem>
+                  <SelectItem value="20">20 horas</SelectItem>
                 </>
               ) : (
                 <>

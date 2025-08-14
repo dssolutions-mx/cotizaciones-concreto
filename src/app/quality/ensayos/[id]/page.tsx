@@ -44,6 +44,7 @@ import { EnsayoWithRelations } from '@/types/quality';
 import Link from 'next/link';
 import Image from 'next/image';
 import { formatDate, createSafeDate } from '@/lib/utils';
+import { getNormalizedSpecs, formatAgeUnitLabel } from '@/lib/quality-normalization';
 
 export default function EnsayoDetailPage() {
   const params = useParams();
@@ -152,21 +153,36 @@ export default function EnsayoDetailPage() {
     );
   }
 
-  // Determinar clasificación y edad programada desde muestreos.concrete_specs (con fallback a receta)
-  const concreteSpecs = ensayo.muestra?.muestreo?.concrete_specs as any | undefined;
-  const recipeVersions = ensayo.muestra?.muestreo?.remision?.recipe?.recipe_versions || [];
+  // Determinar clasificación y edad programada desde la muestra (derivado por posición) en lugar de concrete_specs
+  const recipe = ensayo.muestra?.muestreo?.remision?.recipe as any;
+  const recipeVersions = recipe?.recipe_versions || [];
   const currentVersion = recipeVersions.find((v: any) => v.is_current === true);
-  const fallbackClasificacion = currentVersion?.notes?.includes('MR') ? 'MR' : 'FC';
-  const clasificacion = (concreteSpecs?.clasificacion as 'FC' | 'MR') || fallbackClasificacion;
-  const plannedAgeValue: number | undefined = concreteSpecs?.valor_edad ?? ensayo.muestra?.muestreo?.remision?.recipe?.age_days;
-  const plannedAgeUnitRaw: string | undefined = concreteSpecs?.unidad_edad;
-  const formatUnidadEdad = (u?: string) => {
-    if (!u) return 'días';
-    const v = u.toUpperCase();
-    if (v === 'H' || v === 'HORA' || v === 'HORAS') return 'horas';
-    return 'días';
-  };
-  const plannedAgeUnit = formatUnidadEdad(plannedAgeUnitRaw);
+  const hasMR = (currentVersion?.notes || '').toString().toUpperCase().includes('MR');
+  const clasificacion = hasMR ? 'MR' : 'FC';
+  const muestreoBaseTs = (() => {
+    const m = ensayo.muestra?.muestreo as any;
+    if (!m) return null;
+    const baseTs = m.fecha_muestreo_ts
+      ? new Date(m.fecha_muestreo_ts)
+      : (m.fecha_muestreo ? new Date(`${m.fecha_muestreo}T${(m.hora_muestreo || '00:00')}`) : null);
+    return baseTs;
+  })();
+  const scheduledTs = (() => {
+    const ms = ensayo.muestra as any;
+    if (!ms) return null;
+    return ms.fecha_programada_ensayo_ts
+      ? new Date(ms.fecha_programada_ensayo_ts)
+      : (ms.fecha_programada_ensayo ? new Date(`${ms.fecha_programada_ensayo}T12:00:00`) : null);
+  })();
+  const plannedDiffHours = (muestreoBaseTs && scheduledTs)
+    ? Math.max(0, Math.floor((scheduledTs.getTime() - muestreoBaseTs.getTime()) / 3600000))
+    : null;
+  const plannedAgeValue = plannedDiffHours !== null
+    ? (plannedDiffHours <= 48 ? plannedDiffHours : Math.round(plannedDiffHours / 24))
+    : null;
+  const plannedAgeUnitLabel = plannedDiffHours !== null
+    ? (plannedDiffHours <= 48 ? 'horas' : 'días')
+    : '—';
   
   // Calcular la edad del ensayo
   const fechaMuestreo = createSafeDate(ensayo.muestra?.muestreo?.fecha_muestreo);
@@ -239,9 +255,9 @@ export default function EnsayoDetailPage() {
                   </Badge>
                 </div>
                 
-                <div>
+                 <div>
                   <p className="text-sm font-medium text-gray-500">Edad Programada y Unidad</p>
-                  <p className="font-medium">{plannedAgeValue ?? '—'} {plannedAgeUnit}</p>
+                  <p className="font-medium">{plannedAgeValue ?? '—'} {plannedAgeUnitLabel}</p>
                 </div>
                 
                 <div>
@@ -253,10 +269,10 @@ export default function EnsayoDetailPage() {
               </div>
               
               <div className="space-y-4">
-                <div>
+                 <div>
                   <p className="text-sm font-medium text-gray-500">Clasificación</p>
                   <Badge variant={clasificacion === 'MR' ? 'outline' : 'default'}>
-                    {clasificacion} {plannedAgeValue ?? ''} {plannedAgeUnit}
+                    {clasificacion} {plannedAgeValue ?? ''} {plannedAgeUnitLabel}
                   </Badge>
                 </div>
                 
