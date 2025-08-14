@@ -255,15 +255,12 @@ export default function EnsayoDetailPage() {
                   </Badge>
                 </div>
                 
-                 <div>
-                  <p className="text-sm font-medium text-gray-500">Edad Programada y Unidad</p>
-                  <p className="font-medium">{plannedAgeValue ?? '—'} {plannedAgeUnitLabel}</p>
-                </div>
-                
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Fecha Ensayo</p>
+                  <p className="text-sm font-medium text-gray-500">Fecha de Ensayo</p>
                   <p className="font-medium">
-                    {formatDate(ensayo.fecha_ensayo, 'PPP')}
+                    {ensayo.fecha_ensayo_ts 
+                      ? format(new Date(ensayo.fecha_ensayo_ts), 'PPP \u00e1 HH:mm', { locale: es })
+                      : formatDate(ensayo.fecha_ensayo, 'PPP')}
                   </p>
                 </div>
               </div>
@@ -288,7 +285,7 @@ export default function EnsayoDetailPage() {
                   <p className="text-sm font-medium text-gray-500">Remisión</p>
                   <div className="flex items-center gap-2">
                     <Truck className="h-4 w-4 text-gray-400" />
-                    <span>{ensayo.muestra?.muestreo?.remision?.remision_number}</span>
+                    <span>{ensayo.muestra?.muestreo?.manual_reference}</span>
                   </div>
                 </div>
                 

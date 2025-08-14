@@ -467,6 +467,9 @@ export async function createEnsayo(data: {
         fecha_ensayo: typeof data.fecha_ensayo === 'string' 
           ? data.fecha_ensayo 
           : format(data.fecha_ensayo, 'yyyy-MM-dd'),
+        // Registrar también el timestamp exacto (hora/minuto/segundo) del ensayo
+        fecha_ensayo_ts: new Date().toISOString(),
+        event_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         carga_kg: data.carga_kg,
         resistencia_calculada: data.resistencia_calculada,
         porcentaje_cumplimiento: data.porcentaje_cumplimiento,

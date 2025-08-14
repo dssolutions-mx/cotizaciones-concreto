@@ -288,6 +288,24 @@ export default function MuestreoDetailPage() {
                     <p className="font-medium">{muestreo.revenimiento_sitio} cm</p>
                   </div>
                 )}
+					{typeof muestreo.masa_unitaria === 'number' && (
+						<div>
+							<p className="text-sm font-medium text-gray-500">Masa Unitaria</p>
+							<p className="font-medium">{muestreo.masa_unitaria} kg/m³</p>
+						</div>
+					)}
+					{typeof muestreo.temperatura_ambiente === 'number' && (
+						<div>
+							<p className="text-sm font-medium text-gray-500">Temperatura Ambiente</p>
+							<p className="font-medium">{muestreo.temperatura_ambiente} °C</p>
+						</div>
+					)}
+					{typeof muestreo.temperatura_concreto === 'number' && (
+						<div>
+							<p className="text-sm font-medium text-gray-500">Temperatura del Concreto</p>
+							<p className="font-medium">{muestreo.temperatura_concreto} °C</p>
+						</div>
+					)}
               </div>
               
               <div className="space-y-4">
