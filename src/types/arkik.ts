@@ -93,6 +93,7 @@ export interface StagingRemision {
   unit_price?: number | null;
   price_source?: 'client_site' | 'client' | 'plant' | 'none';
   quote_id?: string;
+  quote_detail_id?: string; // CRITICAL: Required for order creation
   // Suggestions (derived)
   suggested_client_id?: string;
   suggested_client_name?: string;
