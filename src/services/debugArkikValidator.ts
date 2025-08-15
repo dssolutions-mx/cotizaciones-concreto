@@ -17,6 +17,7 @@ interface DebugPricing {
   construction_site: string;
   price: number;
   source: 'client' | 'client_site' | 'plant' | 'quotes';
+  quote_id?: string; // Optional: only present for quotes source
   business_name: string;
   client_code?: string;
 }
@@ -49,15 +50,14 @@ export class DebugArkikValidator {
     errors: ValidationError[];
     debugLogs: string[];
   }> {
-    this.log(`Starting validation for ${rows.length} rows in plant ${this.plantId}`);
+    this.log(`Starting validation for ${rows.length} rows...`);
     
     const validated: StagingRemision[] = [];
     const allErrors: ValidationError[] = [];
 
-    // Process each row individually for clear debugging
+    // Process each row individually
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
-      this.log(`\n=== Processing Row ${i + 1}/${rows.length}: Remisión ${row.remision_number} ===`);
       
       try {
         const result = await this.validateSingleRow(row);
@@ -66,7 +66,7 @@ export class DebugArkikValidator {
           allErrors.push(...result.errors);
         }
       } catch (error: any) {
-        this.log(`ERROR processing row ${i + 1}: ${error.message}`);
+        this.log(`Error processing row ${i + 1}: ${error.message}`);
         allErrors.push({
           row_number: row.row_number,
           error_type: ArkikErrorType.DATA_TYPE_ERROR,
@@ -78,10 +78,7 @@ export class DebugArkikValidator {
       }
     }
 
-    this.log(`\n=== VALIDATION COMPLETE ===`);
-    this.log(`Total processed: ${rows.length}`);
-    this.log(`Successfully validated: ${validated.length}`);
-    this.log(`Total errors: ${allErrors.length}`);
+    this.log(`Validation complete: ${rows.length} processed, ${validated.length} validated, ${allErrors.length} errors`);
 
     return { validated, errors: allErrors, debugLogs: this.debugLogs };
   }
@@ -92,35 +89,26 @@ export class DebugArkikValidator {
   }> {
     const errors: ValidationError[] = [];
     
-    // Log input data
-    this.log(`Input data:`);
-    this.log(`  - Product Description: "${row.product_description}"`);
-    this.log(`  - Recipe Code: "${row.recipe_code}"`);
-    this.log(`  - Client Name: "${row.cliente_name}"`);
-    this.log(`  - Client Code: "${row.cliente_codigo}" (IGNORED per strategy)`);
-    this.log(`  - Site Name: "${row.obra_name}"`);
+    this.log(`Processing row ${row.row_number}: Client "${row.cliente_name}", Site "${row.obra_name}"`);
 
     // STEP 1: Find Recipe
-    this.log(`\nSTEP 1: Finding recipe...`);
     const recipe = await this.findRecipe(row, errors);
     if (!recipe) {
-      this.log(`❌ Recipe not found - marking as error`);
+      this.log(`Recipe not found - marking as error`);
       return {
         row: { ...row, validation_status: 'error', validation_errors: errors },
         errors
       };
     }
-    this.log(`✅ Recipe found: ID=${recipe.id}, Code=${recipe.recipe_code}, Arkik=${recipe.arkik_long_code}`);
+    this.log(`Recipe found: ${recipe.arkik_long_code || recipe.recipe_code} (${recipe.id})`);
 
     // STEP 2: Validate Materials
-    this.log(`\nSTEP 2: Validating materials...`);
     await this.validateMaterials(row, errors);
 
     // STEP 3: Load Unified Pricing
-    this.log(`\nSTEP 3: Loading unified pricing...`);
     const pricingOptions = await this.loadUnifiedPricing(recipe.id);
     if (pricingOptions.length === 0) {
-      this.log(`❌ No pricing found for recipe ${recipe.id}`);
+      this.log(`No pricing found for recipe ${recipe.id}`);
       errors.push({
         row_number: row.row_number,
         error_type: ArkikErrorType.RECIPE_NO_PRICE,
@@ -134,24 +122,13 @@ export class DebugArkikValidator {
         errors
       };
     }
-      this.log(`✅ Found ${pricingOptions.length} pricing options`);
-    pricingOptions.forEach((p, idx) => {
-      this.log(`  ${idx + 1}. ${p.source.toUpperCase()}: Client="${p.business_name}", Site="${p.construction_site}", Price=$${p.price}`);
-    });
+    this.log(`Found ${pricingOptions.length} pricing options`);
 
     // STEP 4: Smart Client/Site Matching
-    this.log(`\nSTEP 4: Smart matching...`);
     const bestMatch = this.selectBestPricing(pricingOptions, row);
-    this.log(`✅ Best match selected:`);
-    this.log(`  - Source: ${bestMatch.pricing.source.toUpperCase()}`);
-    this.log(`  - Client: "${bestMatch.pricing.business_name}" (score: ${bestMatch.clientScore.toFixed(2)})`);
-    this.log(`  - Site: "${bestMatch.pricing.construction_site}" (score: ${bestMatch.siteScore.toFixed(2)})`);
-    this.log(`  - Total Score: ${bestMatch.totalScore.toFixed(2)}`);
-    this.log(`  - Reasoning: ${bestMatch.reasoning}`);
-    const resolvedSiteId = await this.resolveConstructionSiteId(bestMatch.pricing.client_id, bestMatch.pricing.construction_site);
-    this.log(`  - Resolved construction_site_id: ${resolvedSiteId || 'null'}`);
+    this.log(`Best match selected: ${bestMatch.pricing.source.toUpperCase()} - "${bestMatch.pricing.business_name}" / "${bestMatch.pricing.construction_site}" (score: ${bestMatch.totalScore.toFixed(2)})`);
 
-    // STEP 4: Apply Results (resolve construction_site_id when possible)
+    // Apply Results (resolve construction_site_id when possible)
     const resolvedConstructionSiteId = await this.resolveConstructionSiteId(
       bestMatch.pricing.client_id,
       bestMatch.pricing.construction_site
@@ -163,9 +140,10 @@ export class DebugArkikValidator {
       client_id: bestMatch.pricing.client_id,
       unit_price: bestMatch.pricing.price,
       price_source: bestMatch.pricing.source as any,
+      quote_id: bestMatch.pricing.quote_id, // Include quote_id if available
       // Denormalized display fields for UI table (reusing existing optional fields)
-      prod_tecnico: (recipe.recipe_code || row.prod_tecnico) as any,
-      product_description: (recipe.arkik_long_code || row.product_description) as any,
+      prod_tecnico: (row.prod_tecnico || row.recipe_code) as any, // Keep original Excel code
+      product_description: (row.product_description || row.recipe_code) as any, // Keep original Excel code
       suggested_client_id: bestMatch.pricing.client_id,
       suggested_site_name: bestMatch.pricing.construction_site,
       construction_site_id: (resolvedConstructionSiteId || row.construction_site_id || undefined) as any,
@@ -173,7 +151,7 @@ export class DebugArkikValidator {
       validation_errors: errors
     };
 
-    this.log(`✅ Row validated successfully`);
+    this.log(`Row validated successfully`);
     return { row: validatedRow, errors };
   }
 
@@ -212,9 +190,7 @@ export class DebugArkikValidator {
     const primaryCode = row.product_description?.trim(); // arkik_long_code (PRIMARY)
     const fallbackCode = row.recipe_code?.trim();        // prod_tecnico (FALLBACK)
     
-    this.log(`Looking for recipe with:`);
-    this.log(`  - Primary (product_description): "${primaryCode}"`);
-    this.log(`  - Fallback (recipe_code): "${fallbackCode}"`);
+    this.log(`Looking for recipe with primary: "${primaryCode}" and fallback: "${fallbackCode}"`);
 
     if (!primaryCode && !fallbackCode) {
       this.log(`❌ No recipe codes provided`);
@@ -257,7 +233,7 @@ export class DebugArkikValidator {
         this.normalizeString(r.arkik_long_code) === this.normalizeString(primaryCode)
       );
       if (recipe) {
-        this.log(`✅ Exact match on arkik_long_code: ${recipe.arkik_long_code}`);
+        this.log(`Exact match on arkik_long_code: ${recipe.arkik_long_code}`);
         return recipe;
       }
     }
@@ -269,7 +245,7 @@ export class DebugArkikValidator {
         this.normalizeString(r.recipe_code) === this.normalizeString(fallbackCode)
       );
       if (recipe) {
-        this.log(`✅ Exact match on recipe_code: ${recipe.recipe_code}`);
+        this.log(`Exact match on recipe_code: ${recipe.recipe_code}`);
         return recipe;
       }
     }
@@ -285,10 +261,10 @@ export class DebugArkikValidator {
 
     if (candidates.length === 1) {
       recipe = candidates[0];
-      this.log(`✅ Single fuzzy match found: ${recipe.arkik_long_code || recipe.recipe_code}`);
+      this.log(`Single fuzzy match found: ${recipe.arkik_long_code || recipe.recipe_code}`);
       return recipe;
     } else if (candidates.length > 1) {
-      this.log(`⚠️ Multiple fuzzy matches found: ${candidates.map(r => r.arkik_long_code || r.recipe_code).join(', ')}`);
+      this.log(`Multiple fuzzy matches found: ${candidates.map(r => r.arkik_long_code || r.recipe_code).join(', ')}`);
       recipe = candidates[0]; // Take first match
       this.log(`Using first match: ${recipe.arkik_long_code || recipe.recipe_code}`);
       return recipe;
@@ -314,7 +290,6 @@ export class DebugArkikValidator {
     const unifiedPricing: DebugPricing[] = [];
 
     // Load product_prices
-    this.log(`Loading product_prices...`);
     const { data: prices, error: pricesError } = await supabase
       .from('product_prices')
       .select(`
@@ -326,60 +301,108 @@ export class DebugArkikValidator {
       .eq('recipe_id', recipeId);
 
     if (pricesError) {
-      this.log(`❌ Error loading product_prices: ${pricesError.message}`);
+      this.log(`Error loading product_prices: ${pricesError.message}`);
     } else {
-      (prices || []).forEach(price => {
+      // Process prices sequentially to find quote_ids
+      for (const price of (prices || [])) {
         if (price.clients) {
           const hasSite = Boolean(price.construction_site && String(price.construction_site).trim());
           const scope: string = hasSite ? 'client_site' : 'client';
+          
+          // Try to find the corresponding quote_id for this price
+          let quoteId = undefined;
+          if (scope === 'client_site' && price.construction_site) {
+            const { data: matchingQuote, error: quoteError } = await supabase
+              .from('quotes')
+              .select('id, status')
+              .eq('plant_id', this.plantId)
+              .eq('client_id', price.client_id)
+              .eq('construction_site', price.construction_site)
+              .eq('status', 'APPROVED')
+              .maybeSingle();
+            
+            if (matchingQuote && !quoteError) {
+              quoteId = matchingQuote.id;
+            }
+          }
+          
           unifiedPricing.push({
             recipe_id: (price as any).recipeid,
             client_id: price.client_id,
             construction_site: price.construction_site || '',
             price: Number(price.base_price),
             source: scope as any,
+            quote_id: quoteId, // Include quote_id if found
             business_name: price.clients.business_name,
             client_code: price.clients.client_code
           });
         }
-      });
-      this.log(`✅ Loaded ${prices?.length || 0} product_prices`);
+      }
+      this.log(`Loaded ${prices?.length || 0} product_prices`);
     }
 
-    // Load quotes (CRITICAL ADDITION)
-    this.log(`Loading approved quotes...`);
-    const { data: quotes, error: quotesError } = await supabase
+    // Load quotes
+    const { data: allQuotes, error: allQuotesError } = await supabase
       .from('quote_details')
-      .select(`
-        recipe_id, final_price,
-        quotes:quote_id(client_id, construction_site,
-          clients:client_id(business_name, client_code))
-      `)
-      .eq('quotes.plant_id', this.plantId)
-      .eq('quotes.status', 'APPROVED')
+      .select('recipe_id, final_price')
       .eq('recipe_id', recipeId);
+    
+    if (allQuotesError) {
+      this.log(`Error checking all quotes: ${allQuotesError.message}`);
+    }
+    
+    // Get quotes for this recipe by filtering on client and construction site first
+    // This is more efficient than complex joins
+    let { data: quotes, error: quotesError } = await supabase
+      .from('quotes')
+      .select(`
+        id, client_id, construction_site, status,
+        clients:client_id(business_name, client_code),
+        quote_details(recipe_id, final_price)
+      `)
+      .eq('plant_id', this.plantId)
+      .eq('status', 'APPROVED');
+
+    if (quotes && quotes.length > 0) {
+      // Filter quotes that have this recipe in their details
+      const matchingQuotes = quotes.filter(quote => 
+        quote.quote_details.some((detail: any) => detail.recipe_id === recipeId)
+      );
+      
+      if (matchingQuotes.length > 0) {
+        this.log(`Found ${matchingQuotes.length} quotes with recipe ${recipeId}`);
+        quotes = matchingQuotes;
+      } else {
+        this.log(`No quotes found with recipe ${recipeId}`);
+        quotes = [];
+      }
+    } else {
+      this.log(`No quotes loaded from database`);
+    }
 
     if (quotesError) {
-      this.log(`❌ Error loading quotes: ${quotesError.message}`);
+      this.log(`Error loading quotes: ${quotesError.message}`);
     } else {
       (quotes || []).forEach(quote => {
-        const quoteData = quote.quotes as any;
-        if (quoteData?.clients) {
-          unifiedPricing.push({
-            recipe_id: quote.recipe_id,
-            client_id: quoteData.client_id,
-            construction_site: quoteData.construction_site || '',
-            price: Number(quote.final_price),
-            source: 'quotes',
-            business_name: quoteData.clients.business_name,
-            client_code: quoteData.clients.client_code
-          });
+        if (quote.clients && quote.quote_details && quote.quote_details.length > 0) {
+          // Get the price from the first quote_detail (should be only one due to inner join)
+          const quoteDetail = quote.quote_details[0];
+          const pricingEntry = {
+            recipe_id: quoteDetail.recipe_id,
+            client_id: quote.client_id,
+            construction_site: quote.construction_site || '',
+            price: Number(quoteDetail.final_price),
+            source: 'quotes' as const,
+            quote_id: quote.id, // This is the actual quote_id
+            business_name: quote.clients.business_name,
+            client_code: quote.clients.client_code
+          };
+          unifiedPricing.push(pricingEntry);
         }
       });
-      this.log(`✅ Loaded ${quotes?.length || 0} approved quotes`);
+      this.log(`Loaded ${quotes?.length || 0} approved quotes`);
     }
 
-    this.log(`Total unified pricing options: ${unifiedPricing.length}`);
     return unifiedPricing;
   }
 
@@ -388,9 +411,7 @@ export class DebugArkikValidator {
     const clientName = this.normalizeString(row.cliente_name || '');
     const siteName = this.normalizeString(row.obra_name || '');
     
-    this.log(`Matching against input:`);
-    this.log(`  - Client Name: "${clientName}"`);
-    this.log(`  - Site Name: "${siteName}"`);
+    this.log(`Matching against client: "${clientName}" and site: "${siteName}"`);
 
     // Single option - use directly
     if (pricingOptions.length === 1) {
@@ -410,10 +431,7 @@ export class DebugArkikValidator {
       const siteScore = this.calculateSiteSimilarity(siteName, pricing.construction_site);
       const totalScore = clientScore + siteScore;
       
-      this.log(`Scoring option: "${pricing.business_name}" / "${pricing.construction_site}"`);
-      this.log(`  - Client similarity: ${clientScore.toFixed(2)}`);
-      this.log(`  - Site similarity: ${siteScore.toFixed(2)}`);
-      this.log(`  - Total score: ${totalScore.toFixed(2)}`);
+      this.log(`Scoring "${pricing.business_name}" / "${pricing.construction_site}": Client ${clientScore.toFixed(2)}, Site ${siteScore.toFixed(2)}, Total ${totalScore.toFixed(2)}`);
 
       return {
         pricing,
@@ -518,8 +536,6 @@ export class DebugArkikValidator {
   }
 
   private async validateMaterials(row: StagingRemision, errors: ValidationError[]): Promise<void> {
-    this.log(`Validating materials for remisión ${row.remision_number}...`);
-    
     // Get all material codes from teorico and real
     const materialCodes = new Set<string>([
       ...Object.keys(row.materials_teorico || {}),
@@ -527,14 +543,10 @@ export class DebugArkikValidator {
     ]);
 
     if (materialCodes.size === 0) {
-      this.log(`⚠️  No material codes found in row`);
       return;
     }
 
-    this.log(`Detected ${materialCodes.size} material codes: ${Array.from(materialCodes).join(', ')}`);
-
     // Look for materials directly in materials table by material_code
-    this.log(`Looking for materials directly in materials table...`);
     const { data: directMaterials, error: directError } = await supabase
       .from('materials')
       .select('id, material_code, material_name, category, unit_of_measure, is_active')
@@ -543,15 +555,10 @@ export class DebugArkikValidator {
       .in('material_code', Array.from(materialCodes));
 
     if (directError) {
-      this.log(`❌ Error loading materials directly: ${directError.message}`);
-    } else {
-      this.log(`✅ Found ${directMaterials?.length || 0} materials directly by material_code`);
-      (directMaterials || []).forEach(m => {
-        this.log(`  - ${m.material_code}: ${m.material_name} (${m.category})`);
-      });
+      this.log(`Error loading materials: ${directError.message}`);
     }
 
-    // Use only direct materials lookup (arkik_material_mapping doesn't exist yet)
+    // Use only direct materials lookup
     const mappedCodes = new Set<string>();
     const materialDetails = new Map<string, any>();
 
@@ -559,13 +566,12 @@ export class DebugArkikValidator {
     (directMaterials || []).forEach(material => {
       mappedCodes.add(material.material_code);
       materialDetails.set(material.material_code, material);
-      this.log(`✅ Direct mapping: ${material.material_code} -> ${material.material_name}`);
     });
 
     const unmappedCodes = Array.from(materialCodes).filter(code => !mappedCodes.has(code));
 
     if (unmappedCodes.length > 0) {
-      this.log(`❌ Unmapped material codes: ${unmappedCodes.join(', ')}`);
+      this.log(`Unmapped material codes: ${unmappedCodes.join(', ')}`);
       errors.push({
         row_number: row.row_number,
         error_type: ArkikErrorType.MATERIAL_NOT_FOUND,
@@ -584,7 +590,7 @@ export class DebugArkikValidator {
     const inactiveMaterials = Array.from(materialDetails.values()).filter(material => !material.is_active);
 
     if (inactiveMaterials.length > 0) {
-      this.log(`⚠️  Inactive materials found: ${inactiveMaterials.map(m => m.material_code).join(', ')}`);
+      this.log(`Inactive materials found: ${inactiveMaterials.map(m => m.material_code).join(', ')}`);
       errors.push({
         row_number: row.row_number,
         error_type: ArkikErrorType.MATERIAL_NOT_FOUND,
@@ -595,6 +601,6 @@ export class DebugArkikValidator {
       });
     }
 
-    this.log(`✅ Material validation completed: ${mappedCodes.size} mapped, ${unmappedCodes.length} unmapped`);
+    this.log(`Material validation completed: ${mappedCodes.size} mapped, ${unmappedCodes.length} unmapped`);
   }
 }
