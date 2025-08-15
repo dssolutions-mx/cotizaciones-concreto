@@ -3,20 +3,16 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'https://pkjqznogflgbnwzkzmpg.supabase.co';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const SENDGRID_API_KEY = Deno.env.get('SENDGRID_API_KEY');
-
 // Email configuration
 const FROM_EMAIL = "juan.aguirre@dssolutions-mx.com";
 const FROM_NAME = "SISTEMA DE GESTION DE PEDIDOS";
-
 // Timezone offset for Mexico (GMT-6)
 const TIMEZONE_OFFSET = -6 * 60 * 60 * 1000; // -6 hours in milliseconds
-
 // Helper function to get a date in Mexico's timezone
 function getMexicoDate(date = new Date()) {
-  const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
+  const utc = date.getTime() + date.getTimezoneOffset() * 60000;
   return new Date(utc + TIMEZONE_OFFSET);
 }
-
 // Helper function to format a date as YYYY-MM-DD in Mexico's timezone
 function formatDateForDB(date = new Date()) {
   const mexicoDate = getMexicoDate(date);
@@ -25,26 +21,21 @@ function formatDateForDB(date = new Date()) {
   const day = String(mexicoDate.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
-
 serve(async (req)=>{
   try {
     // Try to get date from request parameters or default to tomorrow in Mexico's timezone
     let targetDate;
     let targetDateString;
-  
     try {
       const url = new URL(req.url);
       const dateParam = url.searchParams.get('date');
-      
       if (dateParam) {
         // Use the provided date param (format: YYYY-MM-DD)
         // Still convert to Mexico time to ensure consistent handling
-        const [year, month, day] = dateParam.split('-').map(num => parseInt(num, 10));
-        
+        const [year, month, day] = dateParam.split('-').map((num)=>parseInt(num, 10));
         if (!year || !month || !day || isNaN(year) || isNaN(month) || isNaN(day)) {
           throw new Error('Invalid date format, use YYYY-MM-DD');
         }
-        
         // Create date object (month is 0-indexed in JavaScript)
         targetDate = new Date(year, month - 1, day, 12, 0, 0); // Set to noon to avoid timezone edge cases
         targetDateString = formatDateForDB(targetDate);
@@ -53,11 +44,9 @@ serve(async (req)=>{
         const mexicoToday = getMexicoDate();
         const mexicoTomorrow = new Date(mexicoToday);
         mexicoTomorrow.setDate(mexicoTomorrow.getDate() + 1);
-        
         targetDate = mexicoTomorrow;
         targetDateString = formatDateForDB(mexicoTomorrow);
       }
-      
       console.log(`Using target date: ${targetDateString} (Mexico time)`);
     } catch (error) {
       console.error('Error processing date parameter:', error);
@@ -65,22 +54,20 @@ serve(async (req)=>{
         error: 'Invalid date format, use YYYY-MM-DD'
       }), {
         status: 400,
-        headers: { "Content-Type": "application/json" }
+        headers: {
+          "Content-Type": "application/json"
+        }
       });
     }
-    
     // Format for display in the email
     const formattedDate = targetDate.toLocaleDateString('es-MX', {
       year: 'numeric',
       month: 'long',
       day: 'numeric'
     });
-    
     console.log(`Fetching orders for date: ${targetDateString}`);
-    
     // Create a Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-    
     // Get ALL orders for target date with creator information (excluding cancelled orders)
     const { data: orders, error: ordersError } = await supabase.from('orders').select(`
         id, 
@@ -105,10 +92,7 @@ serve(async (req)=>{
           empty_truck_volume,
           empty_truck_price
         )
-      `)
-      .eq('delivery_date', targetDateString)
-      .neq('order_status', 'cancelled');  // Exclude cancelled orders
-        
+      `).eq('delivery_date', targetDateString).neq('order_status', 'cancelled'); // Exclude cancelled orders
     if (ordersError) {
       console.error('Error fetching orders:', ordersError);
       return new Response(JSON.stringify({
@@ -117,55 +101,65 @@ serve(async (req)=>{
         status: 400
       });
     }
-    
     console.log(`Found ${orders.length} orders for ${targetDateString} (excluding cancelled orders)`);
-    
     // Calculate totals for summary
     let totalConcreteVolume = 0;
     let totalPumpingVolume = 0;
     let totalApprovedConcreteVolume = 0;
     let totalApprovedPumpingVolume = 0;
     
-    orders.forEach((order: any) => {
+    orders.forEach((order) => {
       // Update the condition for what's considered a fully approved order
       // Now an order is considered fully approved if it has credit_status = 'approved'
       // Regardless of whether order_status is 'validated' or 'created'
       const isFullyApproved = order.credit_status === 'approved' && 
         (order.order_status === 'validated' || order.order_status === 'created');
       
-      order.order_items.forEach((item: any) => {
-        // Total for all orders
-        totalConcreteVolume += Number(item.volume) || 0;
+      order.order_items.forEach((item) => {
+        // ROBUST PUMP SERVICE DETECTION
+        // Check if this is a pump service item (new structure)
+        const isPumpServiceItem = item.product_type === 'SERVICIO DE BOMBEO';
         
-        // Only count pumping volume if has_pump_service is exactly true (not just truthy) AND pump_price exists and is > 0
-        // AND pump_volume exists and is > 0
-        if (item.has_pump_service === true && 
-            item.pump_price !== null && Number(item.pump_price) > 0 &&
-            item.pump_volume !== null && Number(item.pump_volume) > 0) {
-          totalPumpingVolume += Number(item.pump_volume) || 0;
-        }
+        // Check if this item has pump service (old structure)
+        const hasOldPumpService = item.has_pump_service === true && 
+          item.pump_price !== null && Number(item.pump_price) > 0 &&
+          item.pump_volume !== null && Number(item.pump_volume) > 0;
         
-        // Total for fully approved orders
-        if (isFullyApproved) {
-          totalApprovedConcreteVolume += Number(item.volume) || 0;
+        // SEPARATE VOLUME CALCULATIONS
+        if (isPumpServiceItem) {
+          // This is a pump service item - add to pump volume totals
+          const pumpVolume = Number(item.volume) || 0;
+          totalPumpingVolume += pumpVolume;
           
-          // Only count approved pumping volume if has_pump_service is exactly true AND pump_price exists and is > 0
-          // AND pump_volume exists and is > 0
-          if (item.has_pump_service === true && 
-              item.pump_price !== null && Number(item.pump_price) > 0 &&
-              item.pump_volume !== null && Number(item.pump_volume) > 0) {
-            totalApprovedPumpingVolume += Number(item.pump_volume) || 0;
+          if (isFullyApproved) {
+            totalApprovedPumpingVolume += pumpVolume;
+          }
+        } else {
+          // This is a concrete item - add to concrete volume totals
+          const concreteVolume = Number(item.volume) || 0;
+          totalConcreteVolume += concreteVolume;
+          
+          if (isFullyApproved) {
+            totalApprovedConcreteVolume += concreteVolume;
+          }
+          
+          // Also check for old-style pump service on concrete items
+          if (hasOldPumpService) {
+            const oldPumpVolume = Number(item.pump_volume) || 0;
+            totalPumpingVolume += oldPumpVolume;
+            
+            if (isFullyApproved) {
+              totalApprovedPumpingVolume += oldPumpVolume;
+            }
           }
         }
       });
     });
-    
     // Helper function to get status badge
-    const getStatusBadge = (status: any, type: any) => {
+    const getStatusBadge = (status, type)=>{
       let color = '#64748B'; // Default gray
       let bgColor = '#F1F5F9';
       let text = status || 'Pendiente';
-      
       if (type === 'credit') {
         if (status === 'approved') {
           color = '#059669'; // Green
@@ -195,53 +189,41 @@ serve(async (req)=>{
           text = 'Rechazado';
         }
       }
-      
       return `<span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; background-color: ${bgColor}; color: ${color}; font-weight: 500;">${text}</span>`;
     };
-    
     // Generate HTML table for orders
-    const ordersHtml = orders.map((order: any) => {
-      const isFullyApproved = order.credit_status === 'approved' && 
-        (order.order_status === 'validated' || order.order_status === 'created');
+    const ordersHtml = orders.map((order)=>{
+      const isFullyApproved = order.credit_status === 'approved' && (order.order_status === 'validated' || order.order_status === 'created');
       const statusClass = isFullyApproved ? '' : 'opacity: 0.85; border-left: 4px solid #FCA5A5;';
-      
-      const items = order.order_items.map((item: any) => {
+      const items = order.order_items.map((item)=>{
         // Determine if item has valid pump service
-        const hasPumpService = item.has_pump_service === true && 
-          item.pump_price !== null && Number(item.pump_price) > 0 &&
-          item.pump_volume !== null && Number(item.pump_volume) > 0;
-
+        const hasPumpService = item.has_pump_service === true && item.pump_price !== null && Number(item.pump_price) > 0 && item.pump_volume !== null && Number(item.pump_volume) > 0;
         return `
           <tr>
             <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">${item.product_type}</td>
             <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">${item.volume} m\u00b3</td>
             <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">
-              ${hasPumpService ? 
-                `<div>
+              ${hasPumpService ? `<div>
                    <span style="background-color: #E6F6FF; color: #0369A1; padding: 4px 8px; border-radius: 4px; font-size: 14px;">S\u00ed</span>
                    <span style="display: block; margin-top: 4px; font-size: 12px; color: #64748B;">${item.pump_volume} m\u00b3 @ $${Number(item.pump_price).toFixed(2)}</span>
-                 </div>` 
-                : 
-                '<span style="background-color: #F9FAFB; color: #64748B; padding: 4px 8px; border-radius: 4px; font-size: 14px;">No</span>'
-              }
+                 </div>` : '<span style="background-color: #F9FAFB; color: #64748B; padding: 4px 8px; border-radius: 4px; font-size: 14px;">No</span>'}
             </td>
             <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">${new Date(`2000-01-01T${order.delivery_time}`).toLocaleTimeString('es-MX', {
-            hour: '2-digit',
-            minute: '2-digit'
-          })}</td>
+          hour: '2-digit',
+          minute: '2-digit'
+        })}</td>
           </tr>
         `;
       }).join('');
-      
       return `
         <div style="margin-bottom: 30px; border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); background-color: #FFFFFF; ${statusClass}">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
             <h3 style="color: #0C4A6E; font-size: 18px; margin: 0;">Pedido: ${order.order_number}</h3>
             <div style="background-color: #F0F9FF; padding: 6px 12px; border-radius: 20px; color: #0369A1; font-size: 14px;">
               ${new Date(`2000-01-01T${order.delivery_time}`).toLocaleTimeString('es-MX', {
-                hour: '2-digit',
-                minute: '2-digit'
-              })}
+        hour: '2-digit',
+        minute: '2-digit'
+      })}
             </div>
           </div>
           
@@ -303,7 +285,6 @@ serve(async (req)=>{
         </div>
       `;
     }).join('');
-    
     // Create summary table HTML
     const summaryTableHtml = `
       <div style="margin: 40px 0; padding: 25px; border-radius: 8px; background-color: #F0F9FF; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
@@ -335,7 +316,6 @@ serve(async (req)=>{
         </div>
       </div>
     `;
-    
     // Get email recipients (PLANT_MANAGER, EXECUTIVE, and creators)
     const { data: managerRecipients, error: recipientsError } = await supabase.from('user_profiles').select('email, first_name, last_name, role').in('role', [
       'EXECUTIVE',
@@ -359,24 +339,18 @@ serve(async (req)=>{
       }
     }
     // Combine recipient lists and remove duplicates
-    const allEmails = Array.from(
-      new Set([
-        ...managerRecipients.map((r: any) => r.email),
-        ...creatorEmails
-      ])
-    );
-    
+    const allEmails = Array.from(new Set([
+      ...managerRecipients.map((r)=>r.email),
+      ...creatorEmails
+    ]));
     console.log(`Recipients: ${allEmails.join(', ')}`);
     console.log(`Orders count: ${orders.length}`);
-    
     // Get force flag - if present, will send email even if no orders
     const url = new URL(req.url);
     const forceSend = url.searchParams.get('force') === 'true';
-    
     // Check if we should send the email (has orders, or force flag is set)
-    const shouldSendEmail = (orders.length > 0 && allEmails.length > 0) || (forceSend && allEmails.length > 0);
+    const shouldSendEmail = orders.length > 0 && allEmails.length > 0 || forceSend && allEmails.length > 0;
     console.log(`Should send email? ${shouldSendEmail} (forceSend: ${forceSend})`);
-    
     // Prepare email content with improved styling
     const emailContent = `
       <!DOCTYPE html>
@@ -402,7 +376,13 @@ serve(async (req)=>{
                   <strong>Se han programado ${orders.length} pedidos para ${formattedDate}</strong>
                 </p>
                 <p style="margin: 5px 0 0 0; font-size: 14px; color: #64748B;">
-                  (${orders.filter((o: any) => o.credit_status === 'approved' && (o.order_status === 'validated' || o.order_status === 'created')).length} con crédito aprobado y orden validada)
+                  (${orders.filter((o)=>o.credit_status === 'approved' && (o.order_status === 'validated' || o.order_status === 'created')).length} con crédito aprobado y orden validada)
+                </p>
+              </div>
+              
+              <div style="margin-bottom: 30px; padding: 15px; background-color: #FEF2F2; border-radius: 8px; text-align: left; border-left: 4px solid #DC2626;">
+                <p style="margin: 0; font-size: 15px; color: #B91C1C;">
+                  <strong>Nota importante:</strong> Disculpe las molestias. Hemos corregido un error en el cálculo de volúmenes de bombeo. Anteriormente, estábamos usando el volumen total de concreto en lugar del volumen específico para bombeo. Los valores que ve ahora son correctos y reflejan con precisión los volúmenes para bombeo.
                 </p>
               </div>
               
@@ -455,7 +435,6 @@ serve(async (req)=>{
       </body>
       </html>
     `;
-    
     // Skip sending if no orders or recipients
     if (!shouldSendEmail) {
       console.log('Not sending email - no orders or no recipients');
@@ -468,15 +447,17 @@ serve(async (req)=>{
         }
       });
     }
-    
     console.log('Attempting to send email via SendGrid');
-    
     // Prepare email data with personalization
     const emailData = {
-      personalizations: allEmails.map(email => ({
-        to: [{ email }],
-        subject: `Programación de Entregas - ${formattedDate}`
-      })),
+      personalizations: allEmails.map((email)=>({
+          to: [
+            {
+              email
+            }
+          ],
+          subject: `Programación de Entregas - ${formattedDate}`
+        })),
       from: {
         email: FROM_EMAIL,
         name: FROM_NAME
@@ -489,7 +470,6 @@ serve(async (req)=>{
         }
       ]
     };
-    
     // Send email using SendGrid API
     const response = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',
@@ -499,7 +479,6 @@ serve(async (req)=>{
       },
       body: JSON.stringify(emailData)
     });
-    
     if (!response.ok) {
       const responseText = await response.text();
       console.error('Error sending email via SendGrid:', responseText);
@@ -510,12 +489,10 @@ serve(async (req)=>{
         status: 500
       });
     }
-    
     console.log('Email sent successfully');
-    
     // Record notifications in database
     if (orders.length > 0) {
-      const notificationRecords = allEmails.flatMap((email) => orders.map((order: any) => ({
+      const notificationRecords = allEmails.flatMap((email)=>orders.map((order)=>({
             order_id: order.id,
             notification_type: 'DAILY_SCHEDULE',
             recipient: email,
@@ -526,7 +503,6 @@ serve(async (req)=>{
         console.error('Error recording notifications:', notificationError);
       }
     }
-    
     return new Response(JSON.stringify({
       success: true,
       message: `Email sent to ${allEmails.length} recipients for ${orders.length} orders on ${targetDateString}`,
@@ -538,7 +514,7 @@ serve(async (req)=>{
         "Content-Type": "application/json"
       }
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Unhandled error:', error);
     return new Response(JSON.stringify({
       error: 'An unexpected error occurred',

@@ -261,50 +261,89 @@ export class ArkikRawParser {
   }
 
   private detectMaterialBlocks(header: string[], preHeader?: string[]): MaterialColumnBlock[] {
-    const aliases = { ...ArkikRawParser.DEFAULT_MEASURE_ALIASES, ...(this.options?.measureAliases || {}) };
-    const measures: ArkikMeasureKey[] = ['teorica', 'real'];
-
-    const measureRegex: Record<ArkikMeasureKey, RegExp> = {
-      teorica: new RegExp(`(${aliases.teorica.join('|')})`, 'i'),
-      real: new RegExp(`(${aliases.real.join('|')})`, 'i')
-    } as const;
-
-    const tokens = header.map((h, idx) => ({ h, idx }));
-    type Candidate = { code: string; measure: ArkikMeasureKey; idx: number };
-    const candidates: Candidate[] = [];
-    tokens.forEach(({ h, idx }) => {
-      const normalized = h.replace(/\s+/g, ' ').trim();
-      (['teorica', 'real'] as ArkikMeasureKey[]).forEach(m => {
-        if (measureRegex[m].test(normalized)) {
-          let code = normalized.replace(measureRegex[m], '').trim().replace(/[-–]/g, '').trim().split(' ')[0];
-          if (!code && preHeader && preHeader[idx]) {
-            const ph = preHeader[idx].trim();
-            if (ph && ph !== '-' && ph.length <= 6) {
-              code = ph;
-            }
-          }
-          if (code) candidates.push({ code: code.toUpperCase(), measure: m, idx });
-        }
-      });
-    });
-
-    const byCode = new Map<string, Candidate[]>();
-    candidates.forEach(c => {
-      if (!byCode.has(c.code)) byCode.set(c.code, []);
-      byCode.get(c.code)!.push(c);
-    });
+    console.log('[ArkikRawParser] Detecting material blocks dynamically...');
+    console.log('[ArkikRawParser] Header row:', header);
+    console.log('[ArkikRawParser] Pre-header row:', preHeader);
 
     const blocks: MaterialColumnBlock[] = [];
-    byCode.forEach((list, code) => {
-      const idxByMeasure = {} as Record<ArkikMeasureKey, number>;
-      let hasAll = true;
-      (['teorica', 'real'] as ArkikMeasureKey[]).forEach(m => {
-        const found = list.find(c => c.measure === m);
-        if (!found) hasAll = false; else idxByMeasure[m] = found.idx;
-      });
-      if (hasAll) blocks.push({ arkikCode: code, indicesByMeasure: idxByMeasure });
-    });
+    
+    // Strategy: Look for material codes in preHeader and group with following measure columns
+    if (!preHeader) {
+      console.log('[ArkikRawParser] No pre-header provided, cannot detect materials');
+      return blocks;
+    }
 
+    // Step 1: Find all potential material code positions
+    const materialCandidates: { code: string; idx: number }[] = [];
+    
+    for (let i = 0; i < preHeader.length; i++) {
+      const cell = String(preHeader[i] || '').trim();
+      
+      // Material code criteria: non-empty, not dash, reasonable length, alphanumeric pattern
+      if (cell && 
+          cell !== '-' && 
+          cell.length >= 1 && 
+          cell.length <= 10 && 
+          /^[A-Z0-9]+$/i.test(cell)) {
+        materialCandidates.push({ code: cell.toUpperCase(), idx: i });
+        console.log(`[ArkikRawParser] Material candidate: "${cell}" at column ${i}`);
+      }
+    }
+
+    console.log(`[ArkikRawParser] Found ${materialCandidates.length} material candidates`);
+
+    // Step 2: For each material candidate, scan forward to find measure columns
+    for (let i = 0; i < materialCandidates.length; i++) {
+      const { code, idx } = materialCandidates[i];
+      const nextMaterialIdx = i + 1 < materialCandidates.length ? materialCandidates[i + 1].idx : header.length;
+      
+      console.log(`[ArkikRawParser] Processing "${code}" (cols ${idx} to ${nextMaterialIdx - 1})`);
+      
+      let teoricaIdx = -1;
+      let realIdx = -1;
+      
+      // Search in the range between this material and the next one
+      for (let col = idx; col < nextMaterialIdx && col < header.length; col++) {
+        const measureCell = String(header[col] || '').trim().toLowerCase();
+        
+        if (measureCell) {
+          console.log(`[ArkikRawParser]   Column ${col}: "${measureCell}"`);
+          
+          // Match variations of "Teórica"
+          if (measureCell.match(/te[oó]rica|teorica|teo/i)) {
+            teoricaIdx = col;
+            console.log(`[ArkikRawParser]   ✅ Found Teórica at column ${col}`);
+          }
+          
+          // Match "Real"
+          if (measureCell.match(/real/i)) {
+            realIdx = col;
+            console.log(`[ArkikRawParser]   ✅ Found Real at column ${col}`);
+          }
+        }
+      }
+      
+      // Only create block if we found both required measures
+      if (teoricaIdx >= 0 && realIdx >= 0) {
+        const block: MaterialColumnBlock = {
+          arkikCode: code,
+          indicesByMeasure: {
+            teorica: teoricaIdx,
+            real: realIdx
+          }
+        };
+        blocks.push(block);
+        console.log(`[ArkikRawParser] ✅ Material block created: "${code}" -> teorica=${teoricaIdx}, real=${realIdx}`);
+      } else {
+        console.log(`[ArkikRawParser] ❌ Incomplete block for "${code}": teorica=${teoricaIdx}, real=${realIdx}`);
+      }
+    }
+
+    console.log(`[ArkikRawParser] Dynamic detection complete: ${blocks.length} blocks found`);
+    blocks.forEach(block => {
+      console.log(`[ArkikRawParser]   - ${block.arkikCode}: T=${block.indicesByMeasure.teorica}, R=${block.indicesByMeasure.real}`);
+    });
+    
     return blocks;
   }
 
