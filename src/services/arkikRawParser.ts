@@ -124,10 +124,16 @@ export class ArkikRawParser {
 
     const materials: ArkikRawRow['materials'] = {};
     materialBlocks.forEach(block => {
-      materials[block.arkikCode] = {
-        teorica: this.parseNumber(row[block.indicesByMeasure.teorica]) || 0,
-        real: this.parseNumber(row[block.indicesByMeasure.real]) || 0
-      } as Record<ArkikMeasureKey, number>;
+      const teoricaValue = this.parseNumber(row[block.indicesByMeasure.teorica]) || 0;
+      const realValue = this.parseNumber(row[block.indicesByMeasure.real]) || 0;
+      
+      // Only add material if either teorica or real has a non-zero value
+      if (teoricaValue > 0 || realValue > 0) {
+        materials[block.arkikCode] = {
+          teorica: teoricaValue,
+          real: realValue
+        } as Record<ArkikMeasureKey, number>;
+      }
     });
 
     return {
@@ -261,15 +267,18 @@ export class ArkikRawParser {
   }
 
   private detectMaterialBlocks(header: string[], preHeader?: string[]): MaterialColumnBlock[] {
-    console.log('[ArkikRawParser] Detecting material blocks dynamically...');
-    console.log('[ArkikRawParser] Header row:', header);
-    console.log('[ArkikRawParser] Pre-header row:', preHeader);
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    if (isDevelopment) {
+      console.log('[ArkikRawParser] Detecting material blocks dynamically...');
+      console.log('[ArkikRawParser] Header row:', header);
+      console.log('[ArkikRawParser] Pre-header row:', preHeader);
+    }
 
     const blocks: MaterialColumnBlock[] = [];
     
     // Strategy: Look for material codes in preHeader and group with following measure columns
     if (!preHeader) {
-      console.log('[ArkikRawParser] No pre-header provided, cannot detect materials');
+      if (isDevelopment) console.log('[ArkikRawParser] No pre-header provided, cannot detect materials');
       return blocks;
     }
 
@@ -286,18 +295,18 @@ export class ArkikRawParser {
           cell.length <= 10 && 
           /^[A-Z0-9]+$/i.test(cell)) {
         materialCandidates.push({ code: cell.toUpperCase(), idx: i });
-        console.log(`[ArkikRawParser] Material candidate: "${cell}" at column ${i}`);
+        if (isDevelopment) console.log(`[ArkikRawParser] Material candidate: "${cell}" at column ${i}`);
       }
     }
 
-    console.log(`[ArkikRawParser] Found ${materialCandidates.length} material candidates`);
+    if (isDevelopment) console.log(`[ArkikRawParser] Found ${materialCandidates.length} material candidates`);
 
     // Step 2: For each material candidate, scan forward to find measure columns
     for (let i = 0; i < materialCandidates.length; i++) {
       const { code, idx } = materialCandidates[i];
       const nextMaterialIdx = i + 1 < materialCandidates.length ? materialCandidates[i + 1].idx : header.length;
       
-      console.log(`[ArkikRawParser] Processing "${code}" (cols ${idx} to ${nextMaterialIdx - 1})`);
+      if (isDevelopment) console.log(`[ArkikRawParser] Processing "${code}" (cols ${idx} to ${nextMaterialIdx - 1})`);
       
       let teoricaIdx = -1;
       let realIdx = -1;
@@ -307,18 +316,18 @@ export class ArkikRawParser {
         const measureCell = String(header[col] || '').trim().toLowerCase();
         
         if (measureCell) {
-          console.log(`[ArkikRawParser]   Column ${col}: "${measureCell}"`);
+          if (isDevelopment) console.log(`[ArkikRawParser]   Column ${col}: "${measureCell}"`);
           
           // Match variations of "Teórica"
           if (measureCell.match(/te[oó]rica|teorica|teo/i)) {
             teoricaIdx = col;
-            console.log(`[ArkikRawParser]   ✅ Found Teórica at column ${col}`);
+            if (isDevelopment) console.log(`[ArkikRawParser]   ✅ Found Teórica at column ${col}`);
           }
           
           // Match "Real"
           if (measureCell.match(/real/i)) {
             realIdx = col;
-            console.log(`[ArkikRawParser]   ✅ Found Real at column ${col}`);
+            if (isDevelopment) console.log(`[ArkikRawParser]   ✅ Found Real at column ${col}`);
           }
         }
       }
@@ -333,16 +342,23 @@ export class ArkikRawParser {
           }
         };
         blocks.push(block);
-        console.log(`[ArkikRawParser] ✅ Material block created: "${code}" -> teorica=${teoricaIdx}, real=${realIdx}`);
+        if (isDevelopment) console.log(`[ArkikRawParser] ✅ Material block created: "${code}" -> teorica=${teoricaIdx}, real=${realIdx}`);
       } else {
-        console.log(`[ArkikRawParser] ❌ Incomplete block for "${code}": teorica=${teoricaIdx}, real=${realIdx}`);
+        if (isDevelopment) console.log(`[ArkikRawParser] ❌ Incomplete block for "${code}": teorica=${teoricaIdx}, real=${realIdx}`);
       }
     }
 
-    console.log(`[ArkikRawParser] Dynamic detection complete: ${blocks.length} blocks found`);
-    blocks.forEach(block => {
-      console.log(`[ArkikRawParser]   - ${block.arkikCode}: T=${block.indicesByMeasure.teorica}, R=${block.indicesByMeasure.real}`);
-    });
+    if (isDevelopment) {
+      console.log(`[ArkikRawParser] Dynamic detection complete: ${blocks.length} blocks found`);
+      blocks.forEach(block => {
+        console.log(`[ArkikRawParser]   - ${block.arkikCode}: T=${block.indicesByMeasure.teorica}, R=${block.indicesByMeasure.real}`);
+      });
+    }
+    
+    // Log optimization info
+    if (isDevelopment) {
+      console.log(`[ArkikRawParser] Material detection optimized: Only materials with non-zero values will be processed`);
+    }
     
     return blocks;
   }
