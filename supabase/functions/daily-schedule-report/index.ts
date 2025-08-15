@@ -1,5 +1,30 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+/**
+ * DAILY SCHEDULE REPORT EDGE FUNCTION
+ * 
+ * ROBUST PUMP SERVICE HANDLING:
+ * This function handles both the OLD and NEW pump service structures:
+ * 
+ * OLD STRUCTURE (Legacy):
+ * - Concrete items have has_pump_service=true, pump_price, pump_volume fields
+ * - Pump service is embedded within concrete items
+ * 
+ * NEW STRUCTURE (Current):
+ * - Pump service is a separate order item with product_type='SERVICIO DE BOMBEO'
+ * - Concrete items have has_pump_service=false (or null)
+ * 
+ * VOLUME CALCULATION LOGIC:
+ * - Concrete volume: Only from items where product_type != 'SERVICIO DE BOMBEO'
+ * - Pump volume: From both new pump service items AND old-style pump services on concrete items
+ * - This ensures accurate totals regardless of which structure is used
+ * 
+ * COMPATIBILITY:
+ * - Supports mixed orders (some with old structure, some with new)
+ * - Automatically detects and categorizes each item type
+ * - Maintains backward compatibility while supporting new structure
+ */
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') || 'https://pkjqznogflgbnwzkzmpg.supabase.co';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
 const SENDGRID_API_KEY = Deno.env.get('SENDGRID_API_KEY');
@@ -82,6 +107,7 @@ serve(async (req)=>{
         order_status,
         clients (business_name, contact_name, phone),
         order_items (
+          id,
           product_type,
           volume,
           unit_price,
@@ -108,12 +134,16 @@ serve(async (req)=>{
     let totalApprovedConcreteVolume = 0;
     let totalApprovedPumpingVolume = 0;
     
+    console.log('=== VOLUME CALCULATION DEBUG ===');
+    
     orders.forEach((order) => {
       // Update the condition for what's considered a fully approved order
       // Now an order is considered fully approved if it has credit_status = 'approved'
       // Regardless of whether order_status is 'validated' or 'created'
       const isFullyApproved = order.credit_status === 'approved' && 
         (order.order_status === 'validated' || order.order_status === 'created');
+      
+      console.log(`Order ${order.order_number}: credit_status=${order.credit_status}, order_status=${order.order_status}, isFullyApproved=${isFullyApproved}`);
       
       order.order_items.forEach((item) => {
         // ROBUST PUMP SERVICE DETECTION
@@ -125,6 +155,8 @@ serve(async (req)=>{
           item.pump_price !== null && Number(item.pump_price) > 0 &&
           item.pump_volume !== null && Number(item.pump_volume) > 0;
         
+        console.log(`  Item ${item.id}: product_type="${item.product_type}", volume=${item.volume}, isPumpServiceItem=${isPumpServiceItem}, hasOldPumpService=${hasOldPumpService}`);
+        
         // SEPARATE VOLUME CALCULATIONS
         if (isPumpServiceItem) {
           // This is a pump service item - add to pump volume totals
@@ -134,6 +166,8 @@ serve(async (req)=>{
           if (isFullyApproved) {
             totalApprovedPumpingVolume += pumpVolume;
           }
+          
+          console.log(`    → Added ${pumpVolume} m³ to pump volume (pump service item)`);
         } else {
           // This is a concrete item - add to concrete volume totals
           const concreteVolume = Number(item.volume) || 0;
@@ -143,6 +177,8 @@ serve(async (req)=>{
             totalApprovedConcreteVolume += concreteVolume;
           }
           
+          console.log(`    → Added ${concreteVolume} m³ to concrete volume (concrete item)`);
+          
           // Also check for old-style pump service on concrete items
           if (hasOldPumpService) {
             const oldPumpVolume = Number(item.pump_volume) || 0;
@@ -151,10 +187,19 @@ serve(async (req)=>{
             if (isFullyApproved) {
               totalApprovedPumpingVolume += oldPumpVolume;
             }
+            
+            console.log(`    → Added ${oldPumpVolume} m³ to pump volume (old-style pump service)`);
           }
         }
       });
     });
+    
+    console.log('=== FINAL TOTALS ===');
+    console.log(`Total Concrete Volume: ${totalConcreteVolume} m³`);
+    console.log(`Total Pumping Volume: ${totalPumpingVolume} m³`);
+    console.log(`Total Approved Concrete Volume: ${totalApprovedConcreteVolume} m³`);
+    console.log(`Total Approved Pumping Volume: ${totalApprovedPumpingVolume} m³`);
+    console.log('=== END DEBUG ===');
     // Helper function to get status badge
     const getStatusBadge = (status, type)=>{
       let color = '#64748B'; // Default gray
@@ -195,23 +240,47 @@ serve(async (req)=>{
     const ordersHtml = orders.map((order)=>{
       const isFullyApproved = order.credit_status === 'approved' && (order.order_status === 'validated' || order.order_status === 'created');
       const statusClass = isFullyApproved ? '' : 'opacity: 0.85; border-left: 4px solid #FCA5A5;';
-      const items = order.order_items.map((item)=>{
-        // Determine if item has valid pump service
-        const hasPumpService = item.has_pump_service === true && item.pump_price !== null && Number(item.pump_price) > 0 && item.pump_volume !== null && Number(item.pump_volume) > 0;
+      const items = order.order_items.map((item) => {
+        // ROBUST PUMP SERVICE DETECTION FOR DISPLAY
+        const isPumpServiceItem = item.product_type === 'SERVICIO DE BOMBEO';
+        const hasOldPumpService = item.has_pump_service === true && 
+          item.pump_price !== null && Number(item.pump_price) > 0 &&
+          item.pump_volume !== null && Number(item.pump_volume) > 0;
+        
+        // Determine display text and styling
+        let pumpDisplay = '';
+        let volumeDisplay = '';
+        
+        if (isPumpServiceItem) {
+          // This is a pump service item
+          pumpDisplay = `<div>
+            <span style="background-color: #E6F6FF; color: #0369A1; padding: 4px 8px; border-radius: 4px; font-size: 14px;">Servicio de Bombeo</span>
+            <span style="display: block; margin-top: 4px; font-size: 12px; color: #64748B;">${item.volume} m³</span>
+          </div>`;
+          volumeDisplay = `<span style="color: #0369A1; font-weight: 500;">${item.volume} m³</span>`;
+        } else {
+          // This is a concrete item
+          volumeDisplay = `${item.volume} m³`;
+          
+          if (hasOldPumpService) {
+            pumpDisplay = `<div>
+              <span style="background-color: #E6F6FF; color: #0369A1; padding: 4px 8px; border-radius: 4px; font-size: 14px;">Sí</span>
+              <span style="display: block; margin-top: 4px; font-size: 12px; color: #64748B;">${item.pump_volume} m³ @ $${Number(item.pump_price).toFixed(2)}</span>
+            </div>`;
+          } else {
+            pumpDisplay = '<span style="background-color: #F9FAFB; color: #64748B; padding: 4px 8px; border-radius: 4px; font-size: 14px;">No</span>';
+          }
+        }
+        
         return `
           <tr>
             <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">${item.product_type}</td>
-            <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">${item.volume} m\u00b3</td>
-            <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">
-              ${hasPumpService ? `<div>
-                   <span style="background-color: #E6F6FF; color: #0369A1; padding: 4px 8px; border-radius: 4px; font-size: 14px;">S\u00ed</span>
-                   <span style="display: block; margin-top: 4px; font-size: 12px; color: #64748B;">${item.pump_volume} m\u00b3 @ $${Number(item.pump_price).toFixed(2)}</span>
-                 </div>` : '<span style="background-color: #F9FAFB; color: #64748B; padding: 4px 8px; border-radius: 4px; font-size: 14px;">No</span>'}
-            </td>
+            <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">${volumeDisplay}</td>
+            <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">${pumpDisplay}</td>
             <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">${new Date(`2000-01-01T${order.delivery_time}`).toLocaleTimeString('es-MX', {
-          hour: '2-digit',
-          minute: '2-digit'
-        })}</td>
+              hour: '2-digit',
+              minute: '2-digit'
+            })}</td>
           </tr>
         `;
       }).join('');
@@ -380,11 +449,7 @@ serve(async (req)=>{
                 </p>
               </div>
               
-              <div style="margin-bottom: 30px; padding: 15px; background-color: #FEF2F2; border-radius: 8px; text-align: left; border-left: 4px solid #DC2626;">
-                <p style="margin: 0; font-size: 15px; color: #B91C1C;">
-                  <strong>Nota importante:</strong> Disculpe las molestias. Hemos corregido un error en el cálculo de volúmenes de bombeo. Anteriormente, estábamos usando el volumen total de concreto en lugar del volumen específico para bombeo. Los valores que ve ahora son correctos y reflejan con precisión los volúmenes para bombeo.
-                </p>
-              </div>
+
               
               <div style="margin-bottom: 30px;">
                 <div style="display: flex; align-items: center; margin-bottom: 15px;">
