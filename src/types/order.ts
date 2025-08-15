@@ -43,6 +43,7 @@ export interface Order {
   created_at: string;
   updated_at?: string | null;
   rejection_reason?: string | null;
+  plant_id?: string | null;
 }
 
 export interface OrderWithClient extends Order {
@@ -60,6 +61,17 @@ export interface OrderWithDetails extends Order {
     phone?: string | null;
   };
   products: OrderProduct[];
+  plant?: {
+    id: string;
+    name: string;
+    code: string;
+    business_unit: {
+      id: string;
+      name: string;
+      code: string;
+      vat_rate: number;
+    };
+  };
 }
 
 export type OrderStatus = 'created' | 'validated' | 'scheduled' | 'completed' | 'cancelled';

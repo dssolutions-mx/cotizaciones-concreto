@@ -1216,6 +1216,41 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
               <div className="mt-6 bg-white shadow-sm overflow-hidden sm:rounded-lg">
                 <div className="px-4 py-5 sm:px-6 bg-gray-50">
                   <h3 className="text-lg leading-6 font-medium text-gray-900">Estado de la Orden</h3>
+                  
+                  {/* Fiscal Status Indicator */}
+                  {order.plant && (
+                    <div className={`mt-4 p-3 rounded-lg border-l-4 ${
+                      order.requires_invoice 
+                        ? 'bg-green-50 border-green-400' 
+                        : 'bg-gray-50 border-gray-400'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h4 className={`text-sm font-medium ${
+                            order.requires_invoice ? 'text-green-800' : 'text-gray-800'
+                          }`}>
+                            {order.requires_invoice ? '✓ Orden FISCAL' : '✓ Orden EFECTIVO'}
+                          </h4>
+                          <p className={`text-xs ${
+                            order.requires_invoice ? 'text-green-600' : 'text-gray-600'
+                          }`}>
+                            {order.requires_invoice 
+                              ? `Con factura - IVA ${(order.plant.business_unit.vat_rate * 100).toFixed(1)}%`
+                              : 'Sin factura - No aplica IVA'
+                            }
+                          </p>
+                        </div>
+                        <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                          order.requires_invoice 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {order.requires_invoice ? 'FISCAL' : 'EFECTIVO'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
                   {shouldShowFinancialInfo() && (
                     <div className="mt-4 border-t pt-4">
                       <h4 className="text-sm font-medium text-gray-700 mb-2">Balance Actual del Cliente</h4>
@@ -1263,8 +1298,18 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       </dd>
                     </div>
                     <div className="sm:col-span-1">
-                      <dt className="text-sm font-medium text-gray-500">Requiere Factura</dt>
-                      <dd className="mt-1 text-sm text-gray-900">{order.requires_invoice ? 'Sí' : 'No'}</dd>
+                      <dt className="text-sm font-medium text-gray-500">Tipo de Orden</dt>
+                      <dd className="mt-1 text-sm text-gray-900">
+                        {order.requires_invoice ? (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            ✓ FISCAL (con factura)
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                            ✓ EFECTIVO (sin factura)
+                          </span>
+                        )}
+                      </dd>
                     </div>
                     <div className="sm:col-span-1">
                       <dt className="text-sm font-medium text-gray-500">Obra</dt>
@@ -1473,6 +1518,25 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                     <div className="text-right">
                       <p className="text-sm text-gray-500">Total:</p>
                       <p className="text-xl font-bold">{formatCurrency(order.total_amount)}</p>
+                      
+                      {/* VAT Information - Only show for fiscal orders */}
+                      {order.plant && order.requires_invoice && (
+                        <div className="mt-2 text-sm text-gray-600">
+                          <p className="text-green-600 font-medium">✓ Orden FISCAL (con factura)</p>
+                          <p>IVA ({order.plant.business_unit.vat_rate * 100}%): {formatCurrency(order.total_amount * order.plant.business_unit.vat_rate)}</p>
+                          <p className="font-medium text-blue-600">
+                            Total con IVA: {formatCurrency(order.total_amount * (1 + order.plant.business_unit.vat_rate))}
+                          </p>
+                        </div>
+                      )}
+                      
+                      {/* Show when order is NOT fiscal */}
+                      {order.plant && !order.requires_invoice && (
+                        <div className="mt-2 text-sm text-gray-500">
+                          <p className="text-gray-600">✓ Orden EFECTIVO (sin factura)</p>
+                          <p>No aplica IVA</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
