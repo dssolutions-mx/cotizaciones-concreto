@@ -112,8 +112,12 @@ export class DebugArkikValidator {
     }
     this.log(`✅ Recipe found: ID=${recipe.id}, Code=${recipe.recipe_code}, Arkik=${recipe.arkik_long_code}`);
 
-    // STEP 2: Load Unified Pricing
-    this.log(`\nSTEP 2: Loading unified pricing...`);
+    // STEP 2: Validate Materials
+    this.log(`\nSTEP 2: Validating materials...`);
+    await this.validateMaterials(row, errors);
+
+    // STEP 3: Load Unified Pricing
+    this.log(`\nSTEP 3: Loading unified pricing...`);
     const pricingOptions = await this.loadUnifiedPricing(recipe.id);
     if (pricingOptions.length === 0) {
       this.log(`❌ No pricing found for recipe ${recipe.id}`);
@@ -135,8 +139,8 @@ export class DebugArkikValidator {
       this.log(`  ${idx + 1}. ${p.source.toUpperCase()}: Client="${p.business_name}", Site="${p.construction_site}", Price=$${p.price}`);
     });
 
-    // STEP 3: Smart Client/Site Matching
-    this.log(`\nSTEP 3: Smart matching...`);
+    // STEP 4: Smart Client/Site Matching
+    this.log(`\nSTEP 4: Smart matching...`);
     const bestMatch = this.selectBestPricing(pricingOptions, row);
     this.log(`✅ Best match selected:`);
     this.log(`  - Source: ${bestMatch.pricing.source.toUpperCase()}`);
@@ -158,10 +162,13 @@ export class DebugArkikValidator {
       recipe_id: recipe.id,
       client_id: bestMatch.pricing.client_id,
       unit_price: bestMatch.pricing.price,
-      price_source: bestMatch.pricing.source,
+      price_source: bestMatch.pricing.source as any,
+      // Denormalized display fields for UI table (reusing existing optional fields)
+      prod_tecnico: (recipe.recipe_code || row.prod_tecnico) as any,
+      product_description: (recipe.arkik_long_code || row.product_description) as any,
       suggested_client_id: bestMatch.pricing.client_id,
       suggested_site_name: bestMatch.pricing.construction_site,
-      construction_site_id: resolvedConstructionSiteId || row.construction_site_id || null,
+      construction_site_id: (resolvedConstructionSiteId || row.construction_site_id || undefined) as any,
       validation_status: errors.length > 0 ? 'warning' : 'valid',
       validation_errors: errors
     };
@@ -363,7 +370,7 @@ export class DebugArkikValidator {
             client_id: quoteData.client_id,
             construction_site: quoteData.construction_site || '',
             price: Number(quote.final_price),
-            source: 'quote',
+            source: 'quotes',
             business_name: quoteData.clients.business_name,
             client_code: quoteData.clients.client_code
           });
@@ -508,5 +515,86 @@ export class DebugArkikValidator {
     }
     
     return matrix[b.length][a.length];
+  }
+
+  private async validateMaterials(row: StagingRemision, errors: ValidationError[]): Promise<void> {
+    this.log(`Validating materials for remisión ${row.remision_number}...`);
+    
+    // Get all material codes from teorico and real
+    const materialCodes = new Set<string>([
+      ...Object.keys(row.materials_teorico || {}),
+      ...Object.keys(row.materials_real || {})
+    ]);
+
+    if (materialCodes.size === 0) {
+      this.log(`⚠️  No material codes found in row`);
+      return;
+    }
+
+    this.log(`Detected ${materialCodes.size} material codes: ${Array.from(materialCodes).join(', ')}`);
+
+    // Look for materials directly in materials table by material_code
+    this.log(`Looking for materials directly in materials table...`);
+    const { data: directMaterials, error: directError } = await supabase
+      .from('materials')
+      .select('id, material_code, material_name, category, unit_of_measure, is_active')
+      .eq('plant_id', this.plantId)
+      .eq('is_active', true)
+      .in('material_code', Array.from(materialCodes));
+
+    if (directError) {
+      this.log(`❌ Error loading materials directly: ${directError.message}`);
+    } else {
+      this.log(`✅ Found ${directMaterials?.length || 0} materials directly by material_code`);
+      (directMaterials || []).forEach(m => {
+        this.log(`  - ${m.material_code}: ${m.material_name} (${m.category})`);
+      });
+    }
+
+    // Use only direct materials lookup (arkik_material_mapping doesn't exist yet)
+    const mappedCodes = new Set<string>();
+    const materialDetails = new Map<string, any>();
+
+    // Add direct materials
+    (directMaterials || []).forEach(material => {
+      mappedCodes.add(material.material_code);
+      materialDetails.set(material.material_code, material);
+      this.log(`✅ Direct mapping: ${material.material_code} -> ${material.material_name}`);
+    });
+
+    const unmappedCodes = Array.from(materialCodes).filter(code => !mappedCodes.has(code));
+
+    if (unmappedCodes.length > 0) {
+      this.log(`❌ Unmapped material codes: ${unmappedCodes.join(', ')}`);
+      errors.push({
+        row_number: row.row_number,
+        error_type: ArkikErrorType.MATERIAL_NOT_FOUND,
+        field_name: 'materials',
+        field_value: unmappedCodes.join(', '),
+        message: `Unmapped material codes for plant: ${unmappedCodes.join(', ')}`,
+        suggestion: { 
+          action: 'configure_material_mapping', 
+          unmapped_codes: unmappedCodes 
+        },
+        recoverable: true
+      });
+    }
+
+    // Check for inactive materials
+    const inactiveMaterials = Array.from(materialDetails.values()).filter(material => !material.is_active);
+
+    if (inactiveMaterials.length > 0) {
+      this.log(`⚠️  Inactive materials found: ${inactiveMaterials.map(m => m.material_code).join(', ')}`);
+      errors.push({
+        row_number: row.row_number,
+        error_type: ArkikErrorType.MATERIAL_NOT_FOUND,
+        field_name: 'materials',
+        field_value: inactiveMaterials.map(m => m.material_code).join(', '),
+        message: `Inactive materials referenced: ${inactiveMaterials.map(m => m.material_code).join(', ')}`,
+        recoverable: true
+      });
+    }
+
+    this.log(`✅ Material validation completed: ${mappedCodes.size} mapped, ${unmappedCodes.length} unmapped`);
   }
 }
