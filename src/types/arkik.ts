@@ -92,6 +92,7 @@ export interface StagingRemision {
   // Pricing (derived)
   unit_price?: number | null;
   price_source?: 'client_site' | 'client' | 'plant' | 'none';
+  quote_id?: string;
   // Suggestions (derived)
   suggested_client_id?: string;
   suggested_client_name?: string;
