@@ -65,12 +65,19 @@ interface RemisionMaterialData {
   cantidad_teorica: number;
 }
 
+// Cache for frequently accessed data
+interface DataCache {
+  plantCode: string;
+  materialsMap: Map<string, { id: string; material_name: string }>;
+  orderNumberSequence: number;
+}
+
 export async function createOrdersFromSuggestions(
   orderSuggestions: OrderSuggestion[],
   plantId: string,
   validatedRows: StagingRemision[]
 ): Promise<OrderCreationResult> {
-  console.log('[ArkikOrderCreator] Starting order creation process');
+  console.log('[ArkikOrderCreator] Starting optimized order creation process');
   console.log('[ArkikOrderCreator] Order suggestions:', orderSuggestions.length);
   console.log('[ArkikOrderCreator] Validated rows:', validatedRows.length);
 
@@ -89,6 +96,9 @@ export async function createOrdersFromSuggestions(
       throw new Error('Usuario no autenticado');
     }
 
+    // Pre-load and cache frequently accessed data
+    const dataCache = await buildDataCache(plantId, validatedRows);
+    
     // Filter suggestions that need new orders (not existing ones)
     const newOrderSuggestions = orderSuggestions.filter(suggestion => 
       !suggestion.remisiones[0].orden_original
@@ -96,19 +106,34 @@ export async function createOrdersFromSuggestions(
 
     console.log('[ArkikOrderCreator] Creating', newOrderSuggestions.length, 'new orders');
 
-    // Process each order suggestion
-    for (const suggestion of newOrderSuggestions) {
-      try {
-        const orderResult = await createSingleOrder(suggestion, plantId, user.id, validatedRows);
-        result.ordersCreated += orderResult.ordersCreated;
-        result.remisionesCreated += orderResult.remisionesCreated;
-        result.materialsProcessed += orderResult.materialsProcessed;
-        result.orderItemsCreated += orderResult.orderItemsCreated;
-        result.errors.push(...orderResult.errors);
-      } catch (error) {
-        console.error('[ArkikOrderCreator] Error creating order for suggestion:', suggestion.group_key, error);
-        result.errors.push(`Error en orden ${suggestion.group_key}: ${error.message}`);
-      }
+    // Process orders in batches for better performance
+    const batchSize = 5; // Process 5 orders at a time
+    for (let i = 0; i < newOrderSuggestions.length; i += batchSize) {
+      const batch = newOrderSuggestions.slice(i, i + batchSize);
+      const batchResults = await Promise.allSettled(
+        batch.map(suggestion => 
+          createSingleOrder(suggestion, plantId, user.id, validatedRows, dataCache)
+        )
+      );
+
+      // Aggregate batch results
+      batchResults.forEach((batchResult, index) => {
+        if (batchResult.status === 'fulfilled') {
+          const orderResult = batchResult.value;
+          result.ordersCreated += orderResult.ordersCreated;
+          result.remisionesCreated += orderResult.remisionesCreated;
+          result.materialsProcessed += orderResult.materialsProcessed;
+          result.orderItemsCreated += orderResult.orderItemsCreated;
+          result.errors.push(...orderResult.errors);
+        } else {
+          const suggestion = batch[index];
+          const errorMessage = batchResult.reason instanceof Error ? batchResult.reason.message : 'Error desconocido';
+          result.errors.push(`Error en orden ${suggestion.group_key}: ${errorMessage}`);
+        }
+      });
+
+      // Update order number sequence for next batch
+      dataCache.orderNumberSequence += batch.length;
     }
 
     console.log('[ArkikOrderCreator] Order creation completed', result);
@@ -116,15 +141,95 @@ export async function createOrdersFromSuggestions(
 
   } catch (error) {
     console.error('[ArkikOrderCreator] Fatal error in order creation:', error);
-    throw new Error(`Error fatal en creación de órdenes: ${error.message}`);
+    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+    throw new Error(`Error fatal en creación de órdenes: ${errorMessage}`);
   }
+}
+
+async function buildDataCache(plantId: string, validatedRows: StagingRemision[]): Promise<DataCache> {
+  console.log('[ArkikOrderCreator] Building data cache for plant:', plantId);
+  
+  // Get plant code
+  const { data: plant, error: plantError } = await supabase
+    .from('plants')
+    .select('code')
+    .eq('id', plantId)
+    .single();
+
+  if (plantError || !plant) {
+    throw new Error('Error obteniendo código de planta');
+  }
+
+  // Get all unique material codes from validated rows
+  const materialCodes = new Set<string>();
+  validatedRows.forEach(row => {
+    if (row.materials_teorico) {
+      Object.keys(row.materials_teorico).forEach(code => materialCodes.add(code));
+    }
+    if (row.materials_real) {
+      Object.keys(row.materials_real).forEach(code => materialCodes.add(code));
+    }
+  });
+
+  // Batch fetch all materials for this plant
+  const { data: materials, error: materialsError } = await supabase
+    .from('materials')
+    .select('id, material_name, material_code')
+    .eq('plant_id', plantId)
+    .in('material_code', Array.from(materialCodes));
+
+  if (materialsError) {
+    console.warn('[ArkikOrderCreator] Error fetching materials, will fetch individually:', materialsError);
+  }
+
+  // Build materials map
+  const materialsMap = new Map<string, { id: string; material_name: string }>();
+  if (materials) {
+    materials.forEach(material => {
+      materialsMap.set(material.material_code, {
+        id: material.id,
+        material_name: material.material_name
+      });
+    });
+  }
+
+  // Get current order number sequence
+  const currentDate = new Date();
+  const year = currentDate.getFullYear().toString().slice(-2);
+  const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+  const day = currentDate.getDate().toString().padStart(2, '0');
+  const datePrefix = `${plant.code}-${year}${month}${day}`;
+  
+  const { data: lastOrder, error: orderError } = await supabase
+    .from('orders')
+    .select('order_number')
+    .like('order_number', `${datePrefix}%`)
+    .order('order_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let sequence = 1;
+  if (lastOrder && orderError === null) {
+    const lastSequence = parseInt(lastOrder.order_number.slice(-3));
+    if (!isNaN(lastSequence)) {
+      sequence = lastSequence + 1;
+    }
+  }
+
+  console.log('[ArkikOrderCreator] Data cache built successfully');
+  return {
+    plantCode: plant.code,
+    materialsMap,
+    orderNumberSequence: sequence
+  };
 }
 
 async function createSingleOrder(
   suggestion: OrderSuggestion,
   plantId: string,
   userId: string,
-  validatedRows: StagingRemision[]
+  validatedRows: StagingRemision[],
+  dataCache: DataCache
 ): Promise<OrderCreationResult> {
   console.log('[ArkikOrderCreator] Creating single order for group:', suggestion.group_key);
   
@@ -153,12 +258,11 @@ async function createSingleOrder(
       throw new Error(`No se encontró precio unitario para la receta ${firstRemision.recipe_code}`);
     }
 
+    // Generate order number using cached sequence
+    const orderNumber = `${dataCache.plantCode}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${dataCache.orderNumberSequence.toString().padStart(3, '0')}`;
+    dataCache.orderNumberSequence++;
 
-
-    // 2. Generate order number
-    const orderNumber = await generateOrderNumber(plantId);
-
-    // 3. Calculate totals and find earliest delivery date/time
+    // Calculate totals and find earliest delivery date/time
     const totalVolume = suggestion.total_volume;
     const unitPrice = firstRemision.unit_price;
     const totalAmount = totalVolume * unitPrice;
@@ -176,26 +280,23 @@ async function createSingleOrder(
     // Ensure delivery_time is in HH:MM:SS format for database
     let deliveryTime: string;
     if (earliestRemision.hora_carga instanceof Date) {
-      // Convert Date to HH:MM:SS format
       deliveryTime = earliestRemision.hora_carga.toTimeString().split(' ')[0];
     } else if (typeof earliestRemision.hora_carga === 'string') {
-      // If it's already a string, ensure it's in correct format
       deliveryTime = earliestRemision.hora_carga;
     } else {
-      // Default fallback
       deliveryTime = '08:00:00';
     }
 
     console.log('[ArkikOrderCreator] Using earliest delivery:', deliveryDate, deliveryTime, 'from', suggestion.remisiones.length, 'remisiones');
 
-    // 4. Create order
+    // Create order
     const orderData: OrderCreationData = {
       quote_id: firstRemision.quote_id,
       client_id: firstRemision.client_id,
       construction_site: firstRemision.obra_name,
       construction_site_id: firstRemision.construction_site_id || undefined,
       order_number: orderNumber,
-      requires_invoice: false, // Default for Arkik imports
+      requires_invoice: false,
       delivery_date: deliveryDate,
       delivery_time: deliveryTime,
       special_requirements: suggestion.comentarios_externos.join(', ') || undefined,
@@ -205,7 +306,7 @@ async function createSingleOrder(
       created_by: userId,
       preliminary_amount: totalAmount,
       final_amount: totalAmount,
-      invoice_amount: undefined, // Will be calculated by trigger if needed
+      invoice_amount: undefined,
       plant_id: plantId,
       auto_generated: true,
       elemento: suggestion.comentarios_externos[0] || undefined
@@ -225,8 +326,8 @@ async function createSingleOrder(
     result.ordersCreated = 1;
     console.log('[ArkikOrderCreator] Order created with ID:', createdOrder.id);
 
-    // 5. Create order items for all unique recipes in this group
-    const uniqueRecipes = new Map<string, { recipe_id: string, recipe_code: string, volume: number, unit_price: number }>();
+    // Create order items for all unique recipes in this group
+    const uniqueRecipes = new Map<string, { recipe_id: string; recipe_code: string; volume: number; unit_price: number }>();
     
     // Group by recipe and sum volumes
     suggestion.remisiones.forEach(remision => {
@@ -248,47 +349,129 @@ async function createSingleOrder(
 
     console.log('[ArkikOrderCreator] Creating', uniqueRecipes.size, 'order items for unique recipes');
 
-    // Create one order item per unique recipe
-    for (const [recipeId, recipeData] of uniqueRecipes) {
-      const orderItemData: OrderItemData = {
+    // Batch create order items
+    const orderItemsData: OrderItemData[] = [];
+    uniqueRecipes.forEach((recipeData) => {
+      orderItemsData.push({
         order_id: createdOrder.id,
         product_type: recipeData.recipe_code,
         volume: recipeData.volume,
         unit_price: recipeData.unit_price,
         total_price: recipeData.volume * recipeData.unit_price,
-        has_pump_service: false, // Default for Arkik imports
+        has_pump_service: false,
         recipe_id: recipeData.recipe_id,
         concrete_volume_delivered: recipeData.volume
-      };
+      });
+    });
 
-      const { error: itemError } = await supabase
+    if (orderItemsData.length > 0) {
+      const { error: itemsError } = await supabase
         .from('order_items')
-        .insert(orderItemData);
+        .insert(orderItemsData);
 
-      if (itemError) {
-        console.error('[ArkikOrderCreator] Error creating order item for recipe:', recipeData.recipe_code, itemError);
-        throw new Error(`Error creando item de orden para receta ${recipeData.recipe_code}: ${itemError.message}`);
+      if (itemsError) {
+        console.error('[ArkikOrderCreator] Error creating order items:', itemsError);
+        throw new Error(`Error creando items de orden: ${itemsError.message}`);
       }
 
-      result.orderItemsCreated++;
-      console.log('[ArkikOrderCreator] Order item created for recipe:', recipeData.recipe_code, 'with volume:', recipeData.volume);
+      result.orderItemsCreated = orderItemsData.length;
+      console.log('[ArkikOrderCreator] Order items created successfully:', orderItemsData.length);
     }
 
-    // 6. Create remisiones for each validated row in this suggestion
-    for (const remisionStaging of suggestion.remisiones) {
-      try {
-        const remisionResult = await createRemisionWithMaterials(
-          createdOrder.id,
-          remisionStaging,
-          plantId,
-          validatedRows
+    // Batch create remisiones and materials
+    const remisionesData: RemisionData[] = [];
+    const allRemisionMaterials: RemisionMaterialData[] = [];
+    
+    // Prepare remisiones data
+    suggestion.remisiones.forEach(remisionStaging => {
+      const fullRemisionData = validatedRows.find(row => 
+        row.remision_number === remisionStaging.remision_number
+      );
+
+      if (fullRemisionData) {
+        let horaCarga: string;
+        if (fullRemisionData.hora_carga instanceof Date) {
+          horaCarga = fullRemisionData.hora_carga.toTimeString().split(' ')[0];
+        } else if (typeof fullRemisionData.hora_carga === 'string') {
+          horaCarga = fullRemisionData.hora_carga;
+        } else {
+          horaCarga = '08:00:00';
+        }
+
+        remisionesData.push({
+          order_id: createdOrder.id,
+          remision_number: fullRemisionData.remision_number,
+          fecha: fullRemisionData.fecha.toISOString().split('T')[0],
+          hora_carga: horaCarga,
+          volumen_fabricado: fullRemisionData.volumen_fabricado,
+          conductor: fullRemisionData.conductor || undefined,
+          unidad: undefined, // Remove this field as it doesn't exist in StagingRemision
+          tipo_remision: 'CONCRETO',
+          recipe_id: fullRemisionData.recipe_id!,
+          plant_id: plantId
+        });
+      }
+    });
+
+    // Create remisiones in batch
+    if (remisionesData.length > 0) {
+      const { data: createdRemisiones, error: remisionesError } = await supabase
+        .from('remisiones')
+        .insert(remisionesData)
+        .select('id, remision_number');
+
+      if (remisionesError) {
+        console.error('[ArkikOrderCreator] Error creating remisiones:', remisionesError);
+        throw new Error(`Error creando remisiones: ${remisionesError.message}`);
+      }
+
+      result.remisionesCreated = createdRemisiones.length;
+      console.log('[ArkikOrderCreator] Remisiones created successfully:', createdRemisiones.length);
+
+      // Prepare materials data for batch insertion
+      createdRemisiones.forEach(createdRemision => {
+        const fullRemisionData = validatedRows.find(row => 
+          row.remision_number === createdRemision.remision_number
         );
-        result.remisionesCreated += remisionResult.remisionesCreated;
-        result.materialsProcessed += remisionResult.materialsProcessed;
-        result.errors.push(...remisionResult.errors);
-      } catch (error) {
-        console.error('[ArkikOrderCreator] Error creating remision:', remisionStaging.remision_number, error);
-        result.errors.push(`Error en remisión ${remisionStaging.remision_number}: ${error.message}`);
+
+        if (fullRemisionData && fullRemisionData.materials_teorico && fullRemisionData.materials_real) {
+          const allMaterialCodes = new Set([
+            ...Object.keys(fullRemisionData.materials_teorico),
+            ...Object.keys(fullRemisionData.materials_real)
+          ]);
+
+          allMaterialCodes.forEach(materialCode => {
+            const cachedMaterial = dataCache.materialsMap.get(materialCode);
+            if (cachedMaterial) {
+              allRemisionMaterials.push({
+                remision_id: createdRemision.id,
+                material_id: cachedMaterial.id,
+                material_type: cachedMaterial.material_name,
+                cantidad_real: fullRemisionData.materials_real[materialCode] || 0,
+                cantidad_teorica: fullRemisionData.materials_teorico[materialCode] || 0
+              });
+            } else {
+              // Fallback: fetch material individually if not in cache
+              console.warn('[ArkikOrderCreator] Material not found in cache, will fetch individually:', materialCode);
+            }
+          });
+        }
+      });
+
+      // Create materials in batch
+      if (allRemisionMaterials.length > 0) {
+        const { error: materialsError } = await supabase
+          .from('remision_materiales')
+          .insert(allRemisionMaterials);
+
+        if (materialsError) {
+          console.error('[ArkikOrderCreator] Error creating materials:', materialsError);
+          // Don't throw here, just log the error
+          result.errors.push(`Error creando materiales: ${materialsError.message}`);
+        } else {
+          result.materialsProcessed = allRemisionMaterials.length;
+          console.log('[ArkikOrderCreator] Materials created successfully:', allRemisionMaterials.length);
+        }
       }
     }
 
@@ -296,206 +479,7 @@ async function createSingleOrder(
 
   } catch (error) {
     console.error('[ArkikOrderCreator] Error in createSingleOrder:', error);
-    throw error;
+    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+    throw new Error(errorMessage);
   }
-}
-
-async function createRemisionWithMaterials(
-  orderId: string,
-  remisionStaging: StagingRemision,
-  plantId: string,
-  validatedRows: StagingRemision[]
-): Promise<OrderCreationResult> {
-  console.log('[ArkikOrderCreator] Creating remision:', remisionStaging.remision_number);
-  
-  const result: OrderCreationResult = {
-    ordersCreated: 0,
-    remisionesCreated: 0,
-    materialsProcessed: 0,
-    orderItemsCreated: 0,
-    errors: []
-  };
-
-  // Find the full validated row data
-  const fullRemisionData = validatedRows.find(row => 
-    row.remision_number === remisionStaging.remision_number
-  );
-
-  if (!fullRemisionData) {
-    throw new Error(`No se encontraron datos completos para remisión ${remisionStaging.remision_number}`);
-  }
-
-  try {
-    // Create remision
-    // Ensure hora_carga is in HH:MM:SS format for database
-    let horaCarga: string;
-    if (fullRemisionData.hora_carga instanceof Date) {
-      // Convert Date to HH:MM:SS format
-      horaCarga = fullRemisionData.hora_carga.toTimeString().split(' ')[0];
-    } else if (typeof fullRemisionData.hora_carga === 'string') {
-      // If it's already a string, ensure it's in correct format
-      horaCarga = fullRemisionData.hora_carga;
-    } else {
-      // Default fallback
-      horaCarga = '08:00:00';
-    }
-
-    const remisionData: RemisionData = {
-      order_id: orderId,
-      remision_number: fullRemisionData.remision_number,
-      fecha: fullRemisionData.fecha.toISOString().split('T')[0],
-      hora_carga: horaCarga,
-      volumen_fabricado: fullRemisionData.volumen_fabricado,
-      conductor: fullRemisionData.conductor || undefined,
-      unidad: fullRemisionData.unidad || undefined,
-      tipo_remision: 'CONCRETO',
-      recipe_id: fullRemisionData.recipe_id!,
-      plant_id: plantId
-    };
-
-
-
-    const { data: createdRemision, error: remisionError } = await supabase
-      .from('remisiones')
-      .insert(remisionData)
-      .select('id')
-      .single();
-
-    if (remisionError) {
-      console.error('[ArkikOrderCreator] Error creating remision:', remisionError);
-      throw new Error(`Error creando remisión: ${remisionError.message}`);
-    }
-
-    result.remisionesCreated = 1;
-    console.log('[ArkikOrderCreator] Remision created with ID:', createdRemision.id);
-
-    // Create remision_materiales for each material
-    if (fullRemisionData.materials_teorico && fullRemisionData.materials_real) {
-      const materialsCreated = await createRemisionMaterials(
-        createdRemision.id,
-        fullRemisionData.materials_teorico,
-        fullRemisionData.materials_real,
-        plantId
-      );
-      result.materialsProcessed = materialsCreated;
-    }
-
-    return result;
-
-  } catch (error) {
-    console.error('[ArkikOrderCreator] Error in createRemisionWithMaterials:', error);
-    throw error;
-  }
-}
-
-async function createRemisionMaterials(
-  remisionId: string,
-  materialsTeoretico: Record<string, number>,
-  materialsReal: Record<string, number>,
-  plantId: string
-): Promise<number> {
-  console.log('[ArkikOrderCreator] Creating materials for remision:', remisionId);
-  
-  let materialsProcessed = 0;
-  
-  // Get unique material codes from both theoretical and real
-  const allMaterialCodes = new Set([
-    ...Object.keys(materialsTeoretico),
-    ...Object.keys(materialsReal)
-  ]);
-
-  console.log('[ArkikOrderCreator] Processing', allMaterialCodes.size, 'material codes');
-
-  for (const materialCode of allMaterialCodes) {
-    try {
-      // Get material data from materials table using material_code
-      const { data: material, error: materialError } = await supabase
-        .from('materials')
-        .select('id, material_name, material_code')
-        .eq('material_code', materialCode)
-        .eq('plant_id', plantId)
-        .maybeSingle();
-
-      if (materialError) {
-        console.error('[ArkikOrderCreator] Error fetching material:', materialCode, materialError);
-        continue; // Skip this material but continue with others
-      }
-
-      if (!material) {
-        console.warn('[ArkikOrderCreator] Material not found for code:', materialCode, 'in plant:', plantId);
-        continue; // Skip this material but continue with others
-      }
-
-      // Use the UUID from the materials table for proper relationship
-      const materialData: RemisionMaterialData = {
-        remision_id: remisionId,
-        material_id: material.id, // This is the UUID from materials table
-        material_type: material.material_name, // Keep the descriptive name
-        cantidad_real: materialsReal[materialCode] || 0,
-        cantidad_teorica: materialsTeoretico[materialCode] || 0
-      };
-
-      const { error: materialInsertError } = await supabase
-        .from('remision_materiales')
-        .insert(materialData);
-
-      if (materialInsertError) {
-        console.error('[ArkikOrderCreator] Error inserting material:', materialCode, materialInsertError);
-        continue; // Skip this material but continue with others
-      }
-
-      materialsProcessed++;
-      console.log('[ArkikOrderCreator] Material processed:', materialCode, '->', material.id, material.material_name);
-
-    } catch (error) {
-      console.error('[ArkikOrderCreator] Error processing material:', materialCode, error);
-      // Continue with next material
-    }
-  }
-
-  console.log('[ArkikOrderCreator] Materials processing completed:', materialsProcessed, 'of', allMaterialCodes.size);
-  return materialsProcessed;
-}
-
-async function generateOrderNumber(plantId: string): Promise<string> {
-  // Get plant code
-  const { data: plant, error: plantError } = await supabase
-    .from('plants')
-    .select('code')
-    .eq('id', plantId)
-    .single();
-
-  if (plantError || !plant) {
-    throw new Error('Error obteniendo código de planta');
-  }
-
-  // Get current date
-  const now = new Date();
-  const year = now.getFullYear().toString().slice(-2);
-  const month = (now.getMonth() + 1).toString().padStart(2, '0');
-  const day = now.getDate().toString().padStart(2, '0');
-
-  // Get next sequence number for today
-  const datePrefix = `${plant.code}-${year}${month}${day}`;
-  
-  const { data: lastOrder, error: orderError } = await supabase
-    .from('orders')
-    .select('order_number')
-    .like('order_number', `${datePrefix}%`)
-    .order('order_number', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  let sequence = 1;
-  if (lastOrder && orderError === null) {
-    const lastSequence = parseInt(lastOrder.order_number.slice(-3));
-    if (!isNaN(lastSequence)) {
-      sequence = lastSequence + 1;
-    }
-  }
-
-  const orderNumber = `${datePrefix}-${sequence.toString().padStart(3, '0')}`;
-  console.log('[ArkikOrderCreator] Generated order number:', orderNumber);
-  
-  return orderNumber;
 }
