@@ -13,7 +13,15 @@ import {
   CheckSquare, 
   FileCheck, 
   Search,
-  ChevronRight
+  ChevronRight,
+  Building2,
+  Beaker,
+  Shield,
+  Truck,
+  Calculator,
+  TrendingUp,
+  Database,
+  Settings
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -33,7 +41,7 @@ export default function LandingPage() {
           <div className="absolute inset-0 bg-linear-to-r from-gray-900/80 to-gray-900/60 z-10" />
           <Image 
             src="/images/dcconcretos/hero1.jpg?v=1"
-            alt="DC Concretos - Obra de construcción con concreto" 
+            alt="DC Concretos - Sistema Integral de Gestión de Plantas de Concreto" 
             fill
             className="object-cover"
             priority
@@ -59,154 +67,236 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
-            className="max-w-2xl"
+            className="max-w-3xl"
           >
             <h1 className="text-5xl font-bold mb-4 drop-shadow-lg">
-              Cotizaciones precisas de concreto en minutos, no en días
+              Sistema Integral de Gestión para Plantas de Concreto
             </h1>
             <p className="text-xl mb-8 drop-shadow-sm text-gray-100">
-              Simplifica tus procesos de cotización con nuestro sistema especializado para la industria del concreto
+              Administra tu planta de concreto de manera integral: cotizaciones, finanzas, control de calidad, recetas, operaciones y más en una sola plataforma
             </p>
-            <a href="/login">
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg"
-              >
-                Abrir Cotizador
-              </motion.button>
-            </a>
+            <div className="flex justify-center">
+              <a href="/login">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg"
+                >
+                  Acceder al Sistema
+                </motion.button>
+              </a>
+            </div>
           </motion.div>
         </div>
       </section>
 
-      {/* Panel de Acceso Rápido */}
-      <section className="py-20 bg-gray-50">
+      {/* Módulos Principales */}
+      <section id="features" className="py-20 bg-gray-50">
         <div className="container mx-auto px-6">
-          <h2 className="text-3xl font-bold text-center mb-12 text-gray-800">
-            Acceso Rápido
+          <h2 className="text-3xl font-bold text-center mb-16 text-gray-800">
+            Módulos Principales del Sistema
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[
               { 
-                title: 'Nueva Cotización', 
-                description: 'Inicia el proceso de cotización de manera rápida',
+                title: 'Gestión Financiera', 
+                description: 'Control de balances, aprobación de créditos, pagos y reportes financieros completos',
+                icon: <DollarSign className="w-8 h-8" />,
+                href: '/finanzas',
+                color: 'bg-blue-50 text-blue-600',
+                features: ['Balances de clientes', 'Aprobación de créditos', 'Reportes financieros', 'Control de pagos']
+              },
+              { 
+                title: 'Control de Calidad', 
+                description: 'Gestión de ensayos, muestreos, alertas y métricas de calidad del concreto',
+                icon: <Shield className="w-8 h-8" />,
+                href: '/quality',
+                color: 'bg-green-50 text-green-600',
+                features: ['Ensayos de resistencia', 'Muestreos', 'Alertas de calidad', 'Métricas y gráficos']
+              },
+              { 
+                title: 'Gestión de Recetas', 
+                description: 'Diseño, cálculo y administración de fórmulas de concreto con calculadora integrada',
+                icon: <Beaker className="w-8 h-8" />,
+                href: '/recipes',
+                color: 'bg-purple-50 text-purple-600',
+                features: ['Diseño de recetas', 'Calculadora de mezclas', 'Base de datos', 'Validación técnica']
+              },
+              { 
+                title: 'Cotizaciones y Ventas', 
+                description: 'Sistema completo de cotizaciones, órdenes y seguimiento de ventas',
                 icon: <FileText className="w-8 h-8" />,
-                href: '/login',
-                color: 'bg-green-50 text-green-600'
+                href: '/quotes',
+                color: 'bg-orange-50 text-orange-600',
+                features: ['Cotizaciones rápidas', 'Gestión de órdenes', 'Historial de precios', 'Seguimiento']
               },
               { 
                 title: 'Gestión de Clientes', 
-                description: 'Administra la información de tus clientes',
+                description: 'Administración integral de clientes, sitios de construcción y relaciones comerciales',
                 icon: <Users className="w-8 h-8" />,
-                href: '/login',
-                color: 'bg-green-50 text-green-600'
+                href: '/clients',
+                color: 'bg-indigo-50 text-indigo-600',
+                features: ['Base de clientes', 'Sitios de obra', 'Historial comercial', 'Gestión de contactos']
               },
               { 
-                title: 'Recetas', 
-                description: 'Administra tus recetas y fórmulas de concreto',
-                icon: <ClipboardList className="w-8 h-8" />,
-                href: '/login',
-                color: 'bg-green-50 text-green-600'
-              },
-              { 
-                title: 'Historial de Precios', 
-                description: 'Consulta el histórico de precios y cotizaciones',
-                icon: <BarChart3 className="w-8 h-8" />,
-                href: '/login',
-                color: 'bg-green-50 text-green-600'
+                title: 'Operaciones de Planta', 
+                description: 'Control de producción, remisiones, programación y logística de entrega',
+                icon: <Building2 className="w-8 h-8" />,
+                href: '/orders',
+                color: 'bg-red-50 text-red-600',
+                features: ['Programación', 'Remisiones', 'Control de producción', 'Logística']
               }
             ].map((item, index) => (
-              <a key={index} href={item.href}>
-                <motion.div
-                  whileHover={{ y: -10, boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.1)' }}
-                  className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 h-full border border-gray-100 cursor-pointer"
-                >
-                  <div className={`mb-5 p-4 rounded-full ${item.color} inline-block`}>{item.icon}</div>
-                  <h3 className="text-xl font-bold mb-3 text-gray-800">{item.title}</h3>
-                  <p className="text-gray-600">{item.description}</p>
-                </motion.div>
-              </a>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Explicación Visual del Sistema */}
-      <section className="py-20 bg-white">
-        <div className="container mx-auto px-6">
-          <h2 className="text-3xl font-bold text-center mb-16 text-gray-800">
-            Cómo Funciona
-          </h2>
-          <div className="flex flex-col lg:flex-row justify-between items-center space-y-12 lg:space-y-0 lg:space-x-4">
-            {[
-              {
-                step: 1,
-                title: 'Selección de cliente',
-                description: 'Elige o registra el cliente para la cotización',
-                icon: <User className="w-8 h-8" />,
-                color: 'bg-green-50 text-green-600'
-              },
-              {
-                step: 2,
-                title: 'Selección de receta',
-                description: 'Elige la receta de concreto adecuada',
-                icon: <ClipboardList className="w-8 h-8" />,
-                color: 'bg-green-50 text-green-600'
-              },
-              {
-                step: 3,
-                title: 'Configuración de precio',
-                description: 'Ajusta precios según volúmenes y condiciones',
-                icon: <DollarSign className="w-8 h-8" />,
-                color: 'bg-green-50 text-green-600'
-              },
-              {
-                step: 4,
-                title: 'Proceso de aprobación',
-                description: 'Envía para revisión y aprobación',
-                icon: <CheckSquare className="w-8 h-8" />,
-                color: 'bg-green-50 text-green-600'
-              },
-              {
-                step: 5,
-                title: 'Cotización finalizada',
-                description: 'Genera el documento final para el cliente',
-                icon: <FileCheck className="w-8 h-8" />,
-                color: 'bg-green-50 text-green-600'
-              }
-            ].map((step, index) => (
               <motion.div
                 key={index}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.2 }}
+                transition={{ delay: index * 0.1 }}
                 viewport={{ once: true }}
-                className="flex flex-col items-center text-center w-full lg:w-1/5"
+                whileHover={{ y: -10, boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.1)' }}
+                className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 h-full border border-gray-100 cursor-pointer"
               >
-                <div className={`mb-5 p-5 rounded-full ${step.color} shadow-md`}>
-                  {step.icon}
-                </div>
-                <h3 className="text-lg font-bold mb-2 text-gray-800">{step.title}</h3>
-                <p className="text-sm text-gray-600">{step.description}</p>
-                {index < 4 && (
-                  <div className="hidden lg:block mt-6 text-green-500 text-2xl">
-                    <ChevronRight className="h-8 w-8" />
-                  </div>
-                )}
+                <div className={`mb-5 p-4 rounded-full ${item.color} inline-block`}>{item.icon}</div>
+                <h3 className="text-xl font-bold mb-3 text-gray-800">{item.title}</h3>
+                <p className="text-gray-600 mb-4">{item.description}</p>
+                <ul className="space-y-2 mb-6">
+                  {item.features.map((feature, fIndex) => (
+                    <li key={fIndex} className="text-sm text-gray-500 flex items-center">
+                      <CheckSquare className="w-4 h-4 mr-2 text-green-500" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+                <a href={item.href} className="text-green-600 hover:text-green-700 font-medium inline-flex items-center">
+                  Explorar módulo <ChevronRight className="w-4 h-4 ml-1" />
+                </a>
               </motion.div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Búsqueda Centralizada con Imagen de Fondo */}
+      {/* Características Avanzadas */}
+      <section className="py-20 bg-white">
+        <div className="container mx-auto px-6">
+          <h2 className="text-3xl font-bold text-center mb-16 text-gray-800">
+            Características Avanzadas
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div>
+              <h3 className="text-2xl font-bold mb-6 text-gray-800">
+                Tecnología de Vanguardia
+              </h3>
+              <div className="space-y-6">
+                {[
+                  {
+                    icon: <Database className="w-6 h-6" />,
+                    title: 'Base de Datos Integrada',
+                    description: 'Sistema unificado que conecta todos los módulos para una gestión coherente'
+                  },
+                  {
+                    icon: <Calculator className="w-6 h-6" />,
+                    title: 'Calculadora de Mezclas',
+                    description: 'Herramienta avanzada para el diseño y cálculo de fórmulas de concreto'
+                  },
+                  {
+                    icon: <TrendingUp className="w-6 h-6" />,
+                    title: 'Métricas en Tiempo Real',
+                    description: 'Dashboard con indicadores clave de rendimiento actualizados constantemente'
+                  },
+                  {
+                    icon: <Settings className="w-6 h-6" />,
+                    title: 'Configuración Multiplanta',
+                    description: 'Soporte para múltiples plantas con configuraciones independientes'
+                  }
+                ].map((feature, index) => (
+                  <div key={index} className="flex items-start space-x-4">
+                    <div className="flex-shrink-0 w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center text-green-600">
+                      {feature.icon}
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-gray-800 mb-2">{feature.title}</h4>
+                      <p className="text-gray-600">{feature.description}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="relative">
+              <Image 
+                src="/images/dcconcretos/hero2.jpg?v=1" 
+                alt="Sistema de Gestión DC Concretos" 
+                width={600} 
+                height={400} 
+                className="rounded-lg shadow-xl"
+              />
+              <div className="absolute -bottom-6 -left-6 bg-white p-6 rounded-lg shadow-lg">
+                <div className="flex items-center space-x-3">
+                  <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                  <span className="text-sm font-medium text-gray-700">Sistema Activo</span>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">24/7 Monitoreo</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Beneficios del Sistema */}
+      <section className="py-20 bg-gray-50">
+        <div className="container mx-auto px-6">
+          <h2 className="text-3xl font-bold text-center mb-16 text-gray-800">
+            Beneficios del Sistema Integral
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            {[
+              {
+                icon: <Truck className="w-8 h-8" />,
+                title: 'Eficiencia Operativa',
+                description: 'Reduce tiempos de proceso y optimiza la producción'
+              },
+              {
+                icon: <DollarSign className="w-8 h-8" />,
+                title: 'Control Financiero',
+                description: 'Mantén el control total de tus finanzas y créditos'
+              },
+              {
+                icon: <Shield className="w-8 h-8" />,
+                title: 'Calidad Garantizada',
+                description: 'Asegura la calidad del concreto con controles rigurosos'
+              },
+              {
+                icon: <BarChart3 className="w-8 h-8" />,
+                title: 'Toma de Decisiones',
+                description: 'Información en tiempo real para decisiones estratégicas'
+              }
+            ].map((benefit, index) => (
+              <motion.div
+                key={index}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+                viewport={{ once: true }}
+                className="text-center"
+              >
+                <div className="bg-white p-6 rounded-full w-20 h-20 mx-auto mb-4 flex items-center justify-center text-green-600 shadow-md">
+                  {benefit.icon}
+                </div>
+                <h3 className="text-lg font-semibold mb-2 text-gray-800">{benefit.title}</h3>
+                <p className="text-gray-600 text-sm">{benefit.description}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
       <section className="py-20 relative">
         <div className="absolute inset-0 z-0">
           <div className="absolute inset-0 bg-gray-900/80 z-10" />
           <Image 
-            src="/images/dcconcretos/hero2.jpg?v=1" 
-            alt="DC Concretos - Concreto" 
+            src="/images/dcconcretos/hero1.jpg?v=1" 
+            alt="DC Concretos - Bienvenido al Sistema" 
             fill
             className="object-cover"
           />
@@ -214,35 +304,21 @@ export default function LandingPage() {
         <div className="container mx-auto px-6 relative z-20">
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="text-3xl font-bold mb-6 text-white">
-              Búsqueda Centralizada
+              Bienvenido al Sistema de Gestión
             </h2>
             <p className="text-gray-200 mb-10 text-lg">
-              Encuentra rápidamente lo que necesitas en un solo lugar
+              Accede a todas las herramientas que necesitas para tu trabajo diario en la planta
             </p>
-            <form action="/dashboard" method="get">
-              <motion.div
-                whileHover={{ scale: 1.02 }}
-                className="bg-white p-4 rounded-lg shadow-lg flex items-center border border-gray-100"
-              >
-                <input
-                  type="text"
-                  name="search"
-                  placeholder="Buscar clientes, cotizaciones o recetas..."
-                  className="flex-1 py-3 px-5 outline-hidden text-gray-700"
-                />
-                <button 
-                  type="submit"
-                  className="bg-green-600 hover:bg-green-700 text-white py-3 px-6 rounded-md ml-2 transition-colors duration-300 shadow-md flex items-center"
+            <div className="flex justify-center">
+              <a href="/login">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg"
                 >
-                  <Search className="w-5 h-5 mr-2" />
-                  Buscar
-                </button>
-              </motion.div>
-            </form>
-            <div className="mt-5 text-sm text-gray-200 flex flex-wrap justify-center gap-3">
-              <span className="bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full">Cliente ABC</span>
-              <span className="bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full">Cotización #123</span>
-              <span className="bg-white/20 backdrop-blur-xs px-3 py-1 rounded-full">Receta Concreto 300</span>
+                  Acceder al Sistema
+                </motion.button>
+              </a>
             </div>
           </div>
         </div>
@@ -263,30 +339,31 @@ export default function LandingPage() {
                 />
               </div>
               <p className="mt-3 text-gray-400 text-sm">
-                Soluciones precisas para la industria del concreto
+                Sistema Integral de Gestión para Plantas de Concreto
               </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center md:text-left">
               <div>
-                <h4 className="font-bold mb-3 text-gray-300">Enlaces Rápidos</h4>
+                <h4 className="font-bold mb-3 text-gray-300">Módulos Principales</h4>
+                <ul className="space-y-2 text-gray-400">
+                  <li><Link href="/finanzas" className="hover:text-white transition-colors">Finanzas</Link></li>
+                  <li><Link href="/quality" className="hover:text-white transition-colors">Calidad</Link></li>
+                  <li><Link href="/recipes" className="hover:text-white transition-colors">Recetas</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h4 className="font-bold mb-3 text-gray-300">Acceso</h4>
                 <ul className="space-y-2 text-gray-400">
                   <li><Link href="/login" className="hover:text-white transition-colors">Iniciar Sesión</Link></li>
-                  <li><Link href="/quotes" className="hover:text-white transition-colors">Cotizaciones</Link></li>
+                  <li><Link href="/dashboard" className="hover:text-white transition-colors">Dashboard</Link></li>
                   <li><Link href="/clients" className="hover:text-white transition-colors">Clientes</Link></li>
                 </ul>
               </div>
               <div>
-                <h4 className="font-bold mb-3 text-gray-300">Recursos</h4>
+                <h4 className="font-bold mb-3 text-gray-300">Empresa</h4>
                 <ul className="space-y-2 text-gray-400">
-                  <li><Link href="/help" className="hover:text-white transition-colors">Centro de Ayuda</Link></li>
                   <li><Link href="/contact" className="hover:text-white transition-colors">Contacto</Link></li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-bold mb-3 text-gray-300">Legal</h4>
-                <ul className="space-y-2 text-gray-400">
-                  <li><Link href="/terms" className="hover:text-white transition-colors">Términos de Uso</Link></li>
-                  <li><Link href="/privacy" className="hover:text-white transition-colors">Privacidad</Link></li>
+                  <li><Link href="/help" className="hover:text-white transition-colors">Soporte</Link></li>
                 </ul>
               </div>
             </div>

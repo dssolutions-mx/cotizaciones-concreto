@@ -13,6 +13,8 @@ import { CheckIcon, Cross2Icon } from '@radix-ui/react-icons';
 
 interface PendingApprovalTabProps {
   onDataSaved?: () => void;
+  statusFilter?: string;
+  clientFilter?: string;
 }
 
 interface SupabasePendingQuote {
@@ -75,7 +77,7 @@ interface PendingQuote {
   }>;
 }
 
-export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabProps) {
+export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFilter }: PendingApprovalTabProps) {
   const [quotes, setQuotes] = useState<PendingQuote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(0);
@@ -113,7 +115,7 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
       setIsLoading(true);
       setError(null);
       
-      const { data, error } = await supabase
+      let query = supabase
         .from('quotes')
         .select(`
           id,
@@ -143,16 +145,27 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
             )
           )
         `)
-        .eq('status', 'PENDING_APPROVAL')
-        .order('created_at', { ascending: false })
-        .range(page * quotesPerPage, (page + 1) * quotesPerPage - 1);
+        .eq('status', 'PENDING_APPROVAL');
+
+      // Apply client filter if provided
+      if (clientFilter && clientFilter.trim()) {
+        // When filtering, we need to fetch all data to handle pagination correctly
+        // We'll apply the filter after fetching and then handle pagination client-side
+        console.log('Client filter applied, fetching all data for proper pagination');
+      } else {
+        // Only apply pagination when not filtering
+        query = query.range(page * quotesPerPage, (page + 1) * quotesPerPage - 1);
+      }
+
+      const { data, error } = await query
+        .order('created_at', { ascending: false });
       
       if (error) {
         throw error;
       }
       
       // Transform the data to match our PendingQuote interface
-      const transformedQuotes: PendingQuote[] = (data || []).map(quote => {
+      let transformedQuotes: PendingQuote[] = (data || []).map(quote => {
         // Handle potential array or object response format
         const clientData = Array.isArray(quote.clients) 
           ? quote.clients[0] 
@@ -199,26 +212,52 @@ export default function PendingApprovalTab({ onDataSaved }: PendingApprovalTabPr
         };
       });
       
-      setQuotes(transformedQuotes);
-      
-      // Count total quotes for pagination
-      const { count, error: countError } = await supabase
-        .from('quotes')
-        .select('id', { count: 'exact' })
-        .eq('status', 'PENDING_APPROVAL');
-      
-      if (countError) {
-        console.error('Error counting quotes:', countError);
+      // Apply client-side filtering if clientFilter is provided
+      if (clientFilter && clientFilter.trim()) {
+        const filterLower = clientFilter.toLowerCase();
+        transformedQuotes = transformedQuotes.filter(quote => 
+          quote.client?.business_name?.toLowerCase().includes(filterLower) ||
+          quote.client?.client_code?.toLowerCase().includes(filterLower)
+        );
+        
+        // Handle pagination for filtered results
+        const startIndex = page * quotesPerPage;
+        const endIndex = startIndex + quotesPerPage;
+        transformedQuotes = transformedQuotes.slice(startIndex, endIndex);
+        
+        // Set total count to the total filtered results (before pagination)
+        const totalFiltered = (data || []).filter(quote => {
+          const clientData = Array.isArray(quote.clients) ? quote.clients[0] : quote.clients;
+          return clientData && (
+            clientData.business_name?.toLowerCase().includes(filterLower) ||
+            clientData.client_code?.toLowerCase().includes(filterLower)
+          );
+        }).length;
+        setTotalQuotes(totalFiltered);
       } else {
-        setTotalQuotes(count || 0);
+        // Count total quotes for pagination
+        let countQuery = supabase
+          .from('quotes')
+          .select('id', { count: 'exact' })
+          .eq('status', 'PENDING_APPROVAL');
+        
+        const { count, error: countError } = await countQuery;
+        
+        if (countError) {
+          console.error('Error counting quotes:', countError);
+        } else {
+          setTotalQuotes(count || 0);
+        }
       }
+      
+      setQuotes(transformedQuotes);
     } catch (err) {
       setError('Error al cargar las cotizaciones pendientes de aprobación');
       console.error(err);
     } finally {
       setIsLoading(false);
     }
-  }, [page, quotesPerPage]);
+  }, [page, quotesPerPage, clientFilter]);
 
   useEffect(() => {
     fetchPendingQuotes();
