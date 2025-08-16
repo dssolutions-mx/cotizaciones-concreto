@@ -15,6 +15,68 @@ export enum ArkikErrorType {
   PRODUCT_CODE_MISMATCH = 'PRODUCT_CODE_MISMATCH'
 }
 
+// Enhanced Status Processing Types
+export enum RemisionStatus {
+  TERMINADO = 'terminado',
+  TERMINADO_INCOMPLETO = 'terminado incompleto', 
+  CANCELADO = 'cancelado',
+  PENDIENTE = 'pendiente'
+}
+
+export enum StatusProcessingAction {
+  PROCEED_NORMAL = 'proceed_normal',        // Terminado - process normally
+  REASSIGN_TO_EXISTING = 'reassign_to_existing',  // Reassign to another remision
+  MARK_AS_WASTE = 'mark_as_waste'          // Mark materials as waste
+}
+
+export interface RemisionReassignment {
+  source_remision_id: string;
+  source_remision_number: string;
+  target_remision_id: string;
+  target_remision_number: string;
+  materials_to_transfer: Record<string, number>;
+  reason: string;
+  created_at: Date;
+}
+
+export interface WasteMaterial {
+  id: string;
+  session_id: string;
+  remision_number: string;
+  material_code: string;
+  material_name?: string;
+  theoretical_amount: number;
+  actual_amount: number;
+  waste_amount: number;
+  waste_reason: 'cancelled' | 'incomplete' | 'quality_issue' | 'other';
+  plant_id: string;
+  fecha: Date;
+  created_at: Date;
+}
+
+export interface StatusProcessingDecision {
+  remision_id: string;
+  remision_number: string;
+  original_status: string;
+  action: StatusProcessingAction;
+  target_remision_number?: string;
+  materials_to_transfer?: Record<string, number>;
+  waste_reason?: string;
+  notes?: string;
+}
+
+export interface StatusProcessingResult {
+  total_remisiones: number;
+  processed_remisiones: number;
+  normal_remisiones: number;
+  reassigned_remisiones: number;
+  waste_remisiones: number;
+  excluded_remisiones: number;
+  decisions: StatusProcessingDecision[];
+  waste_materials: WasteMaterial[];
+  reassignments: RemisionReassignment[];
+}
+
 export interface ArkikRawRow {
   orden: string | null;
   remision: string;
@@ -99,6 +161,12 @@ export interface StagingRemision {
   suggested_client_name?: string;
   suggested_site_id?: string;
   suggested_site_name?: string;
+  // Status Processing (enhanced)
+  status_processing_action?: StatusProcessingAction;
+  target_remision_for_reassignment?: string;
+  is_excluded_from_import?: boolean;
+  waste_reason?: string;
+  status_processing_notes?: string;
 }
 
 export interface OrderSuggestion {

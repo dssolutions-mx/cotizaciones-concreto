@@ -5,7 +5,8 @@ import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Lo
 import { usePlantContext } from '@/contexts/PlantContext';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
 import { ArkikRawParser } from '@/services/arkikRawParser';
-import type { StagingRemision, OrderSuggestion, ValidationError } from '@/types/arkik';
+import type { StagingRemision, OrderSuggestion, ValidationError, StatusProcessingDecision, StatusProcessingResult } from '@/types/arkik';
+import StatusProcessingDialog from './StatusProcessingDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -36,7 +37,17 @@ export default function ArkikProcessor() {
   const [stagingData, setStagingData] = useState<StagingRemision[]>([]);
   const [orderSuggestions, setOrderSuggestions] = useState<OrderSuggestion[]>([]);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
-  const [currentStep, setCurrentStep] = useState<'validation' | 'grouping' | 'confirmation'>('validation');
+  const [currentStep, setCurrentStep] = useState<'validation' | 'status-processing' | 'grouping' | 'confirmation'>('validation');
+  
+  // Status Processing state
+  const [statusProcessingDecisions, setStatusProcessingDecisions] = useState<StatusProcessingDecision[]>([]);
+  const [statusProcessingResult, setStatusProcessingResult] = useState<StatusProcessingResult | null>(null);
+  const [problemRemisiones, setProblemRemisiones] = useState<StagingRemision[]>([]);
+  const [potentialReassignments, setPotentialReassignments] = useState<Map<string, StagingRemision[]>>(new Map());
+  
+  // Dialog state
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const [selectedRemisionForProcessing, setSelectedRemisionForProcessing] = useState<StagingRemision | null>(null);
   
   // Statistics
   const [stats, setStats] = useState({
@@ -55,6 +66,121 @@ export default function ArkikProcessor() {
     const file = event.target.files?.[0];
     if (file) {
       setFile(file);
+    }
+  };
+
+  const handleStatusProcessing = async () => {
+    if (!result?.validated || !currentPlant) return;
+    
+    try {
+      // Import the status processor service
+      const { ArkikStatusProcessor } = await import('@/services/arkikStatusProcessor');
+      const processor = new ArkikStatusProcessor(currentPlant.id, crypto.randomUUID());
+      
+      // Analyze remision statuses
+      const analysis = processor.analyzeRemisionStatuses(result.validated);
+      
+      // Identify problem remisiones (non-terminado)
+      const problems = [...analysis.incompletos, ...analysis.cancelados];
+      setProblemRemisiones(problems);
+      
+      // Detect potential reassignments
+      if (problems.length > 0) {
+        const reassignments = processor.detectPotentialReassignments(problems, result.validated);
+        setPotentialReassignments(reassignments);
+      }
+      
+      // Move to status processing step
+      setCurrentStep('status-processing');
+      
+    } catch (error) {
+      console.error('Error in status processing:', error);
+      alert('Error al procesar estados');
+    }
+  };
+
+  const handleStatusDecision = (remisionId: string) => {
+    if (!result?.validated) return;
+    
+    const remision = result.validated.find(r => r.id === remisionId);
+    if (!remision) return;
+    
+    setSelectedRemisionForProcessing(remision);
+    setStatusDialogOpen(true);
+  };
+
+  const handleSaveStatusDecision = (decision: StatusProcessingDecision) => {
+    // Add or update the decision
+    setStatusProcessingDecisions(prev => {
+      const existing = prev.findIndex(d => d.remision_id === decision.remision_id);
+      if (existing >= 0) {
+        const updated = [...prev];
+        updated[existing] = decision;
+        return updated;
+      } else {
+        return [...prev, decision];
+      }
+    });
+
+    // Remove the remision from problem remisiones if it has a decision
+    setProblemRemisiones(prev => 
+      prev.filter(r => r.id !== decision.remision_id)
+    );
+  };
+
+  const handleProcessStatusDecisions = async () => {
+    if (!result?.validated || !currentPlant) return;
+    
+    setLoading(true);
+    
+    try {
+      // Import services
+      const { ArkikStatusProcessor } = await import('@/services/arkikStatusProcessor');
+      const { ArkikStatusStorage } = await import('@/services/arkikStatusStorage');
+      
+      const currentSessionId = crypto.randomUUID();
+      const processor = new ArkikStatusProcessor(currentPlant.id, currentSessionId);
+      const storage = new ArkikStatusStorage();
+      
+      // Apply decisions to the data
+      const processingResult = processor.applyProcessingDecisions(result.validated, statusProcessingDecisions);
+      setStatusProcessingResult(processingResult);
+      
+      // Save to database using Supabase MCP
+      if (processingResult.waste_materials.length > 0) {
+        await storage.saveWasteMaterials(processingResult.waste_materials);
+      }
+      
+      if (processingResult.reassignments.length > 0) {
+        await storage.saveRemisionReassignments(processingResult.reassignments, currentSessionId, currentPlant.id);
+      }
+      
+      // Save session information
+      await storage.saveImportSession({
+        sessionId: currentSessionId,
+        plantId: currentPlant.id,
+        fileName: file?.name || 'unknown',
+        fileSize: file?.size,
+        result: processingResult
+      });
+      
+      console.log('Status processing completed:', {
+        normal: processingResult.normal_remisiones,
+        reassigned: processingResult.reassigned_remisiones,
+        waste: processingResult.waste_remisiones,
+        wasteRecords: processingResult.waste_materials.length,
+        reassignmentRecords: processingResult.reassignments.length
+      });
+      
+      // Continue to grouping with the processed data
+      handleOrderGrouping();
+      
+    } catch (error) {
+      console.error('Error processing status decisions:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      alert(`Error al procesar decisiones de estado:\n${errorMessage}`);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -196,7 +322,7 @@ export default function ArkikProcessor() {
           orden_original: undefined,
           prod_tecnico: String(row.prod_tecnico || ''),
           quote_id: undefined,
-          estatus: 'pendiente',
+          estatus: String(row.estatus || 'pendiente'),
           suggested_order_group: ''
         } as StagingRemision));
 
@@ -419,9 +545,18 @@ export default function ArkikProcessor() {
           
           <ChevronRight className="h-5 w-5 text-gray-300" />
           
+          <div className={`flex items-center ${currentStep === 'status-processing' ? 'text-blue-600' : 'text-gray-400'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'status-processing' ? 'border-blue-600 bg-blue-600 text-white' : ['grouping', 'confirmation'].includes(currentStep) ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
+              {currentStep === 'status-processing' ? '2' : ['grouping', 'confirmation'].includes(currentStep) ? <CheckCircle2 className="h-5 w-5" /> : '2'}
+            </div>
+            <span className="ml-2 font-medium">Estados</span>
+          </div>
+          
+          <ChevronRight className="h-5 w-5 text-gray-300" />
+          
           <div className={`flex items-center ${currentStep === 'grouping' ? 'text-blue-600' : 'text-gray-400'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'grouping' ? 'border-blue-600 bg-blue-600 text-white' : currentStep === 'confirmation' ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
-              {currentStep === 'grouping' ? '2' : currentStep === 'confirmation' ? <CheckCircle2 className="h-5 w-5" /> : '2'}
+              {currentStep === 'grouping' ? '3' : currentStep === 'confirmation' ? <CheckCircle2 className="h-5 w-5" /> : '3'}
             </div>
             <span className="ml-2 font-medium">Agrupación</span>
           </div>
@@ -430,7 +565,7 @@ export default function ArkikProcessor() {
           
           <div className={`flex items-center ${currentStep === 'confirmation' ? 'text-blue-600' : 'text-gray-400'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'confirmation' ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300'}`}>
-              {currentStep === 'confirmation' ? '3' : '3'}
+              {currentStep === 'confirmation' ? '4' : '4'}
             </div>
             <span className="ml-2 font-medium">Confirmación</span>
           </div>
@@ -550,13 +685,182 @@ export default function ArkikProcessor() {
                 Tiempo de procesamiento: {result.processingTime}ms
               </div>
               <Button
-                onClick={handleOrderGrouping}
+                onClick={handleStatusProcessing}
                 disabled={result.validated.filter(r => r.validation_status === 'error').length > 0}
                 className="bg-green-600 hover:bg-green-700"
               >
-                Continuar a Agrupación
+                Continuar a Procesamiento de Estados
                 <ChevronRight className="ml-2 h-4 w-4" />
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Status Processing Step */}
+      {currentStep === 'status-processing' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-orange-500" />
+              Procesamiento de Estados
+            </CardTitle>
+            <CardDescription>
+              Revisar y procesar remisiones con estados especiales (canceladas, incompletas)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              {/* Status Summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-amber-50 rounded-lg">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600">
+                    {result?.validated.filter(r => r.estatus.toLowerCase().includes('terminado') && !r.estatus.toLowerCase().includes('incompleto')).length || 0}
+                  </div>
+                  <div className="text-sm text-green-700">Terminadas</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-600">
+                    {result?.validated.filter(r => r.estatus.toLowerCase().includes('incompleto')).length || 0}
+                  </div>
+                  <div className="text-sm text-orange-700">Incompletas</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-red-600">
+                    {result?.validated.filter(r => r.estatus.toLowerCase().includes('cancelado')).length || 0}
+                  </div>
+                  <div className="text-sm text-red-700">Canceladas</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {problemRemisiones.length}
+                  </div>
+                  <div className="text-sm text-blue-700">Requieren Atención</div>
+                </div>
+              </div>
+
+              {/* Problem Remisiones */}
+              {problemRemisiones.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Remisiones que Requieren Decisión ({problemRemisiones.length})
+                  </h3>
+                  
+                  <div className="space-y-3">
+                    {problemRemisiones.map((remision) => (
+                      <Card key={remision.id} className="border-l-4 border-l-orange-500">
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3 mb-2">
+                                <Badge variant="outline" className="font-mono">
+                                  #{remision.remision_number}
+                                </Badge>
+                                <Badge 
+                                  variant={remision.estatus.toLowerCase().includes('cancelado') ? 'destructive' : 'secondary'}
+                                  className="capitalize"
+                                >
+                                  {remision.estatus}
+                                </Badge>
+                              </div>
+                              
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+                                <div>
+                                  <span className="font-medium text-gray-700">Cliente:</span>
+                                  <div className="text-gray-600">{remision.cliente_name}</div>
+                                </div>
+                                <div>
+                                  <span className="font-medium text-gray-700">Obra:</span>
+                                  <div className="text-gray-600">{remision.obra_name}</div>
+                                </div>
+                                <div>
+                                  <span className="font-medium text-gray-700">Fecha:</span>
+                                  <div className="text-gray-600">{remision.fecha.toLocaleDateString('es-MX')}</div>
+                                </div>
+                                <div>
+                                  <span className="font-medium text-gray-700">Volumen:</span>
+                                  <div className="text-gray-600">{remision.volumen_fabricado.toFixed(1)} m³</div>
+                                </div>
+                              </div>
+
+                              {/* Potential Reassignments */}
+                              {potentialReassignments.has(remision.id) && (
+                                <div className="bg-blue-50 p-3 rounded-lg mb-3">
+                                  <div className="text-sm font-medium text-blue-900 mb-2">
+                                    Posibles Reasignaciones:
+                                  </div>
+                                  <div className="space-y-1">
+                                    {potentialReassignments.get(remision.id)?.slice(0, 3).map((candidate, idx) => (
+                                      <div key={idx} className="text-xs text-blue-700 flex justify-between">
+                                        <span>#{candidate.remision_number}</span>
+                                        <span>{candidate.fecha.toLocaleDateString('es-MX')} - {candidate.volumen_fabricado.toFixed(1)}m³</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="flex flex-col gap-2 ml-4">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-300"
+                                onClick={() => handleStatusDecision(remision.id)}
+                              >
+                                Procesar Remisión
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-center gap-4 pt-4 border-t">
+                <Button 
+                  onClick={() => setCurrentStep('validation')}
+                  variant="outline"
+                  className="px-6"
+                >
+                  ← Volver a Validación
+                </Button>
+                
+                {problemRemisiones.length === 0 && (
+                  <Button 
+                    onClick={handleOrderGrouping}
+                    className="bg-green-600 hover:bg-green-700 text-white px-8 py-3"
+                  >
+                    Continuar a Agrupación →
+                  </Button>
+                )}
+                
+                {problemRemisiones.length > 0 && statusProcessingDecisions.length > 0 && (
+                  <Button 
+                    onClick={handleProcessStatusDecisions}
+                    disabled={loading}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Guardando Decisiones...
+                      </>
+                    ) : (
+                      'Aplicar Decisiones y Continuar →'
+                    )}
+                  </Button>
+                )}
+
+                {problemRemisiones.length > 0 && statusProcessingDecisions.length === 0 && (
+                  <div className="text-sm text-gray-600 text-center">
+                    Procesa todas las remisiones problemáticas para continuar
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -1193,6 +1497,18 @@ export default function ArkikProcessor() {
           </CardContent>
         </Card>
       )}
+
+      {/* Status Processing Dialog */}
+      <StatusProcessingDialog
+        isOpen={statusDialogOpen}
+        onClose={() => {
+          setStatusDialogOpen(false);
+          setSelectedRemisionForProcessing(null);
+        }}
+        remision={selectedRemisionForProcessing}
+        potentialTargets={selectedRemisionForProcessing ? potentialReassignments.get(selectedRemisionForProcessing.id) || [] : []}
+        onSaveDecision={handleSaveStatusDecision}
+      />
     </div>
   );
 }
