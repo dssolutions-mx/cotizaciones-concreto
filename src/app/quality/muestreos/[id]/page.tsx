@@ -33,13 +33,15 @@ import {
   Truck,
   Beaker,
   CheckCircle,
-  Clock
+  Clock,
+  Plus
 } from 'lucide-react';
 import { fetchMuestreoById } from '@/services/qualityService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { MuestreoWithRelations } from '@/types/quality';
 import Link from 'next/link';
 import { formatDate, createSafeDate } from '@/lib/utils';
+import AddSampleModal from '@/components/quality/muestreos/AddSampleModal';
 
 export default function MuestreoDetailPage() {
   const params = useParams();
@@ -48,28 +50,34 @@ export default function MuestreoDetailPage() {
   const [muestreo, setMuestreo] = useState<MuestreoWithRelations | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAddSampleModal, setShowAddSampleModal] = useState(false);
   
-  useEffect(() => {
-    const fetchMuestreoDetails = async () => {
-      if (!params.id) return;
-      
-      try {
-        setLoading(true);
-        setError(null);
-        
-        const muestreoId = Array.isArray(params.id) ? params.id[0] : params.id;
-        const data = await fetchMuestreoById(muestreoId);
-        setMuestreo(data);
-      } catch (err) {
-        console.error('Error al cargar detalle de muestreo:', err);
-        setError('No se pudo cargar la información del muestreo');
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchMuestreoDetails = async () => {
+    if (!params.id) return;
     
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const muestreoId = Array.isArray(params.id) ? params.id[0] : params.id;
+      const data = await fetchMuestreoById(muestreoId);
+      setMuestreo(data);
+    } catch (err) {
+      console.error('Error al cargar detalle de muestreo:', err);
+      setError('No se pudo cargar la información del muestreo');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchMuestreoDetails();
   }, [params.id]);
+
+  const handleSampleAdded = () => {
+    // Refresh muestreo data after adding a sample
+    fetchMuestreoDetails();
+  };
 
   // Verificar roles permitidos
   const allowedRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER', 'EXECUTIVE'];
@@ -428,13 +436,26 @@ export default function MuestreoDetailPage() {
       {/* Listado de muestras */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Beaker className="h-5 w-5 text-primary" />
-            Muestras
-          </CardTitle>
-          <CardDescription>
-            Listado de especímenes para ensayo
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Beaker className="h-5 w-5 text-primary" />
+                Muestras
+              </CardTitle>
+              <CardDescription>
+                Listado de especímenes para ensayo
+              </CardDescription>
+            </div>
+            {/* Debug: mostrar siempre por ahora */}
+            <Button 
+              onClick={() => setShowAddSampleModal(true)}
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Agregar Muestra
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {muestreo.muestras && muestreo.muestras.length > 0 ? (
@@ -535,6 +556,17 @@ export default function MuestreoDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Modal para agregar nueva muestra */}
+      {muestreo && (
+        <AddSampleModal
+          isOpen={showAddSampleModal}
+          onClose={() => setShowAddSampleModal(false)}
+          muestreoId={muestreo.id}
+          muestreoDate={muestreo.fecha_muestreo}
+          onSampleAdded={handleSampleAdded}
+        />
+      )}
     </div>
   );
 } 
