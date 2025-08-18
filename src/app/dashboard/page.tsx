@@ -623,6 +623,42 @@ const PendingQuotesList = ({ isLoading }: ChartProps) => {
 // Create a DashboardContent component to be wrapped in Suspense
 function DashboardContent() {
   const { profile } = useAuthBridge();
+  
+  // Restrict access for QUALITY_TEAM users
+  if (profile?.role === 'QUALITY_TEAM') {
+    return (
+      <div className="container mx-auto py-16 px-4">
+        <div className="max-w-3xl mx-auto bg-yellow-50 border border-yellow-300 rounded-lg p-8">
+          <div className="flex items-center gap-3 mb-4">
+            <AlertTriangle className="h-8 w-8 text-yellow-600" />
+            <h2 className="text-2xl font-semibold text-yellow-800">Acceso Restringido</h2>
+          </div>
+          
+          <p className="text-lg mb-4 text-yellow-700">
+            No tienes permiso para acceder al dashboard principal.
+          </p>
+          
+          <div className="bg-white p-4 rounded-lg border border-yellow-200 mb-4">
+            <h3 className="font-medium text-gray-800 mb-2">¿Por qué?</h3>
+            <p className="text-gray-600">
+              Los usuarios del equipo de calidad tienen acceso exclusivo al módulo de calidad.
+            </p>
+          </div>
+          
+          <div className="flex gap-2">
+            <Link 
+              href="/quality"
+              className="inline-flex items-center px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors"
+            >
+              <Beaker className="h-4 w-4 mr-2" />
+              Ir al Módulo de Calidad
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
   const { dashboardData, isLoading: isLoadingDashboard, isError } = useDashboardData();
   const { quotesData, pendingQuotes, isLoading: isLoadingQuotes } = useQuotesData();
   const { salesData, isLoading: isLoadingSales } = useSalesData();

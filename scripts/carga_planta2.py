@@ -71,6 +71,60 @@ def limpiar_valor_numerico(valor):
     except (ValueError, TypeError):
         return None
 
+def normalizar_tipo_y_medidas(tipo_original: str):
+    """
+    Normaliza el tipo de muestra a valores esperados (CUBO, CILINDRO, VIGA)
+    y determina medidas asociadas según el texto del CSV.
+
+    Retorna (tipo_normalizado, medidas_dict)
+    medidas_dict puede contener:
+      - cube_side_cm
+      - diameter_cm
+      - beam_width_cm, beam_height_cm, beam_span_cm (si se conocen)
+    """
+    if not tipo_original:
+        return "CUBO", {"cube_side_cm": None, "diameter_cm": None,
+                         "beam_width_cm": None, "beam_height_cm": None, "beam_span_cm": None}
+
+    texto = tipo_original.strip().upper()
+
+    # CILINDRO
+    if "CILINDRO" in texto:
+        diametro = 10.0 if "10" in texto else None
+        return "CILINDRO", {
+            "diameter_cm": diametro,
+            "cube_side_cm": None,
+            "beam_width_cm": None,
+            "beam_height_cm": None,
+            "beam_span_cm": None
+        }
+
+    # CUBO
+    if "CUBO" in texto:
+        lado = 15.0 if "15" in texto else (10.0 if "10" in texto else None)
+        return "CUBO", {
+            "cube_side_cm": lado,
+            "diameter_cm": None,
+            "beam_width_cm": None,
+            "beam_height_cm": None,
+            "beam_span_cm": None
+        }
+
+    # VIGA
+    if "VIGA" in texto:
+        # Si no hay medidas provistas en CSV, se dejan nulas (no adivinar)
+        return "VIGA", {
+            "beam_width_cm": None,
+            "beam_height_cm": None,
+            "beam_span_cm": None,
+            "cube_side_cm": None,
+            "diameter_cm": None
+        }
+
+    # Predeterminar a CUBO sin medidas si no coincide
+    return "CUBO", {"cube_side_cm": None, "diameter_cm": None,
+                     "beam_width_cm": None, "beam_height_cm": None, "beam_span_cm": None}
+
 def procesar_csv_planta2():
     """
     Procesa el archivo CSV de Planta 2 y genera SQL para carga masiva
@@ -179,7 +233,8 @@ def procesar_csv_planta2():
                     for i, edad in enumerate(edades):
                         if edad is not None and edad > 0:
                             identificacion = f"M{i+1}"
-                            tipo_muestra = tipos_muestra[i] or "CUBO 10 X 10"
+                            tipo_muestra_original = tipos_muestra[i] or "CUBO 10 X 10"
+                            tipo_normalizado, medidas = normalizar_tipo_y_medidas(tipo_muestra_original)
                             carga = cargas[i]
                             
                             # Calcular fecha programada de ensayo
@@ -192,12 +247,18 @@ def procesar_csv_planta2():
                             muestra_data = {
                                 'remision': remision,
                                 'identificacion': identificacion,
-                                'tipo_muestra': tipo_muestra,
+                                'tipo_muestra': tipo_normalizado,
                                 'fecha_programada_ensayo': str(fecha_ensayo),
                                 'fecha_programada_ensayo_ts': fecha_ensayo_ts,
                                 'estado': estado,
                                 'plant_id': PLANT_P2_ID,
-                                'event_timezone': 'America/Mexico_City'
+                                'event_timezone': 'America/Mexico_City',
+                                # Medidas
+                                'cube_side_cm': medidas.get('cube_side_cm'),
+                                'diameter_cm': medidas.get('diameter_cm'),
+                                'beam_width_cm': medidas.get('beam_width_cm'),
+                                'beam_height_cm': medidas.get('beam_height_cm'),
+                                'beam_span_cm': medidas.get('beam_span_cm')
                             }
                             
                             muestras_data.append(muestra_data)
@@ -302,6 +363,7 @@ def generar_sql_carga(muestreos_data, muestras_data, ensayos_data):
             f.write("INSERT INTO public.muestras (\n")
             f.write("  muestreo_id, identificacion, tipo_muestra, fecha_programada_ensayo,\n")
             f.write("  fecha_programada_ensayo_ts, estado, plant_id, event_timezone,\n")
+            f.write("  cube_side_cm, diameter_cm, beam_width_cm, beam_height_cm, beam_span_cm,\n")
             f.write("  created_at, updated_at\n")
             f.write(")\n")
             f.write("SELECT \n")
@@ -313,6 +375,11 @@ def generar_sql_carga(muestreos_data, muestras_data, ensayos_data):
             f.write("  datos.estado,\n")
             f.write("  datos.plant_id::uuid,\n")
             f.write("  datos.event_timezone,\n")
+            f.write("  datos.cube_side_cm::numeric,\n")
+            f.write("  datos.diameter_cm::numeric,\n")
+            f.write("  datos.beam_width_cm::numeric,\n")
+            f.write("  datos.beam_height_cm::numeric,\n")
+            f.write("  datos.beam_span_cm::numeric,\n")
             f.write("  now() as created_at,\n")
             f.write("  now() as updated_at\n")
             f.write("FROM (\n")
@@ -327,13 +394,18 @@ def generar_sql_carga(muestreos_data, muestras_data, ensayos_data):
                     f"'{muestra['fecha_programada_ensayo_ts']}'",
                     f"'{muestra['estado']}'",
                     f"'{muestra['plant_id']}'",
-                    f"'{muestra['event_timezone']}'"
+                    f"'{muestra['event_timezone']}'",
+                    (str(muestra['cube_side_cm']) if muestra['cube_side_cm'] is not None else "NULL"),
+                    (str(muestra['diameter_cm']) if muestra['diameter_cm'] is not None else "NULL"),
+                    (str(muestra['beam_width_cm']) if muestra['beam_width_cm'] is not None else "NULL"),
+                    (str(muestra['beam_height_cm']) if muestra['beam_height_cm'] is not None else "NULL"),
+                    (str(muestra['beam_span_cm']) if muestra['beam_span_cm'] is not None else "NULL")
                 ]
                 
                 separador = "," if i < len(muestras_data) - 1 else ""
                 f.write(f"    ({', '.join(valores)}){separador}\n")
             
-            f.write(") AS datos(remision, identificacion, tipo_muestra, fecha_programada_ensayo, fecha_programada_ensayo_ts, estado, plant_id, event_timezone)\n")
+            f.write(") AS datos(remision, identificacion, tipo_muestra, fecha_programada_ensayo, fecha_programada_ensayo_ts, estado, plant_id, event_timezone, cube_side_cm, diameter_cm, beam_width_cm, beam_height_cm, beam_span_cm)\n")
             f.write("JOIN public.muestreos m ON m.manual_reference = datos.remision AND m.planta = 'P2';\n\n")
             f.write(f"-- Muestras creadas: {len(muestras_data)}\n\n")
         
@@ -407,6 +479,110 @@ def generar_sql_carga(muestreos_data, muestras_data, ensayos_data):
         f.write("-- FIN DEL SCRIPT\n")
     
     print(f"✅ Script SQL generado: {archivo_sql}")
+
+    # Además, generar lotes pequeños para aplicar vía API sin exceder límites
+    generar_sql_lotes(muestras_data, ensayos_data)
+
+def _chunk_list(data_list, chunk_size):
+    for i in range(0, len(data_list), chunk_size):
+        yield data_list[i:i+chunk_size]
+
+def generar_sql_lotes(muestras_data, ensayos_data, chunk_size: int = 40):
+    """
+    Genera archivos SQL en lotes para insertar muestras (con medidas) y ensayos
+    en bloques pequeños que no excedan los límites de payload del API.
+    """
+    # Lotes de muestras
+    if muestras_data:
+        for idx, lote in enumerate(_chunk_list(muestras_data, chunk_size), start=1):
+            nombre_archivo = f"muestras_p2_lote_{idx}.sql"
+            with open(nombre_archivo, 'w', encoding='utf-8') as f:
+                f.write("-- Lote de MUESTRAS P2 con medidas\n\n")
+                f.write("INSERT INTO public.muestras (\n")
+                f.write("  muestreo_id, identificacion, tipo_muestra, fecha_programada_ensayo,\n")
+                f.write("  fecha_programada_ensayo_ts, estado, plant_id, event_timezone,\n")
+                f.write("  cube_side_cm, diameter_cm, beam_width_cm, beam_height_cm, beam_span_cm,\n")
+                f.write("  created_at, updated_at\n")
+                f.write(")\n")
+                f.write("SELECT \n")
+                f.write("  m.id as muestreo_id,\n")
+                f.write("  datos.identificacion,\n")
+                f.write("  datos.tipo_muestra,\n")
+                f.write("  datos.fecha_programada_ensayo::date,\n")
+                f.write("  datos.fecha_programada_ensayo_ts::timestamptz,\n")
+                f.write("  datos.estado,\n")
+                f.write("  datos.plant_id::uuid,\n")
+                f.write("  datos.event_timezone,\n")
+                f.write("  datos.cube_side_cm::numeric,\n")
+                f.write("  datos.diameter_cm::numeric,\n")
+                f.write("  datos.beam_width_cm::numeric,\n")
+                f.write("  datos.beam_height_cm::numeric,\n")
+                f.write("  datos.beam_span_cm::numeric,\n")
+                f.write("  now() as created_at,\n")
+                f.write("  now() as updated_at\n")
+                f.write("FROM (\n")
+                f.write("  VALUES\n")
+
+                for i, muestra in enumerate(lote):
+                    valores = [
+                        f"'{muestra['remision']}'",
+                        f"'{muestra['identificacion']}'",
+                        f"'{muestra['tipo_muestra']}'",
+                        f"'{muestra['fecha_programada_ensayo']}'",
+                        f"'{muestra['fecha_programada_ensayo_ts']}'",
+                        f"'{muestra['estado']}'",
+                        f"'{muestra['plant_id']}'",
+                        f"'{muestra['event_timezone']}'",
+                        (str(muestra['cube_side_cm']) if muestra['cube_side_cm'] is not None else "NULL"),
+                        (str(muestra['diameter_cm']) if muestra['diameter_cm'] is not None else "NULL"),
+                        (str(muestra['beam_width_cm']) if muestra['beam_width_cm'] is not None else "NULL"),
+                        (str(muestra['beam_height_cm']) if muestra['beam_height_cm'] is not None else "NULL"),
+                        (str(muestra['beam_span_cm']) if muestra['beam_span_cm'] is not None else "NULL")
+                    ]
+                    separador = "," if i < len(lote) - 1 else ""
+                    f.write(f"    ({', '.join(valores)}){separador}\n")
+
+                f.write(") AS datos(remision, identificacion, tipo_muestra, fecha_programada_ensayo, fecha_programada_ensayo_ts, estado, plant_id, event_timezone, cube_side_cm, diameter_cm, beam_width_cm, beam_height_cm, beam_span_cm)\n")
+                f.write("JOIN public.muestreos m ON m.manual_reference = datos.remision AND m.planta = 'P2';\n")
+
+    # Lotes de ensayos
+    if ensayos_data:
+        for idx, lote in enumerate(_chunk_list(ensayos_data, chunk_size), start=1):
+            nombre_archivo = f"ensayos_p2_lote_{idx}.sql"
+            with open(nombre_archivo, 'w', encoding='utf-8') as f:
+                f.write("-- Lote de ENSAYOS P2\n\n")
+                f.write("INSERT INTO public.ensayos (\n")
+                f.write("  muestra_id, fecha_ensayo, fecha_ensayo_ts, carga_kg,\n")
+                f.write("  plant_id, event_timezone, created_at, updated_at\n")
+                f.write(")\n")
+                f.write("SELECT \n")
+                f.write("  mu.id as muestra_id,\n")
+                f.write("  datos.fecha_ensayo::date,\n")
+                f.write("  datos.fecha_ensayo_ts::timestamptz,\n")
+                f.write("  datos.carga_kg::numeric,\n")
+                f.write("  datos.plant_id::uuid,\n")
+                f.write("  datos.event_timezone,\n")
+                f.write("  now() as created_at,\n")
+                f.write("  now() as updated_at\n")
+                f.write("FROM (\n")
+                f.write("  VALUES\n")
+
+                for i, ensayo in enumerate(lote):
+                    valores = [
+                        f"'{ensayo['remision']}'",
+                        f"'{ensayo['identificacion']}'",
+                        f"'{ensayo['fecha_ensayo']}'",
+                        f"'{ensayo['fecha_ensayo_ts']}'",
+                        str(ensayo['carga_kg']),
+                        f"'{ensayo['plant_id']}'",
+                        f"'{ensayo['event_timezone']}'"
+                    ]
+                    separador = "," if i < len(lote) - 1 else ""
+                    f.write(f"    ({', '.join(valores)}){separador}\n")
+
+                f.write(") AS datos(remision, identificacion, fecha_ensayo, fecha_ensayo_ts, carga_kg, plant_id, event_timezone)\n")
+                f.write("JOIN public.muestreos m ON m.manual_reference = datos.remision AND m.planta = 'P2'\n")
+                f.write("JOIN public.muestras mu ON mu.muestreo_id = m.id AND mu.identificacion = datos.identificacion;\n")
 
 if __name__ == "__main__":
     print("🚀 Iniciando procesamiento de carga masiva - Planta 2")

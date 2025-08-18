@@ -20,7 +20,23 @@ type TabId = typeof TABS[number]['id'];
 export default function PricesPage() {
   const [activeTab, setActiveTab] = useState<TabId>('materials');
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const { hasRole } = useAuthBridge();
+  const { hasRole, profile } = useAuthBridge();
+
+  // Block QUALITY_TEAM from accessing prices page
+  if (profile?.role === 'QUALITY_TEAM') {
+    return (
+      <div className="container mx-auto py-16 px-4">
+        <div className="max-w-3xl mx-auto bg-yellow-50 border border-yellow-300 rounded-lg p-8">
+          <div className="flex items-center gap-3 mb-4">
+            <AccessDeniedMessage 
+              action="acceder a la gestión de precios" 
+              requiredRoles={['PLANT_MANAGER', 'EXECUTIVE', 'SALES_AGENT']}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Define which roles can edit which tabs
   const canEditMaterialPrices = hasRole(['QUALITY_TEAM', 'EXECUTIVE']);
