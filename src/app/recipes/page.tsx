@@ -5,17 +5,26 @@ import { RecipeList } from '@/components/recipes/RecipeList';
 import { RecipeSearchModal } from '@/components/recipes/RecipeSearchModal';
 import Link from 'next/link';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { usePlantContext } from '@/contexts/PlantContext';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleIndicator from '@/components/ui/RoleIndicator';
 import { Plus, Search, Calculator } from 'lucide-react';
 import { AddRecipeModal } from '@/components/recipes/AddRecipeModal';
 import { RecipeSearchResult } from '@/types/recipes';
 import { buttonVariants } from '@/components/ui/button';
+import PlantRestrictedAccess from '@/components/quality/PlantRestrictedAccess';
+import { isQualityTeamInRestrictedPlant } from '@/app/layout';
 
 export default function RecipesPage() {
-  const { hasRole } = useAuthBridge();
+  const { hasRole, profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
+
+  // Block QUALITY_TEAM from restricted plants (P002, P003, P004) from accessing recipes
+  if (isQualityTeamInRestrictedPlant(profile?.role, currentPlant?.code)) {
+    return <PlantRestrictedAccess plantCode={currentPlant?.code || ''} sectionName="la gestión de recetas" />;
+  }
 
   const handleRecipeAdded = () => {
     // This will trigger a refetch in the RecipeList component

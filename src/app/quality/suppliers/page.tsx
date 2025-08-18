@@ -8,11 +8,20 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { usePlantContext } from '@/contexts/PlantContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useToast } from '@/components/ui/use-toast';
+import PlantRestrictedAccess from '@/components/quality/PlantRestrictedAccess';
+import { isQualityTeamInRestrictedPlant } from '@/app/layout';
 
 export default function SuppliersPage() {
   const { availablePlants, currentPlant } = usePlantContext();
+  const { profile } = useAuthBridge();
   const { toast } = useToast();
+
+  // Block QUALITY_TEAM from restricted plants (P002, P003, P004) from accessing suppliers
+  if (isQualityTeamInRestrictedPlant(profile?.role, currentPlant?.code)) {
+    return <PlantRestrictedAccess plantCode={currentPlant?.code || ''} sectionName="la gestión de proveedores" />;
+  }
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [form, setForm] = useState({ name: '', provider_number: '', plant_id: '' as string | '' , is_active: true, provider_letter: '', internal_code: '' });

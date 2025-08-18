@@ -38,6 +38,9 @@ import {
 } from 'lucide-react';
 import type { DateRange } from "react-day-picker";
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { usePlantContext } from '@/contexts/PlantContext';
+import PlantRestrictedAccess from '@/components/quality/PlantRestrictedAccess';
+import { isQualityTeamInRestrictedPlant } from '@/app/layout';
 import { 
   fetchResistenciaReporteData,
   fetchEficienciaReporteData,
@@ -164,6 +167,12 @@ const getResistenciaForDisplay = (muestras: any[], fallbackValue: number = 0): n
 
 export default function ReportesPage() {
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
+
+  // Block QUALITY_TEAM from restricted plants (P002, P003, P004) from accessing reports
+  if (isQualityTeamInRestrictedPlant(profile?.role, currentPlant?.code)) {
+    return <PlantRestrictedAccess plantCode={currentPlant?.code || ''} sectionName="los reportes de calidad" />;
+  }
   
   // Estados para filtrado
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
