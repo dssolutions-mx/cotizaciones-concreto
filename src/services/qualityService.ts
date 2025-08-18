@@ -1448,6 +1448,110 @@ async function crearMuestrasPorEdadFallback(
   }
 }
 
+// Function to add a single sample to an existing muestreo
+export async function addSampleToMuestreo(
+  muestreoId: string,
+  sampleData: {
+    tipo_muestra: 'CILINDRO' | 'VIGA' | 'CUBO';
+    fecha_programada_ensayo: Date | string;
+    diameter_cm?: number;
+    cube_side_cm?: number;
+    age_days?: number;
+    age_hours?: number;
+  }
+) {
+  try {
+    // Get muestreo details to generate proper identification
+    const { data: muestreo, error: muestreoError } = await supabase
+      .from('muestreos')
+      .select('*')
+      .eq('id', muestreoId)
+      .single();
+      
+    if (muestreoError) throw muestreoError;
+    if (!muestreo) throw new Error('Muestreo no encontrado');
+
+    // Get existing samples count to generate proper identification
+    const { data: existingSamples, error: samplesError } = await supabase
+      .from('muestras')
+      .select('identificacion')
+      .eq('muestreo_id', muestreoId)
+      .order('created_at', { ascending: true });
+      
+    if (samplesError) throw samplesError;
+
+    // Generate identification based on existing pattern
+    const baseDateStr = formatDate(muestreo.fecha_muestreo, 'yyyy-MM-dd');
+    const counter = (existingSamples?.length || 0) + 1;
+    const idClas = sampleData.tipo_muestra === 'VIGA' ? 'MR' : 'FC';
+    const diameterSuffix = sampleData.tipo_muestra === 'CILINDRO' && sampleData.diameter_cm ? `-D${sampleData.diameter_cm}` : '';
+    const cubeSuffix = sampleData.tipo_muestra === 'CUBO' && sampleData.cube_side_cm ? `-S${sampleData.cube_side_cm}` : '';
+    const identification = `${idClas}-${baseDateStr.replace(/-/g, '')}-${String(counter).padStart(3, '0')}${diameterSuffix}${cubeSuffix}`;
+
+    // Calculate programmed date if age is provided
+    let programmedDate = sampleData.fecha_programada_ensayo;
+    if (typeof sampleData.age_hours === 'number' && isFinite(sampleData.age_hours)) {
+      const baseDate = new Date(muestreo.fecha_muestreo);
+      baseDate.setHours(baseDate.getHours() + sampleData.age_hours);
+      programmedDate = baseDate;
+    } else if (typeof sampleData.age_days === 'number' && isFinite(sampleData.age_days)) {
+      const baseDate = new Date(muestreo.fecha_muestreo);
+      baseDate.setDate(baseDate.getDate() + sampleData.age_days);
+      programmedDate = baseDate;
+    }
+
+    const sampleToInsert = {
+      id: uuidv4(),
+      muestreo_id: muestreoId,
+      tipo_muestra: sampleData.tipo_muestra,
+      identificacion: identification,
+      fecha_programada_ensayo: formatDate(programmedDate, 'yyyy-MM-dd'),
+      fecha_programada_ensayo_ts: typeof programmedDate === 'string' ? new Date(programmedDate).toISOString() : programmedDate.toISOString(),
+      event_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      estado: 'PENDIENTE',
+      created_at: new Date().toISOString(),
+      diameter_cm: sampleData.tipo_muestra === 'CILINDRO' ? (sampleData.diameter_cm ?? 15) : null,
+      cube_side_cm: sampleData.tipo_muestra === 'CUBO' ? (sampleData.cube_side_cm ?? 15) : null,
+    };
+
+    // Insert the sample
+    const { data: insertedSample, error: insertError } = await supabase
+      .from('muestras')
+      .insert(sampleToInsert)
+      .select('id')
+      .single();
+      
+    if (insertError) throw insertError;
+
+    // Create alert for the test
+    if (insertedSample) {
+      const testDate = typeof programmedDate === 'string' ? new Date(programmedDate) : programmedDate;
+      const alertDate = new Date(testDate.getTime() - 24 * 3600 * 1000); // 24 hours before
+      
+      const { error: alertError } = await supabase
+        .from('alertas_ensayos')
+        .insert({
+          muestra_id: insertedSample.id,
+          fecha_alerta: formatDate(alertDate, 'yyyy-MM-dd'),
+          fecha_alerta_ts: alertDate.toISOString(),
+          event_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          estado: 'PENDIENTE',
+          tipo: 'ENSAYO_PROGRAMADO'
+        });
+        
+      if (alertError) {
+        console.warn('Error creating alert:', alertError);
+        // Don't throw here, sample creation was successful
+      }
+    }
+
+    return insertedSample;
+  } catch (error) {
+    handleError(error, `addSampleToMuestreo:${muestreoId}`);
+    throw new Error('Error al agregar muestra al muestreo');
+  }
+}
+
 // Reports functions
 export async function fetchResistenciaReporteData(fechaDesde?: string | Date, fechaHasta?: string | Date, planta?: string, clasificacion?: string) {
   try {
