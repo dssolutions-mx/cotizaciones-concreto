@@ -203,7 +203,7 @@ export default function MuestreosPage() {
   const hasAccess = profile && allowedRoles.includes(profile.role);
   
   // Plantas disponibles para el select local (si se quiere usar por código)
-  const plantas = ['P1', 'P2', 'P3', 'P4'];
+  const plantas = ['P001', 'P002', 'P003', 'P004'];
   
   // Clasificaciones
   const clasificaciones = ['FC', 'MR'];

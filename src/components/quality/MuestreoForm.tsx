@@ -41,7 +41,7 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
   const [remisionDate, setRemisionDate] = useState<string | null>(null);
   const [recipeDetails, setRecipeDetails] = useState<{ code: string; clasificacion: 'FC' | 'MR'; edadGarantia: number } | null>(null);
   const [formData, setFormData] = useState({
-    planta: 'P1' as 'P1' | 'P2' | 'P3' | 'P4',
+    planta: 'P001' as 'P001' | 'P002' | 'P003' | 'P004',
     revenimientoSitio: '',
     masaUnitaria: '',
     temperaturaAmbiente: '',
@@ -274,12 +274,12 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
                   <SelectTrigger id="planta">
                     <SelectValue placeholder="Seleccione una planta" />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="P1">Planta 1</SelectItem>
-                    <SelectItem value="P2">Planta 2</SelectItem>
-                    <SelectItem value="P3">Planta 3</SelectItem>
-                    <SelectItem value="P4">Planta 4</SelectItem>
-                  </SelectContent>
+                                                    <SelectContent>
+                                    <SelectItem value="P001">Planta 1</SelectItem>
+                                    <SelectItem value="P002">Planta 2</SelectItem>
+                                    <SelectItem value="P003">Planta 3</SelectItem>
+                                    <SelectItem value="P004">Planta 4</SelectItem>
+                                  </SelectContent>
                 </Select>
               </div>
               
