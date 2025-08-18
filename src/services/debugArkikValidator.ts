@@ -378,35 +378,64 @@ export class DebugArkikValidator {
   }
 
   private async loadConstructionSitesForClients(clientNames: string[]): Promise<Map<string, Map<string, any>>> {
-    const isDevelopment = process.env.NODE_ENV === 'development';
     const sitesMap = new Map<string, Map<string, any>>();
     
-    if (clientNames.length === 0) return sitesMap;
-
-    // First get all clients by business name
-    const { data: clients, error: clientsError } = await supabase
-      .from('clients')
-      .select('id, business_name')
-      .ilike('business_name', `%${clientNames.join('%|%')}%`);
-
-    if (clientsError || !clients) {
-      console.error('[DebugArkikValidator] Error loading clients:', clientsError);
+    console.log('[DebugArkikValidator] === LOADING CONSTRUCTION SITES ===');
+    console.log('[DebugArkikValidator] Client names to search:', clientNames);
+    
+    if (clientNames.length === 0) {
+      console.log('[DebugArkikValidator] ❌ No client names provided');
       return sitesMap;
     }
 
-    const clientIds = clients.map(c => c.id);
-    if (clientIds.length === 0) return sitesMap;
+    // First get all clients by business name - use OR query for multiple names
+    const clientQueries = clientNames.map(name => 
+      supabase
+        .from('clients')
+        .select('id, business_name')
+        .ilike('business_name', `%${name.trim()}%`)
+    );
+
+    const clientResults = await Promise.all(clientQueries);
+    const allClients: any[] = [];
+    
+    clientResults.forEach((result, index) => {
+      if (result.error) {
+        console.error(`[DebugArkikValidator] Error loading client "${clientNames[index]}":`, result.error);
+      } else if (result.data) {
+        console.log(`[DebugArkikValidator] Found ${result.data.length} clients for "${clientNames[index]}":`, result.data.map(c => c.business_name));
+        allClients.push(...result.data);
+      }
+    });
+
+    // Remove duplicates
+    const uniqueClients = allClients.filter((client, index, array) => 
+      array.findIndex(c => c.id === client.id) === index
+    );
+
+    console.log('[DebugArkikValidator] Unique clients found:', uniqueClients.length);
+    
+    if (uniqueClients.length === 0) {
+      console.log('[DebugArkikValidator] ❌ No clients found in database');
+      return sitesMap;
+    }
+
+    const clientIds = uniqueClients.map(c => c.id);
+    console.log('[DebugArkikValidator] Client IDs to load sites for:', clientIds);
 
     // Then get all construction sites for those clients
     const { data: sites, error: sitesError } = await supabase
       .from('construction_sites')
       .select('id, name, client_id')
-      .in('client_id', clientIds);
+      .in('client_id', clientIds)
+      .eq('is_active', true); // Only active sites
 
     if (sitesError || !sites) {
       console.error('[DebugArkikValidator] Error loading construction sites:', sitesError);
       return sitesMap;
     }
+
+    console.log('[DebugArkikValidator] Construction sites loaded:', sites.length);
 
     // Build nested map: client_id -> site_name -> site_data
     sites.forEach(site => {
@@ -416,11 +445,18 @@ export class DebugArkikValidator {
       const clientSites = sitesMap.get(site.client_id)!;
       const normalizedName = this.normalizeString(site.name);
       clientSites.set(normalizedName, site);
+      
+      console.log(`[DebugArkikValidator] Added site: "${site.name}" -> "${normalizedName}" for client: ${site.client_id}`);
     });
 
-    if (isDevelopment) {
-      console.log(`[DebugArkikValidator] Loaded construction sites for ${clientIds.length} clients`);
-    }
+    console.log('[DebugArkikValidator] Final construction sites map:');
+    sitesMap.forEach((sites, clientId) => {
+      console.log(`[DebugArkikValidator]   Client ${clientId}: ${sites.size} sites`);
+      sites.forEach((siteData, siteName) => {
+        console.log(`[DebugArkikValidator]     "${siteName}" -> ${siteData.id}`);
+      });
+    });
+
     return sitesMap;
   }
 
@@ -461,6 +497,17 @@ export class DebugArkikValidator {
 
     // STEP 4: Smart Client/Site Matching
     const bestMatch = this.selectBestPricing(pricingOptions, row, batchData.productPricesData);
+    
+    console.log('[DebugArkikValidator] === BEST MATCH RESULTS ===');
+    console.log('[DebugArkikValidator] Row:', row.row_number, 'Remision:', row.remision_number);
+    console.log('[DebugArkikValidator] Best match pricing:', {
+      client_id: bestMatch.pricing.client_id,
+      business_name: bestMatch.pricing.business_name,
+      construction_site: bestMatch.pricing.construction_site,
+      price: bestMatch.pricing.price,
+      source: bestMatch.pricing.source,
+      quote_id: bestMatch.pricing.quote_id
+    });
 
     // STEP 5: Resolve quote_detail_id if we have quote_id but no quote_detail_id
     if (bestMatch.pricing.quote_id && !bestMatch.pricing.quote_detail_id) {
@@ -469,14 +516,17 @@ export class DebugArkikValidator {
         bestMatch.pricing.recipe_id,
         batchData.quotesData
       );
+      console.log('[DebugArkikValidator] Resolved quote_detail_id:', bestMatch.pricing.quote_detail_id);
     }
 
     // STEP 6: Resolve construction site from cache
+    console.log('[DebugArkikValidator] About to resolve construction site...');
     const resolvedConstructionSiteId = this.resolveConstructionSiteIdFromCache(
       bestMatch.pricing.client_id,
       bestMatch.pricing.construction_site,
       batchData.constructionSites
     );
+    console.log('[DebugArkikValidator] Resolved construction site ID:', resolvedConstructionSiteId);
 
     const validatedRow: StagingRemision = {
       ...row,
@@ -494,6 +544,19 @@ export class DebugArkikValidator {
       validation_status: errors.length > 0 ? 'warning' : 'valid',
       validation_errors: errors
     };
+
+    console.log('[DebugArkikValidator] === FINAL VALIDATED ROW ===');
+    console.log('[DebugArkikValidator] Final validated row for remision', row.remision_number, ':', {
+      client_id: validatedRow.client_id,
+      construction_site_id: validatedRow.construction_site_id,
+      recipe_id: validatedRow.recipe_id,
+      unit_price: validatedRow.unit_price,
+      price_source: validatedRow.price_source,
+      quote_id: validatedRow.quote_id,
+      quote_detail_id: validatedRow.quote_detail_id,
+      validation_status: validatedRow.validation_status,
+      obra_name: validatedRow.obra_name
+    });
 
     return { row: validatedRow, errors };
   }
@@ -617,24 +680,45 @@ export class DebugArkikValidator {
     constructionSitesMap: Map<string, Map<string, any>>
   ): string | null {
     const name = (siteName || '').trim();
-    if (!clientId || !name) return null;
+    
+    console.log('[DebugArkikValidator] === RESOLVING CONSTRUCTION SITE ===');
+    console.log('[DebugArkikValidator] Input:', { clientId, siteName: name });
+    
+    if (!clientId || !name) {
+      console.log('[DebugArkikValidator] ❌ Missing clientId or siteName');
+      return null;
+    }
 
     const clientSites = constructionSitesMap.get(clientId);
-    if (!clientSites) return null;
+    console.log('[DebugArkikValidator] Client sites found:', clientSites ? clientSites.size : 0);
+    
+    if (!clientSites) {
+      console.log('[DebugArkikValidator] ❌ No construction sites found for client:', clientId);
+      console.log('[DebugArkikValidator] Available clients in map:', Array.from(constructionSitesMap.keys()));
+      return null;
+    }
+
+    console.log('[DebugArkikValidator] Available sites for client:', Array.from(clientSites.keys()));
 
     const normalizedName = this.normalizeString(name);
+    console.log('[DebugArkikValidator] Normalized site name:', normalizedName);
     
     // Exact match
     const exactMatch = clientSites.get(normalizedName);
-    if (exactMatch) return exactMatch.id;
+    if (exactMatch) {
+      console.log('[DebugArkikValidator] ✅ Exact match found:', exactMatch.id);
+      return exactMatch.id;
+    }
 
     // Substring match
     for (const [siteName, siteData] of Array.from(clientSites.entries())) {
       if (siteName.includes(normalizedName) || normalizedName.includes(siteName)) {
+        console.log('[DebugArkikValidator] ✅ Substring match found:', siteData.id);
         return siteData.id;
       }
     }
 
+    console.log('[DebugArkikValidator] ❌ No match found for construction site');
     return null;
   }
 

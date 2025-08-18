@@ -1,6 +1,135 @@
 import { supabase } from '@/lib/supabase/client';
 import type { OrderSuggestion, StagingRemision } from '@/types/arkik';
 
+/**
+ * Fetches construction site information from quote_detail
+ * @param quoteDetailId The quote detail ID
+ * @param clientId The client ID for additional validation
+ * @returns Construction site information with ID and name
+ */
+async function getConstructionSiteFromQuote(
+  quoteDetailId: string, 
+  clientId: string
+): Promise<{ id: string; name: string } | null> {
+  try {
+    // Get the quote information from quote_detail
+    const { data: quoteDetail, error: quoteDetailError } = await supabase
+      .from('quote_details')
+      .select(`
+        quote_id,
+        quotes!inner (
+          id,
+          construction_site,
+          client_id
+        )
+      `)
+      .eq('id', quoteDetailId)
+      .single();
+
+    if (quoteDetailError || !quoteDetail) {
+      console.error('[getConstructionSiteFromQuote] Error fetching quote detail:', quoteDetailError);
+      return null;
+    }
+
+    const quote = quoteDetail.quotes;
+    if (!quote || quote.client_id !== clientId) {
+      console.warn('[getConstructionSiteFromQuote] Quote client mismatch or missing quote');
+      return null;
+    }
+
+    // Now get the actual construction site ID from the construction_sites table
+    const { data: constructionSite, error: siteError } = await supabase
+      .from('construction_sites')
+      .select('id, name')
+      .eq('client_id', clientId)
+      .eq('name', quote.construction_site)
+      .eq('is_active', true)
+      .single();
+
+    if (siteError || !constructionSite) {
+      console.warn('[getConstructionSiteFromQuote] Construction site not found:', quote.construction_site, 'for client:', clientId);
+      return null;
+    }
+
+    return {
+      id: constructionSite.id,
+      name: constructionSite.name
+    };
+  } catch (error) {
+    console.error('[getConstructionSiteFromQuote] Unexpected error:', error);
+    return null;
+  }
+}
+
+/**
+ * Fetches construction site information from product_prices
+ * @param clientId The client ID
+ * @param recipeId The recipe ID  
+ * @param constructionSiteName The construction site name from Excel
+ * @returns Construction site information with ID and name
+ */
+async function getConstructionSiteFromProductPrice(
+  clientId: string,
+  recipeId: string, 
+  constructionSiteName: string
+): Promise<{ id: string; name: string } | null> {
+  try {
+    // First try to find the construction site directly
+    const { data: constructionSite, error: siteError } = await supabase
+      .from('construction_sites')
+      .select('id, name')
+      .eq('client_id', clientId)
+      .eq('name', constructionSiteName)
+      .eq('is_active', true)
+      .single();
+
+    if (!siteError && constructionSite) {
+      return {
+        id: constructionSite.id,
+        name: constructionSite.name
+      };
+    }
+
+    // If direct lookup failed, try to get from product_prices
+    const { data: productPrice, error: priceError } = await supabase
+      .from('product_prices')
+      .select('construction_site, client_id')
+      .eq('client_id', clientId)
+      .eq('recipe_id', recipeId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (priceError || !productPrice || !productPrice.construction_site) {
+      console.warn('[getConstructionSiteFromProductPrice] No matching product price found');
+      return null;
+    }
+
+    // Now get the construction site ID using the name from product price
+    const { data: constructionSiteFromPrice, error: siteFromPriceError } = await supabase
+      .from('construction_sites')
+      .select('id, name')
+      .eq('client_id', clientId)
+      .eq('name', productPrice.construction_site)
+      .eq('is_active', true)
+      .single();
+
+    if (siteFromPriceError || !constructionSiteFromPrice) {
+      console.warn('[getConstructionSiteFromProductPrice] Construction site not found from product price:', productPrice.construction_site);
+      return null;
+    }
+
+    return {
+      id: constructionSiteFromPrice.id,
+      name: constructionSiteFromPrice.name
+    };
+  } catch (error) {
+    console.error('[getConstructionSiteFromProductPrice] Unexpected error:', error);
+    return null;
+  }
+}
+
 export interface OrderCreationResult {
   ordersCreated: number;
   remisionesCreated: number;
@@ -63,6 +192,7 @@ interface RemisionMaterialData {
   material_type: string;
   cantidad_real: number;
   cantidad_teorica: number;
+  ajuste: number;
 }
 
 // Cache for frequently accessed data
@@ -244,8 +374,17 @@ async function createSingleOrder(
   // Get the first remision for order data
   const firstRemision = suggestion.remisiones[0];
   
-  if (!firstRemision.client_id || !firstRemision.recipe_id) {
-    throw new Error('Datos incompletos: client_id o recipe_id faltante');
+  // Validate all critical data is present
+  if (!firstRemision.client_id) {
+    throw new Error(`client_id faltante para remisión ${firstRemision.remision_number}`);
+  }
+  
+  if (!firstRemision.recipe_id) {
+    throw new Error(`recipe_id faltante para remisión ${firstRemision.remision_number}`);
+  }
+  
+  if (!firstRemision.construction_site_id) {
+    throw new Error(`construction_site_id faltante para remisión ${firstRemision.remision_number}. Obra: ${firstRemision.obra_name}. Esta obra no existe en el sistema y debe ser creada primero.`);
   }
 
   try {
@@ -289,12 +428,71 @@ async function createSingleOrder(
 
     console.log('[ArkikOrderCreator] Using earliest delivery:', deliveryDate, deliveryTime, 'from', suggestion.remisiones.length, 'remisiones');
 
+    // Use construction site information from validated remision data
+    let constructionSiteId = firstRemision.construction_site_id;
+    let constructionSiteName = firstRemision.obra_name;
+
+    console.log('[ArkikOrderCreator] Using construction site from validated remision:', {
+      constructionSiteId,
+      constructionSiteName,
+      client_id: firstRemision.client_id,
+      validation_status: firstRemision.validation_status
+    });
+
+    // Only fetch from external sources if construction site ID is missing from validated data
+    if (!constructionSiteId) {
+      console.warn('[ArkikOrderCreator] Construction site ID missing from validated remision, attempting fallback fetch');
+      
+      // Fallback 1: Try quote_detail if available
+      if (firstRemision.quote_detail_id) {
+        try {
+          const constructionSiteInfo = await getConstructionSiteFromQuote(firstRemision.quote_detail_id, firstRemision.client_id);
+          if (constructionSiteInfo) {
+            constructionSiteId = constructionSiteInfo.id;
+            constructionSiteName = constructionSiteInfo.name;
+            console.log('[ArkikOrderCreator] Fallback: Found construction site from quote:', constructionSiteName, 'ID:', constructionSiteId);
+          }
+        } catch (error) {
+          console.warn('[ArkikOrderCreator] Fallback quote fetch failed:', error);
+        }
+      }
+
+      // Fallback 2: Try product prices if still missing
+      if (!constructionSiteId && firstRemision.price_source && firstRemision.recipe_id) {
+        try {
+          const constructionSiteInfo = await getConstructionSiteFromProductPrice(
+            firstRemision.client_id, 
+            firstRemision.recipe_id,
+            firstRemision.obra_name
+          );
+          if (constructionSiteInfo) {
+            constructionSiteId = constructionSiteInfo.id;
+            constructionSiteName = constructionSiteInfo.name;
+            console.log('[ArkikOrderCreator] Fallback: Found construction site from product price:', constructionSiteName, 'ID:', constructionSiteId);
+          }
+        } catch (error) {
+          console.warn('[ArkikOrderCreator] Fallback product price fetch failed:', error);
+        }
+      }
+
+      // Final warning if still no construction site ID
+      if (!constructionSiteId) {
+        console.error('[ArkikOrderCreator] CRITICAL: No construction site ID found after all fallback attempts!', {
+          obra_name: firstRemision.obra_name,
+          client_id: firstRemision.client_id,
+          quote_detail_id: firstRemision.quote_detail_id,
+          price_source: firstRemision.price_source,
+          validation_status: firstRemision.validation_status
+        });
+      }
+    }
+
     // Create order
     const orderData: OrderCreationData = {
       quote_id: firstRemision.quote_id,
       client_id: firstRemision.client_id,
-      construction_site: firstRemision.obra_name,
-      construction_site_id: firstRemision.construction_site_id || undefined,
+      construction_site: constructionSiteName,
+      construction_site_id: constructionSiteId || undefined,
       order_number: orderNumber,
       requires_invoice: false,
       delivery_date: deliveryDate,
@@ -405,7 +603,7 @@ async function createSingleOrder(
           hora_carga: horaCarga,
           volumen_fabricado: fullRemisionData.volumen_fabricado,
           conductor: fullRemisionData.conductor || undefined,
-          unidad: undefined, // Remove this field as it doesn't exist in StagingRemision
+          unidad: fullRemisionData.placas || undefined, // Map placas from Excel to unidad field
           tipo_remision: 'CONCRETO',
           recipe_id: fullRemisionData.recipe_id!,
           plant_id: plantId
@@ -437,18 +635,31 @@ async function createSingleOrder(
         if (fullRemisionData && fullRemisionData.materials_teorico && fullRemisionData.materials_real) {
           const allMaterialCodes = new Set([
             ...Object.keys(fullRemisionData.materials_teorico),
-            ...Object.keys(fullRemisionData.materials_real)
+            ...Object.keys(fullRemisionData.materials_real),
+            ...(fullRemisionData.materials_retrabajo ? Object.keys(fullRemisionData.materials_retrabajo) : []),
+            ...(fullRemisionData.materials_manual ? Object.keys(fullRemisionData.materials_manual) : [])
           ]);
 
           allMaterialCodes.forEach(materialCode => {
             const cachedMaterial = dataCache.materialsMap.get(materialCode);
             if (cachedMaterial) {
+              const baseRealValue = fullRemisionData.materials_real[materialCode] || 0;
+              const retrabajoValue = fullRemisionData.materials_retrabajo?.[materialCode] || 0;
+              const manualValue = fullRemisionData.materials_manual?.[materialCode] || 0;
+              
+              // Calculate ajuste as retrabajo + manual
+              const ajusteValue = retrabajoValue + manualValue;
+              
+              // Calculate final real value as base real + retrabajo + manual
+              const finalRealValue = baseRealValue + retrabajoValue + manualValue;
+              
               allRemisionMaterials.push({
                 remision_id: createdRemision.id,
                 material_id: cachedMaterial.id,
                 material_type: cachedMaterial.material_name,
-                cantidad_real: fullRemisionData.materials_real[materialCode] || 0,
-                cantidad_teorica: fullRemisionData.materials_teorico[materialCode] || 0
+                cantidad_real: finalRealValue,
+                cantidad_teorica: fullRemisionData.materials_teorico[materialCode] || 0,
+                ajuste: ajusteValue
               });
             } else {
               // Fallback: fetch material individually if not in cache

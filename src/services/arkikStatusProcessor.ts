@@ -168,6 +168,13 @@ export class ArkikStatusProcessor {
       case StatusProcessingAction.PROCEED_NORMAL:
         remision.status_processing_action = StatusProcessingAction.PROCEED_NORMAL;
         result.normal_remisiones++;
+        
+        // Debug: Log normal processing
+        console.log(`[ArkikStatusProcessor] Processing ${remision.remision_number} as NORMAL:`, {
+          estatus: remision.estatus,
+          volume: remision.volumen_fabricado,
+          isExplicitDecision: !!decision.notes // Check if user made explicit decision
+        });
         break;
 
       case StatusProcessingAction.REASSIGN_TO_EXISTING:
@@ -205,22 +212,48 @@ export class ArkikStatusProcessor {
     }
 
     // Create reassignment record
+    const materialsToTransfer = decision.materials_to_transfer || sourceRemision.materials_real;
+    
+    // Debug: Log material quantities being transferred
+    console.log(`[ArkikStatusProcessor] Reassigning materials from ${sourceRemision.remision_number} to ${targetRemision.remision_number}:`, {
+      materialsToTransfer,
+      sourceVolume: sourceRemision.volumen_fabricado,
+      targetVolume: targetRemision.volumen_fabricado
+    });
+    
     const reassignment: RemisionReassignment = {
       source_remision_id: sourceRemision.id,
       source_remision_number: sourceRemision.remision_number,
       target_remision_id: targetRemision.id,
       target_remision_number: targetRemision.remision_number,
-      materials_to_transfer: decision.materials_to_transfer || sourceRemision.materials_real,
+      materials_to_transfer: materialsToTransfer,
       reason: decision.notes || 'Status processing reassignment',
       created_at: new Date()
     };
 
-    // Add materials to target remision
+    // Add materials to target remision (with overflow protection)
     Object.entries(reassignment.materials_to_transfer).forEach(([materialCode, amount]) => {
       if (!targetRemision.materials_real[materialCode]) {
         targetRemision.materials_real[materialCode] = 0;
       }
-      targetRemision.materials_real[materialCode] += amount;
+      
+      const newTotal = targetRemision.materials_real[materialCode] + amount;
+      const maxValue = 99999999.99; // Database DECIMAL(10,2) limit
+      
+      if (newTotal > maxValue) {
+        console.warn(`[ArkikStatusProcessor] Material overflow prevented for ${materialCode}:`, {
+          current: targetRemision.materials_real[materialCode],
+          adding: amount,
+          wouldBe: newTotal,
+          limit: maxValue,
+          targetRemision: targetRemision.remision_number
+        });
+        
+        // Cap at maximum value instead of causing database error
+        targetRemision.materials_real[materialCode] = maxValue;
+      } else {
+        targetRemision.materials_real[materialCode] = newTotal;
+      }
     });
 
     // Mark source as excluded (volume = 0, but materials transferred)
@@ -296,6 +329,8 @@ export class ArkikStatusProcessor {
     action: StatusProcessingAction, 
     result: StatusProcessingResult
   ): void {
+    console.log(`[ArkikStatusProcessor] Auto-applying ${action} to ${remision.remision_number} (status: ${remision.estatus})`);
+    
     const dummyDecision: StatusProcessingDecision = {
       remision_id: remision.id,
       remision_number: remision.remision_number,

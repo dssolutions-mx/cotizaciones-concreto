@@ -259,6 +259,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
           material_type: mat.material_type,
           cantidad_real: mat.cantidad_real,
           cantidad_teorica: (mat.cantidad_teorica || 0) * volumen, // Multiply by volume
+          ajuste: 0 // Manual entries don't have retrabajo/manual adjustments
         }));
 
         const { error: materialsError } = await supabase

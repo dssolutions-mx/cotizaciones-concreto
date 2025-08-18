@@ -5,7 +5,7 @@ import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Lo
 import { usePlantContext } from '@/contexts/PlantContext';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
 import { ArkikRawParser } from '@/services/arkikRawParser';
-import type { StagingRemision, OrderSuggestion, ValidationError, StatusProcessingDecision, StatusProcessingResult } from '@/types/arkik';
+import type { StagingRemision, OrderSuggestion, ValidationError, StatusProcessingDecision, StatusProcessingResult, RemisionReassignment } from '@/types/arkik';
 import StatusProcessingDialog from './StatusProcessingDialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -44,6 +44,12 @@ export default function ArkikProcessor() {
   const [statusProcessingResult, setStatusProcessingResult] = useState<StatusProcessingResult | null>(null);
   const [problemRemisiones, setProblemRemisiones] = useState<StagingRemision[]>([]);
   const [potentialReassignments, setPotentialReassignments] = useState<Map<string, StagingRemision[]>>(new Map());
+  
+  // Processed data after status decisions are applied
+  const [processedRemisiones, setProcessedRemisiones] = useState<StagingRemision[]>([]);
+  
+  // Cache reassignments until after remisiones are created
+  const [pendingReassignments, setPendingReassignments] = useState<RemisionReassignment[]>([]);
   
   // Dialog state
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
@@ -136,44 +142,68 @@ export default function ArkikProcessor() {
     try {
       // Import services
       const { ArkikStatusProcessor } = await import('@/services/arkikStatusProcessor');
-      const { ArkikStatusStorage } = await import('@/services/arkikStatusStorage');
+      const { arkikStatusService } = await import('@/services/arkikStatusStorage');
       
       const currentSessionId = crypto.randomUUID();
       const processor = new ArkikStatusProcessor(currentPlant.id, currentSessionId);
-      const storage = new ArkikStatusStorage();
       
-      // Apply decisions to the data
+      // Apply decisions to the data - this modifies the remisiones in place
       const processingResult = processor.applyProcessingDecisions(result.validated, statusProcessingDecisions);
       setStatusProcessingResult(processingResult);
       
-      // Save to database using Supabase MCP
-      if (processingResult.waste_materials.length > 0) {
-        await storage.saveWasteMaterials(processingResult.waste_materials);
-      }
+      // Debug: Check if exclusions were applied correctly
+      const excludedCount = result.validated.filter(r => r.is_excluded_from_import).length;
+      const withStatusActions = result.validated.filter(r => r.status_processing_action).length;
       
-      if (processingResult.reassignments.length > 0) {
-        await storage.saveRemisionReassignments(processingResult.reassignments, currentSessionId, currentPlant.id);
-      }
-      
-      // Save session information
-      await storage.saveImportSession({
-        sessionId: currentSessionId,
-        plantId: currentPlant.id,
-        fileName: file?.name || 'unknown',
-        fileSize: file?.size,
-        result: processingResult
+      console.log('[ArkikProcessor] Status processing debug:', {
+        totalRemisiones: result.validated.length,
+        explicitDecisions: statusProcessingDecisions.length,
+        remisionesWithoutDecisions: result.validated.length - statusProcessingDecisions.length,
+        excludedAfterProcessing: excludedCount,
+        withStatusActions: withStatusActions,
+        wasteRemisiones: processingResult.waste_remisiones,
+        reassignedRemisiones: processingResult.reassigned_remisiones,
+        normalRemisiones: processingResult.normal_remisiones,
+        expectedTotal: processingResult.waste_remisiones + processingResult.reassigned_remisiones + processingResult.normal_remisiones
       });
+      
+      // Store the processed remisiones data (with status decisions applied)
+      // Make a deep copy to ensure state updates properly
+      const processedData = result.validated.map(r => ({ ...r }));
+      setProcessedRemisiones(processedData);
+      
+      console.log('[ArkikProcessor] Processed data sample:', processedData.slice(0, 3).map(r => ({
+        remision_number: r.remision_number,
+        is_excluded_from_import: r.is_excluded_from_import,
+        status_processing_action: r.status_processing_action
+      })));
+      
+      // Save waste materials immediately (they don't reference other remisiones)
+      if (processingResult.waste_materials.length > 0) {
+        await arkikStatusService.saveWasteMaterials(processingResult.waste_materials);
+      }
+      
+      // Cache reassignments until after remisiones are created in the database
+      if (processingResult.reassignments.length > 0) {
+        setPendingReassignments(processingResult.reassignments);
+        console.log(`💾 Cached ${processingResult.reassignments.length} reassignments until remisiones are created`);
+      }
+      
+      // Note: Reassignments will be saved after order/remision creation completes
       
       console.log('Status processing completed:', {
         normal: processingResult.normal_remisiones,
         reassigned: processingResult.reassigned_remisiones,
         waste: processingResult.waste_remisiones,
         wasteRecords: processingResult.waste_materials.length,
-        reassignmentRecords: processingResult.reassignments.length
+        reassignmentsCached: processingResult.reassignments.length
       });
       
+      console.log('Processed remisiones data updated with', result.validated.length, 'remisiones');
+      
       // Continue to grouping with the processed data
-      handleOrderGrouping();
+      // Pass the processed data directly to avoid React state timing issues
+      handleOrderGrouping(processedData);
       
     } catch (error) {
       console.error('Error processing status decisions:', error);
@@ -184,29 +214,172 @@ export default function ArkikProcessor() {
     }
   };
 
-  const handleOrderGrouping = () => {
-    if (!result?.validated) return;
+  const handleOrderGrouping = (directProcessedData?: StagingRemision[]) => {
+    // Use direct data if provided, otherwise use processed data state, otherwise fall back to validated data
+    const remisionesToProcess = directProcessedData || (processedRemisiones.length > 0 ? processedRemisiones : (result?.validated || []));
+    
+    if (remisionesToProcess.length === 0) return;
     
     try {
+      console.log('[ArkikProcessor] === DEBUGGING ORDER GROUPING ===');
+      console.log('[ArkikProcessor] Data source:', {
+        usingDirectData: !!directProcessedData,
+        usingProcessedState: !directProcessedData && processedRemisiones.length > 0,
+        usingValidatedFallback: !directProcessedData && processedRemisiones.length === 0
+      });
+      console.log('[ArkikProcessor] Total remisiones to process:', remisionesToProcess.length);
+      
+      // Debug: Check exclusions in the data being used
+      const excludedInData = remisionesToProcess.filter(r => r.is_excluded_from_import);
+      console.log('[ArkikProcessor] Exclusions in order grouping data:', {
+        totalRemisiones: remisionesToProcess.length,
+        excludedRemisiones: excludedInData.length,
+        excludedDetails: excludedInData.map(r => ({
+          remision_number: r.remision_number,
+          action: r.status_processing_action,
+          reason: r.waste_reason
+        }))
+      });
+      
+      // Debug: Show first few remisiones to understand structure
+      console.log('[ArkikProcessor] Sample remisiones (first 3):');
+      remisionesToProcess.slice(0, 3).forEach((remision, index) => {
+        console.log(`[ArkikProcessor] Sample ${index + 1}:`, {
+          remision_number: remision.remision_number,
+          client_id: remision.client_id,
+          construction_site_id: remision.construction_site_id,
+          recipe_id: remision.recipe_id,
+          unit_price: remision.unit_price,
+          validation_status: remision.validation_status,
+          obra_name: remision.obra_name,
+          cliente_name: remision.cliente_name,
+          is_excluded_from_import: remision.is_excluded_from_import,
+          status_processing_action: remision.status_processing_action
+        });
+      });
+
+      // Filter remisiones that are ready for order creation (excluding processed exclusions)
+      const readyForOrderCreation = remisionesToProcess.filter(remision => {
+        // Skip if excluded from import due to status processing
+        if (remision.is_excluded_from_import) {
+          console.log(`[ArkikProcessor] Excluding remision ${remision.remision_number} due to status processing:`, remision.status_processing_action);
+          return false;
+        }
+        
+        // Must have all required IDs for order creation
+        const hasClientId = !!remision.client_id;
+        const hasConstructionSiteId = !!remision.construction_site_id;
+        const hasRecipeId = !!remision.recipe_id;
+        
+        // Must have valid validation status (not error)
+        const hasValidStatus = remision.validation_status !== 'error';
+        
+        // Must have pricing information
+        const hasPricing = remision.unit_price != null && remision.unit_price > 0;
+        
+        const hasRequiredIds = hasClientId && hasConstructionSiteId && hasRecipeId;
+        
+        console.log(`[ArkikProcessor] Filtering remision ${remision.remision_number}:`, {
+          hasClientId,
+          hasConstructionSiteId,
+          hasRecipeId,
+          hasValidStatus,
+          hasPricing,
+          finalResult: hasRequiredIds && hasValidStatus && hasPricing
+        });
+        
+        if (!hasClientId) {
+          console.warn('[ArkikProcessor] ❌ Missing client_id for remision:', remision.remision_number, 'Cliente:', remision.cliente_name);
+        }
+        
+        if (!hasConstructionSiteId) {
+          console.warn('[ArkikProcessor] ❌ Missing construction_site_id for remision:', remision.remision_number, 'Obra:', remision.obra_name);
+        }
+        
+        if (!hasRecipeId) {
+          console.warn('[ArkikProcessor] ❌ Missing recipe_id for remision:', remision.remision_number);
+        }
+        
+        if (!hasValidStatus) {
+          console.warn('[ArkikProcessor] ❌ Invalid validation status for remision:', remision.remision_number, 'Status:', remision.validation_status);
+        }
+        
+        if (!hasPricing) {
+          console.warn('[ArkikProcessor] ❌ Missing pricing for remision:', remision.remision_number, 'Price:', remision.unit_price);
+        }
+        
+        return hasRequiredIds && hasValidStatus && hasPricing;
+      });
+
+      console.log('[ArkikProcessor] Filtered remisiones for order creation:', {
+        total: remisionesToProcess.length,
+        ready: readyForOrderCreation.length,
+        filtered_out: remisionesToProcess.length - readyForOrderCreation.length,
+        excluded_by_status_processing: remisionesToProcess.filter(r => r.is_excluded_from_import).length
+      });
+
+      // Track filtered out remisiones for reporting
+      const filteredOut = remisionesToProcess.filter(remision => {
+        if (remision.is_excluded_from_import) return true; // Include status processing exclusions
+        const hasRequiredIds = remision.client_id && remision.construction_site_id && remision.recipe_id;
+        const hasValidStatus = remision.validation_status !== 'error';
+        const hasPricing = remision.unit_price != null && remision.unit_price > 0;
+        return !(hasRequiredIds && hasValidStatus && hasPricing);
+      });
+
+      if (readyForOrderCreation.length === 0) {
+        const reasons = [];
+        const excludedByStatus = filteredOut.filter(r => r.is_excluded_from_import).length;
+        const missingConstructionSite = filteredOut.filter(r => !r.is_excluded_from_import && !r.construction_site_id).length;
+        const missingClient = filteredOut.filter(r => !r.is_excluded_from_import && !r.client_id).length;
+        const missingRecipe = filteredOut.filter(r => !r.is_excluded_from_import && !r.recipe_id).length;
+        const missingPrice = filteredOut.filter(r => !r.is_excluded_from_import && (!r.unit_price || r.unit_price <= 0)).length;
+        const hasErrors = filteredOut.filter(r => !r.is_excluded_from_import && r.validation_status === 'error').length;
+
+        if (excludedByStatus > 0) reasons.push(`${excludedByStatus} excluidas por procesamiento de estado`);
+        if (missingConstructionSite > 0) reasons.push(`${missingConstructionSite} sin obra válida`);
+        if (missingClient > 0) reasons.push(`${missingClient} sin cliente válido`);
+        if (missingRecipe > 0) reasons.push(`${missingRecipe} sin receta válida`);
+        if (missingPrice > 0) reasons.push(`${missingPrice} sin precio válido`);
+        if (hasErrors > 0) reasons.push(`${hasErrors} con errores de validación`);
+
+        alert(`No hay remisiones válidas para crear órdenes.\n\nMotivos:\n• ${reasons.join('\n• ')}\n\nRevisa la validación y los procesamientos de estado antes de continuar.`);
+        return;
+      }
+
+      if (filteredOut.length > 0) {
+        console.warn('[ArkikProcessor] Remisiones filtradas:', filteredOut.map(r => ({
+          remision_number: r.remision_number,
+          is_excluded_from_import: r.is_excluded_from_import,
+          status_processing_action: r.status_processing_action,
+          missing_construction_site_id: !r.construction_site_id,
+          missing_client_id: !r.client_id,
+          missing_recipe_id: !r.recipe_id,
+          missing_pricing: !r.unit_price || r.unit_price <= 0,
+          validation_status: r.validation_status,
+          obra_name: r.obra_name
+        })));
+      }
+
       // Import the order grouper service
       const { ArkikOrderGrouper } = require('@/services/arkikOrderGrouper');
       const grouper = new ArkikOrderGrouper();
       
-      // Group the validated remisiones
-      const suggestions = grouper.groupRemisiones(result.validated);
+      // Group only the validated and ready remisiones
+      const suggestions = grouper.groupRemisiones(readyForOrderCreation);
       setOrderSuggestions(suggestions);
       
-      // Update statistics
+      // Update statistics based on ready remisiones
       const stats = {
-        totalRows: result.validated.length,
-        validRows: result.validated.filter(r => r.validation_status === 'valid').length,
-        errorRows: result.validated.filter(r => r.validation_status === 'error').length,
+        totalRows: readyForOrderCreation.length, // Use filtered count
+        validRows: readyForOrderCreation.filter(r => r.validation_status === 'valid').length,
+        errorRows: remisionesToProcess.filter(r => r.validation_status === 'error').length, // Show errors from processed data
         ordersToCreate: suggestions.filter((s: OrderSuggestion) => !s.remisiones[0].orden_original).length,
-        remisionsWithoutOrder: result.validated.filter(r => !r.orden_original).length,
-        newClients: new Set(result.validated.filter(r => !r.client_id).map(r => r.cliente_name)).size,
-        newSites: new Set(result.validated.filter(r => !r.construction_site_id).map(r => r.obra_name)).size,
-        newTrucks: new Set(result.validated.map(r => r.camion).filter(Boolean)).size,
-        newDrivers: new Set(result.validated.map(r => r.conductor).filter(Boolean)).size
+        remisionsWithoutOrder: readyForOrderCreation.filter(r => !r.orden_original).length,
+        newClients: new Set(readyForOrderCreation.filter(r => !r.client_id).map(r => r.cliente_name)).size,
+        newSites: new Set(readyForOrderCreation.filter(r => !r.construction_site_id).map(r => r.obra_name)).size,
+        newTrucks: new Set(readyForOrderCreation.map(r => r.camion).filter(Boolean)).size,
+        newDrivers: new Set(readyForOrderCreation.map(r => r.conductor).filter(Boolean)).size
       };
       
       setStats(stats);
@@ -232,11 +405,34 @@ export default function ArkikProcessor() {
         throw new Error('No hay planta seleccionada');
       }
       
+      // Use processed data if available, otherwise fall back to validated data
+      // For final confirmation, we prioritize the processed data from state
+      const finalRemisionesData = processedRemisiones.length > 0 ? processedRemisiones : (result?.validated || []);
+      
+      console.log('[ArkikProcessor] Final confirmation using:', {
+        usingProcessedData: processedRemisiones.length > 0,
+        totalRemisiones: finalRemisionesData.length,
+        excludedRemisiones: finalRemisionesData.filter(r => r.is_excluded_from_import).length,
+        processedDataLength: processedRemisiones.length,
+        validatedDataLength: result?.validated?.length || 0
+      });
+      
       const creationResult = await createOrdersFromSuggestions(
         orderSuggestions, 
         currentPlant.id, 
-        result?.validated || []
+        finalRemisionesData
       );
+      
+      // Save pending reassignments after remisiones are created
+      if (pendingReassignments.length > 0) {
+        console.log(`🔄 Now saving ${pendingReassignments.length} cached reassignments to database`);
+        const { arkikStatusService } = await import('@/services/arkikStatusStorage');
+        await arkikStatusService.saveRemisionReassignments(pendingReassignments, crypto.randomUUID(), currentPlant.id);
+        console.log(`✅ Saved ${pendingReassignments.length} reassignment records to database`);
+        
+        // Clear the cache
+        setPendingReassignments([]);
+      }
       
       // Show success message with detailed results
       alert(`Importación completada exitosamente!\n\nResumen:\n• ${creationResult.ordersCreated} órdenes creadas\n• ${creationResult.remisionesCreated} remisiones procesadas\n• ${creationResult.materialsProcessed} registros de materiales\n• ${creationResult.orderItemsCreated} items de orden creados`);
@@ -246,6 +442,10 @@ export default function ArkikProcessor() {
       setOrderSuggestions([]);
       setResult(null);
       setFile(null);
+      setProcessedRemisiones([]);
+      setPendingReassignments([]);
+      setStatusProcessingDecisions([]);
+      setStatusProcessingResult(null);
       setStats({
         totalRows: 0,
         validRows: 0,
@@ -304,6 +504,18 @@ export default function ArkikProcessor() {
             Object.entries(row.materials || {}).map(([code, values]: [string, any]) => [
               code, 
               values?.real || 0
+            ])
+          ),
+          materials_retrabajo: Object.fromEntries(
+            Object.entries(row.materials || {}).map(([code, values]: [string, any]) => [
+              code, 
+              values?.retrabajo || 0
+            ])
+          ),
+          materials_manual: Object.fromEntries(
+            Object.entries(row.materials || {}).map(([code, values]: [string, any]) => [
+              code, 
+              values?.manual || 0
             ])
           ),
           validation_status: 'pending' as const,
@@ -739,6 +951,21 @@ export default function ArkikProcessor() {
                 </div>
               </div>
 
+              {/* Show cached reassignments info */}
+              {pendingReassignments.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2 text-blue-800">
+                    <Clock className="h-4 w-4" />
+                    <span className="font-medium">
+                      {pendingReassignments.length} reasignaciones en caché
+                    </span>
+                  </div>
+                  <div className="text-sm text-blue-700 mt-1">
+                    Se guardarán en la base de datos después de crear las remisiones
+                  </div>
+                </div>
+              )}
+
               {/* Problem Remisiones */}
               {problemRemisiones.length > 0 && (
                 <div className="space-y-4">
@@ -829,16 +1056,21 @@ export default function ArkikProcessor() {
                   ← Volver a Validación
                 </Button>
                 
-                {problemRemisiones.length === 0 && (
+                {/* Show "Continue to Grouping" only if no decisions were made at all */}
+                {problemRemisiones.length === 0 && statusProcessingDecisions.length === 0 && (
                   <Button 
-                    onClick={handleOrderGrouping}
+                    onClick={() => {
+                      console.log('[ArkikProcessor] Direct grouping button clicked - no status processing needed');
+                      handleOrderGrouping();
+                    }}
                     className="bg-green-600 hover:bg-green-700 text-white px-8 py-3"
                   >
                     Continuar a Agrupación →
                   </Button>
                 )}
                 
-                {problemRemisiones.length > 0 && statusProcessingDecisions.length > 0 && (
+                {/* Show "Apply Decisions" if there are any decisions made */}
+                {statusProcessingDecisions.length > 0 && (
                   <Button 
                     onClick={handleProcessStatusDecisions}
                     disabled={loading}
@@ -850,7 +1082,7 @@ export default function ArkikProcessor() {
                         Guardando Decisiones...
                       </>
                     ) : (
-                      'Aplicar Decisiones y Continuar →'
+                      `Aplicar ${statusProcessingDecisions.length} Decisiones y Continuar →`
                     )}
                   </Button>
                 )}
@@ -1427,26 +1659,65 @@ export default function ArkikProcessor() {
                                   <div className="space-y-1">
                                     {Object.keys(row.materials_teorico || {}).map(materialCode => {
                                       const teorico = Number(row.materials_teorico?.[materialCode] || 0);
-                                      const real = Number(row.materials_real?.[materialCode] || 0);
-                                      const variacion = teorico > 0 ? ((real - teorico) / teorico) * 100 : 0;
+                                      const realBase = Number(row.materials_real?.[materialCode] || 0);
+                                      const retrabajo = Number(row.materials_retrabajo?.[materialCode] || 0);
+                                      const manual = Number(row.materials_manual?.[materialCode] || 0);
+                                      const ajuste = retrabajo + manual;
+                                      const realFinal = realBase + ajuste;
+                                      const variacion = teorico > 0 ? ((realFinal - teorico) / teorico) * 100 : 0;
                                       
                                       return (
                                         <div key={materialCode} className="border-l-2 border-green-200 pl-2">
-                                          <div className="font-medium text-gray-800">{materialCode}</div>
-                                          <div className="grid grid-cols-2 gap-2 text-xs">
-                                            <div className="text-center">
-                                              <div className="text-gray-600">Teórica</div>
-                                              <div className="font-mono">{teorico.toFixed(2)}</div>
+                                          <div className="font-medium text-gray-800 mb-2">{materialCode}</div>
+                                          
+                                          {/* Main calculation breakdown */}
+                                          <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                                            <div className="text-center bg-blue-50 p-1 rounded">
+                                              <div className="text-blue-700 font-medium">Teórica</div>
+                                              <div className="font-mono text-blue-900">{teorico.toFixed(2)}</div>
                                             </div>
-                                            <div className="text-center">
-                                              <div className="text-gray-600">Real</div>
-                                              <div className="font-mono">{real.toFixed(2)}</div>
+                                            <div className="text-center bg-gray-50 p-1 rounded">
+                                              <div className="text-gray-700 font-medium">Real Base</div>
+                                              <div className="font-mono text-gray-900">{realBase.toFixed(2)}</div>
+                                            </div>
+                                            <div className="text-center bg-green-50 p-1 rounded">
+                                              <div className="text-green-700 font-medium">Real Final</div>
+                                              <div className="font-mono text-green-900 font-bold">{realFinal.toFixed(2)}</div>
                                             </div>
                                           </div>
-                                          <div className="text-center text-xs">
-                                            <span className={`font-medium ${Math.abs(variacion) > 5 ? 'text-red-600' : 'text-green-600'}`}>
-                                              {variacion > 0 ? '+' : ''}{variacion.toFixed(1)}%
-                                            </span>
+                                          
+                                          {/* Adjustment breakdown (only show if there are adjustments) */}
+                                          {ajuste > 0 && (
+                                            <div className="bg-amber-50 p-2 rounded mb-2">
+                                              <div className="text-xs text-amber-800 font-medium mb-1">Ajustes:</div>
+                                              <div className="grid grid-cols-3 gap-2 text-xs">
+                                                <div className="text-center">
+                                                  <div className="text-amber-700">Retrabajo</div>
+                                                  <div className="font-mono text-amber-900">{retrabajo.toFixed(2)}</div>
+                                                </div>
+                                                <div className="text-center">
+                                                  <div className="text-amber-700">Manual</div>
+                                                  <div className="font-mono text-amber-900">{manual.toFixed(2)}</div>
+                                                </div>
+                                                <div className="text-center bg-amber-100 p-1 rounded">
+                                                  <div className="text-amber-800 font-medium">Total Ajuste</div>
+                                                  <div className="font-mono text-amber-900 font-bold">{ajuste.toFixed(2)}</div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          )}
+                                          
+                                          {/* Final calculation */}
+                                          <div className="bg-blue-50 p-2 rounded">
+                                            <div className="text-xs text-blue-800 mb-1">
+                                              <span className="font-medium">Cálculo Final:</span> {realBase.toFixed(2)} + {ajuste.toFixed(2)} = {realFinal.toFixed(2)}
+                                            </div>
+                                            <div className="text-center text-xs">
+                                              <span className="text-blue-700 font-medium">Variación vs Teórica: </span>
+                                              <span className={`font-bold ${Math.abs(variacion) > 5 ? 'text-red-600' : 'text-green-600'}`}>
+                                                {variacion > 0 ? '+' : ''}{variacion.toFixed(1)}%
+                                              </span>
+                                            </div>
                                           </div>
                                         </div>
                                       );
