@@ -29,7 +29,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
-import { PlantProvider } from '@/contexts/PlantContext';
+import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
 import ProfileMenu from '@/components/auth/ProfileMenu';
 import AuthStatusIndicator from '@/components/auth/AuthStatusIndicator';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
@@ -110,9 +110,29 @@ const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
   { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
 ];
 
-// Function to get appropriate quality submenu based on user role
-function getQualitySubMenuItems(userRole: string | undefined): QualityNavItem[] {
+// Quality submenu for QUALITY_TEAM in specific plants (P002, P003, P004) - limited access
+const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
+  { type: 'group', title: "Operación" },
+  { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
+  { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
+  { type: 'group', title: "Gestión" },
+  { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+];
+
+// Helper function to check if QUALITY_TEAM user is in restricted plant
+export function isQualityTeamInRestrictedPlant(userRole: string | undefined, plantCode: string | undefined): boolean {
+  if (userRole !== 'QUALITY_TEAM') return false;
+  const restrictedPlants = ['P002', 'P003', 'P004'];
+  return plantCode ? restrictedPlants.includes(plantCode) : false;
+}
+
+// Function to get appropriate quality submenu based on user role and plant
+function getQualitySubMenuItems(userRole: string | undefined, plantCode: string | undefined): QualityNavItem[] {
   if (userRole === 'QUALITY_TEAM') {
+    // Check if user is in restricted plants (P002, P003, P004)
+    if (isQualityTeamInRestrictedPlant(userRole, plantCode)) {
+      return qualitySubMenuItemsForRestrictedPlants;
+    }
     return qualitySubMenuItemsForQualityTeam;
   }
   return qualitySubMenuItems;
@@ -121,6 +141,7 @@ function getQualitySubMenuItems(userRole: string | undefined): QualityNavItem[] 
 // Componente interno para navegación con soporte de roles
 function Navigation({ children }: { children: React.ReactNode }) {
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
@@ -360,7 +381,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
 
                   {isQualityMainLink && isQualityRoute && (
                     <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
-                      {getQualitySubMenuItems(profile?.role).map((subItem, subIndex) => {
+                      {getQualitySubMenuItems(profile?.role, currentPlant?.code).map((subItem, subIndex) => {
                         if (!('href' in subItem)) {
                           return (
                             <div
@@ -483,7 +504,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
                       <TooltipContent sideOffset={8} side="right" className="p-0">
                         <div className="min-w-56 bg-white text-gray-700 rounded-md shadow-md p-1">
                           <div className="px-3 py-2 text-xs font-semibold text-gray-500">Calidad</div>
-                          {getQualitySubMenuItems(profile?.role).map((subItem, subIndex) => {
+                          {getQualitySubMenuItems(profile?.role, currentPlant?.code).map((subItem, subIndex) => {
                             if (!('href' in subItem)) {
                               return (
                                 <div
@@ -676,7 +697,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
 
                     {item.href === '/quality' && isQualityRoute && (
                       <div className="pl-6 mb-2 space-y-1">
-                        {getQualitySubMenuItems(profile?.role).map((subItem, subIndex) => {
+                        {getQualitySubMenuItems(profile?.role, currentPlant?.code).map((subItem, subIndex) => {
                           if (!('href' in subItem)) {
                             return (
                               <div

@@ -182,11 +182,12 @@ export async function middleware(request: NextRequest) {
     try {
       const { data: profileData } = await supabase
         .from('user_profiles')
-        .select('role')
+        .select('role, plant_id')
         .eq('id', user.id)
         .single();
       
       const role = (profileData as any)?.role as string | undefined;
+      const plantId = (profileData as any)?.plant_id as string | undefined;
       
       // QUALITY_TEAM can only access quality module and profile/auth pages
       if (role === 'QUALITY_TEAM') {
@@ -216,6 +217,41 @@ export async function middleware(request: NextRequest) {
       }
     } catch (err) {
       console.error('Error checking user role for restricted page access:', err);
+    }
+  }
+
+  // Additional check for QUALITY_TEAM in restricted plants (P002, P003, P004)
+  if (user && pathname.startsWith('/quality/') && (pathname.includes('/recipes') || pathname.includes('/suppliers') || pathname.includes('/reportes'))) {
+    try {
+      const { data: profileData } = await supabase
+        .from('user_profiles')
+        .select('role, plant_id')
+        .eq('id', user.id)
+        .single();
+      
+      const role = (profileData as any)?.role as string | undefined;
+      const plantId = (profileData as any)?.plant_id as string | undefined;
+      
+      if (role === 'QUALITY_TEAM' && plantId) {
+        // Get plant code to check if it's restricted
+        const { data: plantData } = await supabase
+          .from('plants')
+          .select('code')
+          .eq('id', plantId)
+          .single();
+        
+        const plantCode = (plantData as any)?.code as string | undefined;
+        const restrictedPlants = ['P002', 'P003', 'P004'];
+        
+        if (plantCode && restrictedPlants.includes(plantCode)) {
+          console.log(`Blocking QUALITY_TEAM user from plant ${plantCode} accessing ${pathname}, redirecting to /quality/muestreos`);
+          const redirectUrl = request.nextUrl.clone();
+          redirectUrl.pathname = '/quality/muestreos';
+          return NextResponse.redirect(redirectUrl);
+        }
+      }
+    } catch (err) {
+      console.error('Error checking plant restrictions for QUALITY_TEAM:', err);
     }
   }
 
