@@ -545,6 +545,13 @@ export class DebugArkikValidator {
       validation_errors: errors
     };
 
+    // DEBUG: Log validation status determination
+    console.log(`[DebugArkikValidator] 🎯 VALIDATION STATUS DETERMINATION for remision ${row.remision_number}:`);
+    console.log(`[DebugArkikValidator]   - Total errors: ${errors.length}`);
+    console.log(`[DebugArkikValidator]   - Errors array:`, errors);
+    console.log(`[DebugArkikValidator]   - Final status: ${errors.length > 0 ? 'warning' : 'valid'}`);
+    console.log(`[DebugArkikValidator]   - Status logic: errors.length > 0 ? 'warning' : 'valid'`);
+
     console.log('[DebugArkikValidator] === FINAL VALIDATED ROW ===');
     console.log('[DebugArkikValidator] Final validated row for remision', row.remision_number, ':', {
       client_id: validatedRow.client_id,
@@ -635,6 +642,11 @@ export class DebugArkikValidator {
 
     if (materialCodes.size === 0) return;
 
+    // DEBUG: Log what materials we're validating
+    console.log(`[DebugArkikValidator] 🔍 Validating materials for remision ${row.remision_number}:`, Array.from(materialCodes));
+    console.log(`[DebugArkikValidator] 📊 Materials map size: ${materialsMap.size}`);
+    console.log(`[DebugArkikValidator] 📋 Available materials in map:`, Array.from(materialsMap.keys()));
+
     const unmappedCodes: string[] = [];
     const inactiveMaterials: string[] = [];
 
@@ -642,12 +654,17 @@ export class DebugArkikValidator {
       const material = materialsMap.get(code);
       if (!material) {
         unmappedCodes.push(code);
+        console.log(`[DebugArkikValidator] ❌ Material ${code} NOT FOUND in materials map`);
       } else if (!material.is_active) {
         inactiveMaterials.push(code);
+        console.log(`[DebugArkikValidator] ⚠️ Material ${code} found but INACTIVE (is_active: ${material.is_active})`);
+      } else {
+        console.log(`[DebugArkikValidator] ✅ Material ${code} found and ACTIVE`);
       }
     });
 
     if (unmappedCodes.length > 0) {
+      console.log(`[DebugArkikValidator] 🚨 Adding unmapped materials error for remision ${row.remision_number}:`, unmappedCodes);
       errors.push({
         row_number: row.row_number,
         error_type: ArkikErrorType.MATERIAL_NOT_FOUND,
@@ -663,6 +680,7 @@ export class DebugArkikValidator {
     }
 
     if (inactiveMaterials.length > 0) {
+      console.log(`[DebugArkikValidator] 🚨 Adding inactive materials error for remision ${row.remision_number}:`, inactiveMaterials);
       errors.push({
         row_number: row.row_number,
         error_type: ArkikErrorType.MATERIAL_NOT_FOUND,
@@ -672,6 +690,9 @@ export class DebugArkikValidator {
         recoverable: true
       });
     }
+
+    // DEBUG: Log final error count
+    console.log(`[DebugArkikValidator] 📝 Total validation errors for remision ${row.remision_number}: ${errors.length}`);
   }
 
   private resolveConstructionSiteIdFromCache(

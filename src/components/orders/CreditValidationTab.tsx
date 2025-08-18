@@ -19,9 +19,9 @@ export default function CreditValidationTab() {
   const router = useRouter();
   const { profile } = useAuthBridge();
   
-  // Determine if user is a credit validator (fix type issue)
-  const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
-  const isManager = profile?.role === 'EXECUTIVE' as UserRole || profile?.role === 'PLANT_MANAGER' as UserRole;
+  // Determine if user is a credit validator
+  const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR';
+  const isManager = profile?.role === 'EXECUTIVE' || profile?.role === 'PLANT_MANAGER';
 
   const loadOrders = useCallback(async () => {
     try {
@@ -167,7 +167,7 @@ export default function CreditValidationTab() {
   return (
     <div className="space-y-4">
       {orders.map((order) => (
-        <div key={order.id} className="border rounded-lg shadow-xs hover:shadow-md transition-shadow bg-white">
+        <div key={`credit-validation-${order.id}`} className="border rounded-lg shadow-xs hover:shadow-md transition-shadow bg-white">
           <div className="p-4">
             <div className="flex flex-col md:flex-row justify-between">
               <div className="flex-1">
