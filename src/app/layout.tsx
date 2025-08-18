@@ -133,22 +133,15 @@ export function isQualityTeamInRestrictedPlant(userRole: string | undefined, pla
 
 // Function to get appropriate quality submenu based on user role and plant
 function getQualitySubMenuItems(userRole: string | undefined, plantCode: string | undefined): QualityNavItem[] {
-  // Debug logging
-  console.log('getQualitySubMenuItems called with:', { userRole, plantCode });
-  
   if (userRole === 'QUALITY_TEAM') {
     // Check if user is in restricted plants (P2, P3, P4)
     const isRestricted = isQualityTeamInRestrictedPlant(userRole, plantCode);
-    console.log('Is QUALITY_TEAM in restricted plant?', isRestricted);
     
     if (isRestricted) {
-      console.log('Returning restricted menu for plant:', plantCode);
       return qualitySubMenuItemsForRestrictedPlants;
     }
-    console.log('Returning normal QUALITY_TEAM menu');
     return qualitySubMenuItemsForQualityTeam;
   }
-  console.log('Returning full quality menu for role:', userRole);
   return qualitySubMenuItems;
 }
 

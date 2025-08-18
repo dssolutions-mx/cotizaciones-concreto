@@ -92,8 +92,6 @@ export const orderService = {
   }, client?: SupabaseClient<Database>) {
     const supabase = client || browserClient;
     try {
-      console.log('getOrders called with filters:', filters);
-      
       let query = supabase
         .from('orders')
         .select(`
@@ -120,33 +118,27 @@ export const orderService = {
       
       // Apply filters if provided
       if (filters?.creditStatus) {
-        console.log(`Applying credit_status filter: ${filters.creditStatus}`);
         query = query.eq('credit_status', filters.creditStatus);
       }
       
       if (filters?.orderStatus) {
-        console.log(`Applying order_status filter: ${filters.orderStatus}`);
         query = query.eq('order_status', filters.orderStatus);
       }
       
       if (filters?.clientId) {
-        console.log(`Applying client_id filter: ${filters.clientId}`);
         query = query.eq('client_id', filters.clientId);
       }
       
       if (filters?.startDate) {
-        console.log(`Applying start date filter: ${filters.startDate}`);
         query = query.gte('delivery_date', filters.startDate);
       }
       
       if (filters?.endDate) {
-        console.log(`Applying end date filter: ${filters.endDate}`);
         query = query.lte('delivery_date', filters.endDate);
       }
       
       // Apply limit if provided
       if (filters?.limit) {
-        console.log(`Applying limit: ${filters.limit}`);
         query = query.limit(filters.limit);
       }
       
@@ -160,7 +152,6 @@ export const orderService = {
         throw error;
       }
       
-      console.log(`getOrders found ${data?.length || 0} records`);
       return { data: data || [], error: null };
     } catch (error) {
       const errorMessage = handleError(error, 'getOrders');
