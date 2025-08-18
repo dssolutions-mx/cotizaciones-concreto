@@ -269,7 +269,18 @@ export async function getOrderById(id: string) {
     .select(`
       *,
       clients:clients(business_name, client_code, email, phone),
-      products:order_items(*, quote_details(recipe_id)) 
+      products:order_items(*, quote_details(recipe_id)),
+      plant:plant_id(
+        id,
+        name,
+        code,
+        business_unit:business_unit_id(
+          id,
+          name,
+          code,
+          vat_rate
+        )
+      )
     `)
     .eq('id', id)
     .single();
@@ -279,7 +290,7 @@ export async function getOrderById(id: string) {
   // Transform data to match the OrderWithDetails type and structure products
   if (data) {
     // Rename clients to client for consistency with OrderWithDetails
-    const { clients, products, ...orderData } = data;
+    const { clients, products, plant, ...orderData } = data;
     
     // Map products to include recipe_id directly
     const structuredProducts = (products || []).map((p: { recipe_id: string | null; quote_details: { recipe_id: string } | null; [key: string]: any }) => {
@@ -295,7 +306,8 @@ export async function getOrderById(id: string) {
     return {
       ...orderData,
       client: clients,
-      products: structuredProducts // Use the transformed products
+      products: structuredProducts, // Use the transformed products
+      plant: plant
     } as unknown as OrderWithDetails;
   }
   
@@ -610,14 +622,34 @@ export async function recalculateOrderAmount(orderId: string) {
     
     if (remisionesError) throw remisionesError;
     
-    // Get order details to know if it requires invoice
+    // Get order details to know if it requires invoice and plant_id
     const { data: orderData, error: orderError } = await supabase
       .from('orders')
-      .select('requires_invoice, client_id, construction_site')
+      .select('requires_invoice, client_id, construction_site, plant_id')
       .eq('id', orderId)
       .single();
     
     if (orderError) throw orderError;
+    
+    // Get plant VAT rate
+    let vatRate = 0.16; // Default fallback
+    if (orderData.plant_id) {
+      const { data: plantData, error: plantError } = await supabase
+        .from('plants')
+        .select(`
+          id,
+          business_unit:business_unit_id(
+            id,
+            vat_rate
+          )
+        `)
+        .eq('id', orderData.plant_id)
+        .single();
+      
+      if (!plantError && plantData?.business_unit?.vat_rate) {
+        vatRate = plantData.business_unit.vat_rate;
+      }
+    }
     
     // Get all order items
     const { data: orderItems, error: itemsError } = await supabase
@@ -765,9 +797,9 @@ export async function recalculateOrderAmount(orderId: string) {
     const additionalAmount = additionalProducts?.reduce((sum, product) => 
       sum + ((product.cantidad || 0) * (product.precio_unitario || 0)), 0) || 0;
     
-    // Calculate total final amount
+    // Calculate total final amount with plant-specific VAT rate
     const finalAmount = concreteAmount + pumpAmount + emptyTruckAmount + additionalAmount;
-    const invoiceAmount = orderData.requires_invoice ? finalAmount * 1.16 : finalAmount;
+    const invoiceAmount = orderData.requires_invoice ? finalAmount * (1 + vatRate) : finalAmount;
     
     // Update the order with new amounts
     const { error: updateOrderError } = await supabase
@@ -789,9 +821,10 @@ export async function recalculateOrderAmount(orderId: string) {
     
     if (balanceError) throw balanceError;
     
+    const vatPercentage = (vatRate * 100).toFixed(1);
     return { 
       success: true, 
-      message: `Monto final recalculado: $${finalAmount.toFixed(2)}${orderData.requires_invoice ? ` (con IVA: $${invoiceAmount.toFixed(2)})` : ''}` 
+      message: `Monto final recalculado: $${finalAmount.toFixed(2)}${orderData.requires_invoice ? ` (con IVA ${vatPercentage}%: $${invoiceAmount.toFixed(2)})` : ''}` 
     };
     
   } catch (error) {

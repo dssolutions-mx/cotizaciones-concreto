@@ -9,6 +9,8 @@ import { useRouter } from 'next/navigation';
 
 interface ApprovedQuotesTabProps {
   onDataSaved?: () => void;
+  statusFilter?: string;
+  clientFilter?: string;
 }
 
 interface SupabaseApprovedQuote {
@@ -136,7 +138,7 @@ export interface ApprovedQuote {
   }>;
 }
 
-export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProps) {
+export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFilter }: ApprovedQuotesTabProps) {
   const [quotes, setQuotes] = useState<ApprovedQuote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedQuote, setSelectedQuote] = useState<ApprovedQuote | null>(null);
@@ -153,7 +155,8 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
   const fetchApprovedQuotes = useCallback(async () => {
     try {
       setIsLoading(true);
-      const { data, count, error } = await supabase
+      
+      let query = supabase
         .from('quotes')
         .select(`
           id, 
@@ -199,14 +202,25 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
             )
           )
         `, { count: 'exact' })
-        .eq('status', 'APPROVED')
-        .range((page - 1) * quotesPerPage, page * quotesPerPage - 1)
+        .eq('status', 'APPROVED');
+
+      // Apply client filter if provided
+      if (clientFilter && clientFilter.trim()) {
+        // When filtering, we need to fetch all data to handle pagination correctly
+        // We'll apply the filter after fetching and then handle pagination client-side
+        console.log('Client filter applied, fetching all data for proper pagination');
+      } else {
+        // Only apply pagination when not filtering
+        query = query.range((page - 1) * quotesPerPage, page * quotesPerPage - 1);
+      }
+
+      const { data, count, error } = await query
         .order('approval_date', { ascending: false });
 
       if (error) throw error;
 
       // Transform data to match ApprovedQuote interface
-      const transformedQuotes: ApprovedQuote[] = (data || []).map((quote) => {
+      let transformedQuotes: ApprovedQuote[] = (data || []).map((quote) => {
         const clientData = Array.isArray(quote.clients)
           ? quote.clients[0]
           : quote.clients;
@@ -271,15 +285,40 @@ export default function ApprovedQuotesTab({ onDataSaved }: ApprovedQuotesTabProp
         };
       });
 
+      // Apply client-side filtering if clientFilter is provided
+      if (clientFilter && clientFilter.trim()) {
+        const filterLower = clientFilter.toLowerCase();
+        transformedQuotes = transformedQuotes.filter(quote => 
+          quote.client?.business_name?.toLowerCase().includes(filterLower) ||
+          quote.client?.client_code?.toLowerCase().includes(filterLower)
+        );
+        
+        // Handle pagination for filtered results
+        const startIndex = (page - 1) * quotesPerPage;
+        const endIndex = startIndex + quotesPerPage;
+        transformedQuotes = transformedQuotes.slice(startIndex, endIndex);
+        
+        // Set total count to the total filtered results (before pagination)
+        const totalFiltered = (data || []).filter(quote => {
+          const clientData = Array.isArray(quote.clients) ? quote.clients[0] : quote.clients;
+          return clientData && (
+            clientData.business_name?.toLowerCase().includes(filterLower) ||
+            clientData.client_code?.toLowerCase().includes(filterLower)
+          );
+        }).length;
+        setTotalQuotes(totalFiltered);
+      } else {
+        setTotalQuotes(count || 0);
+      }
+
       setQuotes(transformedQuotes);
-      setTotalQuotes(count || 0);
     } catch (error) {
       console.error('Error fetching approved quotes:', error);
       alert('No se pudieron cargar las cotizaciones aprobadas');
     } finally {
       setIsLoading(false);
     }
-  }, [page]);
+  }, [page, clientFilter]);
 
   useEffect(() => {
     fetchApprovedQuotes();

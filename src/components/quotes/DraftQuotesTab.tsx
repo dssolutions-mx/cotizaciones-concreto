@@ -10,6 +10,8 @@ import { CheckIcon, Cross2Icon } from '@radix-ui/react-icons';
 
 interface DraftQuotesTabProps {
   onDataSaved?: () => void;
+  statusFilter?: string;
+  clientFilter?: string;
 }
 
 // Updated interfaces to match Supabase query structure
@@ -78,7 +80,7 @@ interface Quote {
   }>;
 }
 
-export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
+export default function DraftQuotesTab({ onDataSaved, statusFilter, clientFilter }: DraftQuotesTabProps) {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -160,7 +162,17 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
       // Apply status filter
       query = query.eq('status', filterStatus);
       
-      // Apply search filter if present
+      // Apply client filter if provided (from props)
+      if (clientFilter && clientFilter.trim()) {
+        // When filtering, we need to fetch all data to handle pagination correctly
+        // We'll apply the filter after fetching and then handle pagination client-side
+        console.log('Client filter applied, fetching all data for proper pagination');
+      } else {
+        // Only apply pagination when not filtering
+        query = query.range(from, to);
+      }
+      
+      // Apply search filter if present (local search)
       if (searchTerm.trim()) {
         query = query.or(`
           clients.business_name.ilike.%${searchTerm}%,
@@ -172,20 +184,14 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
       
       // Add sorting and pagination
       const { data, error, count } = await query
-        .order('created_at', { ascending: false })
-        .range(from, to);
+        .order('created_at', { ascending: false });
       
       if (error) {
         throw error;
       }
       
-      // Set the total quotes count for pagination
-      if (count !== null) {
-        setTotalQuotes(count);
-      }
-      
       // Transform the data to match our Quote interface, following ApprovedQuotesTab pattern
-      const transformedQuotes: Quote[] = (data || []).map(quote => {
+      let transformedQuotes: Quote[] = (data || []).map(quote => {
         // Access the client data properly
         const clientData = Array.isArray(quote.clients) 
           ? quote.clients[0] 
@@ -228,13 +234,43 @@ export default function DraftQuotesTab({ onDataSaved }: DraftQuotesTabProps) {
         };
       });
       
+      // Apply client-side filtering if clientFilter is provided
+      if (clientFilter && clientFilter.trim()) {
+        const filterLower = clientFilter.toLowerCase();
+        transformedQuotes = transformedQuotes.filter(quote => 
+          quote.client?.business_name?.toLowerCase().includes(filterLower) ||
+          quote.client?.client_code?.toLowerCase().includes(filterLower)
+        );
+        
+        // Handle pagination for filtered results
+        const startIndex = (page - 1) * quotesPerPage;
+        const endIndex = startIndex + quotesPerPage;
+        transformedQuotes = transformedQuotes.slice(startIndex, endIndex);
+        
+        // Set total count to the total filtered results (before pagination)
+        const totalFiltered = (data || []).filter(quote => {
+          const clientData = Array.isArray(quote.clients) ? quote.clients[0] : quote.clients;
+          return clientData && (
+            clientData.business_name?.toLowerCase().includes(filterLower) ||
+            clientData.client_code?.toLowerCase().includes(filterLower)
+          );
+        }).length;
+        setTotalQuotes(totalFiltered);
+      } else {
+        // Set the total quotes count for pagination
+        if (count !== null) {
+          setTotalQuotes(count);
+        }
+      }
+      
       setQuotes(transformedQuotes);
     } catch (error) {
-      console.error('Error fetching draft quotes:', error);
+      console.error('Error fetching quotes:', error);
+      alert('No se pudieron cargar las cotizaciones');
     } finally {
       setIsLoading(false);
     }
-  }, [page, quotesPerPage, searchTerm, filterStatus]); // Include searchTerm and filterStatus in dependencies
+  }, [page, filterStatus, searchTerm, clientFilter]);
 
   // Call our fetchDraftQuotes when component mounts or dependencies change
   useEffect(() => {
