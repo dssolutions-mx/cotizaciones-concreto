@@ -120,7 +120,7 @@ export default function NuevoMuestreoPage() {
     defaultValues: {
       fecha_muestreo: new Date(),
       numero_muestreo: 1,
-      planta: 'P1',
+      planta: 'P001',
       revenimiento_sitio: 10,
       masa_unitaria: 2400,
       peso_recipiente_vacio: undefined,
@@ -885,11 +885,11 @@ export default function NuevoMuestreoPage() {
                                     </SelectTrigger>
                                   </FormControl>
                                   <SelectContent>
-                                    <SelectItem value="P1">Planta 1</SelectItem>
-                                    <SelectItem value="P2">Planta 2</SelectItem>
-                                    <SelectItem value="P3">Planta 3</SelectItem>
-                                    <SelectItem value="P4">Planta 4</SelectItem>
-                                    <SelectItem value="P5">Planta 5</SelectItem>
+                                    <SelectItem value="P001">Planta 1</SelectItem>
+                                    <SelectItem value="P002">Planta 2</SelectItem>
+                                    <SelectItem value="P003">Planta 3</SelectItem>
+                                    <SelectItem value="P004">Planta 4</SelectItem>
+                                    <SelectItem value="P005">Planta 5</SelectItem>
                                   </SelectContent>
                                 </Select>
                                 <FormMessage />

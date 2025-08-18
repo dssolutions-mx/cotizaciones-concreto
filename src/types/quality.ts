@@ -6,7 +6,7 @@ export interface Muestreo {
   remision_id: string;
   fecha_muestreo: string;
   numero_muestreo: number;
-  planta: 'P1' | 'P2' | 'P3' | 'P4';
+  planta: 'P001' | 'P002' | 'P003' | 'P004';
   plant_id?: string; // prefer server-side filtering by plant_id
   revenimiento_sitio: number;
   masa_unitaria: number;
@@ -161,7 +161,7 @@ export type DatoGraficoResistencia = {
 export interface FiltrosCalidad {
   fechaDesde?: Date;
   fechaHasta?: Date;
-  planta?: 'P1' | 'P2' | 'P3' | 'P4';
+  planta?: 'P001' | 'P002' | 'P003' | 'P004';
   clasificacion?: 'FC' | 'MR';
   estadoMuestra?: 'PENDIENTE' | 'ENSAYADO' | 'DESCARTADO';
   cliente?: string;
