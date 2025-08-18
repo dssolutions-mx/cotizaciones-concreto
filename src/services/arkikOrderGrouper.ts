@@ -1,7 +1,29 @@
 import { StagingRemision, OrderSuggestion, ValidationError } from '@/types/arkik';
+import { ExistingOrderMatch } from './arkikOrderMatcher';
+
+export interface OrderGroupingOptions {
+  processingMode: 'dedicated' | 'commercial';
+  existingOrderMatches?: ExistingOrderMatch[];
+  manualAssignments?: Map<string, string>; // remision_number -> order_id
+}
 
 export class ArkikOrderGrouper {
-  groupRemisiones(remisiones: StagingRemision[]): OrderSuggestion[] {
+  groupRemisiones(
+    remisiones: StagingRemision[], 
+    options: OrderGroupingOptions = { processingMode: 'dedicated' }
+  ): OrderSuggestion[] {
+    if (options.processingMode === 'commercial') {
+      return this.groupWithExistingOrders(
+        remisiones, 
+        options.existingOrderMatches || [], 
+        options.manualAssignments
+      );
+    }
+    
+    return this.groupForNewOrders(remisiones);
+  }
+
+  private groupForNewOrders(remisiones: StagingRemision[]): OrderSuggestion[] {
     const groups = new Map<string, StagingRemision[]>();
     const withOrder = remisiones.filter(r => r.orden_original);
     const withoutOrder = remisiones.filter(r => !r.orden_original);
@@ -19,6 +41,139 @@ export class ArkikOrderGrouper {
     });
 
     return Array.from(groups.entries()).map(([key, list]) => this.createOrderSuggestion(key, list));
+  }
+
+  /**
+   * Group remisiones with existing order matches and manual assignments for commercial mode
+   */
+  private groupWithExistingOrders(
+    remisiones: StagingRemision[], 
+    existingMatches: ExistingOrderMatch[],
+    manualAssignments?: Map<string, string>
+  ): OrderSuggestion[] {
+    const suggestions: OrderSuggestion[] = [];
+    const processedRemisionIds = new Set<string>();
+
+    // Process existing order matches first
+    existingMatches.forEach(match => {
+      const suggestion = this.createOrderSuggestionFromExistingOrder(match);
+      suggestions.push(suggestion);
+      
+      // Mark remisiones as processed
+      match.matchedRemisiones.forEach(remision => {
+        processedRemisionIds.add(remision.id);
+      });
+    });
+
+    // Process manual assignments
+    if (manualAssignments) {
+      const manuallyAssignedRemisiones = remisiones.filter(r => 
+        !processedRemisionIds.has(r.id) && manualAssignments.has(r.remision_number)
+      );
+
+      // Group manually assigned remisiones by target order ID
+      const manualGroups = new Map<string, StagingRemision[]>();
+      manuallyAssignedRemisiones.forEach(remision => {
+        const orderId = manualAssignments.get(remision.remision_number)!;
+        if (!manualGroups.has(orderId)) {
+          manualGroups.set(orderId, []);
+        }
+        manualGroups.get(orderId)!.push(remision);
+        processedRemisionIds.add(remision.id);
+      });
+
+      // Create suggestions for manual assignments
+      manualGroups.forEach((assignedRemisiones, orderId) => {
+        const suggestion = this.createOrderSuggestionFromManualAssignment(assignedRemisiones, orderId);
+        suggestions.push(suggestion);
+      });
+    }
+
+    // Process remaining unmatched remisiones as new orders
+    const unmatchedRemisiones = remisiones.filter(r => !processedRemisionIds.has(r.id));
+    if (unmatchedRemisiones.length > 0) {
+      const newOrderSuggestions = this.groupForNewOrders(unmatchedRemisiones);
+      suggestions.push(...newOrderSuggestions);
+    }
+
+    return suggestions;
+  }
+
+  /**
+   * Create order suggestion from manual assignment to existing order
+   */
+  private createOrderSuggestionFromManualAssignment(
+    remisiones: StagingRemision[],
+    orderId: string
+  ): OrderSuggestion {
+    remisiones.sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
+    const firstRemision = remisiones[0];
+
+    return {
+      id: `manual-${orderId}-${Date.now()}`,
+      client_id: firstRemision.client_id!,
+      construction_site_id: firstRemision.construction_site_id!,
+      construction_site: firstRemision.obra_name || '',
+      delivery_date: firstRemision.fecha.toISOString().split('T')[0],
+      delivery_time: firstRemision.hora_carga.toTimeString().split(' ')[0],
+      quote_id: firstRemision.quote_id,
+      quote_detail_id: firstRemision.quote_detail_id,
+      remisiones: remisiones,
+      cliente_name: firstRemision.cliente_name || '',
+      total_volume: remisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0),
+      total_amount: remisiones.reduce((sum, r) => sum + (r.unit_price * r.volumen_fabricado), 0),
+      prod_comercial: firstRemision.prod_comercial,
+      prod_tecnico: firstRemision.prod_tecnico,
+      elementos: firstRemision.elementos,
+      bombeable: firstRemision.bombeable,
+      
+      // Manual assignment specific fields
+      existing_order_id: orderId,
+      is_existing_order: true,
+      match_score: 1.0, // Manual assignment gets perfect score
+      match_reasons: ['Asignación manual']
+    };
+  }
+
+  /**
+   * Create order suggestion from an existing order match
+   */
+  private createOrderSuggestionFromExistingOrder(match: ExistingOrderMatch): OrderSuggestion {
+    const remisiones = match.matchedRemisiones;
+    remisiones.sort((a, b) => a.fecha.getTime() - b.fecha.getTime());
+    
+    const comentarios = new Set<string>();
+    const recipeCodes = new Set<string>();
+    const validationIssues: ValidationError[] = [];
+
+    remisiones.forEach(r => {
+      if (r.comentarios_externos) comentarios.add(r.comentarios_externos);
+      if (r.recipe_code) recipeCodes.add(r.recipe_code);
+      validationIssues.push(...r.validation_errors);
+    });
+
+    return {
+      group_key: `existing_order_${match.order.id}`,
+      client_id: match.order.client_id,
+      construction_site_id: match.order.construction_site_id,
+      obra_name: match.order.construction_site,
+      comentarios_externos: Array.from(comentarios),
+      date_range: { 
+        start: remisiones[0].fecha, 
+        end: remisiones[remisiones.length - 1].fecha 
+      },
+      remisiones,
+      total_volume: remisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0),
+      suggested_name: `${match.order.order_number} - Remisiones Arkik`,
+      recipe_codes: recipeCodes,
+      validation_issues: validationIssues,
+      // Additional fields for existing order handling
+      existing_order_id: match.order.id,
+      existing_order_number: match.order.order_number,
+      match_score: match.matchScore,
+      match_reasons: match.matchReasons,
+      is_existing_order: true
+    };
   }
 
   private generateGroupKey(remision: StagingRemision): string {

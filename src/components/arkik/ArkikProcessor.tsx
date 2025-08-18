@@ -7,6 +7,7 @@ import { DebugArkikValidator } from '@/services/debugArkikValidator';
 import { ArkikRawParser } from '@/services/arkikRawParser';
 import type { StagingRemision, OrderSuggestion, ValidationError, StatusProcessingDecision, StatusProcessingResult, RemisionReassignment } from '@/types/arkik';
 import StatusProcessingDialog from './StatusProcessingDialog';
+import ManualAssignmentInterface from './ManualAssignmentInterface';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -37,7 +38,12 @@ export default function ArkikProcessor() {
   const [stagingData, setStagingData] = useState<StagingRemision[]>([]);
   const [orderSuggestions, setOrderSuggestions] = useState<OrderSuggestion[]>([]);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
-  const [currentStep, setCurrentStep] = useState<'validation' | 'status-processing' | 'grouping' | 'confirmation'>('validation');
+  const [currentStep, setCurrentStep] = useState<'validation' | 'status-processing' | 'grouping' | 'confirmation' | 'manual-assignment'>('validation');
+  
+  // Manual assignment state for commercial mode
+  const [showManualAssignment, setShowManualAssignment] = useState(false);
+  const [unmatchedRemisiones, setUnmatchedRemisiones] = useState<StagingRemision[]>([]);
+  const [manualAssignments, setManualAssignments] = useState<Map<string, string>>(new Map()); // remision_number -> order_id
   
   // Status Processing state
   const [statusProcessingDecisions, setStatusProcessingDecisions] = useState<StatusProcessingDecision[]>([]);
@@ -54,6 +60,9 @@ export default function ArkikProcessor() {
   // Dialog state
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [selectedRemisionForProcessing, setSelectedRemisionForProcessing] = useState<StagingRemision | null>(null);
+  
+  // Processing mode toggle
+  const [processingMode, setProcessingMode] = useState<'dedicated' | 'commercial'>('dedicated');
   
   // Statistics
   const [stats, setStats] = useState({
@@ -214,7 +223,7 @@ export default function ArkikProcessor() {
     }
   };
 
-  const handleOrderGrouping = (directProcessedData?: StagingRemision[]) => {
+  const handleOrderGrouping = async (directProcessedData?: StagingRemision[]) => {
     // Use direct data if provided, otherwise use processed data state, otherwise fall back to validated data
     const remisionesToProcess = directProcessedData || (processedRemisiones.length > 0 ? processedRemisiones : (result?.validated || []));
     
@@ -228,6 +237,7 @@ export default function ArkikProcessor() {
         usingValidatedFallback: !directProcessedData && processedRemisiones.length === 0
       });
       console.log('[ArkikProcessor] Total remisiones to process:', remisionesToProcess.length);
+      console.log('[ArkikProcessor] Processing mode:', processingMode);
       
       // Debug: Check exclusions in the data being used
       const excludedInData = remisionesToProcess.filter(r => r.is_excluded_from_import);
@@ -277,6 +287,7 @@ export default function ArkikProcessor() {
         // Must have pricing information
         const hasPricing = remision.unit_price != null && remision.unit_price > 0;
         
+        // All modes require the same basic data - validation should have resolved missing IDs
         const hasRequiredIds = hasClientId && hasConstructionSiteId && hasRecipeId;
         
         console.log(`[ArkikProcessor] Filtering remision ${remision.remision_number}:`, {
@@ -285,6 +296,7 @@ export default function ArkikProcessor() {
           hasRecipeId,
           hasValidStatus,
           hasPricing,
+          processingMode,
           finalResult: hasRequiredIds && hasValidStatus && hasPricing
         });
         
@@ -361,12 +373,55 @@ export default function ArkikProcessor() {
         })));
       }
 
-      // Import the order grouper service
-      const { ArkikOrderGrouper } = require('@/services/arkikOrderGrouper');
-      const grouper = new ArkikOrderGrouper();
+      // Use the UI toggle for processing mode
+      let suggestions: OrderSuggestion[] = [];
       
-      // Group only the validated and ready remisiones
-      const suggestions = grouper.groupRemisiones(readyForOrderCreation);
+      if (processingMode === 'commercial') {
+        // Commercial mode: try to match existing orders first
+        console.log('[ArkikProcessor] Commercial mode: Looking for existing orders to match');
+        
+        const { ArkikOrderMatcher } = await import('@/services/arkikOrderMatcher');
+        const matcher = new ArkikOrderMatcher(currentPlant!.id);
+        
+        const { matchedOrders, unmatchedRemisiones } = await matcher.findMatchingOrders(readyForOrderCreation);
+        
+        console.log('[ArkikProcessor] Order matching results:', {
+          totalRemisiones: readyForOrderCreation.length,
+          matchedOrders: matchedOrders.length,
+          unmatchedRemisiones: unmatchedRemisiones.length
+        });
+        
+        // Check if we have unmatched remisiones that need manual assignment
+        if (unmatchedRemisiones.length > 0) {
+          console.log('[ArkikProcessor] Found unmatched remisiones, showing manual assignment interface');
+          setUnmatchedRemisiones(unmatchedRemisiones);
+          setShowManualAssignment(true);
+          setCurrentStep('manual-assignment');
+          return; // Stop here and let user manually assign
+        }
+        
+        // Import the order grouper service
+        const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
+        const grouper = new ArkikOrderGrouper();
+        
+        // Group with existing orders and any unmatched remisiones
+        suggestions = grouper.groupRemisiones(readyForOrderCreation, {
+          processingMode: 'commercial',
+          existingOrderMatches: matchedOrders
+        });
+        
+      } else {
+        // Dedicated site mode: create new orders automatically
+        console.log('[ArkikProcessor] Dedicated site mode: Creating new orders');
+        
+        const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
+        const grouper = new ArkikOrderGrouper();
+        
+        suggestions = grouper.groupRemisiones(readyForOrderCreation, {
+          processingMode: 'dedicated'
+        });
+      }
+      
       setOrderSuggestions(suggestions);
       
       // Update statistics based on ready remisiones
@@ -391,20 +446,63 @@ export default function ArkikProcessor() {
     }
   };
 
+  const handleManualAssignmentsComplete = async (assignments: Map<string, string>) => {
+    console.log('[ArkikProcessor] Manual assignments completed:', Object.fromEntries(assignments));
+    
+    // Update manual assignments state
+    setManualAssignments(assignments);
+    setShowManualAssignment(false);
+    
+    try {
+      // Now continue with order grouping including manual assignments
+      const remisionesToProcess = processedRemisiones.length > 0 ? processedRemisiones : (result?.validated || []);
+      const readyForOrderCreation = remisionesToProcess.filter(remision => {
+        if (remision.is_excluded_from_import) return false;
+        const hasRequiredIds = remision.client_id && remision.construction_site_id && remision.recipe_id;
+        const hasValidStatus = remision.validation_status !== 'error';
+        const hasPricing = remision.unit_price != null && remision.unit_price > 0;
+        return hasRequiredIds && hasValidStatus && hasPricing;
+      });
+
+      // Get automatic matches first
+      const { ArkikOrderMatcher } = await import('@/services/arkikOrderMatcher');
+      const matcher = new ArkikOrderMatcher(currentPlant!.id);
+      const { matchedOrders, unmatchedRemisiones } = await matcher.findMatchingOrders(readyForOrderCreation);
+
+      // Combine automatic matches with manual assignments
+      const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
+      const grouper = new ArkikOrderGrouper();
+      
+      const suggestions = grouper.groupRemisiones(readyForOrderCreation, {
+        processingMode: 'commercial',
+        existingOrderMatches: matchedOrders,
+        manualAssignments: assignments
+      });
+
+      setOrderSuggestions(suggestions);
+      setCurrentStep('grouping');
+      
+    } catch (error) {
+      console.error('Error processing manual assignments:', error);
+      alert('Error al procesar las asignaciones manuales');
+    }
+  };
+
+  const handleManualAssignmentCancel = () => {
+    setShowManualAssignment(false);
+    setUnmatchedRemisiones([]);
+    setManualAssignments(new Map());
+    
+    // Go back to the grouping step or allow user to continue with creating new orders
+    setCurrentStep('grouping');
+  };
+
   const handleFinalConfirmation = async () => {
     if (!orderSuggestions.length || !currentPlant) return;
     
     setLoading(true);
     
     try {
-      // Import the order creation service
-      const { createOrdersFromSuggestions } = await import('@/services/arkikOrderCreator');
-      
-      // Execute the creation process
-      if (!currentPlant) {
-        throw new Error('No hay planta seleccionada');
-      }
-      
       // Use processed data if available, otherwise fall back to validated data
       // For final confirmation, we prioritize the processed data from state
       const finalRemisionesData = processedRemisiones.length > 0 ? processedRemisiones : (result?.validated || []);
@@ -414,14 +512,67 @@ export default function ArkikProcessor() {
         totalRemisiones: finalRemisionesData.length,
         excludedRemisiones: finalRemisionesData.filter(r => r.is_excluded_from_import).length,
         processedDataLength: processedRemisiones.length,
-        validatedDataLength: result?.validated?.length || 0
+        validatedDataLength: result?.validated?.length || 0,
+        processingMode: processingMode
       });
       
-      const creationResult = await createOrdersFromSuggestions(
-        orderSuggestions, 
-        currentPlant.id, 
-        finalRemisionesData
-      );
+      // Separate existing orders from new orders
+      const existingOrderSuggestions = orderSuggestions.filter(s => s.is_existing_order);
+      const newOrderSuggestions = orderSuggestions.filter(s => !s.is_existing_order);
+      
+      console.log('[ArkikProcessor] Order suggestions breakdown:', {
+        total: orderSuggestions.length,
+        existingOrders: existingOrderSuggestions.length,
+        newOrders: newOrderSuggestions.length
+      });
+      
+      let totalOrdersCreated = 0;
+      let totalOrdersUpdated = 0;
+      let totalRemisionesCreated = 0;
+      let totalMaterialsProcessed = 0;
+      let totalOrderItemsCreated = 0;
+      
+      // Handle existing orders (update them with new remisiones)
+      if (existingOrderSuggestions.length > 0) {
+        console.log('[ArkikProcessor] Updating existing orders...');
+        
+        const { ArkikOrderMatcher } = await import('@/services/arkikOrderMatcher');
+        const matcher = new ArkikOrderMatcher(currentPlant!.id);
+        
+        for (const suggestion of existingOrderSuggestions) {
+          const updateResult = await matcher.updateOrderWithRemisiones(
+            suggestion.existing_order_id!,
+            suggestion.remisiones
+          );
+          
+          if (updateResult.success) {
+            totalOrdersUpdated++;
+            totalOrderItemsCreated += updateResult.updatedOrderItems?.length || 0;
+            totalRemisionesCreated += suggestion.remisiones.length;
+            // TODO: Add material processing count
+          } else {
+            console.error(`Failed to update order ${suggestion.existing_order_number}:`, updateResult.error);
+          }
+        }
+      }
+      
+      // Handle new orders (create them)
+      if (newOrderSuggestions.length > 0) {
+        console.log('[ArkikProcessor] Creating new orders...');
+        
+        const { createOrdersFromSuggestions } = await import('@/services/arkikOrderCreator');
+        
+        const creationResult = await createOrdersFromSuggestions(
+          newOrderSuggestions, 
+          currentPlant.id, 
+          finalRemisionesData
+        );
+        
+        totalOrdersCreated = creationResult.ordersCreated;
+        totalRemisionesCreated += creationResult.remisionesCreated;
+        totalMaterialsProcessed = creationResult.materialsProcessed;
+        totalOrderItemsCreated += creationResult.orderItemsCreated;
+      }
       
       // Save pending reassignments after remisiones are created
       if (pendingReassignments.length > 0) {
@@ -435,7 +586,18 @@ export default function ArkikProcessor() {
       }
       
       // Show success message with detailed results
-      alert(`Importación completada exitosamente!\n\nResumen:\n• ${creationResult.ordersCreated} órdenes creadas\n• ${creationResult.remisionesCreated} remisiones procesadas\n• ${creationResult.materialsProcessed} registros de materiales\n• ${creationResult.orderItemsCreated} items de orden creados`);
+      const successMessage = [
+        'Importación completada exitosamente!',
+        '',
+        'Resumen:',
+        `• ${totalOrdersCreated} órdenes nuevas creadas`,
+        `• ${totalOrdersUpdated} órdenes existentes actualizadas`,
+        `• ${totalRemisionesCreated} remisiones procesadas`,
+        `• ${totalMaterialsProcessed} registros de materiales`,
+        `• ${totalOrderItemsCreated} items de orden creados/actualizados`
+      ].join('\n');
+      
+      alert(successMessage);
       
       // Reset to validation step
       setCurrentStep('validation');
@@ -766,18 +928,31 @@ export default function ArkikProcessor() {
           
           <ChevronRight className="h-5 w-5 text-gray-300" />
           
-          <div className={`flex items-center ${currentStep === 'grouping' ? 'text-blue-600' : 'text-gray-400'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'grouping' ? 'border-blue-600 bg-blue-600 text-white' : currentStep === 'confirmation' ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
-              {currentStep === 'grouping' ? '3' : currentStep === 'confirmation' ? <CheckCircle2 className="h-5 w-5" /> : '3'}
+          <div className={`flex items-center ${currentStep === 'grouping' ? 'text-blue-600' : ['manual-assignment', 'confirmation'].includes(currentStep) ? 'text-green-600' : 'text-gray-400'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'grouping' ? 'border-blue-600 bg-blue-600 text-white' : ['manual-assignment', 'confirmation'].includes(currentStep) ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
+              {currentStep === 'grouping' ? '3' : ['manual-assignment', 'confirmation'].includes(currentStep) ? <CheckCircle2 className="h-5 w-5" /> : '3'}
             </div>
             <span className="ml-2 font-medium">Agrupación</span>
           </div>
+          
+          {processingMode === 'commercial' && (
+            <>
+              <ChevronRight className="h-5 w-5 text-gray-300" />
+              
+              <div className={`flex items-center ${currentStep === 'manual-assignment' ? 'text-blue-600' : currentStep === 'confirmation' ? 'text-green-600' : 'text-gray-400'}`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'manual-assignment' ? 'border-blue-600 bg-blue-600 text-white' : currentStep === 'confirmation' ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
+                  {currentStep === 'manual-assignment' ? '4' : currentStep === 'confirmation' ? <CheckCircle2 className="h-5 w-5" /> : '4'}
+                </div>
+                <span className="ml-2 font-medium">Asignación</span>
+              </div>
+            </>
+          )}
           
           <ChevronRight className="h-5 w-5 text-gray-300" />
           
           <div className={`flex items-center ${currentStep === 'confirmation' ? 'text-blue-600' : 'text-gray-400'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'confirmation' ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300'}`}>
-              {currentStep === 'confirmation' ? '4' : '4'}
+              {currentStep === 'confirmation' ? (processingMode === 'commercial' ? '5' : '4') : (processingMode === 'commercial' ? '5' : '4')}
             </div>
             <span className="ml-2 font-medium">Confirmación</span>
           </div>
@@ -798,6 +973,61 @@ export default function ArkikProcessor() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              {/* Processing Mode Toggle */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="mb-3">
+                  <h4 className="font-medium text-blue-900 mb-2">Modo de Procesamiento</h4>
+                  <p className="text-sm text-blue-700 mb-3">
+                    Selecciona cómo quieres procesar las remisiones de este archivo Arkik:
+                  </p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div 
+                    className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                      processingMode === 'dedicated' 
+                        ? 'border-blue-500 bg-blue-100' 
+                        : 'border-gray-300 bg-white hover:border-blue-300'
+                    }`}
+                    onClick={() => setProcessingMode('dedicated')}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="radio" 
+                        checked={processingMode === 'dedicated'} 
+                        onChange={() => setProcessingMode('dedicated')}
+                        className="text-blue-600"
+                      />
+                      <div>
+                        <div className="font-medium text-gray-900">Obra Dedicada</div>
+                        <div className="text-sm text-gray-600">Crear órdenes automáticamente para proyectos específicos</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div 
+                    className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                      processingMode === 'commercial' 
+                        ? 'border-blue-500 bg-blue-100' 
+                        : 'border-gray-300 bg-white hover:border-blue-300'
+                    }`}
+                    onClick={() => setProcessingMode('commercial')}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="radio" 
+                        checked={processingMode === 'commercial'} 
+                        onChange={() => setProcessingMode('commercial')}
+                        className="text-blue-600"
+                      />
+                      <div>
+                        <div className="font-medium text-gray-900">Comercial</div>
+                        <div className="text-sm text-gray-600">Vincular a órdenes existentes cuando sea posible</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
                 <input
                   type="file"
@@ -1150,17 +1380,43 @@ export default function ArkikProcessor() {
                            <Badge variant="outline" className="text-blue-700 border-blue-300">
                              Orden {index + 1}
                            </Badge>
-                           {!suggestion.remisiones[0]?.orden_original && (
+                           {suggestion.is_existing_order ? (
+                             <div className="flex items-center gap-2">
+                               <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                                 Orden Existente: {suggestion.existing_order_number}
+                               </Badge>
+                               {suggestion.match_score && (
+                                 <Badge variant="outline" className="text-green-700 border-green-300">
+                                   Coincidencia: {(suggestion.match_score * 100).toFixed(0)}%
+                                 </Badge>
+                               )}
+                             </div>
+                           ) : suggestion.remisiones[0]?.orden_original ? (
+                             <Badge variant="outline" className="text-gray-700">
+                               Existente: {suggestion.remisiones[0].orden_original}
+                             </Badge>
+                           ) : (
                              <Badge variant="secondary" className="bg-green-100 text-green-800">
                                Nueva
                              </Badge>
                            )}
-                           {suggestion.remisiones[0]?.orden_original && (
-                             <Badge variant="outline" className="text-gray-700">
-                               Existente: {suggestion.remisiones[0].orden_original}
-                             </Badge>
-                           )}
                          </div>
+                         
+                         {/* Show match reasons for existing orders */}
+                         {suggestion.is_existing_order && suggestion.match_reasons && (
+                           <div className="mb-3 p-2 bg-blue-50 rounded-lg">
+                             <div className="text-sm font-medium text-blue-900 mb-1">
+                               Razones de coincidencia:
+                             </div>
+                             <div className="flex flex-wrap gap-1">
+                               {suggestion.match_reasons.map((reason, idx) => (
+                                 <Badge key={idx} variant="outline" className="text-xs text-blue-700 border-blue-300">
+                                   {reason}
+                                 </Badge>
+                               ))}
+                             </div>
+                           </div>
+                         )}
                          
                          <h4 className="font-semibold text-lg text-gray-900 mb-1">
                            {suggestion.comentarios_externos?.length > 0 
@@ -1329,16 +1585,40 @@ export default function ArkikProcessor() {
                   <div className="text-sm text-blue-800">Remisiones</div>
                 </div>
                 <div className="bg-green-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-green-600">{stats.ordersToCreate}</div>
-                  <div className="text-sm text-green-800">Órdenes</div>
+                  <div className="text-2xl font-bold text-green-600">
+                    {orderSuggestions.filter(s => !s.is_existing_order).length}
+                  </div>
+                  <div className="text-sm text-green-800">Órdenes Nuevas</div>
+                </div>
+                <div className="bg-cyan-50 p-4 rounded-lg text-center">
+                  <div className="text-2xl font-bold text-cyan-600">
+                    {orderSuggestions.filter(s => s.is_existing_order).length}
+                  </div>
+                  <div className="text-sm text-cyan-800">Órdenes Existentes</div>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-purple-600">{stats.newClients}</div>
                   <div className="text-sm text-purple-800">Nuevos Clientes</div>
                 </div>
-                <div className="bg-orange-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-orange-600">{stats.newSites}</div>
-                  <div className="text-sm text-orange-800">Nuevas Obras</div>
+              </div>
+              
+              {/* Show processing mode info */}
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="flex items-center gap-2 text-gray-800">
+                  <span className="font-medium">Modo de Procesamiento:</span>
+                  <Badge variant="outline" className={
+                    processingMode === 'commercial' 
+                      ? 'bg-blue-100 text-blue-800 border-blue-300'
+                      : 'bg-green-100 text-green-800 border-green-300'
+                  }>
+                    {processingMode === 'commercial' ? 'Comercial' : 'Obra Dedicada'}
+                  </Badge>
+                </div>
+                <div className="text-sm text-gray-600 mt-1">
+                  {processingMode === 'commercial' 
+                    ? 'Las remisiones se vinculan a órdenes existentes cuando es posible'
+                    : 'Se crean nuevas órdenes automáticamente'
+                  }
                 </div>
               </div>
               
@@ -1765,6 +2045,26 @@ export default function ArkikProcessor() {
                 </table>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Manual Assignment Interface */}
+      {currentStep === 'manual-assignment' && showManualAssignment && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Asignación Manual de Remisiones</CardTitle>
+            <CardDescription>
+              Asigna las remisiones no coincidentes a órdenes existentes compatibles
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ManualAssignmentInterface
+              unmatchedRemisiones={unmatchedRemisiones}
+              plantId={currentPlant!.id}
+              onAssignmentsComplete={handleManualAssignmentsComplete}
+              onCancel={handleManualAssignmentCancel}
+            />
           </CardContent>
         </Card>
       )}

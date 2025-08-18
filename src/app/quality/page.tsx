@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { format, subMonths, parse } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,8 +47,7 @@ import {
 } from '@mui/x-charts';
 import type { ScatterItemIdentifier } from '@mui/x-charts';
 
-// Dynamically import ApexCharts (to be replaced)
-const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
+// Removed unused ApexCharts import for leaner bundle
 
 export default function QualityDashboardPage() {
   const { profile } = useAuthBridge();
@@ -61,8 +60,8 @@ export default function QualityDashboardPage() {
     }
   }
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: new Date('2025-03-28'),
-    to: new Date('2025-05-28')
+    from: subMonths(new Date(), 2),
+    to: new Date()
   });
   const [metricas, setMetricas] = useState({
     numeroMuestras: 0,
@@ -89,6 +88,16 @@ export default function QualityDashboardPage() {
   const [selectedRecipe, setSelectedRecipe] = useState<string>('all');
   const [soloEdadGarantia, setSoloEdadGarantia] = useState<boolean>(true);
   const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
+
+  // Extended filters for quality team needs
+  const [plants, setPlants] = useState<string[]>([]);
+  const [selectedPlant, setSelectedPlant] = useState<string>('all');
+  const [selectedClasificacion, setSelectedClasificacion] = useState<'all' | 'FC' | 'MR'>('all');
+  const [selectedSpecimenType, setSelectedSpecimenType] = useState<'all' | 'CILINDRO' | 'VIGA' | 'CUBO'>('all');
+  const [selectedStrengthRange, setSelectedStrengthRange] = useState<'all' | 'lt-200' | '200-250' | '250-300' | '300-350' | '350-400' | 'gt-400'>('all');
+
+  // Guard against race conditions on concurrent loads
+  const requestIdRef = useRef(0);
 
   // Load available filter options
   useEffect(() => {
@@ -217,6 +226,20 @@ export default function QualityDashboardPage() {
             setRecipes(Array.from(uniqueRecipes.values()));
           }
         }
+
+        // Load distinct plants from muestreos for plant filter
+        try {
+          const { data: plantsData } = await supabase
+            .from('muestreos')
+            .select('planta')
+            .not('planta', 'is', null);
+          if (plantsData) {
+            const uniquePlants = Array.from(new Set(plantsData.map((p: any) => p.planta))).filter(Boolean);
+            setPlants(uniquePlants as string[]);
+          }
+        } catch (e) {
+          // non-blocking
+        }
       } catch (err) {
         console.error('Error loading filter options:', err);
       }
@@ -268,6 +291,95 @@ export default function QualityDashboardPage() {
       .sort((a, b) => a[0] - b[0]);
     return formatted;
   };
+
+  // Apply UI filters and aggregate guarantee-age duplicates by muestreo
+  const applyFiltersAndAggregate = useCallback((data: DatoGraficoResistencia[]) => {
+    let filtered = data.slice();
+
+    // Plant filter
+    if (selectedPlant && selectedPlant !== 'all') {
+      filtered = filtered.filter((d) => d?.muestra?.muestreo?.planta === selectedPlant);
+    }
+
+    // Clasificacion filter (FC/MR)
+    if (selectedClasificacion && selectedClasificacion !== 'all') {
+      filtered = filtered.filter((d) => d?.clasificacion === selectedClasificacion);
+    }
+
+    // Specimen type filter
+    if (selectedSpecimenType && selectedSpecimenType !== 'all') {
+      filtered = filtered.filter((d) => d?.muestra?.tipo_muestra === selectedSpecimenType);
+    }
+
+    // Strength range filter (by recipe strength_fc)
+    if (selectedStrengthRange && selectedStrengthRange !== 'all') {
+      const inRange = (fc?: number | null) => {
+        if (fc == null) return false;
+        switch (selectedStrengthRange) {
+          case 'lt-200': return fc < 200;
+          case '200-250': return fc >= 200 && fc < 250;
+          case '250-300': return fc >= 250 && fc < 300;
+          case '300-350': return fc >= 300 && fc < 350;
+          case '350-400': return fc >= 350 && fc < 400;
+          case 'gt-400': return fc >= 400;
+          default: return true;
+        }
+      };
+      filtered = filtered.filter((d) => inRange(d?.muestra?.muestreo?.remision?.recipe?.strength_fc as number | null));
+    }
+
+    // Aggregate duplicates only when focusing on guarantee age
+    if (soloEdadGarantia) {
+      const groups = new Map<string, DatoGraficoResistencia[]>();
+      for (const item of filtered) {
+        const muestreoId = item?.muestra?.muestreo?.id;
+        const key = muestreoId || `${item.x}-${item.clasificacion}`;
+        const arr = groups.get(key) || [];
+        arr.push(item);
+        groups.set(key, arr);
+      }
+
+      const aggregated: DatoGraficoResistencia[] = [];
+      groups.forEach((items) => {
+        if (items.length === 1) {
+          aggregated.push(items[0]);
+          return;
+        }
+
+        // Average resistance and recompute compliance if possible
+        const resistencias = items
+          .map((i) => i.resistencia_calculada)
+          .filter((v): v is number => typeof v === 'number' && !isNaN(v));
+        const avgResistencia = resistencias.length > 0
+          ? resistencias.reduce((a, b) => a + b, 0) / resistencias.length
+          : null;
+
+        const strengthFc = items[0]?.muestra?.muestreo?.remision?.recipe?.strength_fc as number | undefined;
+        const avgY = items.reduce((a, b) => a + (b.y ?? 0), 0) / items.length;
+
+        const recomputedY = avgResistencia && strengthFc
+          ? (avgResistencia / strengthFc) * 100
+          : avgY;
+
+        const xs = items.map((i) => i.x).sort((a, b) => a - b);
+        const xAvg = Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+
+        aggregated.push({
+          x: xAvg,
+          y: recomputedY,
+          clasificacion: items[0].clasificacion,
+          edad: items[0].edad,
+          fecha_ensayo: format(new Date(xAvg), 'dd/MM/yyyy'),
+          resistencia_calculada: avgResistencia ?? items[0].resistencia_calculada,
+          muestra: items[0].muestra
+        } as DatoGraficoResistencia);
+      });
+
+      return aggregated.sort((a, b) => a.x - b.x);
+    }
+
+    return filtered.sort((a, b) => a.x - b.x);
+  }, [selectedPlant, selectedClasificacion, selectedSpecimenType, selectedStrengthRange, soloEdadGarantia]);
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -486,32 +598,65 @@ export default function QualityDashboardPage() {
     return format(date, 'dd/MM/yyyy');
   };
 
-  // Prepare data for MUI ScatterChart
-  const getScatterData = () => {
-    return datosGrafico.map((item, index) => {
-      // Format dates for display in a consistent way
-      const dateObj = new Date(item.x);
-      const formattedDate = format(dateObj, 'dd/MM/yyyy');
-      
-      return {
-        id: index,
-        x: item.x,
-        y: item.y,
-        // Add custom properties with better naming for tooltip display
-        fecha_muestreo: formattedDate,
-        cumplimiento: `${item.y.toFixed(2)}%`,
-        // Additional properties
-        resistencia_real: item.resistencia_calculada,
-        resistencia_esperada: item.muestra?.muestreo?.remision?.recipe?.strength_fc,
-        client_name: item.muestra?.muestreo?.remision?.order?.client?.business_name,
-        construction_site_name: item.muestra?.muestreo?.remision?.order?.construction_site || 
-                              item.muestra?.muestreo?.remision?.order?.construction_site_name,
-        recipe_code: item.muestra?.muestreo?.remision?.recipe?.recipe_code,
-        // Store the original full data for the detail panel
-        original_data: item
-      };
-    });
+  // Prepare data for MUI ScatterChart (memoized and filtered/aggregated)
+  const preparedData = React.useMemo(() => applyFiltersAndAggregate(datosGrafico), [datosGrafico, applyFiltersAndAggregate]);
+
+  // Split into meaningful buckets by compliance for better readability
+  const seriesBuckets = React.useMemo(() => {
+    const below90 = [] as typeof preparedData;
+    const between90And100 = [] as typeof preparedData;
+    const above100 = [] as typeof preparedData;
+    for (const p of preparedData) {
+      if (p.y < 90) below90.push(p);
+      else if (p.y < 100) between90And100.push(p);
+      else above100.push(p);
+    }
+    return { below90, between90And100, above100 };
+  }, [preparedData]);
+
+  const mapChartPoint = (item: DatoGraficoResistencia, idx: number) => {
+    const dateObj = new Date(item.x);
+    const formattedDate = format(dateObj, 'dd/MM/yyyy');
+    return {
+      id: idx,
+      x: item.x,
+      y: item.y,
+      fecha_muestreo: formattedDate,
+      cumplimiento: `${item.y.toFixed(2)}%`,
+      resistencia_real: item.resistencia_calculada,
+      resistencia_esperada: item.muestra?.muestreo?.remision?.recipe?.strength_fc,
+      client_name: item.muestra?.muestreo?.remision?.order?.client?.business_name,
+      construction_site_name: item.muestra?.muestreo?.remision?.order?.construction_site || item.muestra?.muestreo?.remision?.order?.construction_site_name,
+      recipe_code: item.muestra?.muestreo?.remision?.recipe?.recipe_code,
+      original_data: item
+    };
   };
+
+  const chartSeries = React.useMemo(() => {
+    return [
+      {
+        id: 'below90',
+        label: 'Bajo 90%',
+        color: '#ef4444',
+        markerSize: 5,
+        data: seriesBuckets.below90.map(mapChartPoint)
+      },
+      {
+        id: 'between90And100',
+        label: '90–100%',
+        color: '#f59e0b',
+        markerSize: 5,
+        data: seriesBuckets.between90And100.map(mapChartPoint)
+      },
+      {
+        id: 'above100',
+        label: '≥ 100%',
+        color: '#10b981',
+        markerSize: 5,
+        data: seriesBuckets.above100.map(mapChartPoint)
+      }
+    ];
+  }, [seriesBuckets]);
 
   // Custom tooltip formatter for MUI X Charts
   const formatTooltipContent = (params: any) => {
@@ -559,7 +704,7 @@ export default function QualityDashboardPage() {
     <div className="container mx-auto p-4 md:p-6">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-900 mb-1">Dashboard de Control de Calidad</h1>
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-gray-900 mb-1">Dashboard de Control de Calidad</h1>
           <p className="text-gray-500">
             Métricas y análisis de resistencia de concreto
           </p>
@@ -582,9 +727,9 @@ export default function QualityDashboardPage() {
                 Filtros
               </Button>
             </SheetTrigger>
-            <SheetContent>
+            <SheetContent className="backdrop-blur bg-white/70">
               <SheetHeader>
-                <SheetTitle>Filtrar Datos</SheetTitle>
+                <SheetTitle className="text-gray-900">Filtrar Datos</SheetTitle>
                 <SheetDescription>
                   Selecciona los filtros para analizar datos específicos
                 </SheetDescription>
@@ -600,7 +745,7 @@ export default function QualityDashboardPage() {
                     <SelectTrigger id="client">
                       <SelectValue placeholder="Todos los clientes" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="backdrop-blur bg-white/80">
                       <SelectItem value="all">Todos los clientes</SelectItem>
                       {clients.filter(client => client.id && client.business_name).map(client => (
                         <SelectItem key={client.id} value={client.id}>
@@ -620,7 +765,7 @@ export default function QualityDashboardPage() {
                     <SelectTrigger id="constructionSite">
                       <SelectValue placeholder="Todas las obras" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="backdrop-blur bg-white/80">
                       <SelectItem value="all">Todas las obras</SelectItem>
                       {getFilteredConstructionSites().filter(site => site.id && site.name).map(site => (
                         <SelectItem key={site.id} value={site.id}>
@@ -640,13 +785,76 @@ export default function QualityDashboardPage() {
                     <SelectTrigger id="recipe">
                       <SelectValue placeholder="Todas las recetas" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="backdrop-blur bg-white/80">
                       <SelectItem value="all">Todas las recetas</SelectItem>
                       {recipes.filter(recipe => recipe.recipe_code && recipe.recipe_code.trim() !== '').map(recipe => (
                         <SelectItem key={recipe.id} value={recipe.recipe_code}>
                           {recipe.recipe_code}
                         </SelectItem>
                       ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="plant">Planta</Label>
+                  <Select value={selectedPlant} onValueChange={setSelectedPlant}>
+                    <SelectTrigger id="plant">
+                      <SelectValue placeholder="Todas las plantas" />
+                    </SelectTrigger>
+                    <SelectContent className="backdrop-blur bg-white/80">
+                      <SelectItem value="all">Todas las plantas</SelectItem>
+                      {plants.map((p) => (
+                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="clasificacion">Clasificación</Label>
+                    <Select value={selectedClasificacion} onValueChange={(v) => setSelectedClasificacion(v as any)}>
+                      <SelectTrigger id="clasificacion">
+                        <SelectValue placeholder="Todas" />
+                      </SelectTrigger>
+                      <SelectContent className="backdrop-blur bg-white/80">
+                        <SelectItem value="all">Todas</SelectItem>
+                        <SelectItem value="FC">FC</SelectItem>
+                        <SelectItem value="MR">MR</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="specimen">Tipo de Probeta</Label>
+                    <Select value={selectedSpecimenType} onValueChange={(v) => setSelectedSpecimenType(v as any)}>
+                      <SelectTrigger id="specimen">
+                        <SelectValue placeholder="Todas" />
+                      </SelectTrigger>
+                      <SelectContent className="backdrop-blur bg-white/80">
+                        <SelectItem value="all">Todas</SelectItem>
+                        <SelectItem value="CILINDRO">Cilindro</SelectItem>
+                        <SelectItem value="VIGA">Viga</SelectItem>
+                        <SelectItem value="CUBO">Cubo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="strength">Resistencia Diseño (fc)</Label>
+                  <Select value={selectedStrengthRange} onValueChange={(v) => setSelectedStrengthRange(v as any)}>
+                    <SelectTrigger id="strength">
+                      <SelectValue placeholder="Todas" />
+                    </SelectTrigger>
+                    <SelectContent className="backdrop-blur bg-white/80">
+                      <SelectItem value="all">Todas</SelectItem>
+                      <SelectItem value="lt-200">Menor a 200</SelectItem>
+                      <SelectItem value="200-250">200–250</SelectItem>
+                      <SelectItem value="250-300">250–300</SelectItem>
+                      <SelectItem value="300-350">300–350</SelectItem>
+                      <SelectItem value="350-400">350–400</SelectItem>
+                      <SelectItem value="gt-400">Mayor a 400</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -699,7 +907,7 @@ export default function QualityDashboardPage() {
       </div>
       
       {/* Active filters display */}
-      {(selectedClient || selectedConstructionSite || selectedRecipe || soloEdadGarantia) && (
+      {(selectedClient || selectedConstructionSite || selectedRecipe || soloEdadGarantia || selectedPlant !== 'all' || selectedClasificacion !== 'all' || selectedSpecimenType !== 'all' || selectedStrengthRange !== 'all') && (
         <div className="mb-4 flex flex-wrap gap-2">
           {selectedClient && (
             <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
@@ -736,6 +944,34 @@ export default function QualityDashboardPage() {
               </button>
             </div>
           )}
+
+          {selectedPlant && selectedPlant !== 'all' && (
+            <div className="bg-cyan-50 text-cyan-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>Planta: {selectedPlant}</span>
+              <button className="hover:bg-cyan-100 rounded-full p-1" onClick={() => setSelectedPlant('all')}>×</button>
+            </div>
+          )}
+
+          {selectedClasificacion && selectedClasificacion !== 'all' && (
+            <div className="bg-rose-50 text-rose-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>Clasificación: {selectedClasificacion}</span>
+              <button className="hover:bg-rose-100 rounded-full p-1" onClick={() => setSelectedClasificacion('all')}>×</button>
+            </div>
+          )}
+
+          {selectedSpecimenType && selectedSpecimenType !== 'all' && (
+            <div className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>Probeta: {selectedSpecimenType}</span>
+              <button className="hover:bg-emerald-100 rounded-full p-1" onClick={() => setSelectedSpecimenType('all')}>×</button>
+            </div>
+          )}
+
+          {selectedStrengthRange && selectedStrengthRange !== 'all' && (
+            <div className="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>fc: {selectedStrengthRange}</span>
+              <button className="hover:bg-amber-100 rounded-full p-1" onClick={() => setSelectedStrengthRange('all')}>×</button>
+            </div>
+          )}
           
           {soloEdadGarantia && (
             <div className="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
@@ -756,6 +992,10 @@ export default function QualityDashboardPage() {
               setSelectedConstructionSite('');
               setSelectedRecipe('');
               setSoloEdadGarantia(false);
+              setSelectedPlant('all');
+              setSelectedClasificacion('all');
+              setSelectedSpecimenType('all');
+              setSelectedStrengthRange('all');
             }}
           >
             Limpiar todos
@@ -766,7 +1006,7 @@ export default function QualityDashboardPage() {
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {[1, 2, 3, 4].map((item) => (
-            <Card key={item}>
+            <Card key={item} className="bg-white/60 backdrop-blur border border-slate-200/60 shadow-sm">
               <CardHeader className="pb-2">
                 <Skeleton className="h-4 w-[120px]" />
               </CardHeader>
@@ -776,7 +1016,7 @@ export default function QualityDashboardPage() {
               </CardContent>
             </Card>
           ))}
-          <Card className="col-span-1 md:col-span-2 lg:col-span-4">
+          <Card className="col-span-1 md:col-span-2 lg:col-span-4 bg-white/60 backdrop-blur border border-slate-200/60 shadow-sm">
             <CardHeader>
               <Skeleton className="h-6 w-[200px]" />
             </CardHeader>
@@ -786,7 +1026,7 @@ export default function QualityDashboardPage() {
           </Card>
         </div>
       ) : error ? (
-        <Alert variant="destructive" className="mb-8">
+        <Alert variant="destructive" className="mb-8 bg-white/70 backdrop-blur border border-red-200/60">
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
@@ -869,7 +1109,7 @@ export default function QualityDashboardPage() {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {/* KPI: Muestras en cumplimiento */}
-            <Card className="border-l-4 border-l-green-500">
+            <Card className="border-l-4 border-l-green-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-gray-500">Muestras en Cumplimiento</CardTitle>
               </CardHeader>
@@ -883,7 +1123,7 @@ export default function QualityDashboardPage() {
                       de {metricas.numeroMuestras} muestras totales
                     </div>
                   </div>
-                  <div className="bg-green-100 p-2 rounded-full">
+                  <div className="bg-green-100/70 backdrop-blur p-2 rounded-full">
                     <TrendingUp className="h-5 w-5 text-green-600" />
                   </div>
                 </div>
@@ -891,7 +1131,7 @@ export default function QualityDashboardPage() {
             </Card>
             
             {/* KPI: Resistencia Promedio */}
-            <Card className="border-l-4 border-l-blue-500">
+            <Card className="border-l-4 border-l-blue-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-gray-500">Resistencia Promedio</CardTitle>
               </CardHeader>
@@ -905,7 +1145,7 @@ export default function QualityDashboardPage() {
                       kg/cm²
                     </div>
                   </div>
-                  <div className="bg-blue-100 p-2 rounded-full">
+                  <div className="bg-blue-100/70 backdrop-blur p-2 rounded-full">
                     <BarChart3 className="h-5 w-5 text-blue-600" />
                   </div>
                 </div>
@@ -913,7 +1153,7 @@ export default function QualityDashboardPage() {
             </Card>
             
             {/* KPI: % Resistencia Garantía */}
-            <Card className="border-l-4 border-l-amber-500">
+            <Card className="border-l-4 border-l-amber-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-gray-500">% Resistencia a Garantía</CardTitle>
               </CardHeader>
@@ -927,7 +1167,7 @@ export default function QualityDashboardPage() {
                       promedio de cumplimiento
                     </div>
                   </div>
-                  <div className="bg-amber-100 p-2 rounded-full">
+                  <div className="bg-amber-100/70 backdrop-blur p-2 rounded-full">
                     <Activity className="h-5 w-5 text-amber-600" />
                   </div>
                 </div>
@@ -935,7 +1175,7 @@ export default function QualityDashboardPage() {
             </Card>
             
             {/* KPI: Coeficiente de Variación */}
-            <Card className="border-l-4 border-l-purple-500">
+            <Card className="border-l-4 border-l-purple-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-gray-500">Coeficiente de Variación</CardTitle>
               </CardHeader>
@@ -949,7 +1189,7 @@ export default function QualityDashboardPage() {
                       uniformidad del concreto
                     </div>
                   </div>
-                  <div className="bg-purple-100 p-2 rounded-full">
+                  <div className="bg-purple-100/70 backdrop-blur p-2 rounded-full">
                     <Activity className="h-5 w-5 text-purple-600" />
                   </div>
                 </div>
@@ -958,46 +1198,31 @@ export default function QualityDashboardPage() {
           </div>
           
           <Tabs defaultValue="grafico" className="mb-6">
-            <TabsList className="mb-4">
+            <TabsList className="mb-4 bg-white/60 backdrop-blur border border-slate-200/60 rounded-md">
               <TabsTrigger value="grafico">Gráfico de Resistencia</TabsTrigger>
               <TabsTrigger value="metricas">Métricas Avanzadas</TabsTrigger>
             </TabsList>
             
             <TabsContent value="grafico">
-              <Card>
-                <CardHeader>
-                  <CardTitle>
-                    Porcentaje de Cumplimiento de Resistencia
-                  </CardTitle>
+              <Card className="bg-white/70 backdrop-blur-xl border border-slate-200/60 shadow-[0_8px_24px_rgba(2,6,23,0.06)] rounded-2xl">
+                <CardHeader className="pb-1">
+                  <div className="flex items-end justify-between">
+                    <CardTitle className="text-base md:text-lg font-medium text-slate-800">Cumplimiento de Resistencia</CardTitle>
+                    <div className="text-xs text-slate-500">Puntos: {preparedData.length}</div>
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  {typeof window !== 'undefined' && datosGrafico.length > 0 ? (
+                  {typeof window !== 'undefined' && preparedData.length > 0 ? (
                     <div>
                       <div style={{ height: 350, width: '100%' }}>
                         <ScatterChart
-                          series={[
-                            {
-                              data: getScatterData(),
-                              label: 'Porcentaje de Cumplimiento',
-                              color: '#3EB56D',
-                              // Custom tooltip content using valueFormatter
-                              valueFormatter: (value: any) => {
-                                if (value?.y !== undefined) {
-                                  return `${value.y.toFixed(2)}%`;
-                                }
-                                if (value?.fecha_muestreo) {
-                                  return value.fecha_muestreo;
-                                }
-                                return typeof value === 'number' ? `${value.toFixed(2)}%` : '';
-                              }
-                            }
-                          ]}
+                          series={chartSeries as any}
                           xAxis={[{
                             scaleType: 'time',
                             // Format tick labels (dates on axis)
                             valueFormatter: (value) => format(new Date(value), 'dd/MM'),
                             // Calculate a reasonable number of ticks based on data points
-                            tickNumber: Math.min(7, datosGrafico.length),
+                            tickNumber: Math.min(7, preparedData.length),
                             tickMinStep: 24 * 3600 * 1000, // 1 day minimum interval
                             tickLabelStyle: { 
                               angle: 0,
@@ -1007,7 +1232,7 @@ export default function QualityDashboardPage() {
                           }]}
                           yAxis={[{
                             min: 0,
-                            max: Math.max(110, ...datosGrafico.map(d => d.y)) + 10,
+                            max: Math.max(110, ...preparedData.map(d => d.y)) + 10,
                             scaleType: 'linear',
                             label: 'Porcentaje de Cumplimiento (%)',
                             tickLabelStyle: {
@@ -1022,7 +1247,9 @@ export default function QualityDashboardPage() {
                           margin={{ top: 20, right: 40, bottom: 50, left: 60 }}
                           onItemClick={(_: React.MouseEvent<SVGElement>, itemData: ScatterItemIdentifier) => {
                             if (itemData?.dataIndex !== undefined) {
-                              setSelectedPoint(datosGrafico[itemData.dataIndex]);
+                              const all = [...(chartSeries[0]?.data || []), ...(chartSeries[1]?.data || []), ...(chartSeries[2]?.data || [])];
+                              const datum = all[itemData.dataIndex] || all[0];
+                              setSelectedPoint(datum?.original_data || null);
                             }
                           }}
                           slotProps={{
@@ -1061,7 +1288,21 @@ export default function QualityDashboardPage() {
                             y: 'none'
                           }}
                         >
-                          {/* Add a reference line at 100% */}
+                          {/* Reference lines for quick thresholds */}
+                          <ChartsReferenceLine 
+                            y={90}
+                            lineStyle={{
+                              stroke: '#94a3b8',
+                              strokeWidth: 1,
+                              strokeDasharray: '4 4'
+                            }}
+                            label="90%"
+                            labelAlign="end"
+                            labelStyle={{
+                              fill: '#64748b',
+                              fontSize: 11
+                            }}
+                          />
                           <ChartsReferenceLine 
                             y={100}
                             lineStyle={{
@@ -1081,7 +1322,7 @@ export default function QualityDashboardPage() {
 
                       {/* Point information panel - displayed when a point is selected */}
                       {selectedPoint && (
-                        <div className="mt-4 p-4 border border-gray-200 rounded-md bg-gray-50">
+                        <div className="mt-4 p-4 border border-slate-200/60 rounded-lg bg-white/80">
                           <h3 className="font-medium text-gray-800 mb-2">Información del Punto Seleccionado</h3>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                             <div>
@@ -1219,7 +1460,7 @@ export default function QualityDashboardPage() {
             
             <TabsContent value="metricas">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <Card>
+                <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium">Eficiencia</CardTitle>
                   </CardHeader>
@@ -1229,7 +1470,7 @@ export default function QualityDashboardPage() {
                   </CardContent>
                 </Card>
                 
-                <Card>
+                <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium">Rendimiento Volumétrico</CardTitle>
                   </CardHeader>
@@ -1239,7 +1480,7 @@ export default function QualityDashboardPage() {
                   </CardContent>
                 </Card>
                 
-                <Card>
+                <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium">Desviación Estándar</CardTitle>
                   </CardHeader>
@@ -1253,42 +1494,42 @@ export default function QualityDashboardPage() {
           </Tabs>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card>
+            <Card className="bg-white/70 backdrop-blur-xl border border-slate-200/60 rounded-2xl shadow-[0_8px_24px_rgba(2,6,23,0.06)]">
               <CardHeader>
                 <CardTitle>Acciones Rápidas</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  <Link href="/quality/muestreos/new" className="bg-blue-50 hover:bg-blue-100 p-4 rounded-lg transition-colors">
+                  <Link href="/quality/muestreos/new" className="bg-blue-50/70 hover:bg-blue-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-blue-100/60">
                     <h3 className="font-medium text-blue-700 mb-1">Nuevo Muestreo</h3>
                     <p className="text-xs text-blue-600">Registrar un muestreo de concreto</p>
                   </Link>
-                  <Link href="/quality/site-checks/new" className="bg-emerald-50 hover:bg-emerald-100 p-4 rounded-lg transition-colors">
+                  <Link href="/quality/site-checks/new" className="bg-emerald-50/70 hover:bg-emerald-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-emerald-100/60">
                     <h3 className="font-medium text-emerald-700 mb-1">Nuevo registro en obra</h3>
                     <p className="text-xs text-emerald-600">Revenimiento/Extensibilidad y temperaturas</p>
                   </Link>
                   
-                  <Link href="/quality/ensayos" className="bg-green-50 hover:bg-green-100 p-4 rounded-lg transition-colors">
+                  <Link href="/quality/ensayos" className="bg-green-50/70 hover:bg-green-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-green-100/60">
                     <h3 className="font-medium text-green-700 mb-1">Ensayos Pendientes</h3>
                     <p className="text-xs text-green-600">Ver ensayos programados para hoy</p>
                   </Link>
                   
-                  <Link href="/quality/muestreos" className="bg-purple-50 hover:bg-purple-100 p-4 rounded-lg transition-colors">
+                  <Link href="/quality/muestreos" className="bg-purple-50/70 hover:bg-purple-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-purple-100/60">
                     <h3 className="font-medium text-purple-700 mb-1">Ver Muestreos</h3>
                     <p className="text-xs text-purple-600">Historial de muestreos registrados</p>
                   </Link>
                   
-                  <Link href="/quality/reportes" className="bg-amber-50 hover:bg-amber-100 p-4 rounded-lg transition-colors">
+                  <Link href="/quality/reportes" className="bg-amber-50/70 hover:bg-amber-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-amber-100/60">
                     <h3 className="font-medium text-amber-700 mb-1">Reportes</h3>
                     <p className="text-xs text-amber-600">Generar reportes de calidad</p>
                   </Link>
 
-                  <Link href="/quality/materials" className="bg-cyan-50 hover:bg-cyan-100 p-4 rounded-lg transition-colors">
+                  <Link href="/quality/materials" className="bg-cyan-50/70 hover:bg-cyan-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-cyan-100/60">
                     <h3 className="font-medium text-cyan-700 mb-1">Materiales</h3>
                     <p className="text-xs text-cyan-600">Gestionar catálogo de materiales</p>
                   </Link>
 
-                  <Link href="/quality/recipes" className="bg-rose-50 hover:bg-rose-100 p-4 rounded-lg transition-colors">
+                  <Link href="/quality/recipes" className="bg-rose-50/70 hover:bg-rose-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-rose-100/60">
                     <h3 className="font-medium text-rose-700 mb-1">Recetas</h3>
                     <p className="text-xs text-rose-600">Ver y administrar recetas</p>
                   </Link>
