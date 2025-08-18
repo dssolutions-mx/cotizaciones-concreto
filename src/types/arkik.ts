@@ -182,6 +182,12 @@ export interface OrderSuggestion {
   suggested_name: string;
   recipe_codes: Set<string>;
   validation_issues: ValidationError[];
+  // Additional fields for existing order support
+  existing_order_id?: string;
+  existing_order_number?: string;
+  match_score?: number;
+  match_reasons?: string[];
+  is_existing_order?: boolean;
 }
 
 export interface PlantMaterialMapping {
