@@ -113,7 +113,6 @@ export default function MeasurementsFields({ form }: Props) {
                 <FormControl>
                   <Input type="number" step="0.1" value={Number.isFinite(field.value as any) ? String(field.value) : ""} readOnly className="bg-gray-50" />
                 </FormControl>
-                <FormDescription>Esperado 2100–2500. Rango válido 1500–3000 kg/m³.</FormDescription>
                 <FormMessage />
               </FormItem>
             )}
