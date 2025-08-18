@@ -18,21 +18,12 @@ export default function MeasurementsFields({ form }: Props) {
         name="revenimiento_sitio"
         render={({ field }) => (
           <FormItem className="md:col-span-6">
-            <FormLabel className="flex items-center gap-1">
+            <FormLabel>
               Revenimiento en Sitio (cm)
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex">
-                    <Info className="h-4 w-4 text-gray-400" />
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>Típico: 8–15 cm según mezcla. Límite permitido 0–25 cm.</TooltipContent>
-              </Tooltip>
             </FormLabel>
             <FormControl>
               <Input type="number" step="0.1" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value))} />
             </FormControl>
-            <FormDescription>Recomendado 8–15 cm. Rango válido 0–25 cm.</FormDescription>
             <FormMessage />
           </FormItem>
         )}

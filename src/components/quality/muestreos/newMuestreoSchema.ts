@@ -13,10 +13,7 @@ export const muestreoFormSchema = z.object({
   planta: z.enum(["P001", "P002", "P003", "P004"], {
     required_error: "La planta es requerida",
   }),
-  revenimiento_sitio: z
-    .number()
-    .min(0, "El revenimiento debe ser ≥ 0 cm")
-    .max(25, "El revenimiento no debe exceder 25 cm"),
+  revenimiento_sitio: z.number(),
   masa_unitaria: z
     .number()
     .min(1500, "Masa unitaria demasiado baja")
