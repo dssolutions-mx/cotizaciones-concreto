@@ -337,7 +337,7 @@ export default function QualityDashboardPage() {
                     
                     // Match the same calculation logic used in reports/page.tsx
                     if (eficiencias.length > 0) {
-                      // Log for debugging
+
                       console.log('Efficiency values found:', {
                         count: eficiencias.length,
                         values: eficiencias,
