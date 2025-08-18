@@ -359,7 +359,8 @@ export const financialService = {
   async getClientBalancesForTable(client?: SupabaseClient<any>) {
     const supabase = client || browserClient;
     try {
-      // Fetch client balances with proper join syntax for clients table
+      // Fetch ONLY general client balances (both construction_site AND construction_site_id must be NULL)
+      // This excludes site-specific balances and shows only the overall client balance
       const { data: balanceData, error: balanceError } = await supabase
         .from('client_balances')
         .select(`
@@ -374,7 +375,8 @@ export const financialService = {
             credit_status
           )
         `)
-        .is('construction_site', null); // Use .is() instead of .eq() for NULL values
+        .is('construction_site', null)
+        .is('construction_site_id', null); // CRITICAL: Also filter construction_site_id to ensure ONLY general balances
 
       if (balanceError) throw balanceError;
 
