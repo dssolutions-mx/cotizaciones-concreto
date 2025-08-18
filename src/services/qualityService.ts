@@ -118,9 +118,18 @@ export async function fetchMuestreoById(id: string) {
 
 export async function createMuestreo(muestreo: Partial<Muestreo>) {
   try {
+    // Map planta to plant_id if planta is provided
+    let muestreoToCreate = { ...muestreo };
+    if (muestreo.planta && !muestreo.plant_id) {
+      const plantId = await mapPlantaToPlantId(muestreo.planta);
+      if (plantId) {
+        muestreoToCreate.plant_id = plantId;
+      }
+    }
+
     const { data, error } = await supabase
       .from('muestreos')
-      .insert(muestreo)
+      .insert(muestreoToCreate)
       .select()
       .single();
     
@@ -143,6 +152,28 @@ export type PlannedSample = {
   age_hours?: number; // optional precise age in hours
 };
 
+// Function to map planta codes to plant_id
+async function mapPlantaToPlantId(planta: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('plants')
+      .select('id')
+      .eq('code', planta)
+      .eq('is_active', true)
+      .single();
+    
+    if (error) {
+      console.warn(`Could not map planta ${planta} to plant_id:`, error);
+      return null;
+    }
+    
+    return data?.id || null;
+  } catch (error) {
+    console.warn(`Error mapping planta ${planta} to plant_id:`, error);
+    return null;
+  }
+}
+
 type NewMuestreoInput = Omit<Partial<Muestreo>, 'fecha_muestreo'> & {
   fecha_muestreo: Date | string;
   created_by?: string;
@@ -162,12 +193,22 @@ export async function createMuestreoWithSamples(
       ...muestreoData 
     } = data as any;
 
+    // Map planta to plant_id if planta is provided
+    let plantId: string | null = null;
+    if (muestreoData.planta) {
+      plantId = await mapPlantaToPlantId(muestreoData.planta);
+      if (!plantId) {
+        throw new Error(`No se pudo mapear la planta ${muestreoData.planta} a un plant_id válido`);
+      }
+    }
+
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const baseDateVal = typeof muestreoData.fecha_muestreo === 'string'
       ? new Date(`${muestreoData.fecha_muestreo}T00:00:00`)
       : muestreoData.fecha_muestreo;
     const muestreoToCreate = {
       ...muestreoData,
+      plant_id: plantId, // Add the mapped plant_id
       fecha_muestreo: typeof muestreoData.fecha_muestreo === 'string' 
         ? muestreoData.fecha_muestreo 
         : formatDate(muestreoData.fecha_muestreo, 'yyyy-MM-dd'),
@@ -214,6 +255,7 @@ export async function createMuestreoWithSamples(
         return {
           id: uuidv4(),
           muestreo_id: muestreo.id,
+          plant_id: plantId, // Add plant_id to samples as well
           tipo_muestra: s.tipo_muestra,
           identificacion: identification,
           fecha_programada_ensayo: formatDate(programmedDate, 'yyyy-MM-dd'),

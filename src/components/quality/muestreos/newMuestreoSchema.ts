@@ -10,7 +10,7 @@ export const muestreoFormSchema = z.object({
     required_error: "La fecha de muestreo es requerida",
   }),
   numero_muestreo: z.number().min(1, "El número de muestreo es requerido"),
-  planta: z.enum(["P1", "P2", "P3", "P4"], {
+  planta: z.enum(["P001", "P002", "P003", "P004"], {
     required_error: "La planta es requerida",
   }),
   revenimiento_sitio: z
