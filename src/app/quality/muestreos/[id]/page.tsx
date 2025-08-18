@@ -34,7 +34,9 @@ import {
   Beaker,
   CheckCircle,
   Clock,
-  Plus
+  Plus,
+  Package,
+  ArrowUpRight
 } from 'lucide-react';
 import { fetchMuestreoById } from '@/services/qualityService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -42,6 +44,92 @@ import { MuestreoWithRelations } from '@/types/quality';
 import Link from 'next/link';
 import { formatDate, createSafeDate } from '@/lib/utils';
 import AddSampleModal from '@/components/quality/muestreos/AddSampleModal';
+
+// Order information component
+function OrderInfo({ muestreo }: { muestreo: MuestreoWithRelations }) {
+  if (!muestreo.remision?.orders) {
+    return null;
+  }
+
+  const order = muestreo.remision.orders;
+  
+  return (
+    <Card className="mb-6 border-blue-200 bg-blue-50/50">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <FileText className="h-5 w-5 text-blue-600" />
+              Información de la Orden
+            </CardTitle>
+            <CardDescription>
+              Detalles de la orden relacionada con este muestreo
+            </CardDescription>
+          </div>
+          <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
+            <FileText className="h-3 w-3 mr-1" />
+            Orden #{order.id.slice(0, 8)}...
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-600">ID de Orden:</span>
+              <Badge variant="outline" className="font-mono">
+                {order.id.slice(0, 8)}...
+              </Badge>
+            </div>
+            {order.clients && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-600">Cliente:</span>
+                <span className="text-sm">{order.clients.business_name}</span>
+              </div>
+            )}
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-600">Remisión:</span>
+              <Badge variant="secondary">
+                {muestreo.remision.remision_number}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-gray-600">Fecha Remisión:</span>
+              <span className="text-sm">
+                {format(new Date(muestreo.remision.fecha), 'dd/MM/yyyy', { locale: es })}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <Separator />
+        
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.open(`/orders/${order.id}`, '_blank')}
+            className="flex items-center gap-2"
+          >
+            <FileText className="h-4 w-4" />
+            Ver Orden Completa
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.open(`/finanzas/remisiones`, '_blank')}
+            className="flex items-center gap-2"
+          >
+            <Truck className="h-4 w-4" />
+            Ver Remisiones
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function MuestreoDetailPage() {
   const params = useParams();
@@ -219,7 +307,10 @@ export default function MuestreoDetailPage() {
 	});
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
+    <div className="container mx-auto px-4 py-8">
+      {/* Order Information */}
+      {muestreo && <OrderInfo muestreo={muestreo} />}
+      
       {/* Breadcrumbs */}
       <Breadcrumb className="mb-6">
         <BreadcrumbList>

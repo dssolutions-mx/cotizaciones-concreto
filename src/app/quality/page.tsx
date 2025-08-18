@@ -1109,21 +1109,21 @@ export default function QualityDashboardPage() {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {/* KPI: Muestras en cumplimiento */}
-            <Card className="border-l-4 border-l-green-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
+            <Card className="border-l-4 border-l-green-500 bg-white/80 shadow-sm border border-slate-200 rounded-md">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">Muestras en Cumplimiento</CardTitle>
+                <CardTitle className="text-sm md:text-base font-semibold text-slate-700">Muestras en Cumplimiento</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-2xl font-bold">
+                    <div className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900">
                       {metricas.muestrasEnCumplimiento}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-sm text-slate-500 mt-1">
                       de {metricas.numeroMuestras} muestras totales
                     </div>
                   </div>
-                  <div className="bg-green-100/70 backdrop-blur p-2 rounded-full">
+                  <div className="bg-green-100 p-2 rounded-md">
                     <TrendingUp className="h-5 w-5 text-green-600" />
                   </div>
                 </div>
@@ -1131,21 +1131,21 @@ export default function QualityDashboardPage() {
             </Card>
             
             {/* KPI: Resistencia Promedio */}
-            <Card className="border-l-4 border-l-blue-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
+            <Card className="border-l-4 border-l-blue-500 bg-white/80 shadow-sm border border-slate-200 rounded-md">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">Resistencia Promedio</CardTitle>
+                <CardTitle className="text-sm md:text-base font-semibold text-slate-700">Resistencia Promedio</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-2xl font-bold">
+                    <div className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900">
                       {typeof metricas.resistenciaPromedio === 'number' ? metricas.resistenciaPromedio.toFixed(2) : '0.00'}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-sm text-slate-500 mt-1">
                       kg/cm²
                     </div>
                   </div>
-                  <div className="bg-blue-100/70 backdrop-blur p-2 rounded-full">
+                  <div className="bg-blue-100 p-2 rounded-md">
                     <BarChart3 className="h-5 w-5 text-blue-600" />
                   </div>
                 </div>
@@ -1153,21 +1153,21 @@ export default function QualityDashboardPage() {
             </Card>
             
             {/* KPI: % Resistencia Garantía */}
-            <Card className="border-l-4 border-l-amber-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
+            <Card className="border-l-4 border-l-amber-500 bg-white/80 shadow-sm border border-slate-200 rounded-md">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">% Resistencia a Garantía</CardTitle>
+                <CardTitle className="text-sm md:text-base font-semibold text-slate-700">% Resistencia a Garantía</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-2xl font-bold">
+                    <div className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900">
                       {typeof metricas.porcentajeResistenciaGarantia === 'number' ? metricas.porcentajeResistenciaGarantia.toFixed(2) : '0.00'}%
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-sm text-slate-500 mt-1">
                       promedio de cumplimiento
                     </div>
                   </div>
-                  <div className="bg-amber-100/70 backdrop-blur p-2 rounded-full">
+                  <div className="bg-amber-100 p-2 rounded-md">
                     <Activity className="h-5 w-5 text-amber-600" />
                   </div>
                 </div>
@@ -1175,21 +1175,21 @@ export default function QualityDashboardPage() {
             </Card>
             
             {/* KPI: Coeficiente de Variación */}
-            <Card className="border-l-4 border-l-purple-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
+            <Card className="border-l-4 border-l-purple-500 bg-white/80 shadow-sm border border-slate-200 rounded-md">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">Coeficiente de Variación</CardTitle>
+                <CardTitle className="text-sm md:text-base font-semibold text-slate-700">Coeficiente de Variación</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-2xl font-bold">
+                    <div className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900">
                       {typeof metricas.coeficienteVariacion === 'number' ? metricas.coeficienteVariacion.toFixed(2) : '0.00'}%
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-sm text-slate-500 mt-1">
                       uniformidad del concreto
                     </div>
                   </div>
-                  <div className="bg-purple-100/70 backdrop-blur p-2 rounded-full">
+                  <div className="bg-purple-100 p-2 rounded-md">
                     <Activity className="h-5 w-5 text-purple-600" />
                   </div>
                 </div>
