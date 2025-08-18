@@ -241,7 +241,7 @@ export async function middleware(request: NextRequest) {
           .single();
         
         const plantCode = (plantData as any)?.code as string | undefined;
-        const restrictedPlants = ['P002', 'P003', 'P004'];
+        const restrictedPlants = ['P2', 'P3', 'P4', 'P002', 'P003', 'P004']; // Support both formats
         
         if (plantCode && restrictedPlants.includes(plantCode)) {
           console.log(`Blocking QUALITY_TEAM user from plant ${plantCode} accessing ${pathname}, redirecting to /quality/muestreos`);

@@ -40,6 +40,7 @@ import { cn } from '@/lib/utils';
 import AuthInitializer from '@/components/auth/auth-initializer';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import PlantDebugInfo from '@/components/debug/PlantDebugInfo';
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
@@ -121,20 +122,33 @@ const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
 
 // Helper function to check if QUALITY_TEAM user is in restricted plant
 export function isQualityTeamInRestrictedPlant(userRole: string | undefined, plantCode: string | undefined): boolean {
+  console.log('isQualityTeamInRestrictedPlant called with:', { userRole, plantCode });
   if (userRole !== 'QUALITY_TEAM') return false;
-  const restrictedPlants = ['P002', 'P003', 'P004'];
-  return plantCode ? restrictedPlants.includes(plantCode) : false;
+  // Support both formats: P2/P3/P4 and P002/P003/P004
+  const restrictedPlants = ['P2', 'P3', 'P4', 'P002', 'P003', 'P004'];
+  const isRestricted = plantCode ? restrictedPlants.includes(plantCode) : false;
+  console.log('Plant restriction check result:', isRestricted, 'against plants:', restrictedPlants);
+  return isRestricted;
 }
 
 // Function to get appropriate quality submenu based on user role and plant
 function getQualitySubMenuItems(userRole: string | undefined, plantCode: string | undefined): QualityNavItem[] {
+  // Debug logging
+  console.log('getQualitySubMenuItems called with:', { userRole, plantCode });
+  
   if (userRole === 'QUALITY_TEAM') {
-    // Check if user is in restricted plants (P002, P003, P004)
-    if (isQualityTeamInRestrictedPlant(userRole, plantCode)) {
+    // Check if user is in restricted plants (P2, P3, P4)
+    const isRestricted = isQualityTeamInRestrictedPlant(userRole, plantCode);
+    console.log('Is QUALITY_TEAM in restricted plant?', isRestricted);
+    
+    if (isRestricted) {
+      console.log('Returning restricted menu for plant:', plantCode);
       return qualitySubMenuItemsForRestrictedPlants;
     }
+    console.log('Returning normal QUALITY_TEAM menu');
     return qualitySubMenuItemsForQualityTeam;
   }
+  console.log('Returning full quality menu for role:', userRole);
   return qualitySubMenuItems;
 }
 
@@ -761,6 +775,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
         
         {/* Contenido de la página */}
         <div className="mt-4">
+          {/* Debug component - temporary */}
+          <PlantDebugInfo />
           {/* Children */}
           {children}
         </div>
