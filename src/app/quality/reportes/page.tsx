@@ -45,7 +45,7 @@ import {
   fetchResistenciaReporteData,
   fetchEficienciaReporteData,
   fetchDistribucionResistenciaData,
-  debugMuestreosMuestras,
+
   fetchResistenciaReporteDataFixed,
   fetchEficienciaReporteDataFixed
 } from '@/services/qualityService';
@@ -82,7 +82,7 @@ const getResistenciaForDisplay = (muestras: any[], fallbackValue: number = 0): n
   console.log('===== INICIO CÁLCULO RESISTENCIA =====');
   console.log(`Procesando ${muestras?.length || 0} muestras para resistencia`);
   
-  // Log complete data for debugging
+
   console.log('Estructura completa de muestras:', JSON.stringify(muestras, null, 2));
   
   if (!muestras || !Array.isArray(muestras) || muestras.length === 0) {
@@ -90,7 +90,7 @@ const getResistenciaForDisplay = (muestras: any[], fallbackValue: number = 0): n
     return fallbackValue;
   }
   
-  // Collect ALL resistance values with their sources for debugging
+
   const allValues: {source: string, value: number, isGarantia: boolean}[] = [];
   
   // First, collect all direct resistance values
@@ -101,7 +101,7 @@ const getResistenciaForDisplay = (muestras: any[], fallbackValue: number = 0): n
       muestra.fecha_programada_matches_garantia === true ||
       (muestra.ensayos && muestra.ensayos.some((e: any) => e.is_edad_garantia === true));
     
-    // Log properties for each muestra for debugging
+
     console.log(`Muestra ${idx} propiedades:`, {
       id: muestra.id || muestra.muestra_id,
       resistencia: muestra.resistencia,
@@ -220,13 +220,11 @@ export default function ReportesPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Add state for debug data
-  const [debugData, setDebugData] = useState<any>(null);
+
   
   // Add state for expanded rows
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
-  
-  // Add additional debug state
+
   const [lastClickedId, setLastClickedId] = useState<string | null>(null);
   
   // Verificar roles permitidos
@@ -257,7 +255,7 @@ export default function ReportesPage() {
       setTablaData([]);
       setEficienciaData([]);
       setDistribucionData([]);
-      setDebugData(null);
+
       setAggregateMetrics({
         rendimientoPromedio: 0,
         eficienciaPromedio: 0,
@@ -341,13 +339,7 @@ export default function ReportesPage() {
         );
         setDistribucionData(data);
       }
-      else if (activeTab === 'debug') {
-        const data = await debugMuestreosMuestras(
-          dateRange.from,
-          dateRange.to
-        );
-        setDebugData(data);
-      }
+
     } catch (err) {
       console.error('Error cargando datos de reportes:', err);
       setError('Error al cargar los datos del reporte: ' + (err instanceof Error ? err.message : String(err)));
@@ -967,7 +959,7 @@ export default function ReportesPage() {
                                         </TableHeader>
                                         <TableBody>
                                           {dato.muestras.map((muestra: any, muestraIndex: number) => {
-                                            // Debug the muestra data
+
                                             console.log(`Muestra data (${muestraIndex}):`, {
                                               id: muestra.id || muestra.muestra_id,
                                               identificacion: muestra.identificacion || muestra.codigo,
@@ -984,7 +976,7 @@ export default function ReportesPage() {
                                               muestra.fecha_programada_matches_garantia === true ||
                                               (muestra.ensayos && muestra.ensayos.some((e: any) => e.is_edad_garantia === true));
                                             
-                                            // Debug guarantee age detection
+
                                             console.log(`Muestra ${muestra.id || muestra.muestra_id} is garantia:`, isGarantia);
                                             
                                             // Safely get resistance value - use any available source
@@ -1164,160 +1156,9 @@ export default function ReportesPage() {
             </CardContent>
           </Card>
         </TabsContent>
-        
-        <TabsContent value="debug">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Diagnóstico de Muestreos y Muestras</CardTitle>
-              <div className="flex gap-2">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={loadReportData}
-                  disabled={loading}
-                >
-                  <Loader2 className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                  Actualizar Datos
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={exportToExcel}
-                  disabled={loading || !debugData}
-                >
-                  <FileSpreadsheet className="h-4 w-4 mr-2" />
-                  Exportar Excel
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex items-center justify-center h-[400px] border rounded-md bg-gray-50">
-                  <div className="text-center flex flex-col items-center gap-2">
-                    <Loader2 className="h-8 w-8 text-gray-400 animate-spin" />
-                    <p className="text-gray-500">Cargando datos de diagnóstico...</p>
-                  </div>
-                </div>
-              ) : debugData ? (
-                debugData.error ? (
-                  <div className="p-4 bg-red-50 border border-red-200 rounded-md">
-                    <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className="h-5 w-5 text-red-500" />
-                      <h3 className="text-lg font-medium text-red-800">Error al cargar datos</h3>
-                    </div>
-                    <p className="text-sm text-red-700">{debugData.error}</p>
-                  </div>
-                ) : (
-                  <div className="space-y-6">
-                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-md">
-                      <h3 className="text-lg font-medium text-blue-800 mb-2">Resumen</h3>
-                      <p className="text-sm text-blue-700">
-                        Total Muestreos: <span className="font-bold">{debugData.total_muestreos}</span> |
-                        Total Muestras Ensayadas: <span className="font-bold">{debugData.total_muestras_ensayado}</span>
-                      </p>
-                    </div>
-                    
-                    <div className="border rounded-md overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="font-bold">Muestreo ID</TableHead>
-                            <TableHead>Fecha Muestreo</TableHead>
-                            <TableHead>Planta</TableHead>
-                            <TableHead>Recipe Code</TableHead>
-                            <TableHead>Edad Garantía</TableHead>
-                            <TableHead>Fecha Garantía</TableHead>
-                            <TableHead className="text-right">Total Muestras</TableHead>
-                            <TableHead className="text-right">Muestras Garantía</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {debugData?.results?.map((result: any) => (
-                            <React.Fragment key={result.muestreo_id}>
-                              <TableRow className="bg-gray-50 hover:bg-gray-100">
-                                <TableCell className="font-medium">{result.muestreo_id}</TableCell>
-                                <TableCell>{result.fecha_muestreo}</TableCell>
-                                <TableCell>{result.planta}</TableCell>
-                                <TableCell>{result.recipe_code || result.recipe_id}</TableCell>
-                                <TableCell>{result.edad_garantia} días</TableCell>
-                                <TableCell>{result.fecha_garantia}</TableCell>
-                                <TableCell className="text-right">{result.muestras_count}</TableCell>
-                                <TableCell className="text-right">{result.muestras_garantia_count}</TableCell>
-                              </TableRow>
-                              
-                              {/* Muestras details */}
-                              {result.muestras?.length > 0 && (
-                                <TableRow>
-                                  <TableCell colSpan={8} className="p-0">
-                                    <div className="px-4 pb-4">
-                                      <h4 className="text-sm font-semibold mb-2 mt-2">Muestras y Ensayos:</h4>
-                                      <Table>
-                                        <TableHeader>
-                                          <TableRow className="bg-gray-100">
-                                            <TableHead className="py-2">Muestra ID</TableHead>
-                                            <TableHead className="py-2">Identificación</TableHead>
-                                            <TableHead className="py-2">Tipo</TableHead>
-                                            <TableHead className="py-2">Fecha Programada</TableHead>
-                                            <TableHead className="py-2">Coincide Garantía</TableHead>
-                                            <TableHead className="py-2 text-xs">Ensayos</TableHead>
-                                          </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                          {result.muestras.map((muestra: any) => (
-                                            <TableRow key={muestra.muestra_id} className="hover:bg-gray-50">
-                                              <TableCell className="py-2 text-xs">{muestra.muestra_id}</TableCell>
-                                              <TableCell className="py-2 text-xs">{muestra.identificacion}</TableCell>
-                                              <TableCell className="py-2 text-xs">{muestra.tipo_muestra}</TableCell>
-                                              <TableCell className="py-2 text-xs">{muestra.fecha_programada}</TableCell>
-                                              <TableCell className="py-2 text-xs">
-                                                <span className={muestra.fecha_programada_matches_garantia ? 'text-green-600' : 'text-red-600'}>
-                                                  {muestra.fecha_programada_matches_garantia ? 'Sí' : 'No'}
-                                                </span>
-                                              </TableCell>
-                                              <TableCell className="py-2 text-xs">
-                                                <div className="space-y-1">
-                                                  {muestra.ensayos?.map((ensayo: any) => (
-                                                    <div key={ensayo.id} className="bg-gray-50 p-1 rounded text-xs">
-                                                      <span className={ensayo.is_edad_garantia ? "text-green-600 font-medium" : ""}>
-                                                        Edad: {ensayo.edad_dias} días | 
-                                                        Resistencia: {formatMetric(ensayo.resistencia_calculada)}
-                                                      </span>
-                                                    </div>
-                                                  ))}
-                                                </div>
-                                              </TableCell>
-                                            </TableRow>
-                                          ))}
-                                        </TableBody>
-                                      </Table>
-                                    </div>
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                            </React.Fragment>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                )
-              ) : (
-                <div className="flex items-center justify-center h-[400px] border rounded-md bg-gray-50">
-                  <div className="text-center flex flex-col items-center gap-2">
-                    <AlertTriangle className="h-12 w-12 text-gray-300" />
-                    <p className="text-gray-500">
-                      No hay datos de diagnóstico disponibles
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      Intente modificar los filtros o seleccionar otro período
-                    </p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+
       </Tabs>
+
       
       {/* Opciones de descarga y generación de reportes */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

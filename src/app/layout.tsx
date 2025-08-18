@@ -40,7 +40,7 @@ import { cn } from '@/lib/utils';
 import AuthInitializer from '@/components/auth/auth-initializer';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
-import PlantDebugInfo from '@/components/debug/PlantDebugInfo';
+
 
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
@@ -775,9 +775,6 @@ function Navigation({ children }: { children: React.ReactNode }) {
         
         {/* Contenido de la página */}
         <div className="mt-4">
-          {/* Debug component - temporary */}
-          <PlantDebugInfo />
-          {/* Children */}
           {children}
         </div>
       </main>

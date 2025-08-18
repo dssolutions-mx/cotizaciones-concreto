@@ -446,7 +446,7 @@ export default function MuestreoDetailPage() {
                 Listado de especímenes para ensayo
               </CardDescription>
             </div>
-            {/* Debug: mostrar siempre por ahora */}
+
             <Button 
               onClick={() => setShowAddSampleModal(true)}
               size="sm"
