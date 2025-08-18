@@ -35,7 +35,9 @@ export class ArkikRawParser {
 
   private static readonly DEFAULT_MEASURE_ALIASES: Record<ArkikMeasureKey, string[]> = {
     teorica: ['teorica', 'teórica', 'teo'],
-    real: ['real']
+    real: ['real'],
+    retrabajo: ['retrabajo', 'ret'],
+    manual: ['manual', 'man']
   };
 
   constructor(private options?: { measureAliases?: Partial<Record<ArkikMeasureKey, string[]>> }) {}
@@ -126,12 +128,18 @@ export class ArkikRawParser {
     materialBlocks.forEach(block => {
       const teoricaValue = this.parseNumber(row[block.indicesByMeasure.teorica]) || 0;
       const realValue = this.parseNumber(row[block.indicesByMeasure.real]) || 0;
+      const retrabajoValue = block.indicesByMeasure.retrabajo >= 0 ? 
+        (this.parseNumber(row[block.indicesByMeasure.retrabajo]) || 0) : 0;
+      const manualValue = block.indicesByMeasure.manual >= 0 ? 
+        (this.parseNumber(row[block.indicesByMeasure.manual]) || 0) : 0;
       
-      // Only add material if either teorica or real has a non-zero value
-      if (teoricaValue > 0 || realValue > 0) {
+      // Only add material if any measure has a non-zero value
+      if (teoricaValue > 0 || realValue > 0 || retrabajoValue > 0 || manualValue > 0) {
         materials[block.arkikCode] = {
           teorica: teoricaValue,
-          real: realValue
+          real: realValue,
+          retrabajo: retrabajoValue,
+          manual: manualValue
         } as Record<ArkikMeasureKey, number>;
       }
     });
@@ -310,6 +318,8 @@ export class ArkikRawParser {
       
       let teoricaIdx = -1;
       let realIdx = -1;
+      let retrabajoIdx = -1;
+      let manualIdx = -1;
       
       // Search in the range between this material and the next one
       for (let col = idx; col < nextMaterialIdx && col < header.length; col++) {
@@ -329,20 +339,34 @@ export class ArkikRawParser {
             realIdx = col;
             if (isDevelopment) console.log(`[ArkikRawParser]   ✅ Found Real at column ${col}`);
           }
+          
+          // Match "Retrabajo"
+          if (measureCell.match(/retrabajo|ret/i)) {
+            retrabajoIdx = col;
+            if (isDevelopment) console.log(`[ArkikRawParser]   ✅ Found Retrabajo at column ${col}`);
+          }
+          
+          // Match "Manual"
+          if (measureCell.match(/manual|man/i)) {
+            manualIdx = col;
+            if (isDevelopment) console.log(`[ArkikRawParser]   ✅ Found Manual at column ${col}`);
+          }
         }
       }
       
-      // Only create block if we found both required measures
+      // Only create block if we found the basic required measures (teorica and real)
       if (teoricaIdx >= 0 && realIdx >= 0) {
         const block: MaterialColumnBlock = {
           arkikCode: code,
           indicesByMeasure: {
             teorica: teoricaIdx,
-            real: realIdx
+            real: realIdx,
+            retrabajo: retrabajoIdx >= 0 ? retrabajoIdx : -1,
+            manual: manualIdx >= 0 ? manualIdx : -1
           }
         };
         blocks.push(block);
-        if (isDevelopment) console.log(`[ArkikRawParser] ✅ Material block created: "${code}" -> teorica=${teoricaIdx}, real=${realIdx}`);
+        if (isDevelopment) console.log(`[ArkikRawParser] ✅ Material block created: "${code}" -> teorica=${teoricaIdx}, real=${realIdx}, retrabajo=${retrabajoIdx}, manual=${manualIdx}`);
       } else {
         if (isDevelopment) console.log(`[ArkikRawParser] ❌ Incomplete block for "${code}": teorica=${teoricaIdx}, real=${realIdx}`);
       }
@@ -351,7 +375,7 @@ export class ArkikRawParser {
     if (isDevelopment) {
       console.log(`[ArkikRawParser] Dynamic detection complete: ${blocks.length} blocks found`);
       blocks.forEach(block => {
-        console.log(`[ArkikRawParser]   - ${block.arkikCode}: T=${block.indicesByMeasure.teorica}, R=${block.indicesByMeasure.real}`);
+        console.log(`[ArkikRawParser]   - ${block.arkikCode}: T=${block.indicesByMeasure.teorica}, R=${block.indicesByMeasure.real}, Ret=${block.indicesByMeasure.retrabajo}, Man=${block.indicesByMeasure.manual}`);
       });
     }
     

@@ -54,8 +54,8 @@ export function CreditOrdersSection({ orders }: CreditOrdersSectionProps) {
   const { toast } = useToast();
 
   // Determine user role and permissions
-  const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
-  const isManager = profile?.role === 'EXECUTIVE' as UserRole || profile?.role === 'PLANT_MANAGER' as UserRole;
+  const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR';
+  const isManager = profile?.role === 'EXECUTIVE' || profile?.role === 'PLANT_MANAGER';
 
   const formatOrderDate = (date: string) => {
     return format(new Date(date + 'T00:00:00'), 'PPP', { locale: es });
@@ -192,7 +192,7 @@ export function CreditOrdersSection({ orders }: CreditOrdersSectionProps) {
     <div className="@container">
       <div className="grid grid-cols-1 @lg:grid-cols-2 gap-6">
         {modifiedOrders.map(order => (
-          <Card key={order.id} className="@container overflow-hidden border-s-4 border-s-amber-400 shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 transition-shadow">
+          <Card key={`card-${order.id}`} className="@container overflow-hidden border-s-4 border-s-amber-400 shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 transition-shadow">
             <CardHeader className="pb-2 ps-4 pe-4">
               <div className="flex justify-between items-center">
                 <CardTitle className="text-lg font-medium flex items-center gap-1">

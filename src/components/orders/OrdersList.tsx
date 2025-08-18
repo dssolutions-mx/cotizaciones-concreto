@@ -724,7 +724,7 @@ export default function OrdersList({
                   <div className="divide-y divide-gray-200">
                     {group.orders.map(order => (
                       <OrderCard 
-                        key={order.id} 
+                        key={`orders-list-${order.id}`} 
                         order={order} 
                         onClick={() => handleOrderClick(order.id)} 
                         groupKey={groupKey}
