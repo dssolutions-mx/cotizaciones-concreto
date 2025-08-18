@@ -152,8 +152,9 @@ export async function middleware(request: NextRequest) {
         .eq('id', user.id)
         .single();
       const role = (profileData as any)?.role as string | undefined;
-      const qualityRoles = ['QUALITY_TEAM', 'LABORATORY', 'PLANT_MANAGER'];
-      if (role && qualityRoles.includes(role)) {
+      if (role === 'QUALITY_TEAM') {
+        defaultHome = '/quality/muestreos';
+      } else if (role && ['LABORATORY', 'PLANT_MANAGER'].includes(role)) {
         defaultHome = '/quality';
       }
     } catch (err) {
@@ -176,8 +177,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  // Block QUALITY_TEAM from accessing non-quality sections
-  if (user && !pathname.startsWith('/quality') && !pathname.startsWith('/profile') && !pathname.startsWith('/auth') && !isPublicRoute) {
+  // Block QUALITY_TEAM from accessing non-quality sections and quality dashboard
+  if (user && (!pathname.startsWith('/quality') || pathname === '/quality') && !pathname.startsWith('/profile') && !pathname.startsWith('/auth') && !isPublicRoute) {
     try {
       const { data: profileData } = await supabase
         .from('user_profiles')
@@ -206,10 +207,10 @@ export async function middleware(request: NextRequest) {
           pathname === path || pathname.startsWith(path + '/')
         );
         
-        if (isRestrictedPath) {
-          console.log(`Blocking QUALITY_TEAM user from accessing ${pathname}, redirecting to /quality`);
+        if (isRestrictedPath || pathname === '/quality') {
+          console.log(`Blocking QUALITY_TEAM user from accessing ${pathname}, redirecting to /quality/muestreos`);
           const redirectUrl = request.nextUrl.clone();
-          redirectUrl.pathname = '/quality';
+          redirectUrl.pathname = '/quality/muestreos';
           return NextResponse.redirect(redirectUrl);
         }
       }

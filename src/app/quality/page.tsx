@@ -52,6 +52,14 @@ const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 export default function QualityDashboardPage() {
   const { profile } = useAuthBridge();
+  
+  // Block QUALITY_TEAM from accessing quality dashboard, redirect to muestreos
+  if (profile?.role === 'QUALITY_TEAM') {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/quality/muestreos';
+      return null;
+    }
+  }
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
     from: new Date('2025-03-28'),
     to: new Date('2025-05-28')
