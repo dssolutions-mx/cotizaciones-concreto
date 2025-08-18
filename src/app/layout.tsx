@@ -822,8 +822,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" suppressHydrationWarning className={fontClassName}>
       <head>
-        <title>DC Concretos - Sistema de Cotizaciones</title>
-        <meta name="description" content="Sistema de cotizaciones para DC Concretos" />
+        <title>DC Concretos - Sistema de Manejo de Plantas</title>
+        <meta name="description" content="Sistema de manejo integral de plantas de concreto - DC Concretos" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
         <link rel="icon" href="/images/dcconcretos/favicon.svg" />
       </head>

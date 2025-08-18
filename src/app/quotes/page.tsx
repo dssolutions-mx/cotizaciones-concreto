@@ -16,6 +16,8 @@ type TabId = 'draft' | 'pending' | 'approved' | 'create';
 // Common props type that all components might receive
 interface TabComponentProps {
   onDataSaved?: () => void;
+  statusFilter?: string;
+  clientFilter?: string;
 }
 
 interface TabDefinition {
@@ -285,7 +287,9 @@ function QuotesContent() {
       <div className="mt-6 bg-white rounded-lg shadow-sm @container">
         <ActiveTabComponent 
           key={`${activeTab}-${refreshTrigger}`} 
-          onDataSaved={handleDataSaved} 
+          onDataSaved={handleDataSaved}
+          statusFilter={activeTab !== 'create' ? statusFilter : undefined}
+          clientFilter={activeTab !== 'create' ? clientFilter : undefined}
         />
       </div>
     </div>

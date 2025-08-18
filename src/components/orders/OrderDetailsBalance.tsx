@@ -11,12 +11,22 @@ interface OrderDetailsBalanceProps {
 
 // Define a basic type for the order data needed
 interface OrderData {
-  id: string;
   preliminary_amount: number | null;
   final_amount: number | null;
   invoice_amount: number | null;
   previous_client_balance: number | null;
   requires_invoice: boolean;
+  plant?: {
+    id: string;
+    name: string;
+    code: string;
+    business_unit: {
+      id: string;
+      name: string;
+      code: string;
+      vat_rate: number;
+    };
+  };
 }
 
 const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({ 
@@ -39,7 +49,18 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
           final_amount,
           invoice_amount,
           previous_client_balance,
-          requires_invoice
+          requires_invoice,
+          plant:plant_id(
+            id,
+            name,
+            code,
+            business_unit:business_unit_id(
+              id,
+              name,
+              code,
+              vat_rate
+            )
+          )
         `)
         .eq('id', orderId)
         .single();
@@ -77,10 +98,47 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
   const finalAmount = orderData.final_amount ?? 0;
   const invoiceAmount = orderData.invoice_amount ?? 0;
   const previousBalance = orderData.previous_client_balance ?? 0;
+  
+  // Calculate VAT information
+  const vatRate = orderData.plant?.business_unit?.vat_rate ?? 0.16; // Default to 16%
+  const vatPercentage = (vatRate * 100).toFixed(1);
+  const vatAmount = orderData.requires_invoice && hasDeliveries ? invoiceAmount - finalAmount : 0;
 
   return (
     <div className="border rounded-lg p-4 bg-white">
       <h3 className="font-medium text-gray-800 mb-3">Información de Monto y Balance</h3>
+
+      {/* Plant and VAT Rate Info - Only show when invoice is required */}
+      {orderData.plant && orderData.requires_invoice && (
+        <div className="bg-blue-50 p-3 rounded-md mb-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-600">Planta:</span>
+            <span className="font-medium text-blue-700">{orderData.plant.name}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm mt-1">
+            <span className="text-gray-600">Tipo de Orden:</span>
+            <span className="font-medium text-green-600">FISCAL (con factura)</span>
+          </div>
+          <div className="flex items-center justify-between text-sm mt-1">
+            <span className="text-gray-600">Tasa de IVA:</span>
+            <span className="font-medium text-blue-700">{vatPercentage}%</span>
+          </div>
+        </div>
+      )}
+
+      {/* Show when order is NOT fiscal */}
+      {orderData.plant && !orderData.requires_invoice && (
+        <div className="bg-gray-50 p-3 rounded-md mb-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-600">Planta:</span>
+            <span className="font-medium text-gray-700">{orderData.plant.name}</span>
+          </div>
+          <div className="flex items-center justify-between text-sm mt-1">
+            <span className="text-gray-600">Tipo de Orden:</span>
+            <span className="font-medium text-gray-600">EFECTIVO (sin factura)</span>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2 mb-4">
         <div className="flex justify-between py-1 border-b">
@@ -99,11 +157,30 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
           </div>
         )}
 
-        {orderData.requires_invoice && (
+        {/* VAT Information - Only show for fiscal orders */}
+        {orderData.requires_invoice && hasDeliveries && (
+          <>
+            <div className="flex justify-between py-1 border-b">
+              <span className="text-gray-600">IVA ({vatPercentage}%):</span>
+              <span className="font-medium text-blue-600">
+                ${vatAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
+              </span>
+            </div>
+            <div className="flex justify-between py-1 border-b">
+              <span className="text-gray-600">Monto con IVA:</span>
+              <span className="font-medium">
+                ${invoiceAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
+              </span>
+            </div>
+          </>
+        )}
+
+        {/* Projected VAT for preliminary fiscal orders */}
+        {orderData.requires_invoice && !hasDeliveries && (
           <div className="flex justify-between py-1 border-b">
-            <span className="text-gray-600">Monto con IVA:</span>
+            <span className="text-gray-600">Monto con IVA ({vatPercentage}%):</span>
             <span className="font-medium">
-              ${invoiceAmount.toLocaleString('es-MX', {minimumFractionDigits: 2})}
+              ${(preliminaryAmount * (1 + vatRate)).toLocaleString('es-MX', {minimumFractionDigits: 2})}
             </span>
           </div>
         )}
@@ -140,8 +217,8 @@ const OrderDetailsBalance: React.FC<OrderDetailsBalanceProps> = ({
               {/* Show preliminary projected balance */}
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Balance Proyectado (Preliminar):</span>
-                <span className={`font-medium ${(previousBalance + (orderData.requires_invoice ? preliminaryAmount * 1.16 : preliminaryAmount)) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                  ${(previousBalance + (orderData.requires_invoice ? preliminaryAmount * 1.16 : preliminaryAmount)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                <span className={`font-medium ${(previousBalance + (orderData.requires_invoice ? preliminaryAmount * (1 + vatRate) : preliminaryAmount)) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  ${(previousBalance + (orderData.requires_invoice ? preliminaryAmount * (1 + vatRate) : preliminaryAmount)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                 </span>
               </div>
               <div className="bg-yellow-50 p-2 rounded text-xs text-yellow-700 mt-2">
