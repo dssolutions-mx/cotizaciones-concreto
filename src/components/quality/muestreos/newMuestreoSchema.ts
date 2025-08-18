@@ -14,10 +14,7 @@ export const muestreoFormSchema = z.object({
     required_error: "La planta es requerida",
   }),
   revenimiento_sitio: z.number(),
-  masa_unitaria: z
-    .number()
-    .min(1500, "Masa unitaria demasiado baja")
-    .max(3000, "Masa unitaria demasiado alta"),
+  masa_unitaria: z.number(),
   temperatura_ambiente: z
     .number()
     .min(-10, "Temperatura ambiente mínima -10°C")
