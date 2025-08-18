@@ -378,6 +378,87 @@ async function buildDataCache(plantId: string, validatedRows: StagingRemision[])
   };
 }
 
+// CRITICAL: Construction site lookup function to prevent duplicates in future uploads
+async function lookupConstructionSiteId(clientId: string, siteName: string): Promise<string | null> {
+  if (!siteName || !clientId) return null;
+  
+  try {
+    // Clean and standardize the site name for comparison
+    const cleanSiteName = siteName.trim();
+    
+    // First try exact match (case-insensitive)
+    const { data: exactMatch, error: exactError } = await supabase
+      .from('construction_sites')
+      .select('id, name')
+      .eq('client_id', clientId)
+      .eq('is_active', true)
+      .ilike('name', cleanSiteName)
+      .limit(1)
+      .maybeSingle();
+    
+    if (exactMatch && !exactError) {
+      console.log('[ArkikOrderCreator] Found exact construction site match:', exactMatch.name, '→', exactMatch.id);
+      return exactMatch.id;
+    }
+    
+    // Second try fuzzy match for common variations
+    const { data: fuzzyMatches, error: fuzzyError } = await supabase
+      .from('construction_sites')
+      .select('id, name')
+      .eq('client_id', clientId)
+      .eq('is_active', true);
+    
+    if (!fuzzyError && fuzzyMatches) {
+      // Look for sites where the names are similar (accounting for spaces, case, etc.)
+      for (const site of fuzzyMatches) {
+        const normalizedSiteName = cleanSiteName.toUpperCase().replace(/\s+/g, ' ');
+        const normalizedDbName = site.name.toUpperCase().replace(/\s+/g, ' ');
+        
+        if (normalizedSiteName === normalizedDbName) {
+          console.log('[ArkikOrderCreator] Found fuzzy construction site match:', site.name, '→', site.id);
+          return site.id;
+        }
+      }
+    }
+    
+    console.log('[ArkikOrderCreator] No construction site match found for:', cleanSiteName);
+    return null;
+  } catch (error) {
+    console.error('[ArkikOrderCreator] Error looking up construction site:', error);
+    return null;
+  }
+}
+
+// EXPORT: Public function for use in validation processes
+export async function validateAndLinkConstructionSites(remisiones: StagingRemision[]): Promise<StagingRemision[]> {
+  console.log('[ArkikOrderCreator] Validating and linking construction sites for', remisiones.length, 'remisiones');
+  
+  const updatedRemisiones = [...remisiones];
+  let linkedCount = 0;
+  
+  for (const remision of updatedRemisiones) {
+    // Skip if already has a construction_site_id
+    if (remision.construction_site_id) continue;
+    
+    // Skip if missing required data
+    if (!remision.client_id || !remision.obra_name) continue;
+    
+    try {
+      const siteId = await lookupConstructionSiteId(remision.client_id, remision.obra_name);
+      if (siteId) {
+        remision.construction_site_id = siteId;
+        linkedCount++;
+        console.log('[ArkikOrderCreator] Linked construction site:', remision.obra_name, '→', siteId);
+      }
+    } catch (error) {
+      console.error('[ArkikOrderCreator] Error linking construction site for remision:', remision.id, error);
+    }
+  }
+  
+  console.log('[ArkikOrderCreator] Successfully linked', linkedCount, 'construction sites');
+  return updatedRemisiones;
+}
+
 async function createSingleOrder(
   suggestion: OrderSuggestion,
   plantId: string,
@@ -836,7 +917,16 @@ async function createSingleOrderWithoutBalanceUpdate(
   try {
     const firstRemision = suggestion.remisiones[0];
     const constructionSiteName = firstRemision.obra_name || null;
-    const constructionSiteId = firstRemision.construction_site_id || null;
+    let constructionSiteId = firstRemision.construction_site_id || null;
+    
+    // CRITICAL: Auto-lookup construction site ID to prevent future duplicates
+    if (!constructionSiteId && constructionSiteName && firstRemision.client_id) {
+      const lookedUpSiteId = await lookupConstructionSiteId(firstRemision.client_id, constructionSiteName);
+      if (lookedUpSiteId) {
+        constructionSiteId = lookedUpSiteId;
+        console.log('[ArkikOrderCreator] Auto-linked construction site:', constructionSiteName, '→', constructionSiteId);
+      }
+    }
 
     // Generate order number using cached sequence
     const orderNumber = `${dataCache.plantCode}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${dataCache.orderNumberSequence.toString().padStart(3, '0')}`;
@@ -1027,15 +1117,27 @@ async function recalculateAffectedBalances(affectedBalances: Set<string>): Promi
           console.log('[ArkikOrderCreator] ✅ General balance updated for client:', clientId);
         }
       } else if (balanceType === 'SITE') {
-        // Site-specific balance calculation
+        // Site-specific balance calculation with automatic construction site lookup
         const isUuid = siteKey.length === 36 && siteKey.includes('-'); // Basic UUID check
+        let finalSiteId = isUuid ? siteKey : null;
+        let finalSiteName = isUuid ? null : siteKey;
         
-        console.log('[ArkikOrderCreator] Recalculating site balance for client:', clientId, 'site:', siteKey, 'isUUID:', isUuid);
+        // ENHANCEMENT: If we have a site name but no UUID, try to look it up
+        if (!isUuid && siteKey) {
+          const lookedUpSiteId = await lookupConstructionSiteId(clientId, siteKey);
+          if (lookedUpSiteId) {
+            finalSiteId = lookedUpSiteId;
+            finalSiteName = null; // Prefer UUID over name
+            console.log('[ArkikOrderCreator] Auto-resolved site name to UUID:', siteKey, '→', lookedUpSiteId);
+          }
+        }
+        
+        console.log('[ArkikOrderCreator] Recalculating site balance for client:', clientId, 'site:', siteKey, 'finalUUID:', finalSiteId);
         
         const { error } = await supabase.rpc('update_client_balance_atomic', {
           p_client_id: clientId,
-          p_site_name: isUuid ? null : siteKey,
-          p_site_id: isUuid ? siteKey : null
+          p_site_name: finalSiteName,
+          p_site_id: finalSiteId
         });
 
         if (error) {
