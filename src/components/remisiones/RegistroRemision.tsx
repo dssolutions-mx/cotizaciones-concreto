@@ -221,7 +221,8 @@ export default function RegistroRemision({
               remision_id: remision.id,
               material_type: materialTypeCode, // Use the code for DB storage
               cantidad_real: material.dosificadoReal,
-              cantidad_teorica: material.dosificadoTeorico
+              cantidad_teorica: material.dosificadoTeorico,
+              ajuste: 0 // PDF extractions don't have retrabajo/manual adjustments
             };
           });
           

@@ -1,5 +1,5 @@
 export type ArkikMaterialCode = string;
-export type ArkikMeasureKey = 'teorica' | 'real';
+export type ArkikMeasureKey = 'teorica' | 'real' | 'retrabajo' | 'manual';
 
 export enum ArkikErrorType {
   CLIENT_NOT_FOUND = 'CLIENT_NOT_FOUND',
@@ -51,6 +51,7 @@ export interface WasteMaterial {
   waste_reason: 'cancelled' | 'incomplete' | 'quality_issue' | 'other';
   plant_id: string;
   fecha: Date;
+  notes?: string;
   created_at: Date;
 }
 
@@ -204,6 +205,7 @@ export interface RemisionMaterialInsert {
   material_type: string;
   cantidad_teorica: number;
   cantidad_real: number;
+  ajuste?: number; // Sum of retrabajo + manual
 }
 
 
