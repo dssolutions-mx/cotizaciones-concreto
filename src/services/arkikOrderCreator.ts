@@ -219,6 +219,9 @@ export async function createOrdersFromSuggestions(
     errors: []
   };
 
+  // Track affected clients/sites for batch balance calculation
+  const affectedBalances = new Set<string>();
+
   try {
     // Get current user
     const { data: { user } } = await supabase.auth.getUser();
@@ -242,11 +245,11 @@ export async function createOrdersFromSuggestions(
       const batch = newOrderSuggestions.slice(i, i + batchSize);
       const batchResults = await Promise.allSettled(
         batch.map(suggestion => 
-          createSingleOrder(suggestion, plantId, user.id, validatedRows, dataCache)
+          createSingleOrderWithoutBalanceUpdate(suggestion, plantId, user.id, validatedRows, dataCache)
         )
       );
 
-      // Aggregate batch results
+      // Aggregate batch results and track affected balances
       batchResults.forEach((batchResult, index) => {
         if (batchResult.status === 'fulfilled') {
           const orderResult = batchResult.value;
@@ -255,6 +258,21 @@ export async function createOrdersFromSuggestions(
           result.materialsProcessed += orderResult.materialsProcessed;
           result.orderItemsCreated += orderResult.orderItemsCreated;
           result.errors.push(...orderResult.errors);
+
+          // Track this order's client/site for balance calculation
+          const suggestion = batch[index];
+          const firstRemision = suggestion.remisiones[0];
+          const constructionSiteName = firstRemision.obra_name || null;
+          const constructionSiteId = firstRemision.construction_site_id || null;
+          
+          // Add general balance key
+          affectedBalances.add(`${firstRemision.client_id}||GENERAL`);
+          
+          // Add site-specific balance key if site exists
+          if (constructionSiteId || constructionSiteName) {
+            const siteKey = constructionSiteId || constructionSiteName || '';
+            affectedBalances.add(`${firstRemision.client_id}|${siteKey}|SITE`);
+          }
         } else {
           const suggestion = batch[index];
           const errorMessage = batchResult.reason instanceof Error ? batchResult.reason.message : 'Error desconocido';
@@ -266,7 +284,13 @@ export async function createOrdersFromSuggestions(
       dataCache.orderNumberSequence += batch.length;
     }
 
-    console.log('[ArkikOrderCreator] Order creation completed', result);
+    // CRITICAL: Now recalculate ALL affected balances in a single batch operation
+    // This prevents race conditions and ensures consistency
+    console.log('[ArkikOrderCreator] Recalculating balances for', affectedBalances.size, 'affected client/site combinations...');
+    
+    await recalculateAffectedBalances(affectedBalances);
+
+    console.log('[ArkikOrderCreator] Order creation and balance recalculation completed', result);
     return result;
 
   } catch (error) {
@@ -494,7 +518,7 @@ async function createSingleOrder(
       construction_site: constructionSiteName,
       construction_site_id: constructionSiteId || undefined,
       order_number: orderNumber,
-      requires_invoice: false,
+      requires_invoice: true, // Default to TRUE for all Arkik orders
       delivery_date: deliveryDate,
       delivery_time: deliveryTime,
       special_requirements: suggestion.comentarios_externos.join(', ') || undefined,
@@ -525,7 +549,13 @@ async function createSingleOrder(
     console.log('[ArkikOrderCreator] Order created with ID:', createdOrder.id);
 
     // Create order items for all unique recipes in this group
-    const uniqueRecipes = new Map<string, { recipe_id: string; recipe_code: string; volume: number; unit_price: number }>();
+    const uniqueRecipes = new Map<string, { 
+      recipe_id: string; 
+      recipe_code: string; 
+      volume: number; 
+      unit_price: number;
+      quote_detail_id?: string;
+    }>();
     
     // Group by recipe and sum volumes
     suggestion.remisiones.forEach(remision => {
@@ -534,12 +564,17 @@ async function createSingleOrder(
         if (uniqueRecipes.has(key)) {
           const existing = uniqueRecipes.get(key)!;
           existing.volume += remision.volumen_fabricado;
+          // Use the first quote_detail_id found for this recipe
+          if (!existing.quote_detail_id && remision.quote_detail_id) {
+            existing.quote_detail_id = remision.quote_detail_id;
+          }
         } else {
           uniqueRecipes.set(key, {
             recipe_id: remision.recipe_id,
             recipe_code: remision.recipe_code,
             volume: remision.volumen_fabricado,
-            unit_price: remision.unit_price || 0
+            unit_price: remision.unit_price || 0,
+            quote_detail_id: remision.quote_detail_id
           });
         }
       }
@@ -547,12 +582,43 @@ async function createSingleOrder(
 
     console.log('[ArkikOrderCreator] Creating', uniqueRecipes.size, 'order items for unique recipes');
 
+    // Fetch actual recipe codes from database to ensure consistency
+    const recipeIds = Array.from(uniqueRecipes.keys());
+    const { data: actualRecipes, error: recipesError } = await supabase
+      .from('recipes')
+      .select('id, recipe_code')
+      .in('id', recipeIds);
+
+    if (recipesError) {
+      console.warn('[ArkikOrderCreator] Warning: Could not fetch recipe codes from database:', recipesError);
+    }
+
+    // Create recipe code mapping for database consistency
+    const recipeCodeMap = new Map<string, string>();
+    if (actualRecipes) {
+      actualRecipes.forEach(recipe => {
+        recipeCodeMap.set(recipe.id, recipe.recipe_code);
+      });
+    }
+
     // Batch create order items
     const orderItemsData: OrderItemData[] = [];
-    uniqueRecipes.forEach((recipeData) => {
+    uniqueRecipes.forEach((recipeData, recipeId) => {
+      // Use database recipe_code if available, otherwise fall back to parsed code
+      const actualRecipeCode = recipeCodeMap.get(recipeId) || recipeData.recipe_code;
+      
+      console.log('[ArkikOrderCreator] Order item recipe code:', {
+        recipe_id: recipeId,
+        parsed_code: recipeData.recipe_code,
+        database_code: recipeCodeMap.get(recipeId),
+        using_code: actualRecipeCode,
+        quote_detail_id: recipeData.quote_detail_id
+      });
+
       orderItemsData.push({
         order_id: createdOrder.id,
-        product_type: recipeData.recipe_code,
+        quote_detail_id: recipeData.quote_detail_id, // CRITICAL: Include quote_detail_id for proper linking
+        product_type: actualRecipeCode, // Use actual recipe code from database
         volume: recipeData.volume,
         unit_price: recipeData.unit_price,
         total_price: recipeData.volume * recipeData.unit_price,
@@ -686,11 +752,317 @@ async function createSingleOrder(
       }
     }
 
+    // CRITICAL: Recalculate client balance after order creation
+    console.log('[ArkikOrderCreator] Recalculating client balance after order creation...');
+    console.log('[ArkikOrderCreator] Balance calculation params:', {
+      client_id: firstRemision.client_id,
+      construction_site_id: constructionSiteId,
+      construction_site_name: constructionSiteName,
+      has_site_id: !!constructionSiteId,
+      has_site_name: !!constructionSiteName
+    });
+
+    try {
+      // Strategy: Use enhanced balance calculation with UUID support for maximum reliability
+      
+      // 1. Always recalculate general client balance (no site filter)
+      console.log('[ArkikOrderCreator] Updating general client balance...');
+      const { error: generalBalanceError } = await supabase.rpc('update_client_balance_enhanced', {
+        p_client_id: firstRemision.client_id,
+        p_site_name: null, // General balance - no site filter
+        p_site_id: null
+      });
+
+      if (generalBalanceError) {
+        console.error('[ArkikOrderCreator] Error updating general client balance:', generalBalanceError);
+        result.errors.push(`Error actualizando balance general del cliente: ${generalBalanceError.message}`);
+      } else {
+        console.log('[ArkikOrderCreator] General client balance updated successfully');
+      }
+
+      // 2. If we have a construction site, update site-specific balance using UUID (preferred) or name
+      if (constructionSiteId || constructionSiteName) {
+        const siteIdentifier = constructionSiteId ? `UUID: ${constructionSiteId}` : `Name: ${constructionSiteName}`;
+        console.log('[ArkikOrderCreator] Updating site-specific balance for:', siteIdentifier);
+        
+        const { error: siteBalanceError } = await supabase.rpc('update_client_balance_enhanced', {
+          p_client_id: firstRemision.client_id,
+          p_site_name: constructionSiteName, // Fallback name
+          p_site_id: constructionSiteId || null // Preferred UUID
+        });
+
+        if (siteBalanceError) {
+          console.error('[ArkikOrderCreator] Error updating site-specific balance:', siteBalanceError);
+          result.errors.push(`Error actualizando balance de obra "${siteIdentifier}": ${siteBalanceError.message}`);
+        } else {
+          console.log('[ArkikOrderCreator] Site-specific balance updated successfully for:', siteIdentifier);
+        }
+      } else {
+        console.log('[ArkikOrderCreator] No construction site information available, skipping site-specific balance update');
+      }
+
+    } catch (balanceUpdateError) {
+      console.error('[ArkikOrderCreator] Exception updating client balance:', balanceUpdateError);
+      const errorMessage = balanceUpdateError instanceof Error ? balanceUpdateError.message : 'Error desconocido';
+      result.errors.push(`Error actualizando balance del cliente: ${errorMessage}`);
+    }
+
     return result;
 
   } catch (error) {
     console.error('[ArkikOrderCreator] Error in createSingleOrder:', error);
     const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
     throw new Error(errorMessage);
+  }
+}
+
+// New function without balance updates - prevents race conditions during bulk operations
+async function createSingleOrderWithoutBalanceUpdate(
+  suggestion: OrderSuggestion,
+  plantId: string,
+  userId: string,
+  validatedRows: StagingRemision[],
+  dataCache: DataCache
+): Promise<OrderCreationResult> {
+  
+  const result: OrderCreationResult = {
+    ordersCreated: 0,
+    remisionesCreated: 0,
+    materialsProcessed: 0,
+    orderItemsCreated: 0,
+    errors: []
+  };
+
+  try {
+    const firstRemision = suggestion.remisiones[0];
+    const constructionSiteName = firstRemision.obra_name || null;
+    const constructionSiteId = firstRemision.construction_site_id || null;
+
+    // Generate order number using cached sequence
+    const orderNumber = `${dataCache.plantCode}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${dataCache.orderNumberSequence.toString().padStart(3, '0')}`;
+    dataCache.orderNumberSequence++;
+
+    // Calculate delivery date and time
+    const deliveryDate = firstRemision.fecha.toISOString().split('T')[0];
+    
+    // Ensure delivery_time is in HH:MM:SS format for database
+    let deliveryTime: string;
+    if (firstRemision.hora_carga instanceof Date) {
+      deliveryTime = firstRemision.hora_carga.toTimeString().split(' ')[0];
+    } else if (typeof firstRemision.hora_carga === 'string') {
+      deliveryTime = firstRemision.hora_carga;
+    } else {
+      deliveryTime = '08:00:00';
+    }
+
+    // Calculate total amount
+    const totalAmount = suggestion.remisiones.reduce((sum, remision) => {
+      return sum + (remision.volumen_fabricado * (remision.unit_price || 0));
+    }, 0);
+
+    // Create order items for all unique recipes in this group
+    const uniqueRecipes = new Map<string, { recipe_id: string; recipe_code: string; volume: number; unit_price: number; quote_detail_id: string | null }>();
+    
+    // Group by recipe and sum volumes
+    suggestion.remisiones.forEach(remision => {
+      if (remision.recipe_id && remision.recipe_code) {
+        const key = remision.recipe_id;
+        if (uniqueRecipes.has(key)) {
+          const existing = uniqueRecipes.get(key)!;
+          existing.volume += remision.volumen_fabricado;
+        } else {
+          uniqueRecipes.set(key, {
+            recipe_id: remision.recipe_id,
+            recipe_code: remision.recipe_code,
+            volume: remision.volumen_fabricado,
+            unit_price: remision.unit_price || 0,
+            quote_detail_id: remision.quote_detail_id || null
+          });
+        }
+      }
+    });
+
+    // Create order
+    const orderData: OrderCreationData = {
+      quote_id: firstRemision.quote_id || '',
+      client_id: firstRemision.client_id || '',
+      construction_site: constructionSiteName || '',
+      construction_site_id: constructionSiteId || undefined,
+      order_number: orderNumber,
+      requires_invoice: true, // Set to TRUE by default for Arkik orders
+      delivery_date: deliveryDate,
+      delivery_time: deliveryTime,
+      special_requirements: suggestion.comentarios_externos.join(', ') || undefined,
+      total_amount: totalAmount,
+      credit_status: 'approved',
+      order_status: 'created',
+      created_by: userId,
+      preliminary_amount: totalAmount,
+      final_amount: totalAmount,
+      invoice_amount: undefined,
+      plant_id: plantId,
+      auto_generated: true,
+      elemento: suggestion.comentarios_externos[0] || undefined
+    };
+
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .insert(orderData)
+      .select()
+      .single();
+
+    if (orderError) {
+      throw new Error(`Error creando orden: ${orderError.message}`);
+    }
+
+    result.ordersCreated = 1;
+
+    // Create order items
+    const orderItems = Array.from(uniqueRecipes.values()).map(recipe => ({
+      order_id: order.id,
+      quote_detail_id: recipe.quote_detail_id,
+      recipe_id: recipe.recipe_id,
+      product_description: `${recipe.recipe_code} - ${dataCache.materialsMap.get(recipe.recipe_id) || 'Material desconocido'}`,
+      volume: recipe.volume,
+      unit_price: recipe.unit_price,
+      total_price: recipe.volume * recipe.unit_price,
+      has_pump_service: false,
+      has_empty_truck_charge: false,
+      plant_id: plantId
+    }));
+
+    if (orderItems.length > 0) {
+      const { error: itemsError } = await supabase
+        .from('order_items')
+        .insert(orderItems);
+
+      if (itemsError) {
+        throw new Error(`Error creando items de orden: ${itemsError.message}`);
+      }
+
+      result.orderItemsCreated = orderItems.length;
+    }
+
+    // Create remisiones for this order
+    const remisionesData = suggestion.remisiones
+      .filter(remision => !remision.is_excluded_from_import)
+      .map(remision => ({
+        arkik_id: parseInt(remision.id),
+        order_id: order.id,
+        client_id: firstRemision.client_id || '',
+        recipe_id: remision.recipe_id,
+        driver_id: remision.driver_id,
+        truck_id: remision.truck_id,
+        delivery_date: new Date(remision.fecha),
+        delivery_time: typeof remision.hora_carga === 'string' ? remision.hora_carga : remision.hora_carga?.toTimeString().split(' ')[0] || '08:00:00',
+        volume_fabricated: remision.volumen_fabricado,
+        volume_delivered: remision.volumen_fabricado, // Use fabricated volume as delivered for completed deliveries
+        plant_id: plantId,
+        construction_site: constructionSiteName,
+        status: 'terminado'
+      }));
+
+    if (remisionesData.length > 0) {
+      const { error: remisionesError } = await supabase
+        .from('remisiones')
+        .insert(remisionesData);
+
+      if (remisionesError) {
+        throw new Error(`Error creando remisiones: ${remisionesError.message}`);
+      }
+
+      result.remisionesCreated = remisionesData.length;
+    }
+
+    // Calculate materials processed
+    result.materialsProcessed = uniqueRecipes.size;
+
+    console.log('[ArkikOrderCreator] Single order created successfully:', {
+      order_id: order.id,
+      order_number: orderNumber,
+      items_created: result.orderItemsCreated,
+      remisiones_created: result.remisionesCreated,
+      construction_site_name: constructionSiteName,
+      has_site_id: !!constructionSiteId,
+      has_site_name: !!constructionSiteName
+    });
+
+    // NOTE: Balance calculation is deferred to batch processing to prevent race conditions
+
+    return result;
+
+  } catch (error) {
+    console.error('[ArkikOrderCreator] Error in createSingleOrderWithoutBalanceUpdate:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+    throw new Error(errorMessage);
+  }
+}
+
+// Batch balance recalculation function to prevent race conditions
+async function recalculateAffectedBalances(affectedBalances: Set<string>): Promise<void> {
+  console.log('[ArkikOrderCreator] Starting batch balance recalculation for', affectedBalances.size, 'combinations');
+  
+  const errors: string[] = [];
+  let successCount = 0;
+
+  for (const balanceKey of Array.from(affectedBalances)) {
+    try {
+      const [clientId, siteKey, balanceType] = balanceKey.split('|');
+      
+      if (balanceType === 'GENERAL') {
+        // General balance calculation
+        console.log('[ArkikOrderCreator] Recalculating general balance for client:', clientId);
+        
+        const { error } = await supabase.rpc('update_client_balance_atomic', {
+          p_client_id: clientId,
+          p_site_name: null,
+          p_site_id: null
+        });
+
+        if (error) {
+          console.error('[ArkikOrderCreator] Error updating general balance for client', clientId, ':', error);
+          errors.push(`Error actualizando balance general del cliente ${clientId}: ${error.message}`);
+        } else {
+          successCount++;
+          console.log('[ArkikOrderCreator] ✅ General balance updated for client:', clientId);
+        }
+      } else if (balanceType === 'SITE') {
+        // Site-specific balance calculation
+        const isUuid = siteKey.length === 36 && siteKey.includes('-'); // Basic UUID check
+        
+        console.log('[ArkikOrderCreator] Recalculating site balance for client:', clientId, 'site:', siteKey, 'isUUID:', isUuid);
+        
+        const { error } = await supabase.rpc('update_client_balance_atomic', {
+          p_client_id: clientId,
+          p_site_name: isUuid ? null : siteKey,
+          p_site_id: isUuid ? siteKey : null
+        });
+
+        if (error) {
+          console.error('[ArkikOrderCreator] Error updating site balance:', error);
+          errors.push(`Error actualizando balance de obra "${siteKey}": ${error.message}`);
+        } else {
+          successCount++;
+          console.log('[ArkikOrderCreator] ✅ Site balance updated for client:', clientId, 'site:', siteKey);
+        }
+      }
+    } catch (error) {
+      console.error('[ArkikOrderCreator] Exception in balance recalculation:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      errors.push(`Error en recálculo de balance: ${errorMessage}`);
+    }
+  }
+
+  console.log('[ArkikOrderCreator] Batch balance recalculation completed:', {
+    total_processed: affectedBalances.size,
+    successful: successCount,
+    failed: errors.length,
+    errors: errors
+  });
+
+  if (errors.length > 0) {
+    console.warn('[ArkikOrderCreator] Some balance calculations failed:', errors);
+    // Note: We don't throw here because orders were created successfully
+    // Balance calculation failures are non-critical and can be retried later
   }
 }

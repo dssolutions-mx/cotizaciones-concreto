@@ -20,15 +20,18 @@ interface ProductPriceData {
   quote_id: string;
   effective_date: string;
   approval_date: string;
+  plant_id: string; // Add plant_id field
 }
 
 interface Recipe {
+  id: string;
   recipe_code: string;
   strength_fc: number;
   age_days: number;
   placement_type: string;
   max_aggregate_size: number;
   slump: number;
+  plant_id: string;
 }
 
 interface QuoteDetail {
@@ -43,6 +46,7 @@ interface Quote {
   quote_number: string;
   client_id: string;
   construction_site: string;
+  plant_id: string; // Add plant_id to Quote interface
   quote_details: QuoteDetail[];
 }
 
@@ -56,16 +60,23 @@ const determineProductType = (): ProductType => {
 };
 
 export const productPriceService = {
-  async deactivateExistingPrices(clientId: string, recipeId: string, constructionSite: string) {
+  async deactivateExistingPrices(clientId: string, recipeId: string, constructionSite: string, plantId?: string) {
+    const updateConditions: any = { 
+      client_id: clientId,
+      recipe_id: recipeId,
+      construction_site: constructionSite,
+      is_active: true 
+    };
+    
+    // Add plant_id filter if provided
+    if (plantId) {
+      updateConditions.plant_id = plantId;
+    }
+
     const { error } = await supabase
       .from('product_prices')
       .update({ is_active: false })
-      .match({ 
-        client_id: clientId,
-        recipe_id: recipeId,
-        construction_site: constructionSite,
-        is_active: true 
-      });
+      .match(updateConditions);
 
     if (error) throw new Error(`Error deactivating existing prices: ${error.message}`);
   },
@@ -76,7 +87,8 @@ export const productPriceService = {
       code: priceData.code,
       type: priceData.type,
       fc_mr_value: priceData.fc_mr_value,
-      construction_site: priceData.construction_site
+      construction_site: priceData.construction_site,
+      plant_id: priceData.plant_id
     });
 
     const { error } = await supabase
@@ -93,7 +105,7 @@ export const productPriceService = {
   },
 
   async handleQuoteApproval(quoteId: string) {
-    // Get quote details with all necessary information
+    // Get quote details with all necessary information including plant_id
     const { data: quoteData, error: quoteError } = await supabase
       .from('quotes')
       .select(`
@@ -101,17 +113,20 @@ export const productPriceService = {
         quote_number,
         client_id,
         construction_site,
+        plant_id,
         quote_details (
           id,
           final_price,
           recipe_id,
           recipes (
+            id,
             recipe_code,
             strength_fc,
             age_days,
             placement_type,
             max_aggregate_size,
-            slump
+            slump,
+            plant_id
           )
         )
       `)
@@ -129,6 +144,7 @@ export const productPriceService = {
       id: quoteData.id,
       quote_number: quoteData.quote_number,
       construction_site: quoteData.construction_site,
+      plant_id: quoteData.plant_id,
       details_count: quoteData.quote_details.length
     });
 
@@ -139,7 +155,8 @@ export const productPriceService = {
         quote_number: quoteData.quote_number,
         client_id: quoteData.client_id,
         construction_site: quoteData.construction_site,
-        quote_details: quoteData.quote_details.map(detail => {
+        plant_id: quoteData.plant_id,
+        quote_details: quoteData.quote_details.map((detail: any) => {
           if (!detail.recipes) {
             throw new Error(`Recipe data missing for quote detail ${detail.id}`);
           }
@@ -152,7 +169,8 @@ export const productPriceService = {
           console.log('Recipe data:', {
             detail_id: detail.id,
             recipe_code: recipeData.recipe_code,
-            strength_fc: recipeData.strength_fc
+            strength_fc: recipeData.strength_fc,
+            plant_id: recipeData.plant_id
           });
 
           return {
@@ -166,16 +184,17 @@ export const productPriceService = {
 
       // Process each quote detail
       const now = new Date().toISOString();
-      const pricePromises = quote.quote_details.map(async (detail) => {
+      const pricePromises = quote.quote_details.map(async (detail: QuoteDetail) => {
         try {
           // First deactivate existing prices for this client-recipe-construction_site combination
           await productPriceService.deactivateExistingPrices(
             quote.client_id, 
             detail.recipe_id, 
-            quote.construction_site
+            quote.construction_site,
+            detail.recipes.plant_id || quote.plant_id // Pass recipe plant_id or fallback to quote plant_id
           );
 
-          // Create new price record
+          // Create new price record with plant_id
           const priceData: ProductPriceData = {
             code: `${quote.quote_number}-${detail.recipes.recipe_code}`,
             description: `Precio específico para cliente - ${detail.recipes.recipe_code} - ${quote.construction_site}`,
@@ -191,7 +210,8 @@ export const productPriceService = {
             construction_site: quote.construction_site,
             quote_id: quote.id,
             effective_date: now,
-            approval_date: now
+            approval_date: now,
+            plant_id: detail.recipes.plant_id || quote.plant_id // Use recipe plant_id or fallback to quote plant_id
           };
 
           await productPriceService.createNewPrice(priceData);

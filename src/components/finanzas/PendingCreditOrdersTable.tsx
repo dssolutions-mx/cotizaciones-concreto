@@ -51,7 +51,7 @@ export function PendingCreditOrdersTable({ orders }: PendingCreditOrdersTablePro
         </TableHeader>
         <TableBody>
           {orders.map((order) => (
-            <TableRow key={order.id} className="hover:bg-muted/30">
+            <TableRow key={`table-${order.id}`} className="hover:bg-muted/30">
               <TableCell className="font-medium">{order.order_number}</TableCell>
               <TableCell>
                 <div>
