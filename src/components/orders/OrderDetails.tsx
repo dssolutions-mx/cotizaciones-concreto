@@ -33,7 +33,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
-import { Copy, CalculatorIcon } from 'lucide-react';
+import { Copy, CalculatorIcon, Beaker } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 
@@ -1136,9 +1136,27 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6 flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Orden #{order?.order_number || orderId.substring(0, 8)}
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold text-gray-900">
+              Orden #{order?.order_number || orderId.substring(0, 8)}
+            </h1>
+            {/* Quality Indicator Badge */}
+            {hasRemisiones && (
+              <Badge 
+                variant="outline" 
+                className="bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100 cursor-pointer"
+                onClick={() => {
+                  const samplingInfoElement = document.querySelector('[data-sampling-info]');
+                  if (samplingInfoElement) {
+                    samplingInfoElement.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }}
+              >
+                <Beaker className="h-3 w-3 mr-1" />
+                Calidad
+              </Badge>
+            )}
+          </div>
           <p className="mt-1 text-sm text-gray-600">Cliente: {order?.client?.business_name}</p>
         </div>
         <div>
