@@ -149,8 +149,10 @@ function Navigation({ children }: { children: React.ReactNode }) {
   if (profile) {
     const role = profile.role;
     
-    // Elementos comunes para todos los roles
-    navItems.push({ href: '/dashboard', label: 'Dashboard', IconComponent: Home });
+    // Elementos comunes para todos los roles (excepto QUALITY_TEAM que no debe ver el Dashboard)
+    if (role !== 'QUALITY_TEAM') {
+      navItems.push({ href: '/dashboard', label: 'Dashboard', IconComponent: Home });
+    }
     
     // Flag to check if Finanzas link should be added
     let addFinanzasLink = false;
@@ -211,7 +213,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         break;
         
       case 'QUALITY_TEAM':
-        navItems.push({ href: '/prices', label: 'Precios', IconComponent: DollarSign });
+        // QUALITY_TEAM only has access to quality module, no other sections
         addQualityLink = true;
         break;
         

@@ -29,7 +29,6 @@ const permissionsByRole: Record<UserRole, Permission[]> = {
     'CREATE_RECIPE',
     'EDIT_RECIPE',
     'DELETE_RECIPE',
-    'MANAGE_MATERIAL_PRICES',
     'VIEW_REPORTS',
   ],
   

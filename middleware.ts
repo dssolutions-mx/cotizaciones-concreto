@@ -176,6 +176,48 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
+  // Block QUALITY_TEAM from accessing non-quality sections
+  if (user && !pathname.startsWith('/quality') && !pathname.startsWith('/profile') && !pathname.startsWith('/auth') && !isPublicRoute) {
+    try {
+      const { data: profileData } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      
+      const role = (profileData as any)?.role as string | undefined;
+      
+      // QUALITY_TEAM can only access quality module and profile/auth pages
+      if (role === 'QUALITY_TEAM') {
+        const restrictedPaths = [
+          '/dashboard',
+          '/prices',
+          '/price-history',
+          '/quotes',
+          '/clients',
+          '/orders',
+          '/admin',
+          '/finanzas',
+          '/arkik',
+          '/recipes' // top-level recipes, they have access via /quality/recipes
+        ];
+        
+        const isRestrictedPath = restrictedPaths.some(path => 
+          pathname === path || pathname.startsWith(path + '/')
+        );
+        
+        if (isRestrictedPath) {
+          console.log(`Blocking QUALITY_TEAM user from accessing ${pathname}, redirecting to /quality`);
+          const redirectUrl = request.nextUrl.clone();
+          redirectUrl.pathname = '/quality';
+          return NextResponse.redirect(redirectUrl);
+        }
+      }
+    } catch (err) {
+      console.error('Error checking user role for restricted page access:', err);
+    }
+  }
+
   // Debug log for orders page access
   if (pathname.startsWith('/orders')) {
     console.log(`Middleware: User accessing orders page. User: ${user?.email}`);
