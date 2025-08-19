@@ -9,6 +9,8 @@ export async function GET(
     const supabase = createServiceClient();
     const orderId = params.id;
 
+    console.log('Quality Compliance API called for order:', orderId);
+
     // Check if order has any remisiones first
     const { data: remisionesCheck, error: remisionesCheckError } = await supabase
       .from('remisiones')
@@ -22,116 +24,72 @@ export async function GET(
     }
 
     if (!remisionesCheck || remisionesCheck.length === 0) {
+      console.log('No remisiones found for order:', orderId);
       return NextResponse.json({
         compliantSamples: 0,
         nonCompliantSamples: 0,
         complianceRate: 0,
-        guaranteeAgeTests: 0
+        guaranteeAgeTests: 0,
+        averageResistance: 0,
+        minResistance: 0,
+        maxResistance: 0
       });
     }
 
-    // Get all muestreos for these remisiones
-    const { data: muestreosData, error: muestreosError } = await supabase
-      .from('muestreos')
-      .select(`
-        id,
-        fecha_muestreo,
-        remision_id,
-        remisiones!inner(
-          id,
-          recipe_id,
-          recipes(
-            id,
-            strength_fc,
-            age_days,
-            age_hours
-          )
-        )
-      `)
-      .in('remisiones.order_id', orderId);
-
-    if (muestreosError) {
-      console.error('Error fetching muestreos:', muestreosError);
-      return NextResponse.json({ error: 'Failed to fetch muestreos data' }, { status: 500 });
-    }
-
-    if (!muestreosData || muestreosData.length === 0) {
-      return NextResponse.json({
-        compliantSamples: 0,
-        nonCompliantSamples: 0,
-        complianceRate: 0,
-        guaranteeAgeTests: 0
-      });
-    }
-
-    // Get all muestras for these muestreos
-    const muestreoIds = muestreosData.map(m => m.id);
-    const { data: muestrasData, error: muestrasError } = await supabase
-      .from('muestras')
-      .select(`
-        id,
-        muestreo_id,
-        fecha_programada_ensayo,
-        estado
-      `)
-      .in('muestreo_id', muestreoIds)
-      .eq('estado', 'ENSAYADO');
-
-    if (muestrasError) {
-      console.error('Error fetching muestras:', muestrasError);
-      return NextResponse.json({ error: 'Failed to fetch muestras data' }, { status: 500 });
-    }
-
-    if (!muestrasData || muestrasData.length === 0) {
-      return NextResponse.json({
-        compliantSamples: 0,
-        nonCompliantSamples: 0,
-        complianceRate: 0,
-        guaranteeAgeTests: 0
-      });
-    }
-
-    // Get all ensayos for these muestras
-    const muestraIds = muestrasData.map(m => m.id);
+    // Get all ensayos for this order through a simpler approach
     const { data: ensayosData, error: ensayosError } = await supabase
       .from('ensayos')
       .select(`
         id,
-        muestra_id,
         resistencia_calculada,
         porcentaje_cumplimiento,
-        fecha_ensayo
+        fecha_ensayo,
+        muestra:muestra_id(
+          id,
+          muestreo_id,
+          fecha_programada_ensayo,
+          estado,
+          muestreo:muestreo_id(
+            id,
+            fecha_muestreo,
+            remision:remision_id(
+              id,
+              recipe:recipe_id(
+                id,
+                age_days,
+                age_hours
+              )
+            )
+          )
+        )
       `)
-      .in('muestra_id', muestraIds);
+      .eq('muestra.muestreo.remision.order_id', orderId);
 
     if (ensayosError) {
       console.error('Error fetching ensayos:', ensayosError);
       return NextResponse.json({ error: 'Failed to fetch ensayos data' }, { status: 500 });
     }
 
-    // Create a map of muestreo to recipe data
-    const muestreoRecipeMap = new Map();
-    muestreosData.forEach(muestreo => {
-      if (muestreo.remisiones?.recipes) {
-        muestreoRecipeMap.set(muestreo.id, muestreo.remisiones.recipes);
-      }
-    });
+    console.log('Found ensayos:', ensayosData?.length || 0);
 
-    // Create a map of muestra to muestreo
-    const muestraMuestreoMap = new Map();
-    muestrasData.forEach(muestra => {
-      const muestreo = muestreosData.find(m => m.id === muestra.muestreo_id);
-      if (muestreo) {
-        muestraMuestreoMap.set(muestra.id, muestreo);
-      }
-    });
+    if (!ensayosData || ensayosData.length === 0) {
+      return NextResponse.json({
+        compliantSamples: 0,
+        nonCompliantSamples: 0,
+        complianceRate: 0,
+        guaranteeAgeTests: 0,
+        averageResistance: 0,
+        minResistance: 0,
+        maxResistance: 0
+      });
+    }
 
-    // Filter ensayos that are at guarantee age
+    // Process ensayos data
     let guaranteeAgeTests = 0;
     let compliantSamples = 0;
     let nonCompliantSamples = 0;
     let resistances: number[] = [];
-    let allResistances: number[] = []; // For general resistance statistics
+    let allResistances: number[] = [];
 
     ensayosData.forEach(ensayo => {
       // Collect all resistance values for general statistics
@@ -139,17 +97,15 @@ export async function GET(
         allResistances.push(ensayo.resistencia_calculada);
       }
 
-      const muestra = muestrasData.find(m => m.id === ensayo.muestra_id);
-      if (!muestra) return;
+      // Check if this is a guarantee age test
+      const muestra = ensayo.muestra;
+      if (!muestra || !muestra.muestreo || !muestra.muestreo.remision) return;
 
-      const muestreo = muestraMuestreoMap.get(muestra.muestreo_id);
-      if (!muestreo) return;
-
-      const recipe = muestreoRecipeMap.get(muestreo.id);
+      const recipe = muestra.muestreo.remision.recipe;
       if (!recipe) return;
 
       // Calculate guarantee age
-      const fechaMuestreo = new Date(muestreo.fecha_muestreo);
+      const fechaMuestreo = new Date(muestra.muestreo.fecha_muestreo);
       const edadGarantia = recipe.age_hours ? recipe.age_hours / 24 : recipe.age_days || 28;
       const fechaEdadGarantia = new Date(fechaMuestreo);
       fechaEdadGarantia.setDate(fechaMuestreo.getDate() + edadGarantia);
@@ -199,6 +155,18 @@ export async function GET(
       maxResistance = Math.max(...allResistances);
     }
 
+    // Debug logging
+    console.log('Quality Compliance API Debug:', {
+      orderId,
+      totalEnsayos: ensayosData.length,
+      guaranteeAgeTests,
+      allResistancesCount: allResistances.length,
+      resistancesCount: resistances.length,
+      averageResistance,
+      minResistance,
+      maxResistance
+    });
+
     return NextResponse.json({
       compliantSamples,
       nonCompliantSamples,
@@ -210,7 +178,7 @@ export async function GET(
     });
 
   } catch (error) {
-    console.error('Unexpected error:', error);
+    console.error('Unexpected error in quality-compliance API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

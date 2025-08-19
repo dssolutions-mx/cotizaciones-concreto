@@ -45,7 +45,10 @@ export default function QualityOverview({ orderId }: QualityOverviewProps) {
         const [samplingResponse, totalsResponse, complianceResponse] = await Promise.all([
           fetch(`/api/orders/${orderId}/sampling-info`),
           fetch(`/api/orders/${orderId}/order-totals`),
-          fetch(`/api/orders/${orderId}/quality-compliance`).catch(() => new Response('', { status: 500 }))
+          fetch(`/api/orders/${orderId}/quality-compliance`).catch((error) => {
+            console.error('Error fetching compliance data:', error);
+            return new Response('', { status: 500 });
+          })
         ]);
         
         if (!samplingResponse.ok) {
@@ -62,6 +65,8 @@ export default function QualityOverview({ orderId }: QualityOverviewProps) {
         
         if (complianceResponse.ok) {
           complianceData = await complianceResponse.json();
+        } else {
+          console.warn('Compliance API returned error:', complianceResponse.status);
         }
         
         // Calculate sampling frequency
@@ -258,7 +263,7 @@ export default function QualityOverview({ orderId }: QualityOverviewProps) {
       )}
 
       {/* Test Results Section - Show whenever we have test data */}
-      {qualityData.complianceData && (
+      {qualityData.complianceData ? (
         <div className="bg-white border border-gray-200 rounded-lg p-5">
           <div className="flex items-center justify-between mb-4">
             <h4 className="text-sm font-medium text-gray-900">Resultados de Ensayos</h4>
@@ -296,7 +301,9 @@ export default function QualityOverview({ orderId }: QualityOverviewProps) {
             
             <div className="text-center p-3 bg-gray-50 rounded-lg border border-gray-200">
               <div className="text-xl font-semibold text-gray-900">
-                {qualityData.complianceData.averageResistance?.toFixed(1) || 'N/A'}
+                {qualityData.complianceData.averageResistance && qualityData.complianceData.averageResistance > 0 
+                  ? qualityData.complianceData.averageResistance.toFixed(1) 
+                  : 'N/A'}
               </div>
               <div className="text-sm text-gray-600">Resistencia promedio (kg/cm²)</div>
             </div>
@@ -320,6 +327,16 @@ export default function QualityOverview({ orderId }: QualityOverviewProps) {
             </div>
           )}
 
+          {/* General Resistance Information */}
+          {qualityData.complianceData.guaranteeAgeTests === 0 && qualityData.complianceData.averageResistance > 0 && (
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-sm text-blue-800">
+                <strong>Nota:</strong> Los valores de resistencia mostrados corresponden a todos los ensayos disponibles, 
+                no solo a los realizados a edad garantía.
+              </p>
+            </div>
+          )}
+
           {/* Debug information */}
           {process.env.NODE_ENV === 'development' && (
             <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
@@ -331,6 +348,18 @@ export default function QualityOverview({ orderId }: QualityOverviewProps) {
               </p>
             </div>
           )}
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-lg p-5">
+          <div className="flex items-center space-x-3 mb-4">
+            <div className="w-8 h-8 bg-yellow-100 rounded-md flex items-center justify-center">
+              <AlertTriangle className="w-4 h-4 text-yellow-600" />
+            </div>
+            <h4 className="text-sm font-medium text-gray-900">Información de Ensayos</h4>
+          </div>
+          <p className="text-sm text-gray-600">
+            No se pudo cargar la información de resistencia y compliance. Esto puede deberse a que no hay ensayos disponibles o a un error en el servidor.
+          </p>
         </div>
       )}
 
