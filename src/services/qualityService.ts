@@ -1566,6 +1566,7 @@ export async function addSampleToMuestreo(
     const sampleToInsert = {
       id: uuidv4(),
       muestreo_id: muestreoId,
+      plant_id: muestreo.plant_id, // Add plant_id from muestreo for RLS policy
       tipo_muestra: sampleData.tipo_muestra,
       identificacion: identification,
       fecha_programada_ensayo: formatDate(programmedDate, 'yyyy-MM-dd'),
