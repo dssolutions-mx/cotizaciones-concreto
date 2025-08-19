@@ -1,12 +1,28 @@
 'use client';
 
+import React, { memo } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { LogOut, User, Menu } from "lucide-react";
-import { useAuthBridge } from "@/adapters/auth-context-bridge";
+import { useUnifiedAuthBridge } from "@/adapters/unified-auth-bridge";
+import { renderTracker } from "@/lib/performance/renderTracker";
 
-export default function Header() {
-  const { session, profile, isLoading } = useAuthBridge();
+function Header() {
+  const { session, profile, isInitialized } = useUnifiedAuthBridge({ preferUnified: true });
+  
+  // Calculate loading state from initialization status
+  const isLoading = !isInitialized;
+  
+  // Track render performance
+  React.useEffect(() => {
+    const finishRender = renderTracker.trackRender('Header', 'auth-state-change', undefined, {
+      hasSession: !!session,
+      hasProfile: !!profile,
+      isLoading,
+      isInitialized,
+    });
+    finishRender();
+  }, [session, profile, isLoading, isInitialized]);
 
   return (
     <header className="h-16 border-b bg-white fixed top-0 left-0 right-0 z-10">
@@ -37,4 +53,12 @@ export default function Header() {
       </div>
     </header>
   );
-} 
+}
+
+// Memoize Header component to prevent unnecessary re-renders
+// Only re-render when auth state actually changes
+export default memo(Header, (prevProps, nextProps) => {
+  // Header has no props, so it should only re-render when auth context changes
+  // The memo will prevent re-renders when parent components re-render unnecessarily
+  return true; // No props to compare, rely on auth state memoization
+}); 
