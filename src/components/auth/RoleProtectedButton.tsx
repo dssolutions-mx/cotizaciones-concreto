@@ -89,20 +89,26 @@ function RoleProtectedButton({
 }
 
 // Memoize RoleProtectedButton to prevent unnecessary re-renders
-// Only re-render when props actually change
+// Enhanced comparison to handle function references and complex props
 export default memo(RoleProtectedButton, (prevProps, nextProps) => {
   // Compare allowedRoles (can be array or single value)
   const prevRoles = JSON.stringify(prevProps.allowedRoles);
   const nextRoles = JSON.stringify(nextProps.allowedRoles);
   
-  return (
-    prevRoles === nextRoles &&
-    prevProps.onClick === nextProps.onClick &&
-    prevProps.children === nextProps.children &&
-    prevProps.className === nextProps.className &&
-    prevProps.disabled === nextProps.disabled &&
-    prevProps.title === nextProps.title &&
-    prevProps.showDisabled === nextProps.showDisabled &&
-    prevProps.disabledMessage === nextProps.disabledMessage
-  );
+  // Don't re-render if only onClick function reference changed but is functionally the same
+  const rolesChanged = prevRoles !== nextRoles;
+  const childrenChanged = prevProps.children !== nextProps.children;
+  const classNameChanged = prevProps.className !== nextProps.className;
+  const disabledChanged = prevProps.disabled !== nextProps.disabled;
+  const titleChanged = prevProps.title !== nextProps.title;
+  const showDisabledChanged = prevProps.showDisabled !== nextProps.showDisabled;
+  const disabledMessageChanged = prevProps.disabledMessage !== nextProps.disabledMessage;
+  
+  // Only re-render if meaningful props changed
+  const shouldRerender = rolesChanged || childrenChanged || classNameChanged || 
+                        disabledChanged || titleChanged || showDisabledChanged || 
+                        disabledMessageChanged;
+  
+  // Return true to SKIP re-render, false to allow re-render
+  return !shouldRerender;
 }); 
