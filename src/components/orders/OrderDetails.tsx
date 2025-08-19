@@ -108,15 +108,18 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [pumpVolume, setPumpVolume] = useState<number>(0);
   const [pumpPrice, setPumpPrice] = useState<number | null>(null);
   
-  // Calculate allowed recipe IDs
+  // Calculate allowed recipe IDs - optimized to prevent unnecessary re-renders
   const allowedRecipeIds = useMemo(() => {
     if (!order?.products) return [];
-    // Now recipe_id should be directly available on products
+    // Extract only recipe IDs to create a stable dependency
     const ids = order.products
       .map(p => p.recipe_id) // Access recipe_id directly
       .filter((id): id is string => !!id);
     return Array.from(new Set(ids)); 
-  }, [order]);
+  }, [
+    // Use a more specific dependency to avoid re-renders on unrelated order changes
+    order?.products?.map(p => p.recipe_id).join(',') || ''
+  ]);
   
   // Check if user is a credit validator or manager
   const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;

@@ -33,6 +33,38 @@ export interface SessionSliceState {
   refreshSessionNow: () => Promise<void>;
 }
 
+// Unified auth slice that combines auth and session management
+export interface UnifiedAuthSliceState {
+  // Core auth state
+  user: User | null;
+  profile: UserProfile | null;
+  session: Session | null;
+  isInitialized: boolean;
+  error: string | null;
+  
+  // State versioning for consistency
+  stateVersion: number;
+  lastUpdated: number;
+  
+  // Auth methods
+  initialize: () => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>; 
+  signOut: () => Promise<{ success: boolean; error?: string }>;
+  loadProfile: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
+  hasRole: (allowed: UserRole | UserRole[]) => boolean;
+  
+  // Session management methods
+  scheduleRefresh: () => void;
+  clearRefreshTimer: () => void;
+  isSessionExpiringSoon: () => boolean;
+  refreshSessionNow: () => Promise<void>;
+  
+  // State management helpers
+  updateState: (update: Partial<UnifiedAuthSliceState>, reason?: string) => void;
+  isStateStale: (incomingVersion: number) => boolean;
+}
+
 export interface CacheSliceState {
   cacheHits: number;
   cacheMisses: number;
@@ -54,6 +86,10 @@ export interface OfflineSliceState {
   processQueue: () => Promise<void>;
 }
 
+// Legacy store state (for backwards compatibility)
 export type AuthStoreState = AuthSliceState & SessionSliceState & CacheSliceState & MetricsSliceState & OfflineSliceState;
+
+// New unified store state with consolidated auth and session management
+export type UnifiedAuthStoreState = UnifiedAuthSliceState & CacheSliceState & MetricsSliceState & OfflineSliceState;
 
 
