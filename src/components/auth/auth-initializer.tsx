@@ -1,8 +1,20 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/auth';
 import { supabase } from '@/lib/supabase/client';
+
+// Global de-duplication state to survive HMR and StrictMode remounts
+declare global {
+  interface Window {
+    __AUTH_DEDUP__?: {
+      lastToken: string | null;
+      lastTs: number;
+      lastUserId?: string | null;
+      lastProfileFetchAt?: number;
+    }
+  }
+}
 
 export default function AuthInitializer() {
   const initialize = useAuthStore((s) => s.initialize);
@@ -11,6 +23,10 @@ export default function AuthInitializer() {
   const setOnline = useAuthStore((s) => s.setOnlineStatus);
   const session = useAuthStore((s) => s.session);
   const loadProfile = useAuthStore((s) => s.loadProfile);
+  
+  // Track last handled auth state to avoid duplicate processing on HMR/visibility
+  const lastAccessTokenRef = useRef<string | null>(null);
+  const lastEventTsRef = useRef<number>(0);
 
   useEffect(() => {
     void initialize();
@@ -23,9 +39,59 @@ export default function AuthInitializer() {
       // Always update session and user state immediately
       useAuthStore.setState({ session, user: session?.user ?? null });
       
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+      const now = Date.now();
+      const currentToken = session?.access_token ?? null;
+      const previousToken = lastAccessTokenRef.current ?? useAuthStore.getState().session?.access_token ?? null;
+      const userId = session?.user?.id ?? null;
+
+      // Initialize global dedup state
+      const g = (typeof window !== 'undefined') ? (window.__AUTH_DEDUP__ = window.__AUTH_DEDUP__ || {
+        lastToken: null,
+        lastTs: 0,
+        lastUserId: null,
+        lastProfileFetchAt: 0,
+      }) : { lastToken: null, lastTs: 0, lastUserId: null, lastProfileFetchAt: 0 };
+
+      // De-duplicate rapid successive events (e.g. fast refresh/visibility) using both local and global clocks
+      const WINDOW_MS = 4000; // widen window slightly
+      const isRapidRepeatLocal = now - lastEventTsRef.current < WINDOW_MS;
+      const isRapidRepeatGlobal = now - (g.lastTs || 0) < WINDOW_MS;
+      lastEventTsRef.current = now;
+
+      if (event === 'SIGNED_IN') {
+        // Ignore if token/user did not change and it's a rapid repeat (protect against HMR and visibility)
+        const sameTokenLocal = currentToken && previousToken === currentToken;
+        const sameTokenGlobal = currentToken && g.lastToken === currentToken;
+        const sameUserGlobal = userId && g.lastUserId === userId;
+        if ((sameTokenLocal || sameTokenGlobal) && sameUserGlobal && (isRapidRepeatLocal || isRapidRepeatGlobal)) {
+          console.log('[AuthInitializer] Ignoring duplicate SIGNED_IN (same token/user, rapid repeat)');
+          return;
+        }
+        lastAccessTokenRef.current = currentToken;
+        g.lastToken = currentToken;
+        g.lastTs = now;
+        g.lastUserId = userId;
         console.log(`[AuthInitializer] Processing ${event} - loading profile`);
-        void loadProfile();
+        // Throttle profile loads globally
+        if (!g.lastProfileFetchAt || (now - g.lastProfileFetchAt) > WINDOW_MS) {
+          g.lastProfileFetchAt = now;
+          void loadProfile();
+        } else {
+          console.log('[AuthInitializer] Skipping loadProfile (throttled)');
+        }
+        scheduleRefresh();
+      } else if (event === 'TOKEN_REFRESHED') {
+        lastAccessTokenRef.current = currentToken;
+        g.lastToken = currentToken;
+        g.lastTs = now;
+        g.lastUserId = userId;
+        console.log(`[AuthInitializer] Processing ${event} - loading profile`);
+        if (!g.lastProfileFetchAt || (now - g.lastProfileFetchAt) > WINDOW_MS) {
+          g.lastProfileFetchAt = now;
+          void loadProfile();
+        } else {
+          console.log('[AuthInitializer] Skipping loadProfile (throttled)');
+        }
         scheduleRefresh();
       } else if (event === 'SIGNED_OUT') {
         console.log('[AuthInitializer] Processing SIGNED_OUT - clearing state');
