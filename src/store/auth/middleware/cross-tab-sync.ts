@@ -41,6 +41,15 @@ export function withCrossTabSync<TState extends Record<string, any>>(
       channel.onmessage = (event) => {
         const { origin, payload } = (event?.data ?? {}) as { origin?: string; payload?: Record<string, any> };
         if (!payload || origin === ORIGIN) return;
+
+        // Ignore intermediate states where session exists but profile is null
+        // Also ignore if payload only contains null values (empty sync)
+        if (payload.session && payload.profile === null) return;
+        
+        // Ignore empty or null-only payloads
+        const hasValidData = Object.values(payload).some(value => value !== null && value !== undefined);
+        if (!hasValidData) return;
+
         set((state: TState) => ({ ...state, ...payload }));
       };
     }
