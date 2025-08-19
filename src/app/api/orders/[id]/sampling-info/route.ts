@@ -3,11 +3,11 @@ import { createServiceClient } from '@/lib/supabase/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = createServiceClient();
-    const orderId = params.id;
+    const { id: orderId } = await params;
 
     // Get comprehensive sampling info for the order
     const { data: samplingData, error: samplingError } = await supabase
@@ -77,7 +77,19 @@ export async function GET(
       muestrasEnsayadas,
       muestrasPendientes,
       totalOrderVolume: totalVolume,
-      totalOrderSamplings: totalSamplings
+      totalOrderSamplings: totalSamplings,
+      muestreosDetallados: samplingData?.map(s => ({
+        id: s.id,
+        numeroMuestreo: s.numero_muestreo,
+        fechaMuestreo: s.fecha_muestreo,
+        planta: s.planta,
+        remisionId: s.remision_id,
+        remisionNumber: s.remisiones?.remision_number,
+        fechaRemision: s.remisiones?.fecha,
+        volumenFabricado: s.remisiones?.volumen_fabricado,
+        recipeCode: s.remisiones?.recipes?.recipe_code,
+        strengthFc: s.remisiones?.recipes?.strength_fc
+      })) || []
     });
 
   } catch (error) {
