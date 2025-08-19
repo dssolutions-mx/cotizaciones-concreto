@@ -1,8 +1,9 @@
 'use client';
 
-import { ReactNode, ButtonHTMLAttributes, useEffect, useState } from 'react';
-import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import React, { ReactNode, ButtonHTMLAttributes, useEffect, useState, memo } from 'react';
+import { useUnifiedAuthBridge } from '@/adapters/unified-auth-bridge';
 import type { UserRole } from '@/store/auth/types';
+import { renderTracker } from '@/lib/performance/renderTracker';
 
 interface RoleProtectedButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   allowedRoles: UserRole | UserRole[];
@@ -19,7 +20,7 @@ interface RoleProtectedButtonProps extends ButtonHTMLAttributes<HTMLButtonElemen
  * A button that only renders if the user has the required role(s).
  * If showDisabled is true, it will render a disabled button with a tooltip instead of hiding it.
  */
-export default function RoleProtectedButton({
+function RoleProtectedButton({
   allowedRoles,
   onClick,
   children,
@@ -30,9 +31,25 @@ export default function RoleProtectedButton({
   disabledMessage = 'No tienes permiso para realizar esta acción',
   ...props
 }: RoleProtectedButtonProps) {
-  const { hasRole } = useAuthBridge();
+  const { hasRole, profile } = useUnifiedAuthBridge({ preferUnified: true });
   const [mounted, setMounted] = useState(false);
+  
   useEffect(() => setMounted(true), []);
+  
+  // Track render performance
+  useEffect(() => {
+    if (mounted) {
+      const finishRender = renderTracker.trackRender('RoleProtectedButton', 'role-check', undefined, {
+        allowedRoles: Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles],
+        userRole: profile?.role,
+        hasPermission: hasRole(allowedRoles),
+        showDisabled,
+        disabled,
+      });
+      finishRender();
+    }
+  }, [allowedRoles, profile?.role, hasRole, showDisabled, disabled, mounted]);
+  
   // Avoid hydration mismatches by not rendering until mounted on client
   if (!mounted) return null;
   
@@ -69,4 +86,29 @@ export default function RoleProtectedButton({
       {children}
     </button>
   );
-} 
+}
+
+// Memoize RoleProtectedButton to prevent unnecessary re-renders
+// Enhanced comparison to handle function references and complex props
+export default memo(RoleProtectedButton, (prevProps, nextProps) => {
+  // Compare allowedRoles (can be array or single value)
+  const prevRoles = JSON.stringify(prevProps.allowedRoles);
+  const nextRoles = JSON.stringify(nextProps.allowedRoles);
+  
+  // Don't re-render if only onClick function reference changed but is functionally the same
+  const rolesChanged = prevRoles !== nextRoles;
+  const childrenChanged = prevProps.children !== nextProps.children;
+  const classNameChanged = prevProps.className !== nextProps.className;
+  const disabledChanged = prevProps.disabled !== nextProps.disabled;
+  const titleChanged = prevProps.title !== nextProps.title;
+  const showDisabledChanged = prevProps.showDisabled !== nextProps.showDisabled;
+  const disabledMessageChanged = prevProps.disabledMessage !== nextProps.disabledMessage;
+  
+  // Only re-render if meaningful props changed
+  const shouldRerender = rolesChanged || childrenChanged || classNameChanged || 
+                        disabledChanged || titleChanged || showDisabledChanged || 
+                        disabledMessageChanged;
+  
+  // Return true to SKIP re-render, false to allow re-render
+  return !shouldRerender;
+}); 
