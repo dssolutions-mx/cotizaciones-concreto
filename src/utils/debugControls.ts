@@ -172,6 +172,64 @@ export const sessionDebugUtils = {
   },
   
   /**
+   * Show render performance statistics
+   */
+  showRenderStats(): void {
+    if (typeof window !== 'undefined' && (window as any).renderStats) {
+      const summary = (window as any).renderStats.summary();
+      console.log('📊 Render Performance Summary:');
+      console.table(summary);
+      
+      const components = (window as any).renderStats.components();
+      console.log('📊 Component Statistics:');
+      console.table(components);
+    } else {
+      console.log('🔧 Render tracking not available');
+    }
+  },
+  
+  /**
+   * Run quick performance test
+   */
+  runQuickTest(): void {
+    if (typeof window !== 'undefined' && (window as any).sessionTesting) {
+      console.log('🧪 Running quick performance test...');
+      (window as any).sessionTesting.quickTest().then((result: any) => {
+        console.log('🎯 Quick test completed:', result);
+      });
+    } else {
+      console.log('🔧 Session testing utilities not available');
+    }
+  },
+  
+  /**
+   * Enable performance monitoring
+   */
+  enablePerformanceMonitoring(): void {
+    if (typeof window !== 'undefined') {
+      if ((window as any).renderTracker) {
+        (window as any).renderTracker.setEnabled(true);
+      }
+      
+      console.log('📊 Performance monitoring enabled');
+      console.log('Use sessionDebug.showRenderStats() to view results');
+    }
+  },
+  
+  /**
+   * Disable performance monitoring
+   */
+  disablePerformanceMonitoring(): void {
+    if (typeof window !== 'undefined') {
+      if ((window as any).renderTracker) {
+        (window as any).renderTracker.setEnabled(false);
+      }
+      
+      console.log('📊 Performance monitoring disabled');
+    }
+  },
+  
+  /**
    * Hide event statistics
    */
   hideEventStats(): void {
@@ -198,7 +256,12 @@ export const sessionDebugUtils = {
 if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
   (window as any).sessionDebug = sessionDebugUtils;
   console.log('🔧 Session debug utilities available via window.sessionDebug');
-  console.log('Available commands: disableCrossTabSync(), enableCrossTabSync(), enableVerboseLogging(), simulateExpiry(), disableEventDeduplication(), showEventStats(), status(), reset()');
+  console.log('Available commands:');
+  console.log('• Auth: disableCrossTabSync(), enableVerboseLogging(), simulateExpiry()');
+  console.log('• Events: disableEventDeduplication(), showEventStats()');
+  console.log('• Performance: enablePerformanceMonitoring(), showRenderStats()');
+  console.log('• Testing: runQuickTest()');
+  console.log('• General: status(), reset()');
 }
 
 // Initialize on import

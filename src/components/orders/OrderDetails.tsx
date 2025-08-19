@@ -9,8 +9,9 @@ import { fetchAvailableRecipes } from '@/services/recipeService';
 import { OrderWithDetails, OrderStatus, CreditStatus } from '@/types/order';
 import { ConstructionSite, ClientBalance } from '@/types/client';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { useUnifiedAuthBridge } from '@/adapters/unified-auth-bridge';
 import type { UserRole } from '@/store/auth/types';
+import { renderTracker } from '@/lib/performance/renderTracker';
 import RegistroRemision from '@/components/remisiones/RegistroRemision';
 import RemisionesList, { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
 import OrderDetailsBalance from './OrderDetailsBalance';
@@ -70,7 +71,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = searchParams.get('returnTo');
-  const { profile, hasRole } = useAuthBridge();
+  const { profile, hasRole } = useUnifiedAuthBridge({ preferUnified: true });
   const [order, setOrder] = useState<OrderWithDetails | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +109,21 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [pumpVolume, setPumpVolume] = useState<number>(0);
   const [pumpPrice, setPumpPrice] = useState<number | null>(null);
   
+  // Track render performance for OrderDetails component
+  useEffect(() => {
+    const finishRender = renderTracker.trackRender('OrderDetails', 'order-data-change', undefined, {
+      orderId,
+      hasOrder: !!order,
+      hasProfile: !!profile,
+      orderStatus: order?.order_status,
+      isLoading: loading,
+      isEditing,
+      hasRemisiones,
+      productsCount: order?.products?.length || 0,
+    });
+    finishRender();
+  }, [orderId, order, profile, loading, isEditing, hasRemisiones]);
+
   // Calculate allowed recipe IDs - optimized to prevent unnecessary re-renders
   const allowedRecipeIds = useMemo(() => {
     if (!order?.products) return [];
