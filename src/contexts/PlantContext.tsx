@@ -33,7 +33,10 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
   // Fetch plant and business unit data
   const refreshPlantData = useCallback(async () => {
     if (!session || !profile) {
-      setIsLoading(false);
+      // Don't reset plant data immediately, keep previous state if valid
+      if (!currentPlant) {
+        setIsLoading(false);
+      }
       return;
     }
 
@@ -123,10 +126,25 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
     }
   }, [isGlobalAdmin, userAccess, availablePlants]);
 
-  // Fetch data when auth state changes
+  // Fetch data when auth state changes - but prevent unnecessary refreshes
+  const lastProfileRef = React.useRef(profile);
+  const lastSessionRef = React.useRef(session);
+  
   useEffect(() => {
-    refreshPlantData();
-  }, [refreshPlantData]);
+    // Only refresh if profile or session actually changed in a meaningful way
+    const profileChanged = profile?.id !== lastProfileRef.current?.id || 
+                          profile?.role !== lastProfileRef.current?.role ||
+                          profile?.plant_id !== lastProfileRef.current?.plant_id ||
+                          profile?.business_unit_id !== lastProfileRef.current?.business_unit_id;
+    
+    const sessionChanged = session?.user?.id !== lastSessionRef.current?.user?.id;
+    
+    if (profileChanged || sessionChanged) {
+      lastProfileRef.current = profile;
+      lastSessionRef.current = session;
+      refreshPlantData();
+    }
+  }, [profile, session, refreshPlantData]);
 
   const contextValue: PlantContextType = {
     currentPlant,

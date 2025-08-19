@@ -31,6 +31,18 @@ interface QualityData {
     totalVolume: number;
     samplingCount: number;
   };
+  muestreosDetallados?: Array<{
+    id: string;
+    numeroMuestreo: string;
+    fechaMuestreo: string;
+    planta: string;
+    remisionId: string;
+    remisionNumber: string;
+    fechaRemision: string;
+    volumenFabricado: number;
+    recipeCode: string;
+    strengthFc: number;
+  }>;
 }
 
 export default function QualityOverview({ orderId }: QualityOverviewProps) {
@@ -336,18 +348,6 @@ export default function QualityOverview({ orderId }: QualityOverviewProps) {
               </p>
             </div>
           )}
-
-          {/* Debug information */}
-          {process.env.NODE_ENV === 'development' && (
-            <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
-              <p className="text-xs text-yellow-800">
-                <strong>Debug:</strong> guaranteeAgeTests: {qualityData.complianceData.guaranteeAgeTests}, 
-                avgResistance: {qualityData.complianceData.averageResistance}, 
-                minResistance: {qualityData.complianceData.minResistance}, 
-                maxResistance: {qualityData.complianceData.maxResistance}
-              </p>
-            </div>
-          )}
         </div>
       ) : (
         <div className="bg-white border border-gray-200 rounded-lg p-5">
@@ -360,6 +360,84 @@ export default function QualityOverview({ orderId }: QualityOverviewProps) {
           <p className="text-sm text-gray-600">
             No se pudo cargar la información de resistencia y compliance. Esto puede deberse a que no hay ensayos disponibles o a un error en el servidor.
           </p>
+        </div>
+      )}
+
+      {/* Remisiones Muestreadas Section */}
+      {qualityData.remisionesWithMuestreos > 0 && qualityData.muestreosDetallados && (
+        <div className="bg-white border border-gray-200 rounded-lg p-5">
+          <div className="flex items-center space-x-3 mb-4">
+            <div className="w-8 h-8 bg-blue-100 rounded-md flex items-center justify-center">
+              <FileText className="w-4 h-4 text-blue-600" />
+            </div>
+            <h4 className="text-sm font-medium text-gray-900">Remisiones Muestreadas</h4>
+            <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+              {qualityData.remisionesWithMuestreos} de {qualityData.totalRemisiones}
+            </span>
+          </div>
+          
+          <div className="space-y-3">
+            {/* Individual Sampling Links */}
+            <div className="space-y-2">
+              {qualityData.muestreosDetallados.map((muestreo) => (
+                <div key={muestreo.id} className="p-3 bg-gray-50 rounded-lg border border-gray-200 hover:border-blue-300 transition-colors">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <div className="w-6 h-6 bg-blue-100 rounded-md flex items-center justify-center">
+                          <Beaker className="w-3 h-3 text-blue-600" />
+                        </div>
+                        <div>
+                          <span className="text-sm font-medium text-gray-900">
+                            Muestreo {muestreo.numeroMuestreo}
+                          </span>
+                          <span className="text-xs text-gray-500 ml-2">
+                            Remisión {muestreo.remisionNumber}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs text-gray-600">
+                        <div>
+                          <span className="font-medium">Fecha:</span> {new Date(muestreo.fechaMuestreo).toLocaleDateString('es-ES')}
+                        </div>
+                        <div>
+                          <span className="font-medium">Planta:</span> {muestreo.planta}
+                        </div>
+                        <div>
+                          <span className="font-medium">Volumen:</span> {muestreo.volumenFabricado} m³
+                        </div>
+                        <div>
+                          <span className="font-medium">Receta:</span> {muestreo.recipeCode} (fc{muestreo.strengthFc})
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => window.open(`/quality/muestreos/${muestreo.id}`, '_blank')}
+                      className="border-blue-300 text-blue-700 hover:bg-blue-50 ml-4"
+                    >
+                      Ver Detalle
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            
+            {/* Summary Stats */}
+            <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="text-center">
+                <div className="text-lg font-semibold text-gray-900">{qualityData.totalMuestreos}</div>
+                <div className="text-xs text-gray-600">Total muestreos</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-semibold text-gray-900">{qualityData.totalMuestras}</div>
+                <div className="text-xs text-gray-600">Total muestras</div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -3,10 +3,11 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createServerSupabaseClient();
+    const { id } = await params;
     
     // Get user session
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -35,7 +36,7 @@ export async function DELETE(
     const { error } = await supabase
       .from('materials')
       .update({ is_active: false })
-      .eq('id', params.id);
+      .eq('id', id);
 
     if (error) {
       console.error('Error deleting material:', error);
@@ -51,10 +52,11 @@ export async function DELETE(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = await createServerSupabaseClient();
+    const { id } = await params;
     
     // Get user session
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -90,7 +92,7 @@ export async function PUT(
     const { data: material, error } = await supabase
       .from('materials')
       .update(body)
-      .eq('id', params.id)
+      .eq('id', id)
       .select()
       .single();
 

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
-import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter, ChevronsUpDown, Check } from 'lucide-react';
+import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter, ChevronsUpDown, Check, X } from 'lucide-react';
 import { fetchMetricasCalidad, fetchDatosGraficoResistencia, checkDatabaseContent } from '@/services/qualityService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import dynamic from 'next/dynamic';
@@ -799,183 +799,22 @@ export default function QualityDashboardPage() {
 
   return (
     <div className="container mx-auto p-4 md:p-6">
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-6 gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-gray-900 mb-1">Dashboard de Control de Calidad</h1>
-          <p className="text-gray-500">
-            Métricas y análisis de resistencia de concreto
-          </p>
-        </div>
+      {/* Header Section */}
+      <div className="mb-6">
+        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight text-gray-900 mb-2">Dashboard de Control de Calidad</h1>
+        <p className="text-gray-500 mb-4">
+          Métricas y análisis de resistencia de concreto
+        </p>
         
-        <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
-          <h2 className="text-xl font-bold">Período:</h2>
-          <div className="flex-1">
-            <DatePickerWithRange
-              value={dateRange}
-              onChange={handleDateRangeChange}
-            />
-          </div>
+        {/* Date Range Picker */}
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-sm font-medium text-gray-700">Período:</span>
+          <DatePickerWithRange
+            value={dateRange}
+            onChange={handleDateRangeChange}
+          />
           
-          {/* Inline FilterBar with searchable comboboxes */}
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Client combobox */}
-            <Popover open={openClient} onOpenChange={setOpenClient}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="justify-between w-[220px]">
-                  {selectedClient === 'all' ? 'Todos los clientes' : (clients.find(c => c.id === selectedClient)?.business_name || 'Cliente')}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="p-0 w-[320px]">
-                <Command>
-                  <CommandInput placeholder="Buscar cliente..." />
-                  <CommandEmpty>Sin resultados</CommandEmpty>
-                  <CommandList>
-                    <CommandGroup>
-                      <CommandItem onSelect={() => { setSelectedClient('all'); setOpenClient(false); }}>Todos</CommandItem>
-                      {clients.filter(c => c.id && c.business_name).map(c => (
-                        <CommandItem key={c.id} onSelect={() => { setSelectedClient(c.id); setOpenClient(false); }}>
-                          {c.business_name}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-
-            {/* Site combobox - filtered by client */}
-            <Popover open={openSite} onOpenChange={setOpenSite}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="justify-between w-[220px]">
-                  {selectedConstructionSite === 'all' ? 'Todas las obras' : (getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || 'Obra')}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="p-0 w-[320px]">
-                <Command>
-                  <CommandInput placeholder="Buscar obra..." />
-                  <CommandEmpty>Sin resultados</CommandEmpty>
-                  <CommandList>
-                    <CommandGroup>
-                      <CommandItem onSelect={() => { setSelectedConstructionSite('all'); setOpenSite(false); }}>Todas</CommandItem>
-                      {getFilteredConstructionSites().filter(s => s.id && s.name).map(s => (
-                        <CommandItem key={s.id} onSelect={() => { setSelectedConstructionSite(s.id); setOpenSite(false); }}>
-                          {s.name}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-
-            {/* Recipe combobox */}
-            <Popover open={openRecipe} onOpenChange={setOpenRecipe}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="justify-between w-[180px]">
-                  {selectedRecipe === 'all' ? 'Todas las recetas' : selectedRecipe}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="p-0 w-[280px]">
-                <Command>
-                  <CommandInput placeholder="Buscar receta..." />
-                  <CommandEmpty>Sin resultados</CommandEmpty>
-                  <CommandList>
-                    <CommandGroup>
-                      <CommandItem onSelect={() => { setSelectedRecipe('all'); setOpenRecipe(false); }}>Todas</CommandItem>
-                      {recipes.filter(r => r.recipe_code?.trim()).map(r => (
-                        <CommandItem key={r.id} onSelect={() => { setSelectedRecipe(r.recipe_code); setOpenRecipe(false); }}>
-                          {r.recipe_code}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-
-            {/* Plant combobox */}
-            <Popover open={openPlant} onOpenChange={setOpenPlant}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="justify-between w-[160px]">
-                  {selectedPlant === 'all' ? 'Todas las plantas' : selectedPlant}
-                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="p-0 w-[240px]">
-                <Command>
-                  <CommandInput placeholder="Buscar planta..." />
-                  <CommandEmpty>Sin resultados</CommandEmpty>
-                  <CommandList>
-                    <CommandGroup>
-                      <CommandItem onSelect={() => { setSelectedPlant('all'); setOpenPlant(false); }}>Todas</CommandItem>
-                      {plants.map((plant) => (
-                        <CommandItem key={plant} onSelect={() => { setSelectedPlant(plant); setOpenPlant(false); }}>
-                          {plant}
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-
-            {/* Strength Range combobox */}
-            <Popover open={openStrengthRange} onOpenChange={setOpenStrengthRange}>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="justify-between w-[140px]">
-                  {selectedStrengthRange === 'all' ? 'Todos fc' : 
-                    selectedStrengthRange === 'lt-200' ? '&lt; 200' :
-                    selectedStrengthRange === '200-250' ? '200-250' :
-                    selectedStrengthRange === '250-300' ? '250-300' :
-                    selectedStrengthRange === '300-350' ? '300-350' :
-                    selectedStrengthRange === '350-400' ? '350-400' :
-                    selectedStrengthRange === 'gt-400' ? '&gt; 400' : 'Todos fc'
-                  }
-                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="p-0 w-[200px]">
-                <Command>
-                  <CommandInput placeholder="Buscar rango fc..." />
-                  <CommandEmpty>Sin resultados</CommandEmpty>
-                  <CommandList>
-                    <CommandGroup>
-                      <CommandItem onSelect={() => { setSelectedStrengthRange('all'); setOpenStrengthRange(false); }}>Todos fc</CommandItem>
-                      <CommandItem onSelect={() => { setSelectedStrengthRange('lt-200'); setOpenStrengthRange(false); }}>&lt; 200 kg/cm²</CommandItem>
-                      <CommandItem onSelect={() => { setSelectedStrengthRange('200-250'); setOpenStrengthRange(false); }}>200-250 kg/cm²</CommandItem>
-                      <CommandItem onSelect={() => { setSelectedStrengthRange('250-300'); setOpenStrengthRange(false); }}>250-300 kg/cm²</CommandItem>
-                      <CommandItem onSelect={() => { setSelectedStrengthRange('300-350'); setOpenStrengthRange(false); }}>300-350 kg/cm²</CommandItem>
-                      <CommandItem onSelect={() => { setSelectedStrengthRange('350-400'); setOpenStrengthRange(false); }}>350-400 kg/cm²</CommandItem>
-                      <CommandItem onSelect={() => { setSelectedStrengthRange('gt-400'); setOpenStrengthRange(false); }}>&gt; 400 kg/cm²</CommandItem>
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
-
-            {/* Toggle chips */}
-            <Button variant={soloEdadGarantia ? 'default' : 'outline'} size="sm" onClick={() => setSoloEdadGarantia(v => !v)}>
-              {soloEdadGarantia ? 'Edad garantía: ON' : 'Edad garantía: OFF'}
-            </Button>
-            <Button variant={selectedClasificacion === 'FC' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedClasificacion(selectedClasificacion === 'FC' ? 'all' : 'FC')}>FC</Button>
-            <Button variant={selectedClasificacion === 'MR' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedClasificacion(selectedClasificacion === 'MR' ? 'all' : 'MR')}>MR</Button>
-
-            {/* Quick reset */}
-            <Button variant="outline" size="sm" onClick={() => {
-              setSelectedClient('all');
-              setSelectedConstructionSite('all');
-              setSelectedRecipe('all');
-              setSelectedPlant('all');
-              setSelectedClasificacion('all');
-              setSelectedSpecimenType('all');
-              setSelectedStrengthRange('all');
-              setSoloEdadGarantia(false);
-            }}>Reset</Button>
-          </div>
-          
+          {/* Check DB Data Button */}
           <Button 
             variant="outline" 
             size="sm"
@@ -995,73 +834,318 @@ export default function QualityDashboardPage() {
                 setLoading(false);
               }
             }}
+            className="ml-2"
           >
             Check DB Data
           </Button>
         </div>
       </div>
-      
-      {/* Active filters display */}
-      {(selectedClient || selectedConstructionSite || selectedRecipe || soloEdadGarantia || selectedPlant !== 'all' || selectedClasificacion !== 'all' || selectedSpecimenType !== 'all' || selectedStrengthRange !== 'all') && (
-        <div className="mb-4 flex flex-wrap gap-2">
-          {selectedClient && (
+
+      {/* Enhanced Filter Bar - More Space Efficient */}
+      <Card className="mb-6 bg-white/80 backdrop-blur border border-slate-200/60">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg font-medium text-gray-800">Filtros de Análisis</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Client Filter */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Cliente</Label>
+              <Popover open={openClient} onOpenChange={setOpenClient}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="justify-between w-full">
+                    {selectedClient === 'all' ? 'Todos los clientes' : (clients.find(c => c.id === selectedClient)?.business_name || 'Cliente')}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-[320px]">
+                  <Command>
+                    <CommandInput placeholder="Buscar cliente..." />
+                    <CommandEmpty>Sin resultados</CommandEmpty>
+                    <CommandList>
+                      <CommandGroup>
+                        <CommandItem onSelect={() => { setSelectedClient('all'); setOpenClient(false); }}>Todos</CommandItem>
+                        {clients.filter(c => c.id && c.business_name).map(c => (
+                          <CommandItem key={c.id} onSelect={() => { setSelectedClient(c.id); setOpenClient(false); }}>
+                            {c.business_name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Construction Site Filter */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Obra</Label>
+              <Popover open={openSite} onOpenChange={setOpenSite}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="justify-between w-full">
+                    {selectedConstructionSite === 'all' ? 'Todas las obras' : (getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || 'Obra')}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-[320px]">
+                  <Command>
+                    <CommandInput placeholder="Buscar obra..." />
+                    <CommandEmpty>Sin resultados</CommandEmpty>
+                    <CommandList>
+                      <CommandGroup>
+                        <CommandItem onSelect={() => { setSelectedConstructionSite('all'); setOpenSite(false); }}>Todas</CommandItem>
+                        {getFilteredConstructionSites().filter(s => s.id && s.name).map(s => (
+                          <CommandItem key={s.id} onSelect={() => { setSelectedConstructionSite(s.id); setOpenSite(false); }}>
+                            {s.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Recipe Filter */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Receta</Label>
+              <Popover open={openRecipe} onOpenChange={setOpenRecipe}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="justify-between w-full">
+                    {selectedRecipe === 'all' ? 'Todas las recetas' : selectedRecipe}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-[280px]">
+                  <Command>
+                    <CommandInput placeholder="Buscar receta..." />
+                    <CommandEmpty>Sin resultados</CommandEmpty>
+                    <CommandList>
+                      <CommandGroup>
+                        <CommandItem onSelect={() => { setSelectedRecipe('all'); setOpenRecipe(false); }}>Todas</CommandItem>
+                        {recipes.filter(r => r.recipe_code?.trim()).map(r => (
+                          <CommandItem key={r.id} onSelect={() => { setSelectedRecipe(r.recipe_code); setOpenRecipe(false); }}>
+                            {r.recipe_code}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Plant Filter */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Planta</Label>
+              <Popover open={openPlant} onOpenChange={setOpenPlant}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="justify-between w-full">
+                    {selectedPlant === 'all' ? 'Todas las plantas' : selectedPlant}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-[240px]">
+                  <Command>
+                    <CommandInput placeholder="Buscar planta..." />
+                    <CommandEmpty>Sin resultados</CommandEmpty>
+                    <CommandList>
+                      <CommandGroup>
+                        <CommandItem onSelect={() => { setSelectedPlant('all'); setOpenPlant(false); }}>Todas</CommandItem>
+                        {plants.map((plant) => (
+                          <CommandItem key={plant} onSelect={() => { setSelectedPlant(plant); setOpenPlant(false); }}>
+                            {plant}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+
+          {/* Second Row of Filters */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
+            {/* Strength Range Filter */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Rango fc</Label>
+              <Popover open={openStrengthRange} onOpenChange={setOpenStrengthRange}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="justify-between w-full">
+                    {selectedStrengthRange === 'all' ? 'Todos fc' : 
+                      selectedStrengthRange === 'lt-200' ? '&lt; 200' :
+                      selectedStrengthRange === '200-250' ? '200-250' :
+                      selectedStrengthRange === '250-300' ? '250-300' :
+                      selectedStrengthRange === '300-350' ? '300-350' :
+                      selectedStrengthRange === '350-400' ? '350-400' :
+                      selectedStrengthRange === 'gt-400' ? '&gt; 400' : 'Todos fc'
+                    }
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 w-[200px]">
+                  <Command>
+                    <CommandInput placeholder="Buscar rango fc..." />
+                    <CommandEmpty>Sin resultados</CommandEmpty>
+                    <CommandList>
+                      <CommandGroup>
+                        <CommandItem onSelect={() => { setSelectedStrengthRange('all'); setOpenStrengthRange(false); }}>Todos fc</CommandItem>
+                        <CommandItem onSelect={() => { setSelectedStrengthRange('lt-200'); setOpenStrengthRange(false); }}>&lt; 200 kg/cm²</CommandItem>
+                        <CommandItem onSelect={() => { setSelectedStrengthRange('200-250'); setOpenStrengthRange(false); }}>200-250 kg/cm²</CommandItem>
+                        <CommandItem onSelect={() => { setSelectedStrengthRange('250-300'); setOpenStrengthRange(false); }}>250-300 kg/cm²</CommandItem>
+                        <CommandItem onSelect={() => { setSelectedStrengthRange('300-350'); setOpenStrengthRange(false); }}>300-350 kg/cm²</CommandItem>
+                        <CommandItem onSelect={() => { setSelectedStrengthRange('350-400'); setOpenStrengthRange(false); }}>350-400 kg/cm²</CommandItem>
+                        <CommandItem onSelect={() => { setSelectedStrengthRange('gt-400'); setOpenStrengthRange(false); }}>&gt; 400 kg/cm²</CommandItem>
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            {/* Classification Toggle */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Clasificación</Label>
+              <div className="flex gap-2">
+                <Button 
+                  variant={selectedClasificacion === 'FC' ? 'default' : 'outline'} 
+                  size="sm" 
+                  onClick={() => setSelectedClasificacion(selectedClasificacion === 'FC' ? 'all' : 'FC')}
+                  className="flex-1"
+                >
+                  FC
+                </Button>
+                <Button 
+                  variant={selectedClasificacion === 'MR' ? 'default' : 'outline'} 
+                  size="sm" 
+                  onClick={() => setSelectedClasificacion(selectedClasificacion === 'MR' ? 'all' : 'MR')}
+                  className="flex-1"
+                >
+                  MR
+                </Button>
+              </div>
+            </div>
+
+            {/* Specimen Type Filter */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Tipo Probeta</Label>
+              <Select value={selectedSpecimenType} onValueChange={(value: any) => setSelectedSpecimenType(value)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="CILINDRO">Cilindro</SelectItem>
+                  <SelectItem value="VIGA">Viga</SelectItem>
+                  <SelectItem value="CUBO">Cubo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Age Guarantee Toggle */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Edad Garantía</Label>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="age-guarantee"
+                  checked={soloEdadGarantia}
+                  onCheckedChange={setSoloEdadGarantia}
+                />
+                <Label htmlFor="age-guarantee" className="text-sm">
+                  {soloEdadGarantia ? 'Activado' : 'Desactivado'}
+                </Label>
+              </div>
+            </div>
+
+            {/* Reset Button */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">&nbsp;</Label>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => {
+                  setSelectedClient('all');
+                  setSelectedConstructionSite('all');
+                  setSelectedRecipe('all');
+                  setSelectedPlant('all');
+                  setSelectedClasificacion('all');
+                  setSelectedSpecimenType('all');
+                  setSelectedStrengthRange('all');
+                  setSoloEdadGarantia(false);
+                }}
+                className="w-full"
+              >
+                Limpiar Filtros
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Active Filters Display */}
+      {(selectedClient !== 'all' || selectedConstructionSite !== 'all' || selectedRecipe !== 'all' || 
+        selectedPlant !== 'all' || selectedClasificacion !== 'all' || selectedSpecimenType !== 'all' || 
+        selectedStrengthRange !== 'all' || soloEdadGarantia) && (
+        <div className="mb-6 flex flex-wrap gap-2">
+          {selectedClient !== 'all' && (
             <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
               <span>Cliente: {clients.find(c => c.id === selectedClient)?.business_name || selectedClient}</span>
               <button 
                 className="hover:bg-blue-100 rounded-full p-1"
-                onClick={() => setSelectedClient('')}
+                onClick={() => setSelectedClient('all')}
               >
                 ×
               </button>
             </div>
           )}
           
-          {selectedConstructionSite && (
+          {selectedConstructionSite !== 'all' && (
             <div className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
               <span>Obra: {getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || selectedConstructionSite}</span>
               <button 
                 className="hover:bg-green-100 rounded-full p-1"
-                onClick={() => setSelectedConstructionSite('')}
+                onClick={() => setSelectedConstructionSite('all')}
               >
                 ×
               </button>
             </div>
           )}
           
-          {selectedRecipe && (
+          {selectedRecipe !== 'all' && (
             <div className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
               <span>Receta: {selectedRecipe}</span>
               <button 
                 className="hover:bg-purple-100 rounded-full p-1"
-                onClick={() => setSelectedRecipe('')}
+                onClick={() => setSelectedRecipe('all')}
               >
                 ×
               </button>
             </div>
           )}
 
-          {selectedPlant && selectedPlant !== 'all' && (
+          {selectedPlant !== 'all' && (
             <div className="bg-cyan-50 text-cyan-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
               <span>Planta: {selectedPlant}</span>
               <button className="hover:bg-cyan-100 rounded-full p-1" onClick={() => setSelectedPlant('all')}>×</button>
             </div>
           )}
 
-          {selectedClasificacion && selectedClasificacion !== 'all' && (
+          {selectedClasificacion !== 'all' && (
             <div className="bg-rose-50 text-rose-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
               <span>Clasificación: {selectedClasificacion}</span>
               <button className="hover:bg-rose-100 rounded-full p-1" onClick={() => setSelectedClasificacion('all')}>×</button>
             </div>
           )}
 
-          {selectedSpecimenType && selectedSpecimenType !== 'all' && (
+          {selectedSpecimenType !== 'all' && (
             <div className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
               <span>Probeta: {selectedSpecimenType}</span>
               <button className="hover:bg-emerald-100 rounded-full p-1" onClick={() => setSelectedSpecimenType('all')}>×</button>
             </div>
           )}
 
-          {selectedStrengthRange && selectedStrengthRange !== 'all' && (
+          {selectedStrengthRange !== 'all' && (
             <div className="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
               <span>fc: {selectedStrengthRange}</span>
               <button className="hover:bg-amber-100 rounded-full p-1" onClick={() => setSelectedStrengthRange('all')}>×</button>
@@ -1079,25 +1163,9 @@ export default function QualityDashboardPage() {
               </button>
             </div>
           )}
-          
-          <button 
-            className="text-gray-500 hover:text-gray-700 text-sm underline"
-            onClick={() => {
-              setSelectedClient('');
-              setSelectedConstructionSite('');
-              setSelectedRecipe('');
-              setSoloEdadGarantia(false);
-              setSelectedPlant('all');
-              setSelectedClasificacion('all');
-              setSelectedSpecimenType('all');
-              setSelectedStrengthRange('all');
-            }}
-          >
-            Limpiar todos
-          </button>
         </div>
       )}
-      
+
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {[1, 2, 3, 4].map((item) => (
@@ -1309,7 +1377,7 @@ export default function QualityDashboardPage() {
                 <CardContent>
                   {typeof window !== 'undefined' && preparedData.length > 0 ? (
                     <div>
-                      <div style={{ height: 350, width: '100%' }}>
+                      <div style={{ height: 400, width: '100%' }}>
                         <ScatterChart
                           series={chartSeries as any}
                           xAxis={[{
@@ -1334,7 +1402,7 @@ export default function QualityDashboardPage() {
                               fontSize: 12
                             }
                           }]}
-                          height={350}
+                          height={400}
                           grid={{ 
                             vertical: true, 
                             horizontal: true
@@ -1354,17 +1422,20 @@ export default function QualityDashboardPage() {
                             tooltip: {
                               sx: {
                                 zIndex: 100,
-                                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                                backgroundColor: 'white',
-                                border: '1px solid #e5e7eb',
-                                borderRadius: '8px',
+                                boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
+                                backgroundColor: 'rgba(255,255,255,0.95)',
+                                backdropFilter: 'blur(8px)',
+                                border: '1px solid rgba(229,231,235,0.8)',
+                                borderRadius: '12px',
+                                padding: '16px',
+                                minWidth: '280px',
                                 // Enhanced tooltip styling
                                 '& .MuiChartsTooltip-table': {
-                                  padding: '12px',
+                                  padding: '0',
                                   fontSize: '13px',
                                   margin: 0,
                                   fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-                                  minWidth: '320px'
+                                  width: '100%'
                                 },
                                 // Hide marker and series cells for cleaner look
                                 '& .MuiChartsTooltip-markCell': {
@@ -1375,15 +1446,15 @@ export default function QualityDashboardPage() {
                                 },
                                 // Enhanced cell styling
                                 '& .MuiChartsTooltip-cell': {
-                                  padding: '4px 8px',
-                                  borderBottom: '1px solid #f3f4f6',
+                                  padding: '8px 0',
+                                  borderBottom: '1px solid rgba(229,231,235,0.5)',
                                   verticalAlign: 'top'
                                 },
                                 '& .MuiChartsTooltip-labelCell': {
                                   fontWeight: '600',
                                   color: '#374151',
-                                  minWidth: '100px',
-                                  borderRight: '1px solid #e5e7eb'
+                                  minWidth: '120px',
+                                  paddingRight: '16px'
                                 },
                                 '& .MuiChartsTooltip-valueCell': {
                                   fontWeight: '500',
@@ -1392,11 +1463,13 @@ export default function QualityDashboardPage() {
                                 },
                                 // Header styling
                                 '& .MuiChartsTooltip-header': {
-                                  backgroundColor: '#f8fafc',
-                                  borderBottom: '2px solid #e2e8f0',
-                                  padding: '8px 12px',
-                                  margin: '-12px -12px 8px -12px',
-                                  borderRadius: '8px 8px 0 0'
+                                  backgroundColor: 'rgba(59,130,246,0.1)',
+                                  borderBottom: '2px solid rgba(59,130,246,0.2)',
+                                  padding: '12px 16px',
+                                  margin: '-16px -16px 16px -16px',
+                                  borderRadius: '12px 12px 0 0',
+                                  color: '#1e40af',
+                                  fontWeight: '600'
                                 }
                               }
                             }
@@ -1438,145 +1511,242 @@ export default function QualityDashboardPage() {
                         </ScatterChart>
                       </div>
 
-                      {/* Point information panel - displayed when a point is selected */}
+                      {/* Enhanced Point Information Panel */}
                       {selectedPoint && (
-                        <div className="mt-4 p-4 border border-slate-200/60 rounded-lg bg-white/80">
-                          <div className="flex items-center justify-between mb-2">
-                            <h3 className="font-medium text-gray-800">Información del Punto Seleccionado</h3>
-                            {(selectedPoint as any)?.isAggregated && (
-                              <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">
-                                Promedio de {(selectedPoint as any)?.aggregatedCount || 2} muestras
-                              </span>
-                            )}
+                        <div className="mt-6 p-6 border border-slate-200/60 rounded-xl bg-gradient-to-br from-white/90 to-slate-50/90 backdrop-blur shadow-lg">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                              <h3 className="text-lg font-semibold text-gray-800">Información del Punto Seleccionado</h3>
+                              {(selectedPoint as any)?.isAggregated && (
+                                <span className="px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded-full font-medium">
+                                  Promedio de {(selectedPoint as any)?.aggregatedCount || 2} muestras
+                                </span>
+                              )}
+                            </div>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => setSelectedPoint(null)}
+                              className="hover:bg-gray-50"
+                            >
+                              Cerrar
+                            </Button>
                           </div>
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                            <div>
-                              <p className="font-medium text-gray-600">Fecha:</p>
-                              <p>{selectedPoint.fecha_ensayo || formatDate(selectedPoint.x)}</p>
+                          
+                          {/* Main Information Grid */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+                            {/* Compliance Section */}
+                            <div className="space-y-3">
+                              <h4 className="font-medium text-gray-700 text-sm uppercase tracking-wide">Cumplimiento</h4>
+                              <div className="space-y-2">
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Porcentaje:</span>
+                                  <span className="font-semibold text-lg text-blue-600">
+                                    {selectedPoint.y.toFixed(2)}%
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Clasificación:</span>
+                                  <span className="font-medium">{selectedPoint.clasificacion || 'No especificada'}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Edad (días):</span>
+                                  <span className="font-medium">{selectedPoint.edad || 28}</span>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium text-gray-600">Cumplimiento:</p>
-                              <p>
-                                {selectedPoint.y.toFixed(2)}%
-                                {(selectedPoint as any)?.isAggregated && (
-                                  <span className="text-xs text-blue-600 ml-1">(recalculado)</span>
-                                )}
-                              </p>
+
+                            {/* Technical Details Section */}
+                            <div className="space-y-3">
+                              <h4 className="font-medium text-gray-700 text-sm uppercase tracking-wide">Detalles Técnicos</h4>
+                              <div className="space-y-2">
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Resistencia obtenida:</span>
+                                  <span className="font-medium">
+                                    {selectedPoint.resistencia_calculada ? 
+                                      `${typeof selectedPoint.resistencia_calculada === 'number' ? selectedPoint.resistencia_calculada.toFixed(2) : selectedPoint.resistencia_calculada} kg/cm²` :
+                                      'No disponible'
+                                    }
+                                  </span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Resistencia diseño:</span>
+                                  <span className="font-medium">{(() => {
+                                    if (!selectedPoint.muestra) return 'No disponible';
+                                    if (!selectedPoint.muestra.muestreo) return 'No disponible';
+                                    if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
+                                    if (!selectedPoint.muestra.muestreo.remision.recipe) return 'No disponible';
+                                    
+                                    const recipe = selectedPoint.muestra.muestreo.remision.recipe;
+                                    return `${recipe.strength_fc || 'No disponible'} kg/cm²`;
+                                  })()}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Fecha ensayo:</span>
+                                  <span className="font-medium">{selectedPoint.fecha_ensayo || formatDate(selectedPoint.x)}</span>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium text-gray-600">Clasificación:</p>
-                              <p>{selectedPoint.clasificacion || 'No especificada'}</p>
+
+                            {/* Project Information Section */}
+                            <div className="space-y-3">
+                              <h4 className="font-medium text-gray-700 text-sm uppercase tracking-wide">Información del Proyecto</h4>
+                              <div className="space-y-2">
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Cliente:</span>
+                                  <span className="font-medium">{(() => {
+                                    if (!selectedPoint.muestra) return 'No disponible';
+                                    if (!selectedPoint.muestra.muestreo) return 'No disponible';
+                                    if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
+                                    if (!selectedPoint.muestra.muestreo.remision.order) return 'No disponible';
+                                    
+                                    const order = selectedPoint.muestra.muestreo.remision.order;
+                                    
+                                    if (order.client && order.client.business_name) {
+                                      return order.client.business_name;
+                                    }
+                                    
+                                    if (order.clients && order.clients.business_name) {
+                                      return order.clients.business_name;
+                                    }
+                                    
+                                    if (order.client_id) {
+                                      const matchingClient = clients.find(c => c.id === order.client_id);
+                                      if (matchingClient) {
+                                        return matchingClient.business_name;
+                                      }
+                                    }
+                                    
+                                    return 'No disponible';
+                                  })()}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Obra:</span>
+                                  <span className="font-medium">{(() => {
+                                    if (!selectedPoint.muestra) return 'No disponible';
+                                    if (!selectedPoint.muestra.muestreo) return 'No disponible';
+                                    if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
+                                    if (!selectedPoint.muestra.muestreo.remision.order) return 'No disponible';
+                                    
+                                    const order = selectedPoint.muestra.muestreo.remision.order;
+                                    
+                                    if (order.construction_site) {
+                                      const constructionSiteId = order.construction_site;
+                                      const matchingSite = constructionSites.find(site => site.id === constructionSiteId);
+                                      if (matchingSite) {
+                                        return matchingSite.name;
+                                      }
+                                      return order.construction_site;
+                                    }
+                                    
+                                    if (order.construction_site_name) {
+                                      return order.construction_site_name;
+                                    }
+                                    
+                                    return 'No disponible';
+                                  })()}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Planta:</span>
+                                  <span className="font-medium">{selectedPoint.muestra?.muestreo?.planta || 'No disponible'}</span>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <p className="font-medium text-gray-600">Edad (días):</p>
-                              <p>{selectedPoint.edad || 28}</p>
+                          </div>
+
+                          {/* Recipe Information */}
+                          <div className="bg-gray-50/50 rounded-lg p-4 mb-6">
+                            <h4 className="font-medium text-gray-700 text-sm uppercase tracking-wide mb-3">Información de la Receta</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Código receta:</span>
+                                <span className="font-medium">{(() => {
+                                  if (!selectedPoint.muestra) return 'No disponible';
+                                  if (!selectedPoint.muestra.muestreo) return 'No disponible';
+                                  if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
+                                  if (!selectedPoint.muestra.muestreo.remision.recipe) return 'No disponible';
+                                  
+                                  const recipe = selectedPoint.muestra.muestreo.remision.recipe;
+                                  return recipe.recipe_code || 'No disponible';
+                                })()}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span className="text-gray-600">Tipo muestra:</span>
+                                <span className="font-medium">{selectedPoint.muestra?.tipo_muestra || 'No disponible'}</span>
+                              </div>
                             </div>
+                          </div>
+
+                          {/* Action Buttons for Drill-Down */}
+                          <div className="flex flex-wrap gap-3">
+                            <Button 
+                              size="sm" 
+                              variant="default"
+                              className="bg-blue-600 hover:bg-blue-700"
+                              onClick={() => {
+                                // Navigate to quality reportes with filters
+                                const params = new URLSearchParams();
+                                if (selectedPoint.muestra?.muestreo?.remision?.order?.client_id) {
+                                  params.append('client', selectedPoint.muestra.muestreo.remision.order.client_id);
+                                }
+                                if (selectedPoint.muestra?.muestreo?.remision?.order?.construction_site) {
+                                  params.append('site', selectedPoint.muestra.muestreo.remision.order.construction_site);
+                                }
+                                if (selectedPoint.muestra?.muestreo?.remision?.recipe?.id) {
+                                  params.append('recipe', selectedPoint.muestra.muestreo.remision.recipe.id);
+                                }
+                                if (selectedPoint.fecha_ensayo) {
+                                  params.append('date', selectedPoint.fecha_ensayo);
+                                }
+                                
+                                window.open(`/quality/reportes?${params.toString()}`, '_blank');
+                              }}
+                            >
+                              <BarChart3 className="w-4 h-4 mr-2" />
+                              Ver Reporte Detallado
+                            </Button>
                             
-                            {/* Additional information */}
-                            <div>
-                              <p className="font-medium text-gray-600">Cliente:</p>
-                              <p>{(() => {
-                                if (!selectedPoint.muestra) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo.remision.order) return 'No disponible';
-                                
-                                const order = selectedPoint.muestra.muestreo.remision.order;
-                                
-                                // Try different paths to get client name
-                                if (order.client && order.client.business_name) {
-                                  return order.client.business_name;
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                // Navigate to muestreos with filters
+                                const params = new URLSearchParams();
+                                if (selectedPoint.muestra?.muestreo?.planta) {
+                                  params.append('plant', selectedPoint.muestra.muestreo.planta);
+                                }
+                                if (selectedPoint.fecha_ensayo) {
+                                  params.append('date', selectedPoint.fecha_ensayo);
                                 }
                                 
-                                if (order.clients && order.clients.business_name) {
-                                  return order.clients.business_name;
+                                window.open(`/quality/muestreos?${params.toString()}`, '_blank');
+                              }}
+                            >
+                              <Activity className="w-4 h-4 mr-2" />
+                              Ver Muestreos Relacionados
+                            </Button>
+                            
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                // Navigate to ensayos with filters
+                                const params = new URLSearchParams();
+                                if (selectedPoint.muestra?.id) {
+                                  params.append('muestra', selectedPoint.muestra.id);
+                                }
+                                if (selectedPoint.fecha_ensayo) {
+                                  params.append('date', selectedPoint.fecha_ensayo);
                                 }
                                 
-                                // Try client_id if it exists directly
-                                if (order.client_id) {
-                                  // Find matching client from the clients array
-                                  const matchingClient = clients.find(c => c.id === order.client_id);
-                                  if (matchingClient) {
-                                    return matchingClient.business_name;
-                                  }
-                                }
-                                
-                                return 'No disponible';
-                              })()}</p>
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-600">Obra:</p>
-                              <p>{(() => {
-                                if (!selectedPoint.muestra) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo.remision.order) return 'No disponible';
-                                
-                                const order = selectedPoint.muestra.muestreo.remision.order;
-                                
-                                // Try different paths to get construction site name
-                                if (order.construction_site) {
-                                  // If it's an ID, try to find the name from constructionSites array
-                                  const constructionSiteId = order.construction_site;
-                                  const matchingSite = constructionSites.find(site => site.id === constructionSiteId);
-                                  if (matchingSite) {
-                                    return matchingSite.name;
-                                  }
-                                  return order.construction_site;
-                                }
-                                
-                                if (order.construction_site_name) {
-                                  return order.construction_site_name;
-                                }
-                                
-                                return 'No disponible';
-                              })()}</p>
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-600">Resistencia obtenida:</p>
-                              <p>
-                                {selectedPoint.resistencia_calculada ? 
-                                  `${typeof selectedPoint.resistencia_calculada === 'number' ? selectedPoint.resistencia_calculada.toFixed(2) : selectedPoint.resistencia_calculada} kg/cm²` :
-                                  'No disponible'
-                                }
-                                {(selectedPoint as any)?.isAggregated && (
-                                  <span className="text-xs text-blue-600 ml-1">(promedio)</span>
-                                )}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-600">Resistencia diseño:</p>
-                              <p>{(() => {
-                                if (!selectedPoint.muestra) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo.remision.recipe) return 'No disponible';
-                                
-                                const recipe = selectedPoint.muestra.muestreo.remision.recipe;
-                                return `${recipe.strength_fc || 'No disponible'} kg/cm²`;
-                              })()}</p>
-                            </div>
-                            <div>
-                              <p className="font-medium text-gray-600">Código receta:</p>
-                              <p>{(() => {
-                                if (!selectedPoint.muestra) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo.remision) return 'No disponible';
-                                if (!selectedPoint.muestra.muestreo.remision.recipe) return 'No disponible';
-                                
-                                const recipe = selectedPoint.muestra.muestreo.remision.recipe;
-                                return recipe.recipe_code || 'No disponible';
-                              })()}</p>
-                            </div>
+                                window.open(`/quality/ensayos?${params.toString()}`, '_blank');
+                              }}
+                            >
+                              <TrendingUp className="w-4 h-4 mr-2" />
+                              Ver Ensayos de la Muestra
+                            </Button>
                           </div>
-                          <Button 
-                            size="sm" 
-                            variant="outline" 
-                            className="mt-3"
-                            onClick={() => setSelectedPoint(null)}
-                          >
-                            Cerrar
-                          </Button>
                         </div>
                       )}
                     </div>

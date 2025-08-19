@@ -3,11 +3,11 @@ import { createServiceClient } from '@/lib/supabase/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = createServiceClient();
-    const orderId = params.id;
+    const { id: orderId } = await params;
 
     console.log('Quality Compliance API called for order:', orderId);
 
