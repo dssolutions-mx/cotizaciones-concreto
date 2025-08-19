@@ -27,7 +27,8 @@ import {
   BarChart,
   CreditCard,
   Building2,
-  FileSpreadsheet
+  FileSpreadsheet,
+  TrendingUp
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -98,6 +99,7 @@ const qualitySubMenuItems: QualityNavItem[] = [
   { type: 'group', title: "Gestión" },
   { title: "Recetas", href: "/quality/recipes", IconComponent: FileText },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
   { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
 ];
 
@@ -111,6 +113,7 @@ const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
   { type: 'group', title: "Gestión" },
   { title: "Recetas", href: "/quality/recipes", IconComponent: FileText },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
   { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
 ];
 
@@ -122,6 +125,7 @@ const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
   { title: "Control en obra", href: "/quality/site-checks/new", IconComponent: ClipboardCheck },
   { type: 'group', title: "Gestión" },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
 ];
 
 // Helper function to check if QUALITY_TEAM user is in restricted plant
