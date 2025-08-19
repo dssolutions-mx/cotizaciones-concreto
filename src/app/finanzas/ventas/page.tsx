@@ -31,6 +31,8 @@ import { ApexOptions } from 'apexcharts';
 import { DateRange } from "react-day-picker";
 import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-with-presets"
 import * as XLSX from 'xlsx';
+import { usePlantContext } from '@/contexts/PlantContext';
+import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 
 // Dynamically import ApexCharts with SSR disabled
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -94,6 +96,7 @@ const SpanishCalendar = (props: any) => {
 }
 
 export default function VentasDashboard() {
+  const { currentPlant } = usePlantContext();
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
   const [salesData, setSalesData] = useState<any[]>([]);
@@ -220,7 +223,7 @@ export default function VentasDashboard() {
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
         
         // 1. Fetch remisiones directly by their fecha field
-        const { data: remisiones, error: remisionesError } = await supabase
+        let remisionesQuery = supabase
           .from('remisiones')
           .select(`
             *,
@@ -236,8 +239,14 @@ export default function VentasDashboard() {
             )
           `)
           .gte('fecha', formattedStartDate)
-          .lte('fecha', formattedEndDate)
-          .order('fecha', { ascending: false });
+          .lte('fecha', formattedEndDate);
+        
+        // Apply plant filter if a plant is selected
+        if (currentPlant?.id) {
+          remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
+        }
+        
+        const { data: remisiones, error: remisionesError } = await remisionesQuery.order('fecha', { ascending: false });
         
         if (remisionesError) throw remisionesError;
         
@@ -254,7 +263,7 @@ export default function VentasDashboard() {
         
         // 2. Fetch all relevant orders (even those without remisiones in the date range)
         // This ensures we have orders for "vacío de olla" charges
-        const { data: orders, error: ordersError } = await supabase
+        let ordersQuery = supabase
           .from('orders')
           .select(`
             id, 
@@ -267,6 +276,13 @@ export default function VentasDashboard() {
           `)
           .in('id', uniqueOrderIds)
           .not('order_status', 'eq', 'cancelled');
+        
+        // Apply plant filter if a plant is selected
+        if (currentPlant?.id) {
+          ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
+        }
+        
+        const { data: orders, error: ordersError } = await ordersQuery;
         
         if (ordersError) throw ordersError;
         
@@ -300,10 +316,17 @@ export default function VentasDashboard() {
         
         // 3. Fetch order items (products) for these orders
         const orderIds = orders.map(order => order.id);
-        const { data: orderItems, error: itemsError } = await supabase
+        let orderItemsQuery = supabase
           .from('order_items')
           .select('*')
           .in('order_id', orderIds);
+        
+        // Apply plant filter if a plant is selected
+        if (currentPlant?.id) {
+          orderItemsQuery = orderItemsQuery.eq('plant_id', currentPlant.id);
+        }
+        
+        const { data: orderItems, error: itemsError } = await orderItemsQuery;
         
         if (itemsError) throw itemsError;
         
@@ -349,7 +372,7 @@ export default function VentasDashboard() {
     }
     
     fetchSalesData();
-  }, [startDate, endDate]);
+  }, [startDate, endDate, currentPlant]);
   
   // Filter remisiones by client and search term
   const filteredRemisiones = useMemo(() => {
@@ -1340,19 +1363,33 @@ export default function VentasDashboard() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col md:flex-row gap-4 mb-6">
-                {/* Date Range Selection */}
-                <div className="flex flex-col flex-1">
-                  <Label htmlFor="dateRange" className="mb-1">Rango de Fecha</Label>
-                  <DateRangePickerWithPresetsComponent
-                    dateRange={{
-                      from: startDate || new Date(),
-                      to: endDate || new Date()
-                    }}
-                    onDateRangeChange={(range: DateRange | undefined) => {
-                      if (range?.from) setStartDate(range.from);
-                      if (range?.to) setEndDate(range.to);
-                    }}
-                  />
+                {/* Main Filters */}
+                <div className="flex flex-col md:flex-row gap-4 mb-6">
+                  {/* Plant Context Display */}
+                  <div className="flex flex-col">
+                    <Label className="mb-1">Planta</Label>
+                    <PlantContextDisplay showLabel={false} />
+                    {currentPlant && (
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        Filtrando por: {currentPlant.name}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Date Range Picker */}
+                  <div className="flex flex-col flex-1">
+                    <Label htmlFor="dateRange" className="mb-1">Rango de Fechas</Label>
+                    <DateRangePickerWithPresetsComponent
+                      dateRange={{
+                        from: startDate || new Date(),
+                        to: endDate || new Date()
+                      }}
+                      onDateRangeChange={(range: DateRange | undefined) => {
+                        if (range?.from) setStartDate(range.from);
+                        if (range?.to) setEndDate(range.to);
+                      }}
+                    />
+                  </div>
                 </div>
                 
                 {/* Client Filter */}
@@ -1476,8 +1513,8 @@ export default function VentasDashboard() {
                             <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
                               {Object.entries(concreteByRecipe)
                                 .sort(([, a], [, b]) => b.volume - a.volume)
-                                .map(([recipe, data]) => (
-                                  <Badge key={recipe} variant="outline" className="bg-blue-50 text-xs">
+                                .map(([recipe, data], index) => (
+                                  <Badge key={`ventas-recipe-${index}-${recipe}`} variant="outline" className="bg-blue-50 text-xs">
                                     {recipe}: {data.volume.toFixed(1)} m³
                                   </Badge>
                                 ))}
@@ -1838,6 +1875,17 @@ export default function VentasDashboard() {
                         <CardTitle className='text-sm font-medium'>FILTROS</CardTitle>
                     </CardHeader>
                     <CardContent className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 pb-4'>
+                        {/* Plant Context Display */}
+                        <div className="flex flex-col space-y-1">
+                            <Label className="text-xs font-semibold">PLANTA</Label>
+                            <PlantContextDisplay showLabel={false} />
+                            {currentPlant && (
+                              <div className="text-xs text-muted-foreground">
+                                Filtrando por: {currentPlant.name}
+                              </div>
+                            )}
+                        </div>
+                        
                         {/* Date Range Picker */}
                         <div className="flex flex-col space-y-1 lg:col-span-2">
                             <Label htmlFor="dateRange" className="text-xs font-semibold">Rango de Fecha</Label>
@@ -2002,8 +2050,8 @@ export default function VentasDashboard() {
                             <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
                               {Object.entries(concreteByRecipe)
                                 .sort(([, a], [, b]) => b.volume - a.volume)
-                                .map(([recipe, data]) => (
-                                  <Badge key={recipe} variant="outline" className="bg-blue-50 text-xs">
+                                .map(([recipe, data], index) => (
+                                  <Badge key={`ventas-recipe-${index}-${recipe}`} variant="outline" className="bg-blue-50 text-xs">
                                     {recipe}: {data.volume.toFixed(1)} m³
                                   </Badge>
                                 ))}

@@ -52,11 +52,13 @@ export function usePlantAwareMaterialPrices(options: UsePlantAwareMaterialPrices
       // Filter to keep only the latest price per material (where end_date is null)
       const activePrices = result.data?.filter((price: MaterialPrice) => !price.end_date) || [];
       
-      // Group by material type and keep the latest one
+      // Group by material_id (preferred) or material_type (fallback) and keep the latest one
       const latestPricesMap = activePrices.reduce((acc: Record<string, MaterialPrice>, current: MaterialPrice) => {
-        const existing = acc[current.material_type];
+        // Use material_id if available, otherwise fall back to material_type
+        const key = (current as any).material_id || current.material_type;
+        const existing = acc[key];
         if (!existing || new Date(current.effective_date) > new Date(existing.effective_date)) {
-          acc[current.material_type] = current;
+          acc[key] = current;
         }
         return acc;
       }, {});

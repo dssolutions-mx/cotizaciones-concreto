@@ -1,8 +1,11 @@
+'use client';
+
 import { useEffect, useMemo, useState } from 'react';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import { usePlantAwareMaterialPrices } from '@/hooks/usePlantAwareMaterialPrices';
 import { recipeService } from '@/lib/supabase/recipes';
 import type { Material as RecipeMaterial } from '@/types/recipes';
+import { usePlantContext } from '@/contexts/PlantContext';
 
 // We now resolve names primarily through materials table via material_id
 
@@ -23,27 +26,34 @@ export const MaterialPriceList = ({ hasEditPermission = false }: MaterialPriceLi
     autoRefresh: true
   });
 
-  // Load all materials for mapping (ideally by plant, but prices may span plants via access; keep broad for now)
+  // Load materials for the current plant context
+  const { currentPlant, availablePlants } = usePlantContext();
   const [materials, setMaterials] = useState<RecipeMaterial[]>([]);
   useEffect(() => {
-    const fetchAllActiveMaterials = async () => {
+    const fetchPlantMaterials = async () => {
       try {
-        // recipeService.getMaterials optionally accepts plantId; here we fetch across all (undefined)
-        const list = await recipeService.getMaterials();
+        // Only load materials for the current plant
+        const list = await recipeService.getMaterials(currentPlant?.id);
         setMaterials(list || []);
       } catch (e) {
-        console.error('Error loading materials for price list', e);
+        console.error('Error loading materials for plant', e);
         setMaterials([]);
       }
     };
-    fetchAllActiveMaterials();
-  }, []);
+    fetchPlantMaterials();
+  }, [currentPlant?.id]);
 
   const materialById = useMemo(() => {
     const map = new Map<string, RecipeMaterial>();
     materials.forEach(m => map.set(m.id, m));
     return map;
   }, [materials]);
+
+  // Helper function to get plant name from plant ID
+  const getPlantName = (plantId: string) => {
+    const plant = availablePlants.find(p => p.id === plantId);
+    return plant?.name || plantId;
+  };
 
   // Resolve display values preferring material_id mapping; fallback to legacy material_type string
   const getDisplay = (price: MaterialPrice & { material_id?: string }) => {
@@ -56,6 +66,7 @@ export const MaterialPriceList = ({ hasEditPermission = false }: MaterialPriceLi
         };
       }
     }
+    
     // Fallback to legacy mapping
     const legacyType = price.material_type;
     return {
@@ -89,12 +100,17 @@ export const MaterialPriceList = ({ hasEditPermission = false }: MaterialPriceLi
                   <div>
                     <h4 className="font-medium">{display.title}</h4>
                     <p className="text-sm text-gray-500">
-                      Vigente desde: {new Date(price.effective_date).toLocaleDateString()}
+                      Vigente desde: {new Date(price.effective_date).toISOString().split('T')[0]}
+                      {(price as any).plant_id && (
+                        <span className="ml-2 text-blue-600">
+                          • Planta: {getPlantName((price as any).plant_id)}
+                        </span>
+                      )}
                     </p>
                   </div>
                   <div className="text-right">
                     <span className="text-xl font-semibold">
-                      ${price.price_per_unit.toFixed(2)}
+                      ${price.price_per_unit.toFixed(5)}
                     </span>
                     {display.unit && (
                       <span className="text-sm text-gray-500 ml-1">
