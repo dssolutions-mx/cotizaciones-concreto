@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
-import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter } from 'lucide-react';
+import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter, ChevronsUpDown, Check } from 'lucide-react';
 import { fetchMetricasCalidad, fetchDatosGraficoResistencia, checkDatabaseContent } from '@/services/qualityService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import dynamic from 'next/dynamic';
@@ -27,15 +27,16 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-  SheetFooter
-} from "@/components/ui/sheet";
+// Popover + Command for combobox-like searchable filters
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { 
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from "@/components/ui/command";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
@@ -87,7 +88,10 @@ export default function QualityDashboardPage() {
   const [selectedConstructionSite, setSelectedConstructionSite] = useState<string>('all');
   const [selectedRecipe, setSelectedRecipe] = useState<string>('all');
   const [soloEdadGarantia, setSoloEdadGarantia] = useState<boolean>(true);
-  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
+  // Inline filter popovers
+  const [openClient, setOpenClient] = useState(false);
+  const [openSite, setOpenSite] = useState(false);
+  const [openRecipe, setOpenRecipe] = useState(false);
 
   // Extended filters for quality team needs
   const [plants, setPlants] = useState<string[]>([]);
@@ -719,167 +723,105 @@ export default function QualityDashboardPage() {
             />
           </div>
           
-          {/* Filters Sheet */}
-          <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2">
-                <Filter className="h-4 w-4" />
-                Filtros
-              </Button>
-            </SheetTrigger>
-            <SheetContent className="backdrop-blur bg-white/70">
-              <SheetHeader>
-                <SheetTitle className="text-gray-900">Filtrar Datos</SheetTitle>
-                <SheetDescription>
-                  Selecciona los filtros para analizar datos específicos
-                </SheetDescription>
-              </SheetHeader>
-              
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="client">Cliente</Label>
-                  <Select
-                    value={selectedClient}
-                    onValueChange={setSelectedClient}
-                  >
-                    <SelectTrigger id="client">
-                      <SelectValue placeholder="Todos los clientes" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todos los clientes</SelectItem>
-                      {clients.filter(client => client.id && client.business_name).map(client => (
-                        <SelectItem key={client.id} value={client.id}>
-                          {client.business_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="constructionSite">Obra</Label>
-                  <Select
-                    value={selectedConstructionSite}
-                    onValueChange={setSelectedConstructionSite}
-                  >
-                    <SelectTrigger id="constructionSite">
-                      <SelectValue placeholder="Todas las obras" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todas las obras</SelectItem>
-                      {getFilteredConstructionSites().filter(site => site.id && site.name).map(site => (
-                        <SelectItem key={site.id} value={site.id}>
-                          {site.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="recipe">Receta</Label>
-                  <Select
-                    value={selectedRecipe}
-                    onValueChange={setSelectedRecipe}
-                  >
-                    <SelectTrigger id="recipe">
-                      <SelectValue placeholder="Todas las recetas" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todas las recetas</SelectItem>
-                      {recipes.filter(recipe => recipe.recipe_code && recipe.recipe_code.trim() !== '').map(recipe => (
-                        <SelectItem key={recipe.id} value={recipe.recipe_code}>
-                          {recipe.recipe_code}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="plant">Planta</Label>
-                  <Select value={selectedPlant} onValueChange={setSelectedPlant}>
-                    <SelectTrigger id="plant">
-                      <SelectValue placeholder="Todas las plantas" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todas las plantas</SelectItem>
-                      {plants.map((p) => (
-                        <SelectItem key={p} value={p}>{p}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="clasificacion">Clasificación</Label>
-                    <Select value={selectedClasificacion} onValueChange={(v) => setSelectedClasificacion(v as any)}>
-                      <SelectTrigger id="clasificacion">
-                        <SelectValue placeholder="Todas" />
-                      </SelectTrigger>
-                      <SelectContent className="backdrop-blur bg-white/80">
-                        <SelectItem value="all">Todas</SelectItem>
-                        <SelectItem value="FC">FC</SelectItem>
-                        <SelectItem value="MR">MR</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="specimen">Tipo de Probeta</Label>
-                    <Select value={selectedSpecimenType} onValueChange={(v) => setSelectedSpecimenType(v as any)}>
-                      <SelectTrigger id="specimen">
-                        <SelectValue placeholder="Todas" />
-                      </SelectTrigger>
-                      <SelectContent className="backdrop-blur bg-white/80">
-                        <SelectItem value="all">Todas</SelectItem>
-                        <SelectItem value="CILINDRO">Cilindro</SelectItem>
-                        <SelectItem value="VIGA">Viga</SelectItem>
-                        <SelectItem value="CUBO">Cubo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="strength">Resistencia Diseño (fc)</Label>
-                  <Select value={selectedStrengthRange} onValueChange={(v) => setSelectedStrengthRange(v as any)}>
-                    <SelectTrigger id="strength">
-                      <SelectValue placeholder="Todas" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todas</SelectItem>
-                      <SelectItem value="lt-200">Menor a 200</SelectItem>
-                      <SelectItem value="200-250">200–250</SelectItem>
-                      <SelectItem value="250-300">250–300</SelectItem>
-                      <SelectItem value="300-350">300–350</SelectItem>
-                      <SelectItem value="350-400">350–400</SelectItem>
-                      <SelectItem value="gt-400">Mayor a 400</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="flex items-center space-x-2 pt-2">
-                  <Switch
-                    id="edadGarantia"
-                    checked={soloEdadGarantia}
-                    onCheckedChange={setSoloEdadGarantia}
-                  />
-                  <Label htmlFor="edadGarantia">Mostrar solo ensayos de edad garantía</Label>
-                </div>
-              </div>
-              
-              <SheetFooter>
-                <Button 
-                  onClick={() => {
-                    setFiltersOpen(false);
-                  }}
-                >
-                  Aplicar Filtros
+          {/* Inline FilterBar with searchable comboboxes */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Client combobox */}
+            <Popover open={openClient} onOpenChange={setOpenClient}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="justify-between w-[220px]">
+                  {selectedClient === 'all' ? 'Todos los clientes' : (clients.find(c => c.id === selectedClient)?.business_name || 'Cliente')}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                 </Button>
-              </SheetFooter>
-            </SheetContent>
-          </Sheet>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[320px]">
+                <Command>
+                  <CommandInput placeholder="Buscar cliente..." />
+                  <CommandEmpty>Sin resultados</CommandEmpty>
+                  <CommandList>
+                    <CommandGroup>
+                      <CommandItem onSelect={() => { setSelectedClient('all'); setOpenClient(false); }}>Todos</CommandItem>
+                      {clients.filter(c => c.id && c.business_name).map(c => (
+                        <CommandItem key={c.id} onSelect={() => { setSelectedClient(c.id); setOpenClient(false); }}>
+                          {c.business_name}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            {/* Site combobox - filtered by client */}
+            <Popover open={openSite} onOpenChange={setOpenSite}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="justify-between w-[220px]">
+                  {selectedConstructionSite === 'all' ? 'Todas las obras' : (getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || 'Obra')}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[320px]">
+                <Command>
+                  <CommandInput placeholder="Buscar obra..." />
+                  <CommandEmpty>Sin resultados</CommandEmpty>
+                  <CommandList>
+                    <CommandGroup>
+                      <CommandItem onSelect={() => { setSelectedConstructionSite('all'); setOpenSite(false); }}>Todas</CommandItem>
+                      {getFilteredConstructionSites().filter(s => s.id && s.name).map(s => (
+                        <CommandItem key={s.id} onSelect={() => { setSelectedConstructionSite(s.id); setOpenSite(false); }}>
+                          {s.name}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            {/* Recipe combobox */}
+            <Popover open={openRecipe} onOpenChange={setOpenRecipe}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="justify-between w-[180px]">
+                  {selectedRecipe === 'all' ? 'Todas las recetas' : selectedRecipe}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[280px]">
+                <Command>
+                  <CommandInput placeholder="Buscar receta..." />
+                  <CommandEmpty>Sin resultados</CommandEmpty>
+                  <CommandList>
+                    <CommandGroup>
+                      <CommandItem onSelect={() => { setSelectedRecipe('all'); setOpenRecipe(false); }}>Todas</CommandItem>
+                      {recipes.filter(r => r.recipe_code?.trim()).map(r => (
+                        <CommandItem key={r.id} onSelect={() => { setSelectedRecipe(r.recipe_code); setOpenRecipe(false); }}>
+                          {r.recipe_code}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            {/* Toggle chips */}
+            <Button variant={soloEdadGarantia ? 'default' : 'outline'} size="sm" onClick={() => setSoloEdadGarantia(v => !v)}>
+              {soloEdadGarantia ? 'Edad garantía: ON' : 'Edad garantía: OFF'}
+            </Button>
+            <Button variant={selectedClasificacion === 'FC' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedClasificacion(selectedClasificacion === 'FC' ? 'all' : 'FC')}>FC</Button>
+            <Button variant={selectedClasificacion === 'MR' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedClasificacion(selectedClasificacion === 'MR' ? 'all' : 'MR')}>MR</Button>
+
+            {/* Quick reset */}
+            <Button variant="outline" size="sm" onClick={() => {
+              setSelectedClient('all');
+              setSelectedConstructionSite('all');
+              setSelectedRecipe('all');
+              setSelectedPlant('all');
+              setSelectedClasificacion('all');
+              setSelectedSpecimenType('all');
+              setSelectedStrengthRange('all');
+              setSoloEdadGarantia(false);
+            }}>Reset</Button>
+          </div>
           
           <Button 
             variant="outline" 

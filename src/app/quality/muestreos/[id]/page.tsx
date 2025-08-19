@@ -47,11 +47,34 @@ import AddSampleModal from '@/components/quality/muestreos/AddSampleModal';
 
 // Order information component
 function OrderInfo({ muestreo }: { muestreo: MuestreoWithRelations }) {
-  if (!muestreo.remision?.orders) {
-    return null;
+  if (!muestreo.remision?.order) {
+    return (
+      <Card className="mb-6 border-yellow-200 bg-yellow-50/50">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-2 text-yellow-700">
+            <AlertTriangle className="h-4 w-4" />
+            <span className="text-sm">Información de orden incompleta</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
   }
 
-  const order = muestreo.remision.orders;
+  const order = muestreo.remision.order;
+  
+  // Safety check for order.id
+  if (!order.id) {
+    return (
+      <Card className="mb-6 border-yellow-200 bg-yellow-50/50">
+        <CardContent className="p-4">
+          <div className="flex items-center gap-2 text-yellow-700">
+            <AlertTriangle className="h-4 w-4" />
+            <span className="text-sm">ID de orden no disponible</span>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
   
   return (
     <Card className="mb-6 border-blue-200 bg-blue-50/50">
@@ -68,7 +91,7 @@ function OrderInfo({ muestreo }: { muestreo: MuestreoWithRelations }) {
           </div>
           <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
             <FileText className="h-3 w-3 mr-1" />
-            Orden #{order.id.slice(0, 8)}...
+            Orden #{order.order_number || order.id.slice(0, 8)}...
           </Badge>
         </div>
       </CardHeader>
@@ -76,15 +99,21 @@ function OrderInfo({ muestreo }: { muestreo: MuestreoWithRelations }) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-600">ID de Orden:</span>
+              <span className="text-sm font-medium text-gray-600">Número de Orden:</span>
               <Badge variant="outline" className="font-mono">
-                {order.id.slice(0, 8)}...
+                {order.order_number || `#${order.id.slice(0, 8)}...`}
               </Badge>
             </div>
             {order.clients && (
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-600">Cliente:</span>
                 <span className="text-sm">{order.clients.business_name}</span>
+              </div>
+            )}
+            {order.construction_site && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-600">Obra:</span>
+                <span className="text-sm">{order.construction_site}</span>
               </div>
             )}
           </div>
@@ -101,6 +130,14 @@ function OrderInfo({ muestreo }: { muestreo: MuestreoWithRelations }) {
                 {format(new Date(muestreo.remision.fecha), 'dd/MM/yyyy', { locale: es })}
               </span>
             </div>
+            {order.delivery_date && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-600">Fecha Entrega:</span>
+                <span className="text-sm">
+                  {format(new Date(order.delivery_date), 'dd/MM/yyyy', { locale: es })}
+                </span>
+              </div>
+            )}
           </div>
         </div>
         
@@ -412,7 +449,7 @@ export default function MuestreoDetailPage() {
                   <p className="text-sm font-medium text-gray-500">Cliente</p>
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-gray-400" />
-                    <p className="font-medium">{muestreo.remision?.orders?.clients?.business_name || 'No disponible'}</p>
+                    <p className="font-medium">{muestreo.remision?.order?.clients?.business_name || 'No disponible'}</p>
                   </div>
                 </div>
                 
