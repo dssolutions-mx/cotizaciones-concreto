@@ -1,0 +1,96 @@
+﻿Planta,Número de remisión,Fecha muestreo,Temperatura ambiente,Temperatura del concreto,Salida de Planta,Llegada a obra (Hora),Tipo de prueba,Revenimiento / Extensibilidad en Obra,Se realizó ajuste,Observaciones del colado
+P003,2930,08/07/2025,26,23,5:47,5:55,Revenimiento,20,No,"Atraso: llegada de coladores - Prueba cono: realizado después de 30 min, extensibilidad 67 dentro de rango, solicitado incremento"
+P003,2933,08/07/2025,38,34.5,13:20,13:30,Extensibilidad,75,No,Sin observaciones
+P003,2941,08/07/2025,38,33.9,15:53,16:05,Extensibilidad,75,No,Sin observaciones
+P003,2945,08/07/2025,29,32.4,19:05,19:14,Extensibilidad,74,No,Sin observaciones
+P003,2949,08/07/2025,25,32.9,21:27,21:35,Extensibilidad,75,No,Sin observaciones
+P003,2954,08/07/2025,22,31.4,22:41,22:55,Extensibilidad,75,No,Sin observaciones
+P003,2960,09/07/2025,27,31.5,19:15,19:23,Extensibilidad,75,No,"Descarga: atraso inicial por cliente no preparado, posterior descarga normal"
+P003,2962,09/07/2025,27,33,20:00,20:07,Extensibilidad,75,No,Descarga normal
+P004,4461,17/06/2025,21,28,19:17,19:30,Extensibilidad,55,No,Descarga normal
+P002,7881,07/07/2025,31,31,12:00,12:35,Revenimiento,20,No,Descarga normal
+P002,7891,07/07/2025,33,29,15:22,15:55,Revenimiento,20,No,Atraso: falta de instalación de tubería
+P002,7908,08/07/2025,20,23,01:35,02:00,Revenimiento,18,No,Atraso: colocación de tubería sobre losa - Descarga normal
+P002,7942,09/07/2025,22,25,00:59,01.20,Revenimiento,21,No,Descarga normal
+P002,7952,09/07/2025,27,30,16:17,16:44,Revenimiento,19,No,Descarga normal
+P002,7958,09/07/2025,23,28,21:27,21:40,Revenimiento,20,No,Traslado: mucho tráfico - Descarga normal
+P002,7969,10/07/2025,26,27,2:48,3.04,Revenimiento,19,No,Sin observaciones
+P002,7979,10/07/2025,27,28,6:33,6:48,Revenimiento,18,No,Sin observaciones
+P002,8005,11/07/2025,27,31,15:41,16:12,Revenimiento,20,No,Sin observaciones
+P002,8010,11/07/2025,24,29,19:37,20:35,Extensibilidad,60,No,Sin observaciones
+P002,8013,11/07/2025,22,27,22:33,23:01,Revenimiento,19,No,Sin observaciones
+P004,4669,01/07/2025,18,29,18:00,18:10,Extensibilidad,75,No,Sin observaciones
+P004,4860,14/07/2025,21,29,13:15,13:30,Revenimiento,20,No,Sin observaciones
+P004,4866,14/07/2025,20,31,17:08,17:20,Extensibilidad,76,No,Sin observaciones
+P004,4867,14/07/2025,20,31,18:00,18:10,Extensibilidad,75,No,Sin observaciones
+P004,4898,16/07/2025,19,30,21:02,21:12,Extensibilidad,74,No,Sin observaciones
+P002,8036,13/07/2025,26,26,01:12,01:41,Revenimiento,22,No,Sin observaciones
+P002,8042,13/07/2025,26,26,04:09,04:37,Revenimiento,22,No,Sin observaciones
+P002,8051,13/07/2025,25,25,7:27,7:55,Revenimiento,22,No,Sin observaciones
+P002,8094,15/07/2025,30,31,10:00,10:30,Revenimiento,25,No,Sin observaciones
+P002,8103,15/07/2025,30,28,12:05,12:38,Revenimiento,25,No,Sin observaciones
+P002,8115,15/07/2025,27,29,14:35,15:09,Revenimiento,22,No,Sin observaciones
+P002,8124,15/07/2025,28,33,18:46,19:11,Revenimiento,19,No,Sin observaciones
+P002,8163,17/07/2025,28,29,21:06,21:50,Revenimiento,21,No,Sin observaciones
+P003,3134,15/07/2025,26,28,8:47,9:40,Revenimiento,11,No,Sin observaciones
+P002,8171,18/07/2025,25,28,9:44,10:11,Revenimiento,20,No,Sin observaciones
+P002,8179,19/07/2025,26,29,5:37,6:49,Revenimiento,11,No,Sin observaciones
+P002,8200,19/07/2025,24,29,13:30,14:03,Revenimiento,20,No,Sin observaciones
+P002,8234,22/07/2025,23,28,7:33,8:46,Revenimiento,10,No,Sin observaciones
+P002,8263,23/07/2025,20,27,01:17,01:45,Revenimiento,21,No,Sin observaciones
+P002,8295,23/07/2025,20,31,16:00,16:37,Extensibilidad,51,No,Atraso: llegada de coladores y laboratorio 20 min - Prueba cono: realizado 18 min después de llegada
+P002,8308,23/07/2025,20,28,19:17,19:53,Revenimiento,20,No,Sin observaciones
+P002,8318,23/07/2025,18,27,22:12,22:40,Revenimiento,17,No,Sin observaciones
+P002,8263,23/07/2025,20,26,01:17,01:41,Revenimiento,22,No,Sin observaciones
+P003,3010,14/07/2025,27,28,6:00,6:07,Revenimiento,20,No,Sin observaciones
+P003,3013,14/07/2025,38,34,14:04,14:10,Extensibilidad,70,No,Todas continuas
+P003,3018,14/07/2025,30,34,17:28,17;34,Extensibilidad,70,No,Sin observaciones
+P003,3023,14/07/2025,29,31,20:32,20:38,Extensibilidad,70,No,Sin observaciones
+P003,3026,15/07/2025,27,29.2,6:00,6:05,Revenimiento,18,No,Sin observaciones
+P003,3030,15/07/2025,30.2,32.4,17:35,17:40,Extensibilidad,70,No,Sin observaciones
+P003,3035,15/07/2025,28,31,18:48,18:53,Extensibilidad,69,No,Atraso: compensación de descarga 1 hora - Inicio descarga 7:02 - Personal y laboratorio ausentes
+P003,3040,15/07/2025,29.8,30.1,19:49,19:54,Extensibilidad,71,No,Sin observaciones
+P003,3046,15/07/2025,28,30.4,20:48,20:54,Extensibilidad,72,No,Sin observaciones
+P003,3048,16/07/2025,37.8,34.5,14:34,14:34,Extensibilidad,73,No,Sin observaciones
+P003,3052,16/07/2025,28,29.7,20:00,20:05,Extensibilidad,75,No,Sin observaciones
+P003,3054,17/07/2025,25,27.6,6:01,6:07,Revenimiento,21,No,Sin observaciones
+P003,3059,17/07/2025,38,34.8,15:03,15:08,Extensibilidad,75,No,Sin observaciones
+P003,3065,17/07/2025,33,32.8,18:00,18:05,Extensibilidad,74,No,Sin observaciones
+P003,3070,17/07/2025,31,32.3,18:55,19:00,Extensibilidad,72,No,Sin observaciones
+P003,3075,17/07/2025,30,30.8,19:58,20:05,Extensibilidad,74,No,Sin observaciones
+P002,8295,23/07/2025,22,31,16:00,16:25,Extensibilidad,48,No,Sin observaciones
+P002,8308,23/07/2025,21,30,19:17,19:33,Revenimiento,20,No,Sin observaciones
+P002,8318,23/07/2025,20,27,22:12,22:40,Revenimiento,17,No,Sin observaciones
+P002,8345,24/07/2025,24,29,10:54,11:22,Revenimiento,10,No,Sin observaciones
+P002,8366,25/07/2025,23,27,8:59,9:50,Revenimiento,8,No,Sin observaciones
+P002,8386,25/07/2025,25,30,15:33,16:08,Revenimiento,19,No,Sin observaciones
+P002,8416,26/07/2025,24,28,9:14,9:41,Revenimiento,9,No,Sin observaciones
+P003,3418,26/07/2025,25,29,9:52,10;22,Revenimiento,10,No,Sin observaciones
+P002,8435,27/07/2025,25,31,13:32,13:49,Revenimiento,18,No,Sin observaciones
+P002,8445,27/07/2025,27,29,16:00,16:15,Revenimiento,26,No,Sin observaciones
+P002,8452,27/07/2025,24,28,18:03,18:41,Revenimiento,19,No,Sin observaciones
+P002,8470,28/07/2025,25,29,17:50,18:22,Revenimiento,20,No,Sin observaciones
+P002,8488,29/07/2025,25,30,13:19,13:53,Revenimiento,23,No,Sin observaciones
+P002,8531,08/08/2025,25,28,14:11,14:48,Revenimiento,19,No,Sin observaciones
+P002,8538,01/08/2025,20,27,18:21,18:43,Revenimiento,20,No,Sin observaciones
+P002,8548,01/08/2025,20,27,20:53,21:27,Revenimiento,20,No,Sin observaciones
+P003,8552,02/08/2025,22,28,18:38,19:09,Revenimiento,18,No,Sin observaciones
+P002,8566,03/08/2025,20,25,00:37,00:48,Revenimiento,20,No,Sin observaciones
+P002,8579,04/08/2025,24,29,15:32,16:08,Revenimiento,21,No,Sin observaciones
+P002,8596,05/08/2025,23,30,00:16,00:40,Revenimiento,22,No,Sin observaciones
+P002,8610,05/08/2025,24,28,11:12,11:43,Revenimiento,20,No,Sin observaciones
+P002,8616,05/08/2025,23,28,12:24,12:56,Extensibilidad,52,No,Sin observaciones
+P002,8636,05/08/2025,22,28,16:15,16:39,Revenimiento,19,No,Sin observaciones
+P002,8659,06/08/2025,30,30,16:53,17:22,Revenimiento,19,No,Sin observaciones
+P002,8691,07/08/2025,39,27,16:09,16:20,Revenimiento,21,No,Sin observaciones
+P002,8695,07/08/2025,28,27,21:11,21:36,Revenimiento,21,No,Sin observaciones
+P002,8718,09/08/2025,33,28,8:35,8:58,Revenimiento,19,No,sin detalles
+P002,8705,08/08/2025,30,29,15:25,15:50,Revenimiento,22,No,sin detalles
+P002,8727,11/08/2025,32,27,8:37,8:55,Revenimiento,23,No,sin detalles
+P004,4200,30/05/2025,20,28,18:21,18:35,Revenimiento,20,No,S/O
+P002,8739,12/08/2025,30,20,10:46,10:51,Revenimiento,20,No,sin detalles
+P002,8769,13/08/2025,30,29,00:11,00:34,Extensibilidad,55,No,sin detalles
+P002,8780,13/08/2025,29,29,14:59,15:20,Revenimiento,20,No,sin detalles
+P002,8786,13/08/2025,26,28,19:05,19:33,Extensibilidad,50,No,sin detalles
+P002,8801,14/08/2025,30,26,10:37,11:00,Revenimiento,24,No,sin detalles
+P002,8821,14/08/2025,30,28,15:32,16:08,Revenimiento,22,No,sin detalles
