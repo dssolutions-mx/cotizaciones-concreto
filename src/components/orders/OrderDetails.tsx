@@ -33,7 +33,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
-import { Copy, CalculatorIcon, Beaker } from 'lucide-react';
+import { Copy, CalculatorIcon, Beaker, FileText } from 'lucide-react';
+import QualityOverview from './QualityOverview';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 
@@ -79,7 +80,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [isRejectReasonModalOpen, setIsRejectReasonModalOpen] = useState<boolean>(false);
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'details' | 'remisiones'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'remisiones' | 'calidad'>('details');
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [clientSites, setClientSites] = useState<ConstructionSite[]>([]);
   const [loadingSites, setLoadingSites] = useState(false);
@@ -1227,6 +1228,16 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 >
                   Remisiones
                 </button>
+                <button
+                  onClick={() => setActiveTab('calidad')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'calidad'
+                      ? 'border-green-500 text-green-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Calidad
+                </button>
               </nav>
             </div>
                   
@@ -1735,7 +1746,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   </div>
                 )}
               </div>
-            ) : (
+            ) : activeTab === 'remisiones' ? (
               <div className="mt-6 space-y-6">
                 {hasRemisiones && (
                   <div className="flex justify-end mb-4">
@@ -1769,7 +1780,18 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   onRemisionesLoaded={handleRemisionesDataUpdate}
                 />
               </div>
-            )}
+            ) : activeTab === 'calidad' ? (
+              <div className="mt-6 bg-white shadow-sm overflow-hidden sm:rounded-lg">
+                <div className="px-4 py-5 sm:px-6 bg-gray-50">
+                  <h3 className="text-lg leading-6 font-medium text-gray-900">Control de Calidad</h3>
+                  <p className="mt-1 text-sm text-gray-500">Estado de muestreos y ensayos para esta orden</p>
+                </div>
+                
+                <div className="px-4 py-5 sm:px-6">
+                  <QualityOverview orderId={order.id} />
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {/* Always show order actions, not just for financial users */}
