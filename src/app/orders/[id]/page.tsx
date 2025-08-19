@@ -18,6 +18,8 @@ function SamplingInfo({ orderId }: { orderId: string }) {
     totalMuestras: number;
     muestrasEnsayadas: number;
     muestrasPendientes: number;
+    totalOrderVolume?: number;
+    totalOrderSamplings?: number;
   } | null>(null);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -26,12 +28,28 @@ function SamplingInfo({ orderId }: { orderId: string }) {
     const fetchSamplingData = async () => {
       try {
         setLoading(true);
-        const response = await fetch(`/api/orders/${orderId}/sampling-info`);
-        if (!response.ok) {
+        // Fetch both sampling info and order totals
+        const [samplingResponse, totalsResponse] = await Promise.all([
+          fetch(`/api/orders/${orderId}/sampling-info`),
+          fetch(`/api/orders/${orderId}/order-totals`)
+        ]);
+        
+        if (!samplingResponse.ok) {
           throw new Error('Failed to fetch sampling data');
         }
-        const data = await response.json();
-        setSamplingData(data);
+        
+        const samplingData = await samplingResponse.json();
+        let totalsData = null;
+        
+        if (totalsResponse.ok) {
+          totalsData = await totalsResponse.json();
+        }
+        
+        setSamplingData({
+          ...samplingData,
+          totalOrderVolume: totalsData?.totalOrderVolume,
+          totalOrderSamplings: totalsData?.totalOrderSamplings
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Unknown error');
       } finally {
@@ -82,114 +100,138 @@ function SamplingInfo({ orderId }: { orderId: string }) {
   }
 
   return (
-    <Card className="mb-6 border-blue-200 bg-blue-50/50" data-sampling-info>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Beaker className="h-5 w-5 text-blue-600" />
-          Información de Muestreos
-        </CardTitle>
-        <CardDescription>
-          Resumen de muestreos y muestras relacionadas con esta orden
-        </CardDescription>
+    <Card className="mb-6 border border-gray-200 bg-white shadow-sm" data-sampling-info>
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Beaker className="h-5 w-5 text-gray-600" />
+              Control de Calidad
+            </CardTitle>
+            <CardDescription>
+              Estado de muestreos y ensayos para esta orden
+            </CardDescription>
+          </div>
+          <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
+            {samplingData.totalMuestras > 0 ? 
+              `${Math.round((samplingData.muestrasEnsayadas / samplingData.totalMuestras) * 100)}% Completado` : 
+              'Sin muestras'
+            }
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
           <div className="text-center">
-            <div className="text-2xl font-bold text-blue-600">{samplingData.totalRemisiones}</div>
+            <div className="text-2xl font-bold text-gray-900">{samplingData.totalRemisiones}</div>
             <div className="text-xs text-gray-600">Remisiones</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{samplingData.remisionesWithMuestreos}</div>
+            <div className="text-2xl font-bold text-gray-900">{samplingData.remisionesWithMuestreos}</div>
             <div className="text-xs text-gray-600">Con Muestreos</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-purple-600">{samplingData.totalMuestreos}</div>
+            <div className="text-2xl font-bold text-gray-900">{samplingData.totalMuestreos}</div>
             <div className="text-xs text-gray-600">Muestreos</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-orange-600">{samplingData.totalMuestras}</div>
+            <div className="text-2xl font-bold text-gray-900">{samplingData.totalMuestras}</div>
             <div className="text-xs text-gray-600">Muestras</div>
           </div>
         </div>
         
-        {samplingData.totalMuestras > 0 && (
-          <div className="mt-4 pt-4 border-t border-blue-200">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="text-center">
-                <div className="text-lg font-semibold text-green-600">{samplingData.muestrasEnsayadas}</div>
-                <div className="text-xs text-gray-600">Muestras Ensayadas</div>
+        {/* Quality Progress & Order Context */}
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Quality Progress */}
+            {samplingData.totalMuestras > 0 && (
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium text-gray-700">Progreso de Ensayos</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+                    <div className="text-lg font-bold text-green-700">{samplingData.muestrasEnsayadas}</div>
+                    <div className="text-xs text-green-600">Ensayadas</div>
+                  </div>
+                  <div className="text-center p-3 bg-amber-50 rounded-lg border border-amber-200">
+                    <div className="text-lg font-bold text-amber-700">{samplingData.muestrasPendientes}</div>
+                    <div className="text-xs text-amber-600">Pendientes</div>
+                  </div>
+                </div>
+                
+                {/* Progress bar */}
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs text-gray-600">
+                    <span>Completado</span>
+                    <span>{Math.round((samplingData.muestrasEnsayadas / samplingData.totalMuestras) * 100)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${(samplingData.muestrasEnsayadas / samplingData.totalMuestras) * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
               </div>
-              <div className="text-center">
-                <div className="text-lg font-semibold text-yellow-600">{samplingData.muestrasPendientes}</div>
-                <div className="text-xs text-gray-600">Muestras Pendientes</div>
+            )}
+            
+            {/* Order Context */}
+            <div className="space-y-3">
+              <h4 className="text-sm font-medium text-gray-700">Contexto de la Orden</h4>
+              <div className="space-y-2">
+                {samplingData.totalOrderVolume && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">Volumen Total:</span>
+                    <span className="font-semibold text-gray-900">{samplingData.totalOrderVolume} m³</span>
+                  </div>
+                )}
+                {samplingData.totalOrderSamplings && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">Total Muestreos:</span>
+                    <span className="font-semibold text-gray-900">{samplingData.totalOrderSamplings}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Muestreos Realizados:</span>
+                  <span className="font-semibold text-gray-900">{samplingData.totalMuestreos}</span>
+                </div>
               </div>
             </div>
           </div>
-        )}
-        
-        <div className="mt-4 pt-4 border-t border-blue-200">
-          <div className="flex flex-wrap gap-2 justify-center">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open('/quality/muestreos', '_blank')}
-              className="flex items-center gap-2"
-            >
-              <Beaker className="h-4 w-4" />
-              Ver Muestreos
-            </Button>
-            {samplingData.totalMuestras > 0 && (
+          
+          {/* Action Buttons */}
+          <div className="mt-6 pt-4 border-t border-gray-200">
+            <div className="flex flex-wrap gap-3 justify-center">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => window.open('/quality/ensayos', '_blank')}
+                onClick={() => window.open('/quality/muestreos', '_blank')}
+                className="flex items-center gap-2"
+              >
+                <Beaker className="h-4 w-4" />
+                Ver Muestreos
+              </Button>
+              {samplingData.totalMuestras > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open('/quality/ensayos', '_blank')}
+                  className="flex items-center gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  Ver Ensayos
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open('/quality/reportes', '_blank')}
                 className="flex items-center gap-2"
               >
                 <FileText className="h-4 w-4" />
-                Ver Ensayos
+                Reportes
               </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open('/quality/reportes', '_blank')}
-              className="flex items-center gap-2"
-            >
-              <FileText className="h-4 w-4" />
-              Reportes
-            </Button>
-          </div>
-          
-          {/* Quality Status Summary */}
-          {samplingData.totalMuestras > 0 && (
-            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-blue-700 font-medium">Estado de Calidad:</span>
-                <div className="flex gap-2">
-                  <Badge variant="outline" className="text-green-600 border-green-300">
-                    {samplingData.muestrasEnsayadas} Ensayadas
-                  </Badge>
-                  <Badge variant="outline" className="text-yellow-600 border-yellow-300">
-                    {samplingData.muestrasPendientes} Pendientes
-                  </Badge>
-                </div>
-              </div>
-              
-              {/* Progress indicator */}
-              <div className="mt-3">
-                <div className="flex justify-between text-xs text-gray-600 mb-1">
-                  <span>Progreso de Ensayos</span>
-                  <span>{Math.round((samplingData.muestrasEnsayadas / samplingData.totalMuestras) * 100)}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    className="bg-green-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${(samplingData.muestrasEnsayadas / samplingData.totalMuestras) * 100}%` }}
-                  ></div>
-                </div>
-              </div>
             </div>
-          )}
+          </div>
         </div>
       </CardContent>
     </Card>
