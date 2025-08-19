@@ -102,8 +102,12 @@ export interface MuestreoWithRelations extends Muestreo {
         is_current: boolean;
       }[];
     };
-    orders?: {
+    order?: {
       id: string;
+      order_number: string;
+      construction_site: string;
+      delivery_date: string;
+      delivery_time: string;
       clients?: {
         id: string;
         business_name: string;

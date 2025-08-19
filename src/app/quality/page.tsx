@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
-import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter } from 'lucide-react';
+import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter, ChevronsUpDown, Check } from 'lucide-react';
 import { fetchMetricasCalidad, fetchDatosGraficoResistencia, checkDatabaseContent } from '@/services/qualityService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import dynamic from 'next/dynamic';
@@ -27,15 +27,16 @@ import {
   SelectTrigger, 
   SelectValue 
 } from "@/components/ui/select";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-  SheetFooter
-} from "@/components/ui/sheet";
+// Popover + Command for combobox-like searchable filters
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { 
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from "@/components/ui/command";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 
@@ -87,7 +88,12 @@ export default function QualityDashboardPage() {
   const [selectedConstructionSite, setSelectedConstructionSite] = useState<string>('all');
   const [selectedRecipe, setSelectedRecipe] = useState<string>('all');
   const [soloEdadGarantia, setSoloEdadGarantia] = useState<boolean>(true);
-  const [filtersOpen, setFiltersOpen] = useState<boolean>(false);
+  // Inline filter popovers
+  const [openClient, setOpenClient] = useState(false);
+  const [openSite, setOpenSite] = useState(false);
+  const [openRecipe, setOpenRecipe] = useState(false);
+  const [openPlant, setOpenPlant] = useState(false);
+  const [openStrengthRange, setOpenStrengthRange] = useState(false);
 
   // Extended filters for quality team needs
   const [plants, setPlants] = useState<string[]>([]);
@@ -601,6 +607,50 @@ export default function QualityDashboardPage() {
   // Prepare data for MUI ScatterChart (memoized and filtered/aggregated)
   const preparedData = React.useMemo(() => applyFiltersAndAggregate(datosGrafico), [datosGrafico, applyFiltersAndAggregate]);
 
+  // Calculate filtered metrics based on the actual displayed data
+  const filteredMetrics = React.useMemo(() => {
+    if (preparedData.length === 0) {
+      return {
+        numeroMuestras: 0,
+        muestrasEnCumplimiento: 0,
+        resistenciaPromedio: 0,
+        porcentajeResistenciaGarantia: 0,
+        coeficienteVariacion: 0
+      };
+    }
+
+    const resistencias = preparedData
+      .map(d => d.resistencia_calculada)
+      .filter((r): r is number => typeof r === 'number' && !isNaN(r));
+    
+    const cumplimientos = preparedData.map(d => d.y);
+    const muestrasEnCumplimiento = preparedData.filter(d => d.y >= 100).length;
+    
+    const resistenciaPromedio = resistencias.length > 0 
+      ? resistencias.reduce((a, b) => a + b, 0) / resistencias.length 
+      : 0;
+    
+    const porcentajeResistenciaGarantia = cumplimientos.length > 0
+      ? cumplimientos.reduce((a, b) => a + b, 0) / cumplimientos.length
+      : 0;
+
+    // Calculate coefficient of variation
+    let coeficienteVariacion = 0;
+    if (resistencias.length > 1 && resistenciaPromedio > 0) {
+      const variance = resistencias.reduce((acc, val) => acc + Math.pow(val - resistenciaPromedio, 2), 0) / resistencias.length;
+      const standardDeviation = Math.sqrt(variance);
+      coeficienteVariacion = (standardDeviation / resistenciaPromedio) * 100;
+    }
+
+    return {
+      numeroMuestras: preparedData.length,
+      muestrasEnCumplimiento,
+      resistenciaPromedio,
+      porcentajeResistenciaGarantia,
+      coeficienteVariacion
+    };
+  }, [preparedData]);
+
   // Split into meaningful buckets by compliance for better readability
   const seriesBuckets = React.useMemo(() => {
     const below90 = [] as typeof preparedData;
@@ -617,17 +667,64 @@ export default function QualityDashboardPage() {
   const mapChartPoint = (item: DatoGraficoResistencia, idx: number) => {
     const dateObj = new Date(item.x);
     const formattedDate = format(dateObj, 'dd/MM/yyyy');
+    
+    // Extract comprehensive data for tooltip with proper null checks
+    const resistencia = item.resistencia_calculada;
+    const strengthFc = item.muestra?.muestreo?.remision?.recipe?.strength_fc;
+    
+    // Client name with fallback paths
+    let cliente = 'N/A';
+    if (item.muestra?.muestreo?.remision?.order?.client?.business_name) {
+      cliente = item.muestra.muestreo.remision.order.client.business_name;
+    } else if (item.muestra?.muestreo?.remision?.order?.clients?.business_name) {
+      cliente = item.muestra.muestreo.remision.order.clients.business_name;
+    }
+    
+    // Construction site with fallback paths
+    let obra = 'N/A';
+    if (item.muestra?.muestreo?.remision?.order?.construction_site_name) {
+      obra = item.muestra.muestreo.remision.order.construction_site_name;
+    } else if (item.muestra?.muestreo?.remision?.order?.construction_site) {
+      // If it's an ID, try to find the name from constructionSites array
+      const siteId = item.muestra.muestreo.remision.order.construction_site;
+      const matchingSite = constructionSites.find(site => site.id === siteId);
+      obra = matchingSite ? matchingSite.name : siteId;
+    }
+    
+    // Recipe code
+    const receta = item.muestra?.muestreo?.remision?.recipe?.recipe_code || 'N/A';
+    
+    // Plant
+    const planta = item.muestra?.muestreo?.planta || 'N/A';
+    
+    // Classification and age
+    const clasificacion = item.clasificacion || 'N/A';
+    const edad = item.edad || 'N/A';
+    
+    // Sample type
+    const tipoMuestra = item.muestra?.tipo_muestra || 'N/A';
+    
+    // Check if this is an aggregated point
+    const isAggregated = (item as any)?.isAggregated;
+    const aggregatedCount = (item as any)?.aggregatedCount;
+    
     return {
       id: idx,
       x: item.x,
       y: item.y,
       fecha_muestreo: formattedDate,
       cumplimiento: `${item.y.toFixed(2)}%`,
-      resistencia_real: item.resistencia_calculada,
-      resistencia_esperada: item.muestra?.muestreo?.remision?.recipe?.strength_fc,
-      client_name: item.muestra?.muestreo?.remision?.order?.client?.business_name,
-      construction_site_name: item.muestra?.muestreo?.remision?.order?.construction_site || item.muestra?.muestreo?.remision?.order?.construction_site_name,
-      recipe_code: item.muestra?.muestreo?.remision?.recipe?.recipe_code,
+      resistencia_real: resistencia,
+      resistencia_esperada: strengthFc,
+      client_name: cliente,
+      construction_site_name: obra,
+      recipe_code: receta,
+      planta: planta,
+      clasificacion: clasificacion,
+      edad: edad,
+      tipo_muestra: tipoMuestra,
+      isAggregated,
+      aggregatedCount,
       original_data: item
     };
   };
@@ -719,167 +816,165 @@ export default function QualityDashboardPage() {
             />
           </div>
           
-          {/* Filters Sheet */}
-          <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2">
-                <Filter className="h-4 w-4" />
-                Filtros
-              </Button>
-            </SheetTrigger>
-            <SheetContent className="backdrop-blur bg-white/70">
-              <SheetHeader>
-                <SheetTitle className="text-gray-900">Filtrar Datos</SheetTitle>
-                <SheetDescription>
-                  Selecciona los filtros para analizar datos específicos
-                </SheetDescription>
-              </SheetHeader>
-              
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="client">Cliente</Label>
-                  <Select
-                    value={selectedClient}
-                    onValueChange={setSelectedClient}
-                  >
-                    <SelectTrigger id="client">
-                      <SelectValue placeholder="Todos los clientes" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todos los clientes</SelectItem>
-                      {clients.filter(client => client.id && client.business_name).map(client => (
-                        <SelectItem key={client.id} value={client.id}>
-                          {client.business_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="constructionSite">Obra</Label>
-                  <Select
-                    value={selectedConstructionSite}
-                    onValueChange={setSelectedConstructionSite}
-                  >
-                    <SelectTrigger id="constructionSite">
-                      <SelectValue placeholder="Todas las obras" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todas las obras</SelectItem>
-                      {getFilteredConstructionSites().filter(site => site.id && site.name).map(site => (
-                        <SelectItem key={site.id} value={site.id}>
-                          {site.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="recipe">Receta</Label>
-                  <Select
-                    value={selectedRecipe}
-                    onValueChange={setSelectedRecipe}
-                  >
-                    <SelectTrigger id="recipe">
-                      <SelectValue placeholder="Todas las recetas" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todas las recetas</SelectItem>
-                      {recipes.filter(recipe => recipe.recipe_code && recipe.recipe_code.trim() !== '').map(recipe => (
-                        <SelectItem key={recipe.id} value={recipe.recipe_code}>
-                          {recipe.recipe_code}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="plant">Planta</Label>
-                  <Select value={selectedPlant} onValueChange={setSelectedPlant}>
-                    <SelectTrigger id="plant">
-                      <SelectValue placeholder="Todas las plantas" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todas las plantas</SelectItem>
-                      {plants.map((p) => (
-                        <SelectItem key={p} value={p}>{p}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="clasificacion">Clasificación</Label>
-                    <Select value={selectedClasificacion} onValueChange={(v) => setSelectedClasificacion(v as any)}>
-                      <SelectTrigger id="clasificacion">
-                        <SelectValue placeholder="Todas" />
-                      </SelectTrigger>
-                      <SelectContent className="backdrop-blur bg-white/80">
-                        <SelectItem value="all">Todas</SelectItem>
-                        <SelectItem value="FC">FC</SelectItem>
-                        <SelectItem value="MR">MR</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="specimen">Tipo de Probeta</Label>
-                    <Select value={selectedSpecimenType} onValueChange={(v) => setSelectedSpecimenType(v as any)}>
-                      <SelectTrigger id="specimen">
-                        <SelectValue placeholder="Todas" />
-                      </SelectTrigger>
-                      <SelectContent className="backdrop-blur bg-white/80">
-                        <SelectItem value="all">Todas</SelectItem>
-                        <SelectItem value="CILINDRO">Cilindro</SelectItem>
-                        <SelectItem value="VIGA">Viga</SelectItem>
-                        <SelectItem value="CUBO">Cubo</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="strength">Resistencia Diseño (fc)</Label>
-                  <Select value={selectedStrengthRange} onValueChange={(v) => setSelectedStrengthRange(v as any)}>
-                    <SelectTrigger id="strength">
-                      <SelectValue placeholder="Todas" />
-                    </SelectTrigger>
-                    <SelectContent className="backdrop-blur bg-white/80">
-                      <SelectItem value="all">Todas</SelectItem>
-                      <SelectItem value="lt-200">Menor a 200</SelectItem>
-                      <SelectItem value="200-250">200–250</SelectItem>
-                      <SelectItem value="250-300">250–300</SelectItem>
-                      <SelectItem value="300-350">300–350</SelectItem>
-                      <SelectItem value="350-400">350–400</SelectItem>
-                      <SelectItem value="gt-400">Mayor a 400</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                
-                <div className="flex items-center space-x-2 pt-2">
-                  <Switch
-                    id="edadGarantia"
-                    checked={soloEdadGarantia}
-                    onCheckedChange={setSoloEdadGarantia}
-                  />
-                  <Label htmlFor="edadGarantia">Mostrar solo ensayos de edad garantía</Label>
-                </div>
-              </div>
-              
-              <SheetFooter>
-                <Button 
-                  onClick={() => {
-                    setFiltersOpen(false);
-                  }}
-                >
-                  Aplicar Filtros
+          {/* Inline FilterBar with searchable comboboxes */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Client combobox */}
+            <Popover open={openClient} onOpenChange={setOpenClient}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="justify-between w-[220px]">
+                  {selectedClient === 'all' ? 'Todos los clientes' : (clients.find(c => c.id === selectedClient)?.business_name || 'Cliente')}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                 </Button>
-              </SheetFooter>
-            </SheetContent>
-          </Sheet>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[320px]">
+                <Command>
+                  <CommandInput placeholder="Buscar cliente..." />
+                  <CommandEmpty>Sin resultados</CommandEmpty>
+                  <CommandList>
+                    <CommandGroup>
+                      <CommandItem onSelect={() => { setSelectedClient('all'); setOpenClient(false); }}>Todos</CommandItem>
+                      {clients.filter(c => c.id && c.business_name).map(c => (
+                        <CommandItem key={c.id} onSelect={() => { setSelectedClient(c.id); setOpenClient(false); }}>
+                          {c.business_name}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            {/* Site combobox - filtered by client */}
+            <Popover open={openSite} onOpenChange={setOpenSite}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="justify-between w-[220px]">
+                  {selectedConstructionSite === 'all' ? 'Todas las obras' : (getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || 'Obra')}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[320px]">
+                <Command>
+                  <CommandInput placeholder="Buscar obra..." />
+                  <CommandEmpty>Sin resultados</CommandEmpty>
+                  <CommandList>
+                    <CommandGroup>
+                      <CommandItem onSelect={() => { setSelectedConstructionSite('all'); setOpenSite(false); }}>Todas</CommandItem>
+                      {getFilteredConstructionSites().filter(s => s.id && s.name).map(s => (
+                        <CommandItem key={s.id} onSelect={() => { setSelectedConstructionSite(s.id); setOpenSite(false); }}>
+                          {s.name}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            {/* Recipe combobox */}
+            <Popover open={openRecipe} onOpenChange={setOpenRecipe}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="justify-between w-[180px]">
+                  {selectedRecipe === 'all' ? 'Todas las recetas' : selectedRecipe}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[280px]">
+                <Command>
+                  <CommandInput placeholder="Buscar receta..." />
+                  <CommandEmpty>Sin resultados</CommandEmpty>
+                  <CommandList>
+                    <CommandGroup>
+                      <CommandItem onSelect={() => { setSelectedRecipe('all'); setOpenRecipe(false); }}>Todas</CommandItem>
+                      {recipes.filter(r => r.recipe_code?.trim()).map(r => (
+                        <CommandItem key={r.id} onSelect={() => { setSelectedRecipe(r.recipe_code); setOpenRecipe(false); }}>
+                          {r.recipe_code}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            {/* Plant combobox */}
+            <Popover open={openPlant} onOpenChange={setOpenPlant}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="justify-between w-[160px]">
+                  {selectedPlant === 'all' ? 'Todas las plantas' : selectedPlant}
+                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[240px]">
+                <Command>
+                  <CommandInput placeholder="Buscar planta..." />
+                  <CommandEmpty>Sin resultados</CommandEmpty>
+                  <CommandList>
+                    <CommandGroup>
+                      <CommandItem onSelect={() => { setSelectedPlant('all'); setOpenPlant(false); }}>Todas</CommandItem>
+                      {plants.map((plant) => (
+                        <CommandItem key={plant} onSelect={() => { setSelectedPlant(plant); setOpenPlant(false); }}>
+                          {plant}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            {/* Strength Range combobox */}
+            <Popover open={openStrengthRange} onOpenChange={setOpenStrengthRange}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="justify-between w-[140px]">
+                  {selectedStrengthRange === 'all' ? 'Todos fc' : 
+                    selectedStrengthRange === 'lt-200' ? '&lt; 200' :
+                    selectedStrengthRange === '200-250' ? '200-250' :
+                    selectedStrengthRange === '250-300' ? '250-300' :
+                    selectedStrengthRange === '300-350' ? '300-350' :
+                    selectedStrengthRange === '350-400' ? '350-400' :
+                    selectedStrengthRange === 'gt-400' ? '&gt; 400' : 'Todos fc'
+                  }
+                  <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="p-0 w-[200px]">
+                <Command>
+                  <CommandInput placeholder="Buscar rango fc..." />
+                  <CommandEmpty>Sin resultados</CommandEmpty>
+                  <CommandList>
+                    <CommandGroup>
+                      <CommandItem onSelect={() => { setSelectedStrengthRange('all'); setOpenStrengthRange(false); }}>Todos fc</CommandItem>
+                      <CommandItem onSelect={() => { setSelectedStrengthRange('lt-200'); setOpenStrengthRange(false); }}>&lt; 200 kg/cm²</CommandItem>
+                      <CommandItem onSelect={() => { setSelectedStrengthRange('200-250'); setOpenStrengthRange(false); }}>200-250 kg/cm²</CommandItem>
+                      <CommandItem onSelect={() => { setSelectedStrengthRange('250-300'); setOpenStrengthRange(false); }}>250-300 kg/cm²</CommandItem>
+                      <CommandItem onSelect={() => { setSelectedStrengthRange('300-350'); setOpenStrengthRange(false); }}>300-350 kg/cm²</CommandItem>
+                      <CommandItem onSelect={() => { setSelectedStrengthRange('350-400'); setOpenStrengthRange(false); }}>350-400 kg/cm²</CommandItem>
+                      <CommandItem onSelect={() => { setSelectedStrengthRange('gt-400'); setOpenStrengthRange(false); }}>&gt; 400 kg/cm²</CommandItem>
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            {/* Toggle chips */}
+            <Button variant={soloEdadGarantia ? 'default' : 'outline'} size="sm" onClick={() => setSoloEdadGarantia(v => !v)}>
+              {soloEdadGarantia ? 'Edad garantía: ON' : 'Edad garantía: OFF'}
+            </Button>
+            <Button variant={selectedClasificacion === 'FC' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedClasificacion(selectedClasificacion === 'FC' ? 'all' : 'FC')}>FC</Button>
+            <Button variant={selectedClasificacion === 'MR' ? 'default' : 'outline'} size="sm" onClick={() => setSelectedClasificacion(selectedClasificacion === 'MR' ? 'all' : 'MR')}>MR</Button>
+
+            {/* Quick reset */}
+            <Button variant="outline" size="sm" onClick={() => {
+              setSelectedClient('all');
+              setSelectedConstructionSite('all');
+              setSelectedRecipe('all');
+              setSelectedPlant('all');
+              setSelectedClasificacion('all');
+              setSelectedSpecimenType('all');
+              setSelectedStrengthRange('all');
+              setSoloEdadGarantia(false);
+            }}>Reset</Button>
+          </div>
           
           <Button 
             variant="outline" 
@@ -1109,21 +1204,21 @@ export default function QualityDashboardPage() {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {/* KPI: Muestras en cumplimiento */}
-            <Card className="border-l-4 border-l-green-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
+            <Card className="border-l-4 border-l-green-500 bg-white/80 shadow-sm border border-slate-200 rounded-md">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">Muestras en Cumplimiento</CardTitle>
+                <CardTitle className="text-sm md:text-base font-semibold text-slate-700">Muestras en Cumplimiento</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-2xl font-bold">
-                      {metricas.muestrasEnCumplimiento}
+                    <div className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900">
+                      {filteredMetrics.muestrasEnCumplimiento}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      de {metricas.numeroMuestras} muestras totales
+                    <div className="text-sm text-slate-500 mt-1">
+                      de {filteredMetrics.numeroMuestras} muestras mostradas
                     </div>
                   </div>
-                  <div className="bg-green-100/70 backdrop-blur p-2 rounded-full">
+                  <div className="bg-green-100 p-2 rounded-md">
                     <TrendingUp className="h-5 w-5 text-green-600" />
                   </div>
                 </div>
@@ -1131,21 +1226,21 @@ export default function QualityDashboardPage() {
             </Card>
             
             {/* KPI: Resistencia Promedio */}
-            <Card className="border-l-4 border-l-blue-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
+            <Card className="border-l-4 border-l-blue-500 bg-white/80 shadow-sm border border-slate-200 rounded-md">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">Resistencia Promedio</CardTitle>
+                <CardTitle className="text-sm md:text-base font-semibold text-slate-700">Resistencia Promedio</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-2xl font-bold">
-                      {typeof metricas.resistenciaPromedio === 'number' ? metricas.resistenciaPromedio.toFixed(2) : '0.00'}
+                    <div className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900">
+                      {typeof filteredMetrics.resistenciaPromedio === 'number' ? filteredMetrics.resistenciaPromedio.toFixed(2) : '0.00'}
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-sm text-slate-500 mt-1">
                       kg/cm²
                     </div>
                   </div>
-                  <div className="bg-blue-100/70 backdrop-blur p-2 rounded-full">
+                  <div className="bg-blue-100 p-2 rounded-md">
                     <BarChart3 className="h-5 w-5 text-blue-600" />
                   </div>
                 </div>
@@ -1153,21 +1248,21 @@ export default function QualityDashboardPage() {
             </Card>
             
             {/* KPI: % Resistencia Garantía */}
-            <Card className="border-l-4 border-l-amber-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
+            <Card className="border-l-4 border-l-amber-500 bg-white/80 shadow-sm border border-slate-200 rounded-md">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">% Resistencia a Garantía</CardTitle>
+                <CardTitle className="text-sm md:text-base font-semibold text-slate-700">% Resistencia a Garantía</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-2xl font-bold">
-                      {typeof metricas.porcentajeResistenciaGarantia === 'number' ? metricas.porcentajeResistenciaGarantia.toFixed(2) : '0.00'}%
+                    <div className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900">
+                      {typeof filteredMetrics.porcentajeResistenciaGarantia === 'number' ? filteredMetrics.porcentajeResistenciaGarantia.toFixed(2) : '0.00'}%
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-sm text-slate-500 mt-1">
                       promedio de cumplimiento
                     </div>
                   </div>
-                  <div className="bg-amber-100/70 backdrop-blur p-2 rounded-full">
+                  <div className="bg-amber-100 p-2 rounded-md">
                     <Activity className="h-5 w-5 text-amber-600" />
                   </div>
                 </div>
@@ -1175,21 +1270,21 @@ export default function QualityDashboardPage() {
             </Card>
             
             {/* KPI: Coeficiente de Variación */}
-            <Card className="border-l-4 border-l-purple-500 bg-white/70 backdrop-blur-xl shadow-[0_8px_24px_rgba(2,6,23,0.06)] border border-slate-200/60 rounded-2xl">
+            <Card className="border-l-4 border-l-purple-500 bg-white/80 shadow-sm border border-slate-200 rounded-md">
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-gray-500">Coeficiente de Variación</CardTitle>
+                <CardTitle className="text-sm md:text-base font-semibold text-slate-700">Coeficiente de Variación</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-2xl font-bold">
-                      {typeof metricas.coeficienteVariacion === 'number' ? metricas.coeficienteVariacion.toFixed(2) : '0.00'}%
+                    <div className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900">
+                      {typeof filteredMetrics.coeficienteVariacion === 'number' ? filteredMetrics.coeficienteVariacion.toFixed(2) : '0.00'}%
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
+                    <div className="text-sm text-slate-500 mt-1">
                       uniformidad del concreto
                     </div>
                   </div>
-                  <div className="bg-purple-100/70 backdrop-blur p-2 rounded-full">
+                  <div className="bg-purple-100 p-2 rounded-md">
                     <Activity className="h-5 w-5 text-purple-600" />
                   </div>
                 </div>
@@ -1246,39 +1341,62 @@ export default function QualityDashboardPage() {
                           }}
                           margin={{ top: 20, right: 40, bottom: 50, left: 60 }}
                           onItemClick={(_: React.MouseEvent<SVGElement>, itemData: ScatterItemIdentifier) => {
-                            if (itemData?.dataIndex !== undefined) {
-                              const all = [...(chartSeries[0]?.data || []), ...(chartSeries[1]?.data || []), ...(chartSeries[2]?.data || [])];
-                              const datum = all[itemData.dataIndex] || all[0];
-                              setSelectedPoint(datum?.original_data || null);
+                            if (itemData?.dataIndex !== undefined && itemData?.seriesId) {
+                              // Find the correct series and data point
+                              const series = chartSeries.find(s => s.id === itemData.seriesId);
+                              if (series && series.data[itemData.dataIndex]) {
+                                const datum = series.data[itemData.dataIndex];
+                                setSelectedPoint(datum?.original_data || null);
+                              }
                             }
                           }}
                           slotProps={{
                             tooltip: {
                               sx: {
                                 zIndex: 100,
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
                                 backgroundColor: 'white',
-                                border: '1px solid #e0e0e0',
-                                borderRadius: '4px',
-                                // Make tooltip compact
+                                border: '1px solid #e5e7eb',
+                                borderRadius: '8px',
+                                // Enhanced tooltip styling
                                 '& .MuiChartsTooltip-table': {
-                                  padding: '2px',
-                                  fontSize: '10px',
-                                  margin: 0
+                                  padding: '12px',
+                                  fontSize: '13px',
+                                  margin: 0,
+                                  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                                  minWidth: '320px'
                                 },
-                                // Marker and series cells
+                                // Hide marker and series cells for cleaner look
                                 '& .MuiChartsTooltip-markCell': {
                                   display: 'none'
                                 },
                                 '& .MuiChartsTooltip-seriesCell': {
                                   display: 'none'
                                 },
-                                // Make cells compact
+                                // Enhanced cell styling
                                 '& .MuiChartsTooltip-cell': {
-                                  padding: '1px 2px'
+                                  padding: '4px 8px',
+                                  borderBottom: '1px solid #f3f4f6',
+                                  verticalAlign: 'top'
+                                },
+                                '& .MuiChartsTooltip-labelCell': {
+                                  fontWeight: '600',
+                                  color: '#374151',
+                                  minWidth: '100px',
+                                  borderRight: '1px solid #e5e7eb'
                                 },
                                 '& .MuiChartsTooltip-valueCell': {
-                                  fontWeight: 'bold'
+                                  fontWeight: '500',
+                                  color: '#6b7280',
+                                  textAlign: 'left'
+                                },
+                                // Header styling
+                                '& .MuiChartsTooltip-header': {
+                                  backgroundColor: '#f8fafc',
+                                  borderBottom: '2px solid #e2e8f0',
+                                  padding: '8px 12px',
+                                  margin: '-12px -12px 8px -12px',
+                                  borderRadius: '8px 8px 0 0'
                                 }
                               }
                             }
@@ -1323,7 +1441,14 @@ export default function QualityDashboardPage() {
                       {/* Point information panel - displayed when a point is selected */}
                       {selectedPoint && (
                         <div className="mt-4 p-4 border border-slate-200/60 rounded-lg bg-white/80">
-                          <h3 className="font-medium text-gray-800 mb-2">Información del Punto Seleccionado</h3>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="font-medium text-gray-800">Información del Punto Seleccionado</h3>
+                            {(selectedPoint as any)?.isAggregated && (
+                              <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded-full">
+                                Promedio de {(selectedPoint as any)?.aggregatedCount || 2} muestras
+                              </span>
+                            )}
+                          </div>
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                             <div>
                               <p className="font-medium text-gray-600">Fecha:</p>
@@ -1331,7 +1456,12 @@ export default function QualityDashboardPage() {
                             </div>
                             <div>
                               <p className="font-medium text-gray-600">Cumplimiento:</p>
-                              <p>{selectedPoint.y.toFixed(2)}%</p>
+                              <p>
+                                {selectedPoint.y.toFixed(2)}%
+                                {(selectedPoint as any)?.isAggregated && (
+                                  <span className="text-xs text-blue-600 ml-1">(recalculado)</span>
+                                )}
+                              </p>
                             </div>
                             <div>
                               <p className="font-medium text-gray-600">Clasificación:</p>
@@ -1404,7 +1534,15 @@ export default function QualityDashboardPage() {
                             </div>
                             <div>
                               <p className="font-medium text-gray-600">Resistencia obtenida:</p>
-                              <p>{selectedPoint.resistencia_calculada || 'No disponible'} kg/cm²</p>
+                              <p>
+                                {selectedPoint.resistencia_calculada ? 
+                                  `${typeof selectedPoint.resistencia_calculada === 'number' ? selectedPoint.resistencia_calculada.toFixed(2) : selectedPoint.resistencia_calculada} kg/cm²` :
+                                  'No disponible'
+                                }
+                                {(selectedPoint as any)?.isAggregated && (
+                                  <span className="text-xs text-blue-600 ml-1">(promedio)</span>
+                                )}
+                              </p>
                             </div>
                             <div>
                               <p className="font-medium text-gray-600">Resistencia diseño:</p>
