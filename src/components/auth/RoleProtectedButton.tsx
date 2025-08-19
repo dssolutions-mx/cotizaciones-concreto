@@ -1,9 +1,10 @@
 'use client';
 
-import React, { ReactNode, ButtonHTMLAttributes, useEffect, useState, memo } from 'react';
+import React, { ReactNode, ButtonHTMLAttributes, useEffect, useState, memo, useMemo } from 'react';
 import { useUnifiedAuthBridge } from '@/adapters/unified-auth-bridge';
 import type { UserRole } from '@/store/auth/types';
 import { renderTracker } from '@/lib/performance/renderTracker';
+import { debugRoleProtectedButtonRenders } from '@/utils/buttonDebugger';
 
 interface RoleProtectedButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   allowedRoles: UserRole | UserRole[];
@@ -36,24 +37,43 @@ function RoleProtectedButton({
   
   useEffect(() => setMounted(true), []);
   
-  // Track render performance
+  // Debug renders if enabled
+  if (typeof window !== 'undefined' && (window as any).__DEBUG_BUTTON_RENDERS__) {
+    debugRoleProtectedButtonRenders({
+      allowedRoles,
+      children,
+      className,
+      disabled,
+      title,
+      showDisabled,
+      disabledMessage,
+      userRole: profile?.role,
+    });
+  }
+  
+  // Memoize permission check to prevent unnecessary recalculations
+  const hasPermission = useMemo(() => {
+    if (!mounted || !profile) return false;
+    return hasRole(allowedRoles);
+  }, [mounted, profile?.role, JSON.stringify(allowedRoles), hasRole]);
+  
+  // Track render performance (only when actually needed)
   useEffect(() => {
     if (mounted) {
-      const finishRender = renderTracker.trackRender('RoleProtectedButton', 'role-check', undefined, {
+      const finishRender = renderTracker.trackRender('RoleProtectedButton', 'permission-check', undefined, {
         allowedRoles: Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles],
         userRole: profile?.role,
-        hasPermission: hasRole(allowedRoles),
+        hasPermission,
         showDisabled,
         disabled,
+        renderKey: `${profile?.role}-${JSON.stringify(allowedRoles)}-${disabled}-${showDisabled}`,
       });
       finishRender();
     }
-  }, [allowedRoles, profile?.role, hasRole, showDisabled, disabled, mounted]);
+  }, [hasPermission, disabled, showDisabled]); // Reduced dependencies
   
   // Avoid hydration mismatches by not rendering until mounted on client
   if (!mounted) return null;
-  
-  const hasPermission = hasRole(allowedRoles);
   
   // If user doesn't have permission and we don't want to show disabled button, don't render
   if (!hasPermission && !showDisabled) {
@@ -88,27 +108,26 @@ function RoleProtectedButton({
   );
 }
 
-// Memoize RoleProtectedButton to prevent unnecessary re-renders
-// Enhanced comparison to handle function references and complex props
-export default memo(RoleProtectedButton, (prevProps, nextProps) => {
-  // Compare allowedRoles (can be array or single value)
-  const prevRoles = JSON.stringify(prevProps.allowedRoles);
-  const nextRoles = JSON.stringify(nextProps.allowedRoles);
+// Create a cached version of the component to minimize re-renders
+const MemoizedRoleProtectedButton = memo(RoleProtectedButton, (prevProps, nextProps) => {
+  // Create a stable comparison key for each set of props
+  const prevKey = `${JSON.stringify(prevProps.allowedRoles)}-${prevProps.disabled}-${prevProps.showDisabled}-${typeof prevProps.children === 'string' ? prevProps.children : 'complex'}-${prevProps.className}`;
+  const nextKey = `${JSON.stringify(nextProps.allowedRoles)}-${nextProps.disabled}-${nextProps.showDisabled}-${typeof nextProps.children === 'string' ? nextProps.children : 'complex'}-${nextProps.className}`;
   
-  // Don't re-render if only onClick function reference changed but is functionally the same
-  const rolesChanged = prevRoles !== nextRoles;
-  const childrenChanged = prevProps.children !== nextProps.children;
-  const classNameChanged = prevProps.className !== nextProps.className;
-  const disabledChanged = prevProps.disabled !== nextProps.disabled;
-  const titleChanged = prevProps.title !== nextProps.title;
-  const showDisabledChanged = prevProps.showDisabled !== nextProps.showDisabled;
-  const disabledMessageChanged = prevProps.disabledMessage !== nextProps.disabledMessage;
-  
-  // Only re-render if meaningful props changed
-  const shouldRerender = rolesChanged || childrenChanged || classNameChanged || 
-                        disabledChanged || titleChanged || showDisabledChanged || 
-                        disabledMessageChanged;
+  // Log when comparison happens for debugging
+  if (typeof window !== 'undefined' && (window as any).__DEBUG_BUTTON_RENDERS__) {
+    if (prevKey !== nextKey) {
+      console.log(`🔄 [RoleProtectedButton] Props changed: ${prevKey} → ${nextKey}`);
+    } else {
+      console.log(`⏭️  [RoleProtectedButton] Props identical, skipping render`);
+    }
+  }
   
   // Return true to SKIP re-render, false to allow re-render
-  return !shouldRerender;
-}); 
+  return prevKey === nextKey;
+});
+
+// Set display name for debugging
+MemoizedRoleProtectedButton.displayName = 'RoleProtectedButton';
+
+export default MemoizedRoleProtectedButton; 
