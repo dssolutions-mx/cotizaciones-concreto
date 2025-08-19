@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/auth';
+import { useUnifiedAuthStore } from '@/store/auth/unified-store';
 import { supabase } from '@/lib/supabase/client';
 import { getDebugControls } from '@/utils/debugControls';
 import { eventDeduplicationService, AuthEvents } from '@/services/eventDeduplicationService';
+import { renderTracker } from '@/lib/performance/renderTracker';
 
 // Global de-duplication state to survive HMR and StrictMode remounts
 declare global {
@@ -19,16 +21,48 @@ declare global {
 }
 
 export default function AuthInitializer() {
-  const initialize = useAuthStore((s) => s.initialize);
-  const scheduleRefresh = useAuthStore((s) => s.scheduleRefresh);
-  const clearRefreshTimer = useAuthStore((s) => s.clearRefreshTimer);
-  const setOnline = useAuthStore((s) => s.setOnlineStatus);
-  const session = useAuthStore((s) => s.session);
-  const loadProfile = useAuthStore((s) => s.loadProfile);
+  // Use both stores for transition period
+  const legacyInitialize = useAuthStore((s) => s.initialize);
+  const legacyScheduleRefresh = useAuthStore((s) => s.scheduleRefresh);
+  const legacyClearRefreshTimer = useAuthStore((s) => s.clearRefreshTimer);
+  const legacySetOnline = useAuthStore((s) => s.setOnlineStatus);
+  const legacySession = useAuthStore((s) => s.session);
+  const legacyLoadProfile = useAuthStore((s) => s.loadProfile);
+  
+  // Unified store methods
+  const unifiedInitialize = useUnifiedAuthStore((s) => s.initialize);
+  const unifiedScheduleRefresh = useUnifiedAuthStore((s) => s.scheduleRefresh);
+  const unifiedClearRefreshTimer = useUnifiedAuthStore((s) => s.clearRefreshTimer);
+  const unifiedSetOnline = useUnifiedAuthStore((s) => s.setOnlineStatus);
+  const unifiedSession = useUnifiedAuthStore((s) => s.session);
+  const unifiedLoadProfile = useUnifiedAuthStore((s) => s.loadProfile);
+  const stateVersion = useUnifiedAuthStore((s) => s.stateVersion);
+  
+  // Use unified store if it has been initialized (has state version > 0)
+  const useUnified = stateVersion > 0;
+  
+  // Select methods based on which store to use
+  const initialize = useUnified ? unifiedInitialize : legacyInitialize;
+  const scheduleRefresh = useUnified ? unifiedScheduleRefresh : legacyScheduleRefresh;
+  const clearRefreshTimer = useUnified ? unifiedClearRefreshTimer : legacyClearRefreshTimer;
+  const setOnline = useUnified ? unifiedSetOnline : legacySetOnline;
+  const session = useUnified ? unifiedSession : legacySession;
+  const loadProfile = useUnified ? unifiedLoadProfile : legacyLoadProfile;
   
   // Track last handled auth state to avoid duplicate processing on HMR/visibility
   const lastAccessTokenRef = useRef<string | null>(null);
   const lastEventTsRef = useRef<number>(0);
+
+  // Track render performance for AuthInitializer
+  useEffect(() => {
+    const finishRender = renderTracker.trackRender('AuthInitializer', 'store-transition', undefined, {
+      useUnified,
+      stateVersion,
+      hasSession: !!session,
+      storeName: useUnified ? 'unified' : 'legacy',
+    });
+    finishRender();
+  }, [useUnified, stateVersion, session]);
 
   useEffect(() => {
     void initialize();
