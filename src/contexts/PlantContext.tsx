@@ -76,13 +76,10 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
       };
       setUserAccess(access);
 
-      // Set current plant
+      // Set current plant (without localStorage to prevent hydration mismatch)
       if (isGlobalAdmin) {
-        // Global admin can see all plants, default to first one or stored preference
-        const storedPlantId = localStorage.getItem('selectedPlantId');
-        const defaultPlant = storedPlantId 
-          ? plantsData?.find(p => p.id === storedPlantId)
-          : plantsData?.[0];
+        // Global admin can see all plants, default to first one
+        const defaultPlant = plantsData?.[0];
         setCurrentPlant(defaultPlant || null);
       } else if (profile.plant_id) {
         // User assigned to specific plant
@@ -125,6 +122,19 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
       }
     }
   }, [isGlobalAdmin, userAccess, availablePlants]);
+
+  // Handle localStorage access after component mounts to prevent hydration mismatch
+  useEffect(() => {
+    if (isGlobalAdmin && availablePlants.length > 0 && !currentPlant) {
+      const storedPlantId = localStorage.getItem('selectedPlantId');
+      if (storedPlantId) {
+        const storedPlant = availablePlants.find(p => p.id === storedPlantId);
+        if (storedPlant) {
+          setCurrentPlant(storedPlant);
+        }
+      }
+    }
+  }, [isGlobalAdmin, availablePlants, currentPlant]);
 
   // Fetch data when auth state changes - but prevent unnecessary refreshes
   const lastProfileRef = React.useRef(profile);

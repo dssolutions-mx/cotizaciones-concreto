@@ -81,6 +81,11 @@ const finanzasSubMenuItems = [
     href: "/finanzas/remisiones",
     IconComponent: FileBarChart2,
   },
+  {
+    title: "Reportes Dinámicos",
+    href: "/finanzas/reportes-clientes",
+    IconComponent: FileSpreadsheet,
+  },
 ];
 
 // Define quality submenu items (grouped for better UX)

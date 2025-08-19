@@ -716,8 +716,8 @@ export default function RemisionesPorCliente() {
               
               <TabsContent value="concrete">
                 <div className="flex flex-wrap gap-2 mb-4">
-                  {Object.entries(concreteByRecipe).map(([recipe, data]) => (
-                    <Badge key={recipe} variant="outline" className="bg-blue-50">
+                  {Object.entries(concreteByRecipe).map(([recipe, data], index) => (
+                    <Badge key={`recipe-badge-${index}-${recipe}`} variant="outline" className="bg-blue-50">
                       {recipe}: {data.volume.toFixed(2)} m³
                     </Badge>
                   ))}
