@@ -1,77 +1,87 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  { params }: { params: { id: string } }
 ) {
   try {
-    const { id } = await params;
-    const supabase = await createServerSupabaseClient();
+    const supabase = createServiceClient();
+    const orderId = params.id;
 
-    // Get sampling information for the order
-    const { data: samplingData, error } = await supabase
-      .from('remisiones')
+    // Get comprehensive sampling info for the order
+    const { data: samplingData, error: samplingError } = await supabase
+      .from('muestreos')
       .select(`
         id,
-        remision_number,
-        fecha,
-        muestreos (
+        numero_muestreo,
+        fecha_muestreo,
+        planta,
+        remision_id,
+        remisiones!inner(
           id,
-          numero_muestreo,
-          fecha_muestreo,
-          muestras (
-            id,
-            estado
+          remision_number,
+          fecha,
+          volumen_fabricado,
+          order_id,
+          recipe_id,
+          recipes(
+            recipe_code,
+            strength_fc
           )
         )
       `)
-      .eq('order_id', id);
+      .eq('remisiones.order_id', orderId);
 
-    if (error) {
-      console.error('Error fetching sampling data:', error);
+    if (samplingError) {
+      console.error('Error fetching sampling data:', samplingError);
       return NextResponse.json({ error: 'Failed to fetch sampling data' }, { status: 500 });
     }
 
-    // Process the data to get counts
-    const totalRemisiones = samplingData?.length || 0;
-    let remisionesWithMuestreos = 0;
-    let totalMuestreos = 0;
-    let totalMuestras = 0;
-    let muestrasEnsayadas = 0;
-    let muestrasPendientes = 0;
+    // Get total order volume from all remisiones
+    const { data: orderVolumeData, error: volumeError } = await supabase
+      .from('remisiones')
+      .select('volumen_fabricado')
+      .eq('order_id', orderId);
 
-    samplingData?.forEach(remision => {
-      if (remision.muestreos && remision.muestreos.length > 0) {
-        remisionesWithMuestreos++;
-        totalMuestreos += remision.muestreos.length;
-        
-        remision.muestreos.forEach(muestreo => {
-          if (muestreo.muestras) {
-            totalMuestras += muestreo.muestras.length;
-            muestreo.muestras.forEach(muestra => {
-              if (muestra.estado === 'ENSAYADO') {
-                muestrasEnsayadas++;
-              } else if (muestra.estado === 'PENDIENTE') {
-                muestrasPendientes++;
-              }
-            });
-          }
-        });
-      }
-    });
+    if (volumeError) {
+      console.error('Error fetching order volume:', volumeError);
+      return NextResponse.json({ error: 'Failed to fetch order volume' }, { status: 500 });
+    }
+
+    // Calculate totals
+    const totalVolume = orderVolumeData?.reduce((sum, rem) => sum + (rem.volumen_fabricado || 0), 0) || 0;
+    const totalSamplings = samplingData?.length || 0;
+    const remisionesWithMuestreos = samplingData?.filter(s => s.remision_id)?.length || 0;
+
+    // Get sample counts
+    const { data: muestrasData, error: muestrasError } = await supabase
+      .from('muestras')
+      .select('id, estado, muestreo_id')
+      .in('muestreo_id', samplingData?.map(s => s.id) || []);
+
+    if (muestrasError) {
+      console.error('Error fetching muestras data:', muestrasError);
+      return NextResponse.json({ error: 'Failed to fetch muestras data' }, { status: 500 });
+    }
+
+    const totalMuestras = muestrasData?.length || 0;
+    const muestrasEnsayadas = muestrasData?.filter(m => m.estado === 'ENSAYADO')?.length || 0;
+    const muestrasPendientes = muestrasData?.filter(m => m.estado === 'PENDIENTE')?.length || 0;
 
     return NextResponse.json({
-      totalRemisiones,
+      totalRemisiones: orderVolumeData?.length || 0,
       remisionesWithMuestreos,
-      totalMuestreos,
+      totalMuestreos: totalSamplings,
       totalMuestras,
       muestrasEnsayadas,
-      muestrasPendientes
+      muestrasPendientes,
+      totalOrderVolume: totalVolume,
+      totalOrderSamplings: totalSamplings
     });
 
   } catch (error) {
-    console.error('Error in sampling-info API:', error);
+    console.error('Unexpected error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

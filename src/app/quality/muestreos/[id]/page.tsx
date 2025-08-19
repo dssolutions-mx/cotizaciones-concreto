@@ -46,127 +46,10 @@ import Link from 'next/link';
 import { formatDate, createSafeDate } from '@/lib/utils';
 import AddSampleModal from '@/components/quality/muestreos/AddSampleModal';
 
-// Order information component
-function OrderInfo({ muestreo }: { muestreo: MuestreoWithRelations }) {
-  if (!muestreo.remision?.order) {
-    return (
-      <Card className="mb-6 border-yellow-200 bg-yellow-50/50">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-2 text-yellow-700">
-            <AlertTriangle className="h-4 w-4" />
-            <span className="text-sm">Información de orden incompleta</span>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const order = muestreo.remision.order;
-  
-  // Safety check for order.id
-  if (!order.id) {
-    return (
-      <Card className="mb-6 border-yellow-200 bg-yellow-50/50">
-        <CardContent className="p-4">
-          <div className="flex items-center gap-2 text-yellow-700">
-            <AlertTriangle className="h-4 w-4" />
-            <span className="text-sm">ID de orden no disponible</span>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-  
-  return (
-    <Card className="mb-6 border-blue-200 bg-blue-50/50">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <FileText className="h-5 w-5 text-blue-600" />
-              Información de la Orden
-            </CardTitle>
-            <CardDescription>
-              Detalles de la orden relacionada con este muestreo
-            </CardDescription>
-          </div>
-          <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-300">
-            <FileText className="h-3 w-3 mr-1" />
-            Orden #{order.order_number || order.id.slice(0, 8)}...
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-600">Número de Orden:</span>
-              <Badge variant="outline" className="font-mono">
-                {order.order_number || `#${order.id.slice(0, 8)}...`}
-              </Badge>
-            </div>
-            {order.clients && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-600">Cliente:</span>
-                <span className="text-sm">{order.clients.business_name}</span>
-              </div>
-            )}
-            {order.construction_site && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-600">Obra:</span>
-                <span className="text-sm">{order.construction_site}</span>
-              </div>
-            )}
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-600">Remisión:</span>
-              <Badge variant="secondary">
-                {muestreo.remision.remision_number}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-600">Fecha Remisión:</span>
-              <span className="text-sm">
-                {format(new Date(muestreo.remision.fecha), 'dd/MM/yyyy', { locale: es })}
-              </span>
-            </div>
-            {order.delivery_date && (
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-600">Fecha Entrega:</span>
-                <span className="text-sm">
-                  {format(new Date(order.delivery_date), 'dd/MM/yyyy', { locale: es })}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-        
-        <Separator />
-        
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.open(`/orders/${order.id}`, '_blank')}
-            className="flex items-center gap-2"
-          >
-            <FileText className="h-4 w-4" />
-            Ver Orden Completa
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => window.open(`/finanzas/remisiones`, '_blank')}
-            className="flex items-center gap-2"
-          >
-            <Truck className="h-4 w-4" />
-            Ver Remisiones
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
+// Helper function to get order info for integration
+function getOrderInfo(muestreo: MuestreoWithRelations) {
+  if (!muestreo.remision?.order?.id) return null;
+  return muestreo.remision.order;
 }
 
 export default function MuestreoDetailPage() {
@@ -174,6 +57,11 @@ export default function MuestreoDetailPage() {
   const router = useRouter();
   const { profile } = useAuthBridge();
   const [muestreo, setMuestreo] = useState<MuestreoWithRelations | null>(null);
+  const [orderTotals, setOrderTotals] = useState<{
+    totalOrderVolume: number;
+    totalOrderSamplings: number;
+    totalRemisiones: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddSampleModal, setShowAddSampleModal] = useState(false);
@@ -188,6 +76,19 @@ export default function MuestreoDetailPage() {
       const muestreoId = Array.isArray(params.id) ? params.id[0] : params.id;
       const data = await fetchMuestreoById(muestreoId);
       setMuestreo(data);
+      
+      // Fetch order totals if we have order info
+      if (data?.remision?.order?.id) {
+        try {
+          const totalsResponse = await fetch(`/api/orders/${data.remision.order.id}/order-totals`);
+          if (totalsResponse.ok) {
+            const totals = await totalsResponse.json();
+            setOrderTotals(totals);
+          }
+        } catch (err) {
+          console.error('Error fetching order totals:', err);
+        }
+      }
     } catch (err) {
       console.error('Error al cargar detalle de muestreo:', err);
       setError('No se pudo cargar la información del muestreo');
@@ -346,8 +247,6 @@ export default function MuestreoDetailPage() {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      {/* Order Information */}
-      {muestreo && <OrderInfo muestreo={muestreo} />}
       
       {/* Breadcrumbs */}
       <Breadcrumb className="mb-6">
@@ -386,10 +285,10 @@ export default function MuestreoDetailPage() {
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Main Muestreo Information */}
-        <Card className="lg:col-span-2 border-l-4 border-l-blue-500 bg-white/80 shadow-sm">
+        <Card className="lg:col-span-2 border border-gray-200 bg-white shadow-sm">
           <CardHeader className="pb-4">
             <CardTitle className="flex items-center gap-2 text-lg">
-              <Beaker className="h-5 w-5 text-blue-600" />
+              <Beaker className="h-5 w-5 text-gray-600" />
               Información del Muestreo
             </CardTitle>
             <CardDescription>
@@ -397,12 +296,34 @@ export default function MuestreoDetailPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Left Column - Basic Sampling Info */}
               <div className="space-y-4">
+                {/* Primary sampling identification */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-500 mb-1">Muestreo #</p>
+                    <div className="flex items-center gap-2">
+                      <Beaker className="h-4 w-4 text-gray-600" />
+                      <span className="font-semibold text-gray-900">{muestreo.numero_muestreo}</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <p className="text-sm font-medium text-gray-500 mb-1">Estado</p>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 text-xs">
+                        Completado
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+                
                 <div>
                   <p className="text-sm font-medium text-gray-500 mb-1">Fecha Muestreo</p>
                   <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-blue-500" />
+                    <Calendar className="h-4 w-4 text-gray-600" />
                     <p className="font-semibold text-gray-900">
                       {formatDate(muestreo.fecha_muestreo, 'PPP')}
                     </p>
@@ -412,8 +333,8 @@ export default function MuestreoDetailPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-500 mb-1">Planta</p>
                   <div className="flex items-center gap-2">
-                    <Building className="h-4 w-4 text-green-500" />
-                    <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                    <Building className="h-4 w-4 text-gray-600" />
+                    <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
                       {muestreo.planta}
                     </Badge>
                   </div>
@@ -422,7 +343,7 @@ export default function MuestreoDetailPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-500 mb-1">Cliente</p>
                   <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-purple-500" />
+                    <User className="h-4 w-4 text-gray-600" />
                     <p className="font-semibold text-gray-900">{muestreo.remision?.order?.clients?.business_name || 'No disponible'}</p>
                   </div>
                 </div>
@@ -430,19 +351,64 @@ export default function MuestreoDetailPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-500 mb-1">Remisión</p>
                   <div className="flex items-center gap-2">
-                    <Truck className="h-4 w-4 text-orange-500" />
+                    <Truck className="h-4 w-4 text-gray-600" />
                     <Badge variant="secondary">
                       {muestreo.remision?.remision_number || muestreo.manual_reference || 'No disponible'}
                     </Badge>
                   </div>
                 </div>
+                
+                {/* Order link */}
+                {getOrderInfo(muestreo) && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-500 mb-1">Orden</p>
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-gray-600" />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(`/orders/${getOrderInfo(muestreo)?.id}`, '_blank')}
+                        className="text-blue-600 border-blue-200 hover:bg-blue-50 px-2 py-1 h-auto text-xs"
+                      >
+                        <ArrowUpRight className="h-3 w-3 mr-1" />
+                        {getOrderInfo(muestreo)?.order_number || `#${getOrderInfo(muestreo)?.id?.slice(0, 8)}...`}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Environmental conditions summary */}
+                {(typeof muestreo.temperatura_ambiente === 'number' || typeof muestreo.temperatura_concreto === 'number') && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <p className="text-sm font-medium text-gray-500 mb-2">Condiciones Ambientales</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {typeof muestreo.temperatura_ambiente === 'number' && (
+                        <div className="flex items-center gap-2">
+                          <Thermometer className="h-3 w-3 text-gray-500" />
+                          <span className="text-xs text-gray-600">
+                            {muestreo.temperatura_ambiente}°C
+                          </span>
+                        </div>
+                      )}
+                      {typeof muestreo.temperatura_concreto === 'number' && (
+                        <div className="flex items-center gap-2">
+                          <Beaker className="h-3 w-3 text-gray-500" />
+                          <span className="text-xs text-gray-600">
+                            {muestreo.temperatura_concreto}°C
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               
+              {/* Right Column - Technical & Order Summary */}
               <div className="space-y-4">
                 <div>
                   <p className="text-sm font-medium text-gray-500 mb-1">Fórmula</p>
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
+                    <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
                       {muestreo.remision?.recipe?.recipe_code || 'No disponible'}
                     </Badge>
                   </div>
@@ -450,7 +416,7 @@ export default function MuestreoDetailPage() {
                 
                 <div>
                   <p className="text-sm font-medium text-gray-500 mb-1">Resistencia Diseño</p>
-                  <div className="text-lg font-bold text-blue-600">
+                  <div className="text-lg font-bold text-gray-900">
                     {muestreo.remision?.recipe?.strength_fc || '--'} kg/cm²
                   </div>
                 </div>
@@ -474,6 +440,45 @@ export default function MuestreoDetailPage() {
                     </div>
                   </div>
                 )}
+                
+                {/* Order summary section */}
+                {getOrderInfo(muestreo) && orderTotals && (
+                  <div className="pt-4 border-t border-gray-200">
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">Resumen de la Orden</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 mb-1">Volumen Total</p>
+                        <div className="flex items-center gap-2">
+                          <Package className="h-4 w-4 text-gray-600" />
+                          <span className="text-lg font-bold text-gray-900">
+                            {orderTotals.totalOrderVolume} m³
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 mb-1">Total Muestreos</p>
+                        <div className="flex items-center gap-2">
+                          <Beaker className="h-4 w-4 text-gray-600" />
+                          <span className="text-lg font-bold text-gray-900">
+                            {orderTotals.totalOrderSamplings}
+                          </span>
+                          <span className="text-xs text-gray-500">muestreos</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {getOrderInfo(muestreo)?.construction_site && (
+                      <div className="mt-4">
+                        <p className="text-sm font-medium text-gray-500 mb-1">Obra</p>
+                        <div className="flex items-center gap-2">
+                          <Building className="h-4 w-4 text-gray-600" />
+                          <span className="text-sm text-gray-900">{getOrderInfo(muestreo)?.construction_site}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
@@ -482,10 +487,10 @@ export default function MuestreoDetailPage() {
         {/* Environmental Conditions & Sample Summary */}
         <div className="space-y-6">
           {/* Environmental Conditions */}
-          <Card className="border-l-4 border-l-amber-500 bg-white/80 shadow-sm">
+          <Card className="border border-gray-200 bg-white shadow-sm">
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2 text-lg">
-                <Thermometer className="h-5 w-5 text-amber-600" />
+                <Thermometer className="h-5 w-5 text-gray-600" />
                 Condiciones Ambientales
               </CardTitle>
               <CardDescription>
@@ -496,7 +501,7 @@ export default function MuestreoDetailPage() {
               {typeof muestreo.temperatura_ambiente === 'number' && (
                 <div>
                   <p className="text-sm font-medium text-gray-500 mb-2">Temperatura Ambiente</p>
-                  <div className="text-3xl font-bold text-amber-600">
+                  <div className="text-3xl font-bold text-gray-900">
                     {muestreo.temperatura_ambiente}
                     <span className="text-sm font-normal text-gray-500 ml-1">°C</span>
                   </div>
@@ -508,32 +513,20 @@ export default function MuestreoDetailPage() {
               {typeof muestreo.temperatura_concreto === 'number' && (
                 <div>
                   <p className="text-sm font-medium text-gray-500 mb-2">Temperatura Concreto</p>
-                  <div className="text-3xl font-bold text-orange-600">
+                  <div className="text-3xl font-bold text-gray-900">
                     {muestreo.temperatura_concreto}
                     <span className="text-sm font-normal text-gray-500 ml-1">°C</span>
                   </div>
                 </div>
               )}
-              
-              {muestreo.sampling_notes && (
-                <>
-                  <Separator />
-                  <div>
-                    <p className="text-sm font-medium text-gray-500 mb-2">Notas de Muestreo</p>
-                    <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-md">
-                      {muestreo.sampling_notes}
-                    </p>
-                  </div>
-                </>
-              )}
             </CardContent>
           </Card>
 
           {/* Sample Summary */}
-          <Card className="border-l-4 border-l-green-500 bg-white/80 shadow-sm">
+          <Card className="border border-gray-200 bg-white shadow-sm">
             <CardHeader className="pb-4">
               <CardTitle className="flex items-center gap-2 text-lg">
-                <Beaker className="h-5 w-5 text-green-600" />
+                <Beaker className="h-5 w-5 text-gray-600" />
                 Resumen de Muestras
               </CardTitle>
               <CardDescription>
@@ -544,7 +537,7 @@ export default function MuestreoDetailPage() {
               <div className="space-y-4">
                 <div className="grid grid-cols-3 gap-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-blue-600">{cilindros.length}</div>
+                    <div className="text-2xl font-bold text-gray-900">{cilindros.length}</div>
                     <p className="text-xs text-gray-500">Cilindros</p>
                     <Badge variant="outline" className="text-xs mt-1">
                       {cilindros.filter(c => c.estado === 'ENSAYADO').length} ensayados
@@ -552,7 +545,7 @@ export default function MuestreoDetailPage() {
                   </div>
                   
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-600">{vigas.length}</div>
+                    <div className="text-2xl font-bold text-gray-900">{vigas.length}</div>
                     <p className="text-xs text-gray-500">Vigas</p>
                     <Badge variant="outline" className="text-xs mt-1">
                       {vigas.filter(v => v.estado === 'ENSAYADO').length} ensayadas
@@ -560,7 +553,7 @@ export default function MuestreoDetailPage() {
                   </div>
 
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-orange-600">{cubos.length}</div>
+                    <div className="text-2xl font-bold text-gray-900">{cubos.length}</div>
                     <p className="text-xs text-gray-500">Cubos</p>
                     <Badge variant="outline" className="text-xs mt-1">
                       {cubos.filter(c => c.estado === 'ENSAYADO').length} ensayados
@@ -574,8 +567,8 @@ export default function MuestreoDetailPage() {
                   <p className="text-sm font-medium text-gray-500 mb-2">Próximo Ensayo</p>
                   {muestreo.muestras && muestreo.muestras.some(m => m.estado === 'PENDIENTE') ? (
                     <div className="flex items-center gap-2">
-                      <Clock className="h-4 w-4 text-amber-600" />
-                      <p className="text-amber-600 font-medium text-sm">
+                      <Clock className="h-4 w-4 text-gray-600" />
+                      <p className="text-gray-600 font-medium text-sm">
                         {(() => {
                           const asDate = (d?: string) => (d ? createSafeDate(d) : null);
                           const pending = [...(muestreo.muestras || [])]
@@ -620,12 +613,12 @@ export default function MuestreoDetailPage() {
       </div>
       
       {/* Listado de muestras */}
-      <Card className="mb-6 border-l-4 border-l-purple-500 bg-white/80 shadow-sm">
+      <Card className="mb-6 border border-gray-200 bg-white shadow-sm">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2 text-lg">
-                <Beaker className="h-5 w-5 text-purple-600" />
+                <Beaker className="h-5 w-5 text-gray-600" />
                 Especímenes de Ensayo
               </CardTitle>
               <CardDescription>
@@ -636,7 +629,7 @@ export default function MuestreoDetailPage() {
             <Button 
               onClick={() => setShowAddSampleModal(true)}
               size="sm"
-              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700"
+              className="flex items-center gap-2"
             >
               <Plus className="h-4 w-4" />
               Agregar Muestra
@@ -649,26 +642,11 @@ export default function MuestreoDetailPage() {
               {muestrasOrdenadas.map((muestra) => (
                 <Card 
                   key={muestra.id} 
-                  className={`overflow-hidden transition-all hover:shadow-md ${
-                    muestra.estado === 'ENSAYADO' 
-                      ? 'border-green-300 bg-green-50/50 hover:bg-green-50' 
-                      : muestra.estado === 'DESCARTADO' 
-                        ? 'border-red-300 bg-red-50/50 hover:bg-red-50'
-                        : 'border-amber-300 bg-amber-50/50 hover:bg-amber-50'
-                  }`}
+                  className="overflow-hidden transition-all hover:shadow-md border border-gray-200 bg-white"
                 >
                   <CardContent className="p-4">
                     <div className="flex justify-between items-start mb-2">
-                      <Badge 
-                        variant="outline"
-                        className={`${
-                          muestra.tipo_muestra === 'CILINDRO' 
-                            ? 'bg-blue-100 text-blue-800 border-blue-300' 
-                            : muestra.tipo_muestra === 'VIGA'
-                              ? 'bg-purple-100 text-purple-800 border-purple-300'
-                              : 'bg-orange-100 text-orange-800 border-orange-300'
-                        }`}
-                      >
+                      <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
                         {muestra.tipo_muestra === 'CILINDRO' ? 'Cilindro' : muestra.tipo_muestra === 'VIGA' ? 'Viga' : 'Cubo'}
                       </Badge>
                       <Badge 
@@ -684,7 +662,7 @@ export default function MuestreoDetailPage() {
                             ? 'bg-green-100 text-green-800 border-green-300' 
                             : muestra.estado === 'DESCARTADO'
                               ? ''
-                              : 'bg-amber-100 text-amber-800 border-amber-300'
+                              : 'bg-gray-100 text-gray-800 border-gray-300'
                         }`}
                       >
                         {muestra.estado}
