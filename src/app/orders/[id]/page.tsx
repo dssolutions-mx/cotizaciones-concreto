@@ -293,7 +293,6 @@ export default function OrderDetails({ params }: { params: Promise<{ id: string 
   
   return (
     <div className="container mx-auto py-6">
-      <SamplingInfo orderId={id} />
       <ActionMessage />
       <OrderDetailClient orderId={id} />
     </div>
