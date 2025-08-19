@@ -1781,15 +1781,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 />
               </div>
             ) : activeTab === 'calidad' ? (
-              <div className="mt-6 bg-white shadow-sm overflow-hidden sm:rounded-lg">
-                <div className="px-4 py-5 sm:px-6 bg-gray-50">
-                  <h3 className="text-lg leading-6 font-medium text-gray-900">Control de Calidad</h3>
-                  <p className="mt-1 text-sm text-gray-500">Estado de muestreos y ensayos para esta orden</p>
-                </div>
-                
-                <div className="px-4 py-5 sm:px-6">
-                  <QualityOverview orderId={order.id} />
-                </div>
+              <div className="mt-6">
+                <QualityOverview orderId={order.id} />
               </div>
             ) : null}
           </div>
@@ -1797,7 +1790,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           {/* Always show order actions, not just for financial users */}
           {renderOrderActions()}
 
-          {shouldShowFinancialInfo() && (
+          {/* Only show financial info when not in quality tab */}
+          {shouldShowFinancialInfo() && activeTab !== 'calidad' && (
             <div className="mt-6 border-t pt-6">
               <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
               
