@@ -20,7 +20,16 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
       if (cached) set({ profile: cached }, false, 'auth/initialize:setCachedProfile');
 
       const { data: sessionData } = await supabase.auth.getSession();
-      set({ user: sessionData.session?.user ?? null, session: sessionData.session ?? null }, false, 'auth/initialize:setUserAndSession');
+      // Only update if user or session actually changed to avoid unnecessary re-renders
+      const prevUser = get().user;
+      const prevSession = get().session;
+      const nextUser = sessionData.session?.user ?? null;
+      const nextSession = sessionData.session ?? null;
+      const userChanged = (prevUser?.id !== nextUser?.id) || (prevUser?.email !== nextUser?.email);
+      const sessionChanged = (prevSession?.access_token !== nextSession?.access_token) || (prevSession?.user?.id !== nextSession?.user?.id);
+      if (userChanged || sessionChanged) {
+        set({ user: nextUser, session: nextSession }, false, 'auth/initialize:setUserAndSession');
+      }
 
       if (sessionData.session?.user) {
         await get().loadProfile();
@@ -79,8 +88,20 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
       clearUserCache();
     } else if (profileData) {
       const profile = profileData as unknown as UserProfile;
-      set({ profile }, false, 'auth/loadProfile:set');
-      cacheUserProfile(profile);
+      const prev = get().profile;
+      // Only update state if something meaningful changed to avoid rippling re-renders
+      const changed = !prev ||
+        prev.id !== profile.id ||
+        prev.role !== profile.role ||
+        prev.plant_id !== profile.plant_id ||
+        prev.business_unit_id !== profile.business_unit_id;
+      if (changed) {
+        set({ profile }, false, 'auth/loadProfile:setChanged');
+        cacheUserProfile(profile);
+      } else {
+        // Keep as-is to avoid unnecessary state updates
+        set({ profile: prev }, false, 'auth/loadProfile:noChange');
+      }
     }
   },
 
