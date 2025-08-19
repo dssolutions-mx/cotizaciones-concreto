@@ -34,7 +34,10 @@ import {
   Beaker,
   CheckCircle,
   Clock,
-  Plus
+  Plus,
+  Package,
+  ArrowUpRight,
+  Thermometer
 } from 'lucide-react';
 import { fetchMuestreoById } from '@/services/qualityService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -43,11 +46,22 @@ import Link from 'next/link';
 import { formatDate, createSafeDate } from '@/lib/utils';
 import AddSampleModal from '@/components/quality/muestreos/AddSampleModal';
 
+// Helper function to get order info for integration
+function getOrderInfo(muestreo: MuestreoWithRelations) {
+  if (!muestreo.remision?.order?.id) return null;
+  return muestreo.remision.order;
+}
+
 export default function MuestreoDetailPage() {
   const params = useParams();
   const router = useRouter();
   const { profile } = useAuthBridge();
   const [muestreo, setMuestreo] = useState<MuestreoWithRelations | null>(null);
+  const [orderTotals, setOrderTotals] = useState<{
+    totalOrderVolume: number;
+    totalOrderSamplings: number;
+    totalRemisiones: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddSampleModal, setShowAddSampleModal] = useState(false);
@@ -62,6 +76,19 @@ export default function MuestreoDetailPage() {
       const muestreoId = Array.isArray(params.id) ? params.id[0] : params.id;
       const data = await fetchMuestreoById(muestreoId);
       setMuestreo(data);
+      
+      // Fetch order totals if we have order info
+      if (data?.remision?.order?.id) {
+        try {
+          const totalsResponse = await fetch(`/api/orders/${data.remision.order.id}/order-totals`);
+          if (totalsResponse.ok) {
+            const totals = await totalsResponse.json();
+            setOrderTotals(totals);
+          }
+        } catch (err) {
+          console.error('Error fetching order totals:', err);
+        }
+      }
     } catch (err) {
       console.error('Error al cargar detalle de muestreo:', err);
       setError('No se pudo cargar la información del muestreo');
@@ -219,7 +246,8 @@ export default function MuestreoDetailPage() {
 	});
 
   return (
-    <div className="container mx-auto p-4 md:p-6">
+    <div className="container mx-auto px-4 py-8">
+      
       {/* Breadcrumbs */}
       <Breadcrumb className="mb-6">
         <BreadcrumbList>
@@ -256,194 +284,345 @@ export default function MuestreoDetailPage() {
       </div>
       
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        {/* Información de la remisión */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-primary" />
+        {/* Main Muestreo Information */}
+        <Card className="lg:col-span-2 border border-gray-200 bg-white shadow-sm">
+          <CardHeader className="pb-4">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Beaker className="h-5 w-5 text-gray-600" />
               Información del Muestreo
             </CardTitle>
             <CardDescription>
-              Detalles del muestreo y la remisión asociada
+              Detalles del muestreo y condiciones de fabricación
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Left Column - Basic Sampling Info */}
               <div className="space-y-4">
+                {/* Primary sampling identification */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-gray-500 mb-1">Muestreo #</p>
+                    <div className="flex items-center gap-2">
+                      <Beaker className="h-4 w-4 text-gray-600" />
+                      <span className="font-semibold text-gray-900">{muestreo.numero_muestreo}</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <p className="text-sm font-medium text-gray-500 mb-1">Estado</p>
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300 text-xs">
+                        Completado
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+                
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Fecha Muestreo</p>
+                  <p className="text-sm font-medium text-gray-500 mb-1">Fecha Muestreo</p>
                   <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-gray-400" />
-                    <p className="font-medium">
+                    <Calendar className="h-4 w-4 text-gray-600" />
+                    <p className="font-semibold text-gray-900">
                       {formatDate(muestreo.fecha_muestreo, 'PPP')}
                     </p>
                   </div>
                 </div>
                 
                 <div>
-                  <p className="text-sm font-medium text-gray-500">Planta</p>
+                  <p className="text-sm font-medium text-gray-500 mb-1">Planta</p>
                   <div className="flex items-center gap-2">
-                    <Building className="h-4 w-4 text-gray-400" />
-                    <Badge>{muestreo.planta}</Badge>
+                    <Building className="h-4 w-4 text-gray-600" />
+                    <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
+                      {muestreo.planta}
+                    </Badge>
                   </div>
                 </div>
                 
-                {/* Tipo de muestreo no disponible en el tipo actual */}
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-1">Cliente</p>
+                  <div className="flex items-center gap-2">
+                    <User className="h-4 w-4 text-gray-600" />
+                    <p className="font-semibold text-gray-900">{muestreo.remision?.order?.clients?.business_name || 'No disponible'}</p>
+                  </div>
+                </div>
+                
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-1">Remisión</p>
+                  <div className="flex items-center gap-2">
+                    <Truck className="h-4 w-4 text-gray-600" />
+                    <Badge variant="secondary">
+                      {muestreo.remision?.remision_number || muestreo.manual_reference || 'No disponible'}
+                    </Badge>
+                  </div>
+                </div>
+                
+                {/* Order link */}
+                {getOrderInfo(muestreo) && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-500 mb-1">Orden</p>
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-gray-600" />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.open(`/orders/${getOrderInfo(muestreo)?.id}`, '_blank')}
+                        className="text-blue-600 border-blue-200 hover:bg-blue-50 px-2 py-1 h-auto text-xs"
+                      >
+                        <ArrowUpRight className="h-3 w-3 mr-1" />
+                        {getOrderInfo(muestreo)?.order_number || `#${getOrderInfo(muestreo)?.id?.slice(0, 8)}...`}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Environmental conditions summary */}
+                {(typeof muestreo.temperatura_ambiente === 'number' || typeof muestreo.temperatura_concreto === 'number') && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <p className="text-sm font-medium text-gray-500 mb-2">Condiciones Ambientales</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {typeof muestreo.temperatura_ambiente === 'number' && (
+                        <div className="flex items-center gap-2">
+                          <Thermometer className="h-3 w-3 text-gray-500" />
+                          <span className="text-xs text-gray-600">
+                            {muestreo.temperatura_ambiente}°C
+                          </span>
+                        </div>
+                      )}
+                      {typeof muestreo.temperatura_concreto === 'number' && (
+                        <div className="flex items-center gap-2">
+                          <Beaker className="h-3 w-3 text-gray-500" />
+                          <span className="text-xs text-gray-600">
+                            {muestreo.temperatura_concreto}°C
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Right Column - Technical & Order Summary */}
+              <div className="space-y-4">
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-1">Fórmula</p>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
+                      {muestreo.remision?.recipe?.recipe_code || 'No disponible'}
+                    </Badge>
+                  </div>
+                </div>
+                
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-1">Resistencia Diseño</p>
+                  <div className="text-lg font-bold text-gray-900">
+                    {muestreo.remision?.recipe?.strength_fc || '--'} kg/cm²
+                  </div>
+                </div>
                 
                 {muestreo.revenimiento_sitio && (
                   <div>
-                    <p className="text-sm font-medium text-gray-500">Revenimiento en Sitio</p>
-                    <p className="font-medium">{muestreo.revenimiento_sitio} cm</p>
+                    <p className="text-sm font-medium text-gray-500 mb-1">Revenimiento en Sitio</p>
+                    <div className="text-2xl font-bold text-gray-900">
+                      {muestreo.revenimiento_sitio} 
+                      <span className="text-sm font-normal text-gray-500 ml-1">cm</span>
+                    </div>
                   </div>
                 )}
-					{typeof muestreo.masa_unitaria === 'number' && (
-						<div>
-							<p className="text-sm font-medium text-gray-500">Masa Unitaria</p>
-							<p className="font-medium">{muestreo.masa_unitaria} kg/m³</p>
-						</div>
-					)}
-					{typeof muestreo.temperatura_ambiente === 'number' && (
-						<div>
-							<p className="text-sm font-medium text-gray-500">Temperatura Ambiente</p>
-							<p className="font-medium">{muestreo.temperatura_ambiente} °C</p>
-						</div>
-					)}
-					{typeof muestreo.temperatura_concreto === 'number' && (
-						<div>
-							<p className="text-sm font-medium text-gray-500">Temperatura del Concreto</p>
-							<p className="font-medium">{muestreo.temperatura_concreto} °C</p>
-						</div>
-					)}
-              </div>
-              
-              <div className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Cliente</p>
-                  <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-gray-400" />
-                    <p className="font-medium">{muestreo.remision?.orders?.clients?.business_name || 'No disponible'}</p>
+                
+                {typeof muestreo.masa_unitaria === 'number' && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-500 mb-1">Masa Unitaria</p>
+                    <div className="text-2xl font-bold text-gray-900">
+                      {muestreo.masa_unitaria}
+                      <span className="text-sm font-normal text-gray-500 ml-1">kg/m³</span>
+                    </div>
                   </div>
-                </div>
+                )}
                 
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Remisión</p>
-                  <div className="flex items-center gap-2">
-                    <Truck className="h-4 w-4 text-gray-400" />
-                    <p className="font-medium">{muestreo.remision?.remision_number || muestreo.manual_reference || 'No disponible'}</p>
+                {/* Order summary section */}
+                {getOrderInfo(muestreo) && orderTotals && (
+                  <div className="pt-4 border-t border-gray-200">
+                    <h4 className="text-sm font-medium text-gray-700 mb-3">Resumen de la Orden</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 mb-1">Volumen Total</p>
+                        <div className="flex items-center gap-2">
+                          <Package className="h-4 w-4 text-gray-600" />
+                          <span className="text-lg font-bold text-gray-900">
+                            {orderTotals.totalOrderVolume} m³
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div>
+                        <p className="text-sm font-medium text-gray-500 mb-1">Total Muestreos</p>
+                        <div className="flex items-center gap-2">
+                          <Beaker className="h-4 w-4 text-gray-600" />
+                          <span className="text-lg font-bold text-gray-900">
+                            {orderTotals.totalOrderSamplings}
+                          </span>
+                          <span className="text-xs text-gray-500">muestreos</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {getOrderInfo(muestreo)?.construction_site && (
+                      <div className="mt-4">
+                        <p className="text-sm font-medium text-gray-500 mb-1">Obra</p>
+                        <div className="flex items-center gap-2">
+                          <Building className="h-4 w-4 text-gray-600" />
+                          <span className="text-sm text-gray-900">{getOrderInfo(muestreo)?.construction_site}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-                
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Fórmula</p>
-                  <p className="font-medium">{muestreo.remision?.recipe?.recipe_code || 'No disponible'}</p>
-                </div>
-                
-                <div>
-                  <p className="text-sm font-medium text-gray-500">Resistencia Diseño</p>
-                  <p className="font-medium">{muestreo.remision?.recipe?.strength_fc || '-'} kg/cm²</p>
-                </div>
+                )}
               </div>
             </div>
-            
-            {/* Observaciones removidas: campo no definido en el tipo */}
           </CardContent>
         </Card>
         
-        {/* Resumen Muestras */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Beaker className="h-5 w-5 text-primary" />
-              Resumen de Muestras
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Cilindros</p>
-                <div className="flex justify-between items-center mt-1">
-                  <p className="text-2xl font-bold">{cilindros.length}</p>
-                  <Badge variant="outline">{cilindros.filter(c => c.estado === 'ENSAYADO').length} ensayados</Badge>
+        {/* Environmental Conditions & Sample Summary */}
+        <div className="space-y-6">
+          {/* Environmental Conditions */}
+          <Card className="border border-gray-200 bg-white shadow-sm">
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Thermometer className="h-5 w-5 text-gray-600" />
+                Condiciones Ambientales
+              </CardTitle>
+              <CardDescription>
+                Temperatura y condiciones durante el muestreo
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {typeof muestreo.temperatura_ambiente === 'number' && (
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-2">Temperatura Ambiente</p>
+                  <div className="text-3xl font-bold text-gray-900">
+                    {muestreo.temperatura_ambiente}
+                    <span className="text-sm font-normal text-gray-500 ml-1">°C</span>
+                  </div>
                 </div>
-              </div>
+              )}
               
-              <div>
-                <p className="text-sm font-medium text-gray-500">Vigas</p>
-                <div className="flex justify-between items-center mt-1">
-                  <p className="text-2xl font-bold">{vigas.length}</p>
-                  <Badge variant="outline">{vigas.filter(v => v.estado === 'ENSAYADO').length} ensayadas</Badge>
+              {(typeof muestreo.temperatura_ambiente === 'number' && typeof muestreo.temperatura_concreto === 'number') && <Separator />}
+              
+              {typeof muestreo.temperatura_concreto === 'number' && (
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-2">Temperatura Concreto</p>
+                  <div className="text-3xl font-bold text-gray-900">
+                    {muestreo.temperatura_concreto}
+                    <span className="text-sm font-normal text-gray-500 ml-1">°C</span>
+                  </div>
                 </div>
-              </div>
+              )}
+            </CardContent>
+          </Card>
 
-              <div>
-                <p className="text-sm font-medium text-gray-500">Cubos</p>
-                <div className="flex justify-between items-center mt-1">
-                  <p className="text-2xl font-bold">{cubos.length}</p>
-                  <Badge variant="outline">{cubos.filter(c => c.estado === 'ENSAYADO').length} ensayados</Badge>
+          {/* Sample Summary */}
+          <Card className="border border-gray-200 bg-white shadow-sm">
+            <CardHeader className="pb-4">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Beaker className="h-5 w-5 text-gray-600" />
+                Resumen de Muestras
+              </CardTitle>
+              <CardDescription>
+                Estado actual de los especímenes
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-gray-900">{cilindros.length}</div>
+                    <p className="text-xs text-gray-500">Cilindros</p>
+                    <Badge variant="outline" className="text-xs mt-1">
+                      {cilindros.filter(c => c.estado === 'ENSAYADO').length} ensayados
+                    </Badge>
+                  </div>
+                  
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-gray-900">{vigas.length}</div>
+                    <p className="text-xs text-gray-500">Vigas</p>
+                    <Badge variant="outline" className="text-xs mt-1">
+                      {vigas.filter(v => v.estado === 'ENSAYADO').length} ensayadas
+                    </Badge>
+                  </div>
+
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-gray-900">{cubos.length}</div>
+                    <p className="text-xs text-gray-500">Cubos</p>
+                    <Badge variant="outline" className="text-xs mt-1">
+                      {cubos.filter(c => c.estado === 'ENSAYADO').length} ensayados
+                    </Badge>
+                  </div>
+                </div>
+                
+                <Separator />
+                
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-2">Próximo Ensayo</p>
+                  {muestreo.muestras && muestreo.muestras.some(m => m.estado === 'PENDIENTE') ? (
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-gray-600" />
+                      <p className="text-gray-600 font-medium text-sm">
+                        {(() => {
+                          const asDate = (d?: string) => (d ? createSafeDate(d) : null);
+                          const pending = [...(muestreo.muestras || [])]
+                            .filter(m => m.estado === 'PENDIENTE')
+                            .map(m => {
+                              const ts = (m as any).fecha_programada_ensayo_ts as string | undefined;
+                              const dstr = ts || m.fecha_programada_ensayo;
+                              return { m, d: asDate(dstr || undefined) };
+                            })
+                            .filter(x => !!x.d)
+                            .sort((a, b) => (a.d!.getTime() - b.d!.getTime()));
+                          const next = pending[0]?.d;
+                          return next ? formatDate(next, 'PPP') : 'Fecha no programada';
+                        })()}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <p className="text-green-600 text-sm">Todos los ensayos completados</p>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="pt-2">
+                  {firstEnsayoId ? (
+                    <Link href={`/quality/ensayos/${firstEnsayoId}`}>
+                      <Button size="sm" className="w-full">
+                        Ver Ensayo
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Button size="sm" variant="outline" className="w-full" disabled>
+                      No hay ensayos
+                    </Button>
+                  )}
                 </div>
               </div>
-              
-              <Separator />
-              
-              <div>
-                <p className="text-sm font-medium text-gray-500">Próximo Ensayo</p>
-                {muestreo.muestras && muestreo.muestras.some(m => m.estado === 'PENDIENTE') ? (
-                  <div className="flex items-center gap-2 mt-1">
-                    <Clock className="h-4 w-4 text-amber-600" />
-                    <p className="text-amber-600 font-medium">
-                      {(() => {
-                        const asDate = (d?: string) => (d ? createSafeDate(d) : null);
-                        const pending = [...(muestreo.muestras || [])]
-                          .filter(m => m.estado === 'PENDIENTE')
-                          .map(m => {
-                            const ts = (m as any).fecha_programada_ensayo_ts as string | undefined;
-                            const dstr = ts || m.fecha_programada_ensayo;
-                            return { m, d: asDate(dstr || undefined) };
-                          })
-                          .filter(x => !!x.d)
-                          .sort((a, b) => (a.d!.getTime() - b.d!.getTime()));
-                        const next = pending[0]?.d;
-                        return next ? formatDate(next, 'PPP') : 'Fecha no programada';
-                      })()}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 mt-1">
-                    <CheckCircle className="h-4 w-4 text-green-600" />
-                    <p className="text-green-600">Todos los ensayos completados</p>
-                  </div>
-                )}
-              </div>
-              
-              <div className="pt-4">
-                {firstEnsayoId ? (
-                  <Link href={`/quality/ensayos/${firstEnsayoId}`}>
-                    <Button className="w-full">
-                      Ver Ensayo
-                    </Button>
-                  </Link>
-                ) : (
-                  <Button className="w-full" variant="outline" disabled>
-                    No hay ensayos
-                  </Button>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
       
       {/* Listado de muestras */}
-      <Card className="mb-6">
-        <CardHeader>
+      <Card className="mb-6 border border-gray-200 bg-white shadow-sm">
+        <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="flex items-center gap-2">
-                <Beaker className="h-5 w-5 text-primary" />
-                Muestras
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Beaker className="h-5 w-5 text-gray-600" />
+                Especímenes de Ensayo
               </CardTitle>
               <CardDescription>
-                Listado de especímenes para ensayo
+                Muestras registradas para este muestreo
               </CardDescription>
             </div>
 
@@ -461,35 +640,36 @@ export default function MuestreoDetailPage() {
           {muestreo.muestras && muestreo.muestras.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
               {muestrasOrdenadas.map((muestra) => (
-                <div 
+                <Card 
                   key={muestra.id} 
-                  className={`border rounded-lg overflow-hidden ${
-                    muestra.estado === 'ENSAYADO' 
-                      ? 'border-green-200 bg-green-50' 
-                      : muestra.estado === 'DESCARTADO' 
-                        ? 'border-red-200 bg-red-50'
-                        : 'border-amber-200 bg-amber-50'
-                  }`}
+                  className="overflow-hidden transition-all hover:shadow-md border border-gray-200 bg-white"
                 >
-                  <div className="p-4">
+                  <CardContent className="p-4">
                     <div className="flex justify-between items-start mb-2">
-                      <Badge variant={muestra.tipo_muestra === 'CILINDRO' ? 'default' : 'secondary'}>
+                      <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
                         {muestra.tipo_muestra === 'CILINDRO' ? 'Cilindro' : muestra.tipo_muestra === 'VIGA' ? 'Viga' : 'Cubo'}
                       </Badge>
                       <Badge 
                         variant={
                           muestra.estado === 'ENSAYADO' 
-                            ? 'outline' 
+                            ? 'default' 
                             : muestra.estado === 'DESCARTADO'
                               ? 'destructive'
-                              : 'outline'
+                              : 'secondary'
                         }
+                        className={`text-xs ${
+                          muestra.estado === 'ENSAYADO' 
+                            ? 'bg-green-100 text-green-800 border-green-300' 
+                            : muestra.estado === 'DESCARTADO'
+                              ? ''
+                              : 'bg-gray-100 text-gray-800 border-gray-300'
+                        }`}
                       >
                         {muestra.estado}
                       </Badge>
                     </div>
                     
-                    <h3 className="font-medium mb-1">{displayNameById.get(muestra.id) || muestra.identificacion}</h3>
+                    <h3 className="font-semibold text-gray-900 mb-1">{displayNameById.get(muestra.id) || muestra.identificacion}</h3>
                     
                     {(() => {
                       const ensayo = (muestra.ensayos && muestra.ensayos.length > 0) ? muestra.ensayos[0] : null;
@@ -545,8 +725,8 @@ export default function MuestreoDetailPage() {
                         </Button>
                       )
                     )}
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
           ) : (

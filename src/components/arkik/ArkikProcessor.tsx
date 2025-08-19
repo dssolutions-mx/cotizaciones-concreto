@@ -928,31 +928,18 @@ export default function ArkikProcessor() {
           
           <ChevronRight className="h-5 w-5 text-gray-300" />
           
-          <div className={`flex items-center ${currentStep === 'grouping' ? 'text-blue-600' : ['manual-assignment', 'confirmation'].includes(currentStep) ? 'text-green-600' : 'text-gray-400'}`}>
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'grouping' ? 'border-blue-600 bg-blue-600 text-white' : ['manual-assignment', 'confirmation'].includes(currentStep) ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
-              {currentStep === 'grouping' ? '3' : ['manual-assignment', 'confirmation'].includes(currentStep) ? <CheckCircle2 className="h-5 w-5" /> : '3'}
+          <div className={`flex items-center ${currentStep === 'grouping' ? 'text-blue-600' : 'text-gray-400'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'grouping' ? 'border-blue-600 bg-blue-600 text-white' : currentStep === 'confirmation' ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
+              {currentStep === 'grouping' ? '3' : currentStep === 'confirmation' ? <CheckCircle2 className="h-5 w-5" /> : '3'}
             </div>
             <span className="ml-2 font-medium">Agrupación</span>
           </div>
-          
-          {processingMode === 'commercial' && (
-            <>
-              <ChevronRight className="h-5 w-5 text-gray-300" />
-              
-              <div className={`flex items-center ${currentStep === 'manual-assignment' ? 'text-blue-600' : currentStep === 'confirmation' ? 'text-green-600' : 'text-gray-400'}`}>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'manual-assignment' ? 'border-blue-600 bg-blue-600 text-white' : currentStep === 'confirmation' ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
-                  {currentStep === 'manual-assignment' ? '4' : currentStep === 'confirmation' ? <CheckCircle2 className="h-5 w-5" /> : '4'}
-                </div>
-                <span className="ml-2 font-medium">Asignación</span>
-              </div>
-            </>
-          )}
           
           <ChevronRight className="h-5 w-5 text-gray-300" />
           
           <div className={`flex items-center ${currentStep === 'confirmation' ? 'text-blue-600' : 'text-gray-400'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'confirmation' ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300'}`}>
-              {currentStep === 'confirmation' ? (processingMode === 'commercial' ? '5' : '4') : (processingMode === 'commercial' ? '5' : '4')}
+              {currentStep === 'confirmation' ? '4' : '4'}
             </div>
             <span className="ml-2 font-medium">Confirmación</span>
           </div>
@@ -2045,26 +2032,6 @@ export default function ArkikProcessor() {
                 </table>
               </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Manual Assignment Interface */}
-      {currentStep === 'manual-assignment' && showManualAssignment && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Asignación Manual de Remisiones</CardTitle>
-            <CardDescription>
-              Asigna las remisiones no coincidentes a órdenes existentes compatibles
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ManualAssignmentInterface
-              unmatchedRemisiones={unmatchedRemisiones}
-              plantId={currentPlant!.id}
-              onAssignmentsComplete={handleManualAssignmentsComplete}
-              onCancel={handleManualAssignmentCancel}
-            />
           </CardContent>
         </Card>
       )}

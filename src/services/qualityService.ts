@@ -94,9 +94,6 @@ export async function fetchMuestreoById(id: string) {
           recipe:recipes(
             *,
             recipe_versions(*)
-          ),
-          orders(
-            clients(*)
           )
         ),
         muestras(
@@ -109,6 +106,30 @@ export async function fetchMuestreoById(id: string) {
       .single();
     
     if (error) throw error;
+    
+    // Now fetch the order information separately since we can't join through foreign keys easily
+    if (data?.remision?.order_id) {
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          order_number,
+          construction_site,
+          delivery_date,
+          delivery_time,
+          clients(
+            id,
+            business_name
+          )
+        `)
+        .eq('id', data.remision.order_id)
+        .single();
+      
+      if (!orderError && orderData) {
+        data.remision.order = orderData;
+      }
+    }
+    
     return data as MuestreoWithRelations;
   } catch (error) {
     handleError(error, `fetchMuestreoById:${id}`);

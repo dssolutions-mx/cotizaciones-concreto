@@ -33,7 +33,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
-import { Copy, CalculatorIcon } from 'lucide-react';
+import { Copy, CalculatorIcon, Beaker, FileText } from 'lucide-react';
+import QualityOverview from './QualityOverview';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 
@@ -79,7 +80,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [isRejectReasonModalOpen, setIsRejectReasonModalOpen] = useState<boolean>(false);
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'details' | 'remisiones'>('details');
+  const [activeTab, setActiveTab] = useState<'details' | 'remisiones' | 'calidad'>('details');
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [clientSites, setClientSites] = useState<ConstructionSite[]>([]);
   const [loadingSites, setLoadingSites] = useState(false);
@@ -1136,9 +1137,27 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     <div className="container mx-auto px-4 py-8">
       <div className="mb-6 flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">
-            Orden #{order?.order_number || orderId.substring(0, 8)}
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-semibold text-gray-900">
+              Orden #{order?.order_number || orderId.substring(0, 8)}
+            </h1>
+            {/* Quality Indicator Badge */}
+            {hasRemisiones && (
+              <Badge 
+                variant="outline" 
+                className="bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100 cursor-pointer"
+                onClick={() => {
+                  const samplingInfoElement = document.querySelector('[data-sampling-info]');
+                  if (samplingInfoElement) {
+                    samplingInfoElement.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }}
+              >
+                <Beaker className="h-3 w-3 mr-1" />
+                Calidad
+              </Badge>
+            )}
+          </div>
           <p className="mt-1 text-sm text-gray-600">Cliente: {order?.client?.business_name}</p>
         </div>
         <div>
@@ -1208,6 +1227,16 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   }`}
                 >
                   Remisiones
+                </button>
+                <button
+                  onClick={() => setActiveTab('calidad')}
+                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === 'calidad'
+                      ? 'border-green-500 text-green-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  Calidad
                 </button>
               </nav>
             </div>
@@ -1717,7 +1746,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   </div>
                 )}
               </div>
-            ) : (
+            ) : activeTab === 'remisiones' ? (
               <div className="mt-6 space-y-6">
                 {hasRemisiones && (
                   <div className="flex justify-end mb-4">
@@ -1751,13 +1780,18 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   onRemisionesLoaded={handleRemisionesDataUpdate}
                 />
               </div>
-            )}
+            ) : activeTab === 'calidad' ? (
+              <div className="mt-6">
+                <QualityOverview orderId={order.id} />
+              </div>
+            ) : null}
           </div>
 
           {/* Always show order actions, not just for financial users */}
           {renderOrderActions()}
 
-          {shouldShowFinancialInfo() && (
+          {/* Only show financial info when not in quality tab */}
+          {shouldShowFinancialInfo() && activeTab !== 'calidad' && (
             <div className="mt-6 border-t pt-6">
               <h2 className="text-xl font-semibold mb-4">Información Financiera</h2>
               
