@@ -59,12 +59,12 @@ export interface ReportRemisionData {
   order?: {
     order_number: string;
     construction_site: string;
+    elemento?: string;
     requires_invoice: boolean;
     total_amount: number;
     final_amount?: number;
     invoice_amount?: number;
     client_id: string;
-    elemento?: string;
   };
   
   client?: {
@@ -263,7 +263,8 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     label: 'No. Orden',
     field: 'order.order_number',
     type: 'text',
-    width: '10%'
+    width: '10%',
+    required: true
   },
   {
     id: 'elemento',
