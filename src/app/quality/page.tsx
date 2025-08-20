@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
-import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter, ChevronsUpDown, Check, X } from 'lucide-react';
+import { Loader2, AlertTriangle, TrendingUp, BarChart3, Activity, Filter, ChevronsUpDown, Check, X, Beaker } from 'lucide-react';
 import { fetchMetricasCalidad, fetchDatosGraficoResistencia, checkDatabaseContent } from '@/services/qualityService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import dynamic from 'next/dynamic';
@@ -1706,6 +1706,22 @@ export default function QualityDashboardPage() {
                               <BarChart3 className="w-4 h-4 mr-2" />
                               Ver Reporte Detallado
                             </Button>
+                            
+                            {/* Direct link to muestreo detail if available */}
+                            {selectedPoint.muestra?.muestreo?.id && (
+                              <Button 
+                                size="sm" 
+                                variant="default"
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => {
+                                  // Navigate directly to the specific muestreo detail page
+                                  window.open(`/quality/muestreos/${selectedPoint.muestra.muestreo.id}`, '_blank');
+                                }}
+                              >
+                                <Beaker className="w-4 h-4 mr-2" />
+                                Ver Detalle del Muestreo
+                              </Button>
+                            )}
                             
                             <Button 
                               size="sm" 

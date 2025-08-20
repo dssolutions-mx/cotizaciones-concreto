@@ -1,6 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { supabase } from '@/lib/supabase/client';
 import { ArkikErrorType, StagingRemision, ValidationError } from '@/types/arkik';
+import { 
+  normalizeRecipeCode, 
+  exactRecipeMatch, 
+  findRecipeMatch, 
+  getRecipeCodeSuggestions,
+  validateRecipeCodeFormat 
+} from '@/lib/utils/recipeCodeUtils';
 
 type BatchMaps = {
   clientByCode: Map<string, any>;
@@ -70,71 +77,49 @@ export class ArkikValidator {
       });
     }
 
-    // Recipe
-    // Recipe lookup must use Arkik long code stored in Product Description (designacion_ehe)
-    // Try matching against arkik_long_code first (primary), then recipe_code as fallback
-    const arkikLongCode = (r.product_description || '').toLowerCase();
-    let recipe = maps.recipeByArkikCode.get(arkikLongCode) || maps.recipeByCode.get(arkikLongCode);
+    // Recipe matching with standardized logic
+    const primaryCode = r.product_description?.trim(); // arkik_long_code (PRIMARY)
+    const fallbackCode = r.recipe_code?.trim();        // prod_tecnico (FALLBACK)
     
-    if (!recipe && arkikLongCode) {
-      // Fallback: try sanitized matching (remove spaces, hyphens, accents)
-      const sanitize = (s: string) => s
-        .normalize('NFD').replace(/\p{Diacritic}/gu, '')
-        .replace(/\s+/g, '')
-        .replace(/-/g, '')
-        .toLowerCase();
-      const target = sanitize(arkikLongCode);
-      
-      // Try arkik_long_code first
-      for (const [code, rec] of maps.recipeByArkikCode.entries()) {
-        if (sanitize(code) === target) { recipe = rec; break; }
+    let recipe = null;
+    const searchCode = primaryCode || fallbackCode || '';
+    
+    if (searchCode) {
+      // Validate format
+      if (!validateRecipeCodeFormat(searchCode)) {
+        console.warn(`[ArkikValidator] Invalid recipe code format: "${searchCode}"`);
       }
       
-      // Then try recipe_code as fallback
+      // Try exact match with standardized normalization
+      const normalizedSearch = normalizeRecipeCode(searchCode);
+      
+      // Check arkik_long_code map first
+      recipe = maps.recipeByArkikCode.get(normalizedSearch);
+      
+      // Then check recipe_code map
       if (!recipe) {
-        for (const [code, rec] of maps.recipeByCode.entries()) {
-          if (sanitize(code) === target) { recipe = rec; break; }
-        }
+        recipe = maps.recipeByCode.get(normalizedSearch);
       }
-    }
-    if (!recipe && r.recipe_code) {
-      // Fallback: try short technical code
-      const key = String(r.recipe_code).toLowerCase();
-      recipe = maps.recipeByCode.get(key) || null;
-      if (!recipe) {
-        const target = key.replace(/\s+/g, '').replace(/-/g, '');
-        for (const [code, rec] of maps.recipeByCode.entries()) {
-          const cand = code.replace(/\s+/g, '').replace(/-/g, '');
-          if (cand === target) { recipe = rec; break; }
-        }
-      }
-    }
-    if (!recipe && arkikLongCode) {
-      // Last resort: contains check (sanitized) across both arkik_long_code and recipe_code maps
-      const sanitize = (s: string) => s.replace(/\s+/g, '').replace(/-/g, '').toLowerCase();
-      const target = sanitize(arkikLongCode);
-      const candidates: any[] = [];
-      for (const [code, rec] of maps.recipeByArkikCode.entries()) {
-        const cand = sanitize(code);
-        if (cand.includes(target) || target.includes(cand)) candidates.push(rec);
-      }
-      if (!candidates.length) {
-        for (const [code, rec] of maps.recipeByCode.entries()) {
-          const cand = sanitize(code);
-          if (cand.includes(target) || target.includes(cand)) candidates.push(rec);
-        }
-      }
-      if (candidates.length === 1) recipe = candidates[0];
     }
     if (!recipe) {
-      // Recipe not found - logging reduced for performance
+      // Get suggestions for manual review
+      const allRecipes = Array.from(maps.recipeByArkikCode.values());
+      const suggestions = getRecipeCodeSuggestions(searchCode, allRecipes, 3);
+      
+      let suggestionText = '';
+      if (suggestions.length > 0) {
+        suggestionText = ` Possible matches: [${suggestions.join(', ')}]`;
+      }
+      
+      console.log(`[ArkikValidator] ❌ No exact match found for: "${searchCode}"${suggestionText}`);
+      
       errors.push({
         row_number: r.row_number,
         error_type: ArkikErrorType.RECIPE_NOT_FOUND,
         field_name: 'product_description',
-        field_value: r.product_description,
-        message: `Receta no encontrada en la planta para "${r.product_description}"`,
-        suggestion: null,
+        field_value: searchCode,
+        message: `Receta no encontrada en la planta para "${searchCode}"${suggestionText}`,
+        suggestion: suggestions.length > 0 ? suggestions[0] : null,
         recoverable: true,
       });
     } else {
@@ -174,7 +159,7 @@ export class ArkikValidator {
           const priceWithClient = clientSitePrice || clientOnlyPrice;
           if (priceWithClient?.client_id) {
             // Find the actual client object from our maps
-            for (const [, clientObj] of maps.clientByCode.entries()) {
+            for (const [, clientObj] of Array.from(maps.clientByCode.entries())) {
               if (clientObj.id === priceWithClient.client_id) {
                 client = clientObj;
                 console.log(`[Arkik][Validator] Auto-assigned client from price for row ${r.row_number}:`, client.business_name);
@@ -182,7 +167,7 @@ export class ArkikValidator {
               }
             }
             if (!client) {
-              for (const [, clientObj] of maps.clientByName.entries()) {
+              for (const [, clientObj] of Array.from(maps.clientByName.entries())) {
                 if (clientObj.id === priceWithClient.client_id) {
                   client = clientObj;
                   console.log(`[Arkik][Validator] Auto-assigned client from price for row ${r.row_number}:`, client.business_name);
@@ -253,7 +238,7 @@ export class ArkikValidator {
       ...Object.keys(r.materials_teorico || {}),
       ...Object.keys(r.materials_real || {}),
     ]);
-    for (const code of codes) {
+    for (const code of Array.from(codes)) {
       if (!maps.mappedMaterialCodes.has(code)) {
         errors.push({
           row_number: r.row_number,
@@ -344,10 +329,10 @@ export class ArkikValidator {
         .eq('plant_id', this.plantId);
       (recipes || []).forEach(r => {
         if (r.recipe_code) {
-          recipeByCode.set(String(r.recipe_code).toLowerCase(), r);
+          recipeByCode.set(normalizeRecipeCode(r.recipe_code), r);
         }
         if (r.arkik_long_code) {
-          recipeByArkikCode.set(String(r.arkik_long_code).toLowerCase(), r);
+          recipeByArkikCode.set(normalizeRecipeCode(r.arkik_long_code), r);
         }
       });
       console.log(`[Arkik][Validator] Loaded ${recipes?.length || 0} recipes for plant ${this.plantId}: ${recipeByCode.size} by recipe_code, ${recipeByArkikCode.size} by arkik_long_code`);

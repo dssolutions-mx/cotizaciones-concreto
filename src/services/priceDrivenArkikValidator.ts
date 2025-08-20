@@ -1,6 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { supabase } from '@/lib/supabase/client';
 import { ArkikErrorType, StagingRemision, ValidationError } from '@/types/arkik';
+import { 
+  normalizeRecipeCode, 
+  exactRecipeMatch, 
+  findRecipeMatch, 
+  getRecipeCodeSuggestions,
+  validateRecipeCodeFormat 
+} from '@/lib/utils/recipeCodeUtils';
 
 type PurePriceDrivenMaps = {
   // Recipe lookup
@@ -132,18 +139,14 @@ export class PurePriceDrivenArkikValidator {
     // Index recipes with fuzzy matching
     recipes.forEach(recipe => {
       if (recipe.arkik_long_code) {
-        maps.recipeByArkikCode.set(this.normalizeString(recipe.arkik_long_code), recipe);
+        maps.recipeByArkikCode.set(normalizeRecipeCode(recipe.arkik_long_code), recipe);
       }
       if (recipe.recipe_code) {
-        maps.recipeByShortCode.set(this.normalizeString(recipe.recipe_code), recipe);
+        maps.recipeByShortCode.set(normalizeRecipeCode(recipe.recipe_code), recipe);
       }
 
-      // Add fuzzy matches for input codes
-      recipeCodes.forEach(inputCode => {
-        if (this.isFuzzyRecipeMatch(inputCode, recipe)) {
-          maps.recipeByArkikCode.set(this.normalizeString(inputCode), recipe);
-        }
-      });
+      // DISABLED: Fuzzy matching removed to prevent incorrect matches
+      // The old fuzzy matching logic caused recipe mismatches
     });
 
     console.log(`[PurePriceDrivenValidator] Loaded ${recipes.length} recipes`);
@@ -506,27 +509,60 @@ export class PurePriceDrivenArkikValidator {
     const primaryCode = row.product_description?.trim();
     const fallbackCode = row.recipe_code?.trim();
     
-    let recipe = null;
-    
-    if (primaryCode) {
-      recipe = this.cache!.recipeByArkikCode.get(this.normalizeString(primaryCode));
-    }
-    
-    if (!recipe && fallbackCode) {
-      recipe = this.cache!.recipeByShortCode.get(this.normalizeString(fallbackCode)) ||
-               this.cache!.recipeByArkikCode.get(this.normalizeString(fallbackCode));
-    }
-    
-    if (!recipe) {
+    const searchCode = primaryCode || fallbackCode || '';
+    if (!searchCode) {
       errors.push({
         row_number: row.row_number,
         error_type: ArkikErrorType.RECIPE_NOT_FOUND,
         field_name: 'product_description',
-        field_value: primaryCode || fallbackCode,
-        message: `Receta no encontrada: "${primaryCode || fallbackCode}"`,
+        field_value: '',
+        message: 'No recipe codes provided',
         suggestion: null,
         recoverable: true
       });
+      return null;
+    }
+    
+    // Validate format
+    if (!validateRecipeCodeFormat(searchCode)) {
+      console.warn(`[PriceDrivenValidator] Invalid recipe code format: "${searchCode}"`);
+    }
+    
+    let recipe = null;
+    
+    // Try exact match with standardized normalization
+    if (primaryCode) {
+      recipe = this.cache!.recipeByArkikCode.get(normalizeRecipeCode(primaryCode));
+    }
+    
+    if (!recipe && fallbackCode) {
+      recipe = this.cache!.recipeByShortCode.get(normalizeRecipeCode(fallbackCode)) ||
+               this.cache!.recipeByArkikCode.get(normalizeRecipeCode(fallbackCode));
+    }
+    
+    if (!recipe) {
+      // Get suggestions for manual review
+      const allRecipes = Array.from(this.cache!.recipeByArkikCode.values());
+      const suggestions = getRecipeCodeSuggestions(searchCode, allRecipes, 3);
+      
+      let suggestionText = '';
+      if (suggestions.length > 0) {
+        suggestionText = ` Possible matches: [${suggestions.join(', ')}]`;
+      }
+      
+      console.log(`[PriceDrivenValidator] ❌ No exact match found for: "${searchCode}"${suggestionText}`);
+      
+      errors.push({
+        row_number: row.row_number,
+        error_type: ArkikErrorType.RECIPE_NOT_FOUND,
+        field_name: 'product_description',
+        field_value: searchCode,
+        message: `Receta no encontrada: "${searchCode}"${suggestionText}`,
+        suggestion: suggestions.length > 0 ? suggestions[0] : null,
+        recoverable: true
+      });
+    } else {
+      console.log(`[PriceDrivenValidator] ✅ Exact match found for: "${searchCode}" -> Recipe ID: ${recipe.id}`);
     }
     
     return recipe;
@@ -603,23 +639,14 @@ export class PurePriceDrivenArkikValidator {
   }
 
   // Helper methods
+  // DEPRECATED: Use standardized functions from recipeCodeUtils instead
+  // Kept for client/site name normalization only
   private normalizeString(str: string): string {
     return str.toLowerCase().trim().replace(/\s+/g, ' ');
   }
 
-  private isFuzzyRecipeMatch(input: string, recipe: any): boolean {
-    const normalizedInput = this.normalizeString(input);
-    const codes = [recipe.arkik_long_code, recipe.recipe_code, recipe.arkik_short_code]
-      .filter(Boolean)
-      .map(c => this.normalizeString(c));
-    
-    return codes.some(code => 
-      code === normalizedInput ||
-      code.includes(normalizedInput) ||
-      normalizedInput.includes(code) ||
-      this.levenshteinDistance(normalizedInput, code) <= 2
-    );
-  }
+  // REMOVED: Old fuzzy matching logic that caused recipe mismatches
+  // The old isFuzzyRecipeMatch method has been replaced with standardized utilities
 
   private extractSiteId(price: any): string | null {
     // For quotes, we might not have the construction_sites object

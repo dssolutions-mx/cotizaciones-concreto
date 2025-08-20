@@ -13,6 +13,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase/client';
 
+// Helper functions for date formatting without timezone conversion
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatLocalTime = (date: Date): string => {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+};
+
 export default function ArkikProcessor() {
   const { currentPlant } = usePlantContext();
   const [file, setFile] = useState<File | null>(null);
@@ -640,13 +655,37 @@ export default function ArkikProcessor() {
       const parser = new ArkikRawParser();
       const { data: rawData, errors: parseErrors } = await parser.parseFile(file);
       
+      // Debug: Log first few rows to verify date parsing after our fixes
+      if (rawData.length > 0) {
+        console.log('[ArkikProcessor] ✅ Date parsing verification after timezone fix - first 3 rows:');
+        rawData.slice(0, 3).forEach((row, index) => {
+          console.log(`[ArkikProcessor] Row ${index + 1}:`, {
+            remision: row.remision,
+            fecha: {
+              value: row.fecha,
+              type: typeof row.fecha,
+              isDate: row.fecha instanceof Date,
+              displayDate: row.fecha instanceof Date ? formatLocalDate(row.fecha) : 'Not a Date',
+              localString: row.fecha instanceof Date ? row.fecha.toLocaleDateString() + ' ' + row.fecha.toLocaleTimeString() : 'Not a Date'
+            },
+            hora_carga: {
+              value: row.hora_carga,
+              type: typeof row.hora_carga,
+              isDate: row.hora_carga instanceof Date,
+              displayTime: row.hora_carga instanceof Date ? formatLocalTime(row.hora_carga) : 'Not a Date',
+              localString: row.hora_carga instanceof Date ? row.hora_carga.toLocaleDateString() + ' ' + row.hora_carga.toLocaleTimeString() : 'Not a Date'
+            }
+          });
+        });
+      }
+      
               // Convert to StagingRemision format
         const stagingRows = rawData.map((row, index) => ({
           id: crypto.randomUUID(),
           session_id: crypto.randomUUID(),
           row_number: index + 1,
-          fecha: new Date(row.fecha),
-          hora_carga: new Date(row.hora_carga),
+          fecha: row.fecha, // Use date directly from parser (already properly handled)
+          hora_carga: row.hora_carga, // Use date directly from parser (already properly handled)
           remision_number: String(row.remision),
           cliente_name: String(row.cliente_nombre || ''),
           cliente_codigo: String(row.cliente_codigo || ''),
@@ -1219,7 +1258,7 @@ export default function ArkikProcessor() {
                                 </div>
                                 <div>
                                   <span className="font-medium text-gray-700">Fecha:</span>
-                                  <div className="text-gray-600">{remision.fecha.toLocaleDateString('es-MX')}</div>
+                                  <div className="text-gray-600">{formatLocalDate(remision.fecha)}</div>
                                 </div>
                                 <div>
                                   <span className="font-medium text-gray-700">Volumen:</span>
@@ -1237,7 +1276,7 @@ export default function ArkikProcessor() {
                                     {potentialReassignments.get(remision.id)?.slice(0, 3).map((candidate, idx) => (
                                       <div key={idx} className="text-xs text-blue-700 flex justify-between">
                                         <span>#{candidate.remision_number}</span>
-                                        <span>{candidate.fecha.toLocaleDateString('es-MX')} - {candidate.volumen_fabricado.toFixed(1)}m³</span>
+                                        <span>{formatLocalDate(candidate.fecha)} - {candidate.volumen_fabricado.toFixed(1)}m³</span>
                                       </div>
                                     ))}
                                   </div>
@@ -1358,7 +1397,7 @@ export default function ArkikProcessor() {
                </div>
 
                {/* Order Details */}
-               {orderSuggestions.map((suggestion, index) => (
+                                 {orderSuggestions.map((suggestion, index) => (
                  <Card key={index} className="border-l-4 border-l-blue-500">
                    <CardHeader className="pb-3">
                      <div className="flex items-start justify-between">
@@ -1428,7 +1467,7 @@ export default function ArkikProcessor() {
                              }
                            </div>
                            <div>
-                             <span className="font-medium">Fecha:</span> {suggestion.date_range?.start.toLocaleDateString('es-MX')}
+                             <span className="font-medium">Fecha:</span> {formatLocalDate(suggestion.date_range?.start || new Date())}
                            </div>
                            <div>
                              <span className="font-medium">Volumen:</span> {suggestion.total_volume.toFixed(1)} m³
@@ -1493,15 +1532,15 @@ export default function ArkikProcessor() {
                                <div className="flex justify-between">
                                  <span>Fecha:</span>
                                  <span className="font-medium">
-                                   {remision.fecha.toLocaleDateString('es-MX')}
+                                   {formatLocalDate(remision.fecha)}
                                  </span>
                                </div>
                                <div className="flex justify-between">
                                  <span>Hora:</span>
                                  <span className="font-medium">
                                    {remision.hora_carga instanceof Date 
-                                     ? remision.hora_carga.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
-                                     : new Date(remision.hora_carga as any).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+                                     ? formatLocalTime(remision.hora_carga).substring(0, 5) // HH:MM only
+                                     : formatLocalTime(new Date(remision.hora_carga as any)).substring(0, 5)
                                    }
                                  </span>
                                </div>
@@ -1726,11 +1765,11 @@ export default function ArkikProcessor() {
                           </td>
                           <td className="p-2 font-medium">{row.remision_number}</td>
                           <td className="p-2">
-                            <div>{row.fecha.toISOString().split('T')[0]}</div>
+                            <div>{formatLocalDate(row.fecha)}</div>
                             <div className="text-xs text-gray-500">
                               {row.hora_carga instanceof Date 
-                                ? row.hora_carga.toISOString().split('T')[1]?.split('.')[0] || ''
-                                : new Date(row.hora_carga as any).toISOString().split('T')[1]?.split('.')[0] || ''
+                                ? formatLocalTime(row.hora_carga)
+                                : formatLocalTime(new Date(row.hora_carga as any))
                               }
                             </div>
                           </td>

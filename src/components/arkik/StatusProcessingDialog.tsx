@@ -18,6 +18,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AlertTriangle, ArrowRight, Trash2 } from 'lucide-react';
 import type { StagingRemision, StatusProcessingDecision, StatusProcessingAction } from '@/types/arkik';
 
+// Helper functions for date formatting without timezone conversion
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatLocalTime = (date: Date): string => {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+};
+
 interface StatusProcessingDialogProps {
   isOpen: boolean;
   onClose: () => void;
@@ -159,14 +173,14 @@ export default function StatusProcessingDialog({
                 </div>
                 <div>
                   <Label className="text-gray-700">Fecha</Label>
-                  <div className="mt-1 font-medium">{remision.fecha.toLocaleDateString('es-MX')}</div>
+                  <div className="mt-1 font-medium">{formatLocalDate(remision.fecha)}</div>
                 </div>
                 <div>
                   <Label className="text-gray-700">Hora</Label>
                   <div className="mt-1 font-medium">
                     {remision.hora_carga instanceof Date 
-                      ? remision.hora_carga.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
-                      : new Date(remision.hora_carga as any).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+                      ? formatLocalTime(remision.hora_carga)
+                      : formatLocalTime(new Date(remision.hora_carga as any))
                     }
                   </div>
                 </div>
@@ -266,7 +280,7 @@ export default function StatusProcessingDialog({
                           <div className="flex items-center justify-between w-full">
                             <span>#{target.remision_number}</span>
                             <span className="text-sm text-gray-500 ml-4">
-                              {target.fecha.toLocaleDateString('es-MX')} - {target.volumen_fabricado.toFixed(1)}m³
+                              {formatLocalDate(target.fecha)} - {target.volumen_fabricado.toFixed(1)}m³
                             </span>
                           </div>
                         </SelectItem>
