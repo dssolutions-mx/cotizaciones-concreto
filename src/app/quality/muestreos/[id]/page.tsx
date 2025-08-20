@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Loader2, 
   AlertTriangle, 
@@ -45,6 +46,7 @@ import { MuestreoWithRelations } from '@/types/quality';
 import Link from 'next/link';
 import { formatDate, createSafeDate } from '@/lib/utils';
 import AddSampleModal from '@/components/quality/muestreos/AddSampleModal';
+import RemisionMaterialsAnalysis from '@/components/quality/RemisionMaterialsAnalysis';
 
 // Helper function to get order info for integration
 function getOrderInfo(muestreo: MuestreoWithRelations) {
@@ -358,7 +360,15 @@ export default function MuestreoDetailPage() {
         </div>
       </div>
       
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+      {/* Tabbed Interface */}
+      <Tabs defaultValue="general" className="mb-8">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="general">Información General</TabsTrigger>
+          <TabsTrigger value="materials" disabled={!muestreo.remision}>Análisis de Materiales</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="general" className="mt-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Main Muestreo Information */}
         <Card className="lg:col-span-2 border border-gray-200 bg-white shadow-sm">
           <CardHeader className="pb-4">
@@ -706,10 +716,10 @@ export default function MuestreoDetailPage() {
               </div>
             </CardContent>
           </Card>
+          </div>
         </div>
-      </div>
-      
-      {/* Listado de muestras */}
+        
+        {/* Listado de muestras */}
       <Card className="mb-6 border border-gray-200 bg-white shadow-sm">
         <CardHeader className="pb-4">
           <div className="flex items-center justify-between">
@@ -833,6 +843,24 @@ export default function MuestreoDetailPage() {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+        
+        <TabsContent value="materials" className="mt-6">
+          {muestreo.remision ? (
+            <RemisionMaterialsAnalysis remision={muestreo.remision} />
+          ) : (
+            <div className="text-center py-12">
+              <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                No hay remisión asociada
+              </h3>
+              <p className="text-gray-500">
+                Este muestreo no tiene una remisión asociada para analizar materiales.
+              </p>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Modal para agregar nueva muestra */}
       {muestreo && (
