@@ -210,8 +210,12 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
                   <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.15}/>
                 </linearGradient>
                 <linearGradient id="colorRange" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.35}/>
-                  <stop offset="95%" stopColor="#10B981" stopOpacity={0.15}/>
+                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.6}/>
+                  <stop offset="95%" stopColor="#10B981" stopOpacity={0.25}/>
+                </linearGradient>
+                <linearGradient id="colorRangeBorder" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#059669" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="#059669" stopOpacity={0.4}/>
                 </linearGradient>
                 <linearGradient id="colorBackground" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#F8FAFC" stopOpacity={0.8}/>
@@ -286,7 +290,7 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
                 stackId="1"
                 stroke="none"
                 fill="url(#colorRange)"
-                fillOpacity={0.4}
+                fillOpacity={0.5}
               />
               <Area
                 type="monotone"
@@ -294,7 +298,7 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
                 stackId="1"
                 stroke="none"
                 fill="url(#colorRange)"
-                fillOpacity={0.4}
+                fillOpacity={0.5}
               />
               
               {/* Main resistance line with enhanced styling */}
@@ -323,29 +327,29 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
               <Line
                 type="monotone"
                 dataKey="resistencia_max"
-                stroke="#059669"
-                strokeWidth={2.5}
-                strokeDasharray="4 4"
+                stroke="#047857"
+                strokeWidth={3}
+                strokeDasharray="6 3"
                 dot={{ 
-                  fill: '#059669', 
+                  fill: '#047857', 
                   stroke: '#FFFFFF', 
-                  strokeWidth: 2, 
-                  r: 4,
-                  filter: 'drop-shadow(0 2px 4px rgba(5, 150, 105, 0.3))'
+                  strokeWidth: 3, 
+                  r: 5,
+                  filter: 'drop-shadow(0 3px 6px rgba(4, 120, 87, 0.4))'
                 }}
               />
               <Line
                 type="monotone"
                 dataKey="resistencia_min"
-                stroke="#059669"
-                strokeWidth={2.5}
-                strokeDasharray="4 4"
+                stroke="#047857"
+                strokeWidth={3}
+                strokeDasharray="6 3"
                 dot={{ 
-                  fill: '#059669', 
+                  fill: '#047857', 
                   stroke: '#FFFFFF', 
-                  strokeWidth: 2, 
-                  r: 4,
-                  filter: 'drop-shadow(0 2px 4px rgba(5, 150, 105, 0.3))'
+                  strokeWidth: 3, 
+                  r: 5,
+                  filter: 'drop-shadow(0 3px 6px rgba(4, 120, 87, 0.4))'
                 }}
               />
             </AreaChart>
@@ -355,19 +359,33 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
         {/* Chart Legend */}
         <div className="bg-slate-50 rounded-xl p-4 mt-6 border border-slate-200">
           <h4 className="text-sm font-semibold text-slate-700 mb-3 text-center">Leyenda del Gráfico</h4>
-          <div className="flex items-center justify-center gap-8 text-sm">
-            <div className="flex items-center gap-3">
-              <div className="w-4 h-4 rounded-full bg-blue-600 border-2 border-white shadow-sm"></div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="flex items-center gap-3 justify-center">
+              <div className="w-5 h-5 rounded-full bg-blue-600 border-2 border-white shadow-sm"></div>
               <span className="text-slate-700 font-medium">Resistencia Promedio</span>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="w-4 h-4 rounded-full bg-green-600 border-2 border-white shadow-sm"></div>
-              <span className="text-slate-700 font-medium">Rango Min-Max</span>
+            <div className="flex items-center gap-3 justify-center">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-full bg-green-600 border-2 border-white shadow-sm"></div>
+                <span className="text-slate-700 font-medium">Rango Min-Max</span>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="w-4 h-4 rounded-full bg-red-600 border-2 border-white shadow-sm"></div>
+            <div className="flex items-center gap-3 justify-center">
+              <div className="w-5 h-5 rounded-full bg-red-600 border-2 border-white shadow-sm"></div>
               <span className="text-slate-700 font-medium">Resistencia Objetivo</span>
             </div>
+          </div>
+          
+          {/* Additional explanation for range */}
+          <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-4 h-4 bg-green-600 rounded-full"></div>
+              <span className="text-sm font-medium text-green-800">Rango Min-Max</span>
+            </div>
+            <p className="text-xs text-green-700">
+              El área sombreada verde muestra la variación de resistencia. 
+              La línea superior es el valor máximo y la inferior el mínimo en cada fecha.
+            </p>
           </div>
         </div>
         
@@ -376,10 +394,24 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
             <Info className="w-4 h-4 text-blue-600" />
             <span className="text-sm font-medium text-blue-800">Información del Gráfico</span>
           </div>
-          <p className="text-xs text-blue-700">
+          <p className="text-xs text-blue-700 mb-2">
             El eje X muestra los días transcurridos desde la fecha de muestreo. 
             No se agrupa por edad de garantía, sino por tiempo real de evolución.
           </p>
+          <div className="flex items-center justify-center gap-4 text-xs text-blue-600">
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
+              <span>Línea azul: Promedio</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-green-600 rounded-full"></div>
+              <span>Área verde: Rango</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <div className="w-3 h-3 bg-red-600 rounded-full"></div>
+              <span>Línea roja: Objetivo</span>
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>

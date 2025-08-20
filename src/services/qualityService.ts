@@ -1210,6 +1210,8 @@ export async function fetchDatosGraficoResistencia(
 
     // Filter to only show ensayos at edad garantia if requested
     if (soloEdadGarantia) {
+      console.log('🔍 Filtering for edad garantia - total records before filter:', filteredData.length);
+      
       filteredData = filteredData.filter((item: any) => {
         const muestra = item.muestra;
         if (!muestra) return false;
@@ -1221,26 +1223,54 @@ export async function fetchDatosGraficoResistencia(
         if (!remision) return false;
         
         const recipe = Array.isArray(remision.recipe) ? remision.recipe[0] : remision.recipe;
-        if (!recipe || !recipe.age_days) return false;
+        if (!recipe) return false;
 
-        // Calculate the guarantee age date
+        // Calculate the guarantee age - prefer age_hours if available, otherwise use age_days
+        let edadGarantia: number;
+        if (recipe.age_hours && recipe.age_hours > 0) {
+          edadGarantia = recipe.age_hours;
+        } else if (recipe.age_days && recipe.age_days > 0) {
+          edadGarantia = recipe.age_days * 24; // Convert days to hours
+        } else {
+          edadGarantia = 28 * 24; // Default 28 days in hours
+        }
+
+        // Calculate the guarantee age date using hours for precision
         const fechaMuestreo = new Date(muestreo.fecha_muestreo);
-    const edadGarantia = (recipe.age_hours ?? null) ? (recipe.age_hours / 24) : (recipe.age_days || 28);
-        const fechaEdadGarantia = new Date(fechaMuestreo);
-        fechaEdadGarantia.setDate(fechaMuestreo.getDate() + edadGarantia);
+        const fechaEdadGarantia = new Date(fechaMuestreo.getTime() + (edadGarantia * 60 * 60 * 1000));
 
-        // Check if the date is the exact guarantee date or ±1 day
-        // Access fecha_programada_ensayo from muestra instead of ensayo
+        // Access fecha_programada_ensayo from muestra
         const fechaProgramada = muestra.fecha_programada_ensayo ? new Date(muestra.fecha_programada_ensayo) : null;
         if (!fechaProgramada) return false;
         
-        // Calculate difference in days
+        // Calculate difference in hours for more precise comparison
         const diffTime = Math.abs(fechaProgramada.getTime() - fechaEdadGarantia.getTime());
-        const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+        const diffHours = diffTime / (1000 * 60 * 60);
         
-        // Allow ±1 day tolerance
-        return diffDays <= 1;
+        // Allow ±2 hours tolerance for hour-based ages, ±1 day for day-based
+        const tolerance = recipe.age_hours ? 2 : 24;
+        const isAtGuaranteeAge = diffHours <= tolerance;
+        
+        // Debug logging for first few items
+        if (filteredData.length <= 5 || Math.random() < 0.1) {
+          console.log('🔍 Edad Garantia Check:', {
+            recipeCode: recipe.recipe_code,
+            ageDays: recipe.age_days,
+            ageHours: recipe.age_hours,
+            calculatedAgeHours: edadGarantia,
+            fechaMuestreo: fechaMuestreo.toISOString(),
+            fechaEdadGarantia: fechaEdadGarantia.toISOString(),
+            fechaProgramada: fechaProgramada.toISOString(),
+            diffHours: diffHours.toFixed(2),
+            tolerance,
+            isAtGuaranteeAge
+          });
+        }
+        
+        return isAtGuaranteeAge;
       });
+      
+      console.log('🔍 Filtered for edad garantia - records after filter:', filteredData.length);
     }
 
     console.log('📊 Filtered Ensayos Data', {
@@ -1310,7 +1340,16 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
         clasificacion: item.muestra?.muestreo?.remision?.recipe?.recipe_code ? 
           (item.muestra.muestreo.remision.recipe.recipe_code.includes('MR') ? 'MR' : 'FC') 
           : 'FC',
-        edad: 28, // Default age
+        edad: (() => {
+          // Get the actual age from the recipe, prefer age_hours if available
+          const recipe = item.muestra?.muestreo?.remision?.recipe;
+          if (recipe?.age_hours && recipe.age_hours > 0) {
+            return Math.round(recipe.age_hours / 24); // Convert hours to days for display
+          } else if (recipe?.age_days && recipe.age_days > 0) {
+            return recipe.age_days;
+          }
+          return 28; // Default fallback
+        })(),
         fecha_ensayo: item.fecha_ensayo,
         resistencia_calculada: item.resistencia_calculada,
         muestra: item.muestra
