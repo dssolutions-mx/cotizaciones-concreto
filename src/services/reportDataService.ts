@@ -44,7 +44,6 @@ export class ReportDataService {
           invoice_amount,
           client_id,
           order_status,
-          elemento,
           clients:client_id (
             id,
             business_name,
@@ -147,8 +146,7 @@ export class ReportDataService {
             total_amount: order.total_amount,
             final_amount: order.final_amount,
             invoice_amount: order.invoice_amount,
-            client_id: order.client_id,
-            elemento: order.elemento
+            client_id: order.client_id
           } : undefined,
           client: client ? {
             id: client.id,
@@ -526,9 +524,6 @@ export class ReportDataService {
             break;
           case 'order_number':
             transformedItem.order_number = item.order?.order_number;
-            break;
-          case 'elemento':
-            transformedItem.elemento = item.order?.elemento;
             break;
           case 'requires_invoice':
             transformedItem.requires_invoice = item.order?.requires_invoice;
