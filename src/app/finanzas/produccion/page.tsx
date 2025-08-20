@@ -80,7 +80,6 @@ export default function ProduccionDashboard() {
   const { currentPlant } = usePlantContext();
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
-  const [debugInfo, setDebugInfo] = useState<string>('');
   const [productionData, setProductionData] = useState<ProductionData[]>([]);
   const [remisionesData, setRemisionesData] = useState<RemisionData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,11 +111,6 @@ export default function ProduccionDashboard() {
         // Format dates for Supabase query
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
-
-        // Debug: Log current plant info
-        const debugMsg = `Current Plant: ${currentPlant?.name || 'None'} (${currentPlant?.id || 'None'}) - Code: ${currentPlant?.code || 'None'}`;
-        setDebugInfo(debugMsg);
-        console.log('Production Debug:', debugMsg);
 
         // Fetch remisiones with recipe and order data
         let remisionesQuery = supabase
@@ -734,11 +728,6 @@ export default function ProduccionDashboard() {
           <CardDescription>
             Análisis de costos de materiales y producción - {dateRangeText}
           </CardDescription>
-          {debugInfo && (
-            <div className="text-xs text-muted-foreground bg-gray-100 p-2 rounded">
-              Debug: {debugInfo}
-            </div>
-          )}
         </CardHeader>
       </Card>
 
