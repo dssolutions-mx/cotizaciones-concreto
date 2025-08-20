@@ -1012,13 +1012,12 @@ async function createSingleOrderWithoutBalanceUpdate(
       order_id: order.id,
       quote_detail_id: recipe.quote_detail_id,
       recipe_id: recipe.recipe_id,
-      product_description: `${recipe.recipe_code} - ${dataCache.materialsMap.get(recipe.recipe_id) || 'Material desconocido'}`,
+      product_type: `${recipe.recipe_code} - ${dataCache.materialsMap.get(recipe.recipe_id) || 'Material desconocido'}`,
       volume: recipe.volume,
       unit_price: recipe.unit_price,
       total_price: recipe.volume * recipe.unit_price,
       has_pump_service: false,
-      has_empty_truck_charge: false,
-      plant_id: plantId
+      has_empty_truck_charge: false
     }));
 
     if (orderItems.length > 0) {

@@ -514,6 +514,7 @@ export default function ProduccionDashboard() {
     const totalCementCost = filteredProductionData.reduce((sum, item) => sum + item.cement_cost, 0);
     const totalCementConsumption = filteredProductionData.reduce((sum, item) => sum + item.cement_consumption, 0);
     const weightedAvgCostPerM3 = totalVolume > 0 ? totalMaterialCost / totalVolume : 0;
+    const avgCementConsumptionPerM3 = totalVolume > 0 ? totalCementConsumption / totalVolume : 0;
 
     return {
       totalVolume,
@@ -521,6 +522,7 @@ export default function ProduccionDashboard() {
       totalCementCost,
       totalCementConsumption,
       weightedAvgCostPerM3,
+      avgCementConsumptionPerM3,
       cementCostPercentage: totalMaterialCost > 0 ? (totalCementCost / totalMaterialCost) * 100 : 0
     };
   }, [filteredProductionData]);
@@ -726,7 +728,8 @@ export default function ProduccionDashboard() {
         'Costo Promedio por m³': item.avg_cost_per_m3,
         'Costo Total Materiales': item.total_material_cost,
         'Costo Cemento': item.cement_cost,
-        'Consumo Cemento (kg)': item.cement_consumption
+        'Consumo Cemento (kg)': item.cement_consumption,
+        'Cemento por m³ (kg/m³)': (item.cement_consumption / item.total_volume).toFixed(2)
       }));
 
       // Add summary row
@@ -738,7 +741,8 @@ export default function ProduccionDashboard() {
         'Costo Promedio por m³': summaryMetrics.weightedAvgCostPerM3,
         'Costo Total Materiales': summaryMetrics.totalMaterialCost,
         'Costo Cemento': summaryMetrics.totalCementCost,
-        'Consumo Cemento (kg)': summaryMetrics.totalCementConsumption
+        'Consumo Cemento (kg)': summaryMetrics.totalCementConsumption,
+        'Cemento por m³ (kg/m³)': summaryMetrics.avgCementConsumptionPerM3.toFixed(2)
       };
 
       excelData.push(summaryRow);
@@ -756,7 +760,8 @@ export default function ProduccionDashboard() {
         { wch: 22 }, // Costo Promedio por m³
         { wch: 22 }, // Costo Total Materiales
         { wch: 18 }, // Costo Cemento
-        { wch: 20 }  // Consumo Cemento
+        { wch: 20 }, // Consumo Cemento
+        { wch: 20 }  // Cemento por m³
       ];
       worksheet['!cols'] = columnWidths;
 
@@ -1110,7 +1115,7 @@ export default function ProduccionDashboard() {
       ) : (
         <>
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Volumen Total</CardTitle>
@@ -1159,6 +1164,19 @@ export default function ProduccionDashboard() {
                 <div className="text-2xl font-bold">{(summaryMetrics.totalCementConsumption / 1000).toFixed(1)} t</div>
                 <p className="text-xs text-muted-foreground">
                   Total de cemento utilizado
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Cemento por m³</CardTitle>
+                <BarChart3 className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{summaryMetrics.avgCementConsumptionPerM3.toFixed(1)} kg/m³</div>
+                <p className="text-xs text-muted-foreground">
+                  Consumo promedio por m³
                 </p>
               </CardContent>
             </Card>
@@ -1260,6 +1278,7 @@ export default function ProduccionDashboard() {
                           <TableHead className="text-right">Precio Promedio</TableHead>
                           <TableHead className="text-right">Margen por m³</TableHead>
                           <TableHead className="text-right">% Cemento</TableHead>
+                          <TableHead className="text-right">Cemento por m³</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -1296,6 +1315,11 @@ export default function ProduccionDashboard() {
                                 {((item.cement_cost / item.total_material_cost) * 100).toFixed(1)}%
                               </span>
                             </TableCell>
+                            <TableCell className="text-right">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 text-sm font-medium">
+                                {(item.cement_consumption / item.total_volume).toFixed(1)} kg/m³
+                              </span>
+                            </TableCell>
                           </TableRow>
                         ))}
                         {filteredProductionData.length > 0 && (
@@ -1330,6 +1354,11 @@ export default function ProduccionDashboard() {
                             <TableCell className="text-right">
                               <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-orange-200 text-orange-900 text-sm font-bold">
                                 {summaryMetrics.cementCostPercentage.toFixed(1)}%
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-200 text-blue-900 text-sm font-bold">
+                                {summaryMetrics.avgCementConsumptionPerM3.toFixed(1)} kg/m³
                               </span>
                             </TableCell>
                           </TableRow>
