@@ -418,6 +418,8 @@ export default function QualityDashboardPage() {
 
     // Aggregate duplicates only when focusing on guarantee age
     if (soloEdadGarantia) {
+      console.log('🔍 Aggregating data for edad garantia - total points before aggregation:', filtered.length);
+      
       const groups = new Map<string, DatoGraficoResistencia[]>();
       for (const item of filtered) {
         const muestreoId = item?.muestra?.muestreo?.id;
@@ -427,8 +429,10 @@ export default function QualityDashboardPage() {
         groups.set(key, arr);
       }
 
+      console.log('🔍 Grouped into', groups.size, 'unique muestreos');
+
       const aggregated: DatoGraficoResistencia[] = [];
-      groups.forEach((items) => {
+      groups.forEach((items, key) => {
         if (items.length === 1) {
           aggregated.push(items[0]);
           return;
@@ -452,17 +456,42 @@ export default function QualityDashboardPage() {
         const xs = items.map((i) => i.x).sort((a, b) => a - b);
         const xAvg = Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
 
+        // Calculate the actual age from recipe data
+        const calculatedAge = (() => {
+          const recipe = items[0]?.muestra?.muestreo?.remision?.recipe;
+          if (recipe?.age_hours && recipe.age_hours > 0) {
+            return Math.round(recipe.age_hours / 24); // Convert hours to days for display
+          } else if (recipe?.age_days && recipe.age_days > 0) {
+            return recipe.age_days;
+          }
+          return items[0].edad || 28; // Use existing age or default
+        })();
+
+        // Debug logging for aggregated points
+        if (aggregated.length < 5) {
+          console.log('🔍 Aggregated Point:', {
+            key,
+            originalCount: items.length,
+            originalAges: items.map(i => i.edad),
+            calculatedAge,
+            recipeCode: items[0]?.muestra?.muestreo?.remision?.recipe?.recipe_code,
+            ageHours: items[0]?.muestra?.muestreo?.remision?.recipe?.age_hours,
+            ageDays: items[0]?.muestra?.muestreo?.remision?.recipe?.age_days
+          });
+        }
+
         aggregated.push({
           x: xAvg,
           y: recomputedY,
           clasificacion: items[0].clasificacion,
-          edad: items[0].edad,
+          edad: calculatedAge,
           fecha_ensayo: format(new Date(xAvg), 'dd/MM/yyyy'),
           resistencia_calculada: avgResistencia ?? items[0].resistencia_calculada,
           muestra: items[0].muestra
         } as DatoGraficoResistencia);
       });
 
+      console.log('🔍 Aggregation complete - final aggregated points:', aggregated.length);
       return aggregated.sort((a, b) => a.x - b.x);
     }
 
@@ -1472,6 +1501,22 @@ export default function QualityDashboardPage() {
                     <CardTitle className="text-base md:text-lg font-medium text-slate-800">Cumplimiento de Resistencia</CardTitle>
                     <div className="text-xs text-slate-500">Puntos: {preparedData.length}</div>
                   </div>
+                  
+                  {/* Age Information Display */}
+                  {soloEdadGarantia && preparedData.length > 0 && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="text-xs text-blue-700">
+                        <strong>Edad Garantía:</strong> Mostrando solo ensayos realizados en la edad de garantía especificada en la receta.
+                        {(() => {
+                          const ages = Array.from(new Set(preparedData.map(d => d.edad))).sort((a, b) => a - b);
+                          if (ages.length > 0) {
+                            return ` Edades encontradas: ${ages.join(', ')} días`;
+                          }
+                          return '';
+                        })()}
+                      </div>
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent>
                   {typeof window !== 'undefined' && preparedData.length > 0 ? (
