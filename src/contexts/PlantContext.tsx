@@ -78,8 +78,16 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
 
       // Set current plant (without localStorage to prevent hydration mismatch)
       if (isGlobalAdmin) {
-        // Global admin can see all plants, default to first one
-        const defaultPlant = plantsData?.[0];
+        // Global admin can see all plants, but prioritize plants with data
+        // First try to find a plant with recipes/remisiones, otherwise use first non-DIACE plant
+        let defaultPlant = plantsData?.[0];
+        
+        // Try to find a plant with recipes first
+        const plantsWithData = plantsData?.filter(p => p.code !== 'DIACE');
+        if (plantsWithData && plantsWithData.length > 0) {
+          defaultPlant = plantsWithData[0];
+        }
+        
         setCurrentPlant(defaultPlant || null);
       } else if (profile.plant_id) {
         // User assigned to specific plant
@@ -129,8 +137,16 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
       const storedPlantId = localStorage.getItem('selectedPlantId');
       if (storedPlantId) {
         const storedPlant = availablePlants.find(p => p.id === storedPlantId);
-        if (storedPlant) {
+        // Don't restore DIACE plant as it has no data
+        if (storedPlant && storedPlant.code !== 'DIACE') {
           setCurrentPlant(storedPlant);
+        } else if (storedPlant?.code === 'DIACE') {
+          // Clear the stored DIACE plant ID and find a better default
+          localStorage.removeItem('selectedPlantId');
+          const betterPlant = availablePlants.find(p => p.code !== 'DIACE');
+          if (betterPlant) {
+            setCurrentPlant(betterPlant);
+          }
         }
       }
     }
