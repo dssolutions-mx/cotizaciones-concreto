@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect, useMemo, useState } from 'react';
 import { priceService } from '@/lib/supabase/prices';
 import { usePlantContext } from '@/contexts/PlantContext';
@@ -38,7 +40,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
   const [formData, setFormData] = useState<MaterialPriceFormData>({
     materialType: '',
     pricePerUnit: 0,
-    effectiveDate: new Date().toISOString().split('T')[0]
+    effectiveDate: ''
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,6 +48,14 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
   const [success, setSuccess] = useState(false);
   const [materials, setMaterials] = useState<RecipeMaterial[]>([]);
   const [loadingMaterials, setLoadingMaterials] = useState(false);
+
+  // Set effective date after component mounts to prevent hydration mismatch
+  useEffect(() => {
+    setFormData(prev => ({
+      ...prev,
+      effectiveDate: new Date().toISOString().split('T')[0]
+    }));
+  }, []);
 
   // Load available materials for the selected plant
   useEffect(() => {
@@ -95,6 +105,18 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       return;
     }
 
+    // Validate material selection
+    if (!selectedMaterial?.id) {
+      setError('Debes seleccionar un material válido');
+      return;
+    }
+
+    // Validate user profile
+    if (!profile?.id) {
+      setError('No se pudo obtener la información del usuario');
+      return;
+    }
+
     // Validate user can create in selected plant
     if (!plantAwareDataService.canCreateInPlant(selectedPlantId, {
       userAccess,
@@ -109,7 +131,6 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       setIsSubmitting(true);
       
       // Create material price with plant assignment
-      // Persist both material_id (new standard) and a material_type string (compatibility)
       const fallbackType = selectedMaterial?.material_code || selectedMaterial?.category?.toUpperCase() || 'MATERIAL';
       const materialPriceData = {
         materialType: fallbackType,
@@ -120,6 +141,14 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
         created_by: profile?.id
       } as const;
       
+      console.log('Sending material price data:', materialPriceData);
+      console.log('Selected material:', selectedMaterial);
+      console.log('Selected plant ID:', selectedPlantId);
+      console.log('Profile ID:', profile?.id);
+      console.log('Form data:', formData);
+      console.log('Material type from form:', formData.materialType);
+      console.log('Material ID from selected material:', selectedMaterial?.id);
+      
       const { error: supabaseError } = await priceService.saveMaterialPrice(materialPriceData);
       
       if (supabaseError) throw supabaseError;
@@ -128,8 +157,16 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       setFormData({
         materialType: '',
         pricePerUnit: 0,
-        effectiveDate: new Date().toISOString().split('T')[0]
+        effectiveDate: ''
       });
+
+      // Reset effective date after form reset
+      setTimeout(() => {
+        setFormData(prev => ({
+          ...prev,
+          effectiveDate: new Date().toISOString().split('T')[0]
+        }));
+      }, 100);
 
       onPriceSaved?.();
 
@@ -142,6 +179,8 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       setIsSubmitting(false);
     }
   };
+
+
 
   return (
     <div className="bg-white p-6 rounded-lg shadow-sm border">
@@ -159,7 +198,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         {/* Plant Selection */}
         <div>
           <EnhancedPlantSelector
@@ -205,15 +244,45 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
             Precio por {selectedMaterial?.unit_of_measure || 'unidad'} *
           </label>
           <input
-            type="number"
-            step="0.01"
-            min="0"
-            value={formData.pricePerUnit}
-            onChange={(e) => setFormData(prev => ({ ...prev, pricePerUnit: parseFloat(e.target.value) || 0 }))}
+            type="text"
+            inputMode="decimal"
+            value={formData.pricePerUnit === 0 ? '' : formData.pricePerUnit.toString()}
+            onChange={(e) => {
+              const value = e.target.value;
+              console.log('Price input value:', value, 'Type:', typeof value);
+              
+              // Allow empty string, single dot, or valid decimal numbers up to 5 decimal places
+              if (value === '' || value === '.' || /^\d*\.?\d{0,5}$/.test(value)) {
+                // Only update form if it's a valid number or empty
+                if (value === '' || value === '.' || /^\d+\.?\d*$/.test(value)) {
+                  const parsedValue = value === '' || value === '.' ? 0 : parseFloat(value) || 0;
+                  console.log('Parsed price value:', parsedValue);
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    pricePerUnit: parsedValue
+                  }));
+                }
+              }
+            }}
+            onBlur={(e) => {
+              // Format to 5 decimal places on blur
+              const value = parseFloat(e.target.value) || 0;
+              console.log('Price onBlur value:', value);
+              setFormData(prev => ({ 
+                ...prev, 
+                pricePerUnit: value 
+              }));
+            }}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="0.00"
+            placeholder="0.00000"
           />
+          <p className="mt-1 text-xs text-gray-500">
+            Puedes ingresar hasta 5 decimales para mayor precisión (ej: 4.12567)
+          </p>
+          <p className="mt-1 text-xs text-blue-600">
+            Valor actual: {formData.pricePerUnit} (tipo: {typeof formData.pricePerUnit})
+          </p>
         </div>
 
         {/* Effective Date */}

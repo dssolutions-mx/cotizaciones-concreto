@@ -31,7 +31,8 @@ function RoleProtectedSection({
   action = 'acceder a esta sección',
   className = '',
 }: RoleProtectedSectionProps) {
-  const { hasRole, profile } = useUnifiedAuthBridge({ preferUnified: true });
+  const { hasRole, profile, isInitialized } = useUnifiedAuthBridge({ preferUnified: true });
+  const [isClientReady, setIsClientReady] = React.useState(false);
   
   // Track render performance
   React.useEffect(() => {
@@ -42,6 +43,18 @@ function RoleProtectedSection({
     });
     finishRender();
   }, [allowedRoles, profile?.role, hasRole]);
+  
+  // Prevent hydration mismatch by waiting for client-side auth state
+  React.useEffect(() => {
+    setIsClientReady(true);
+  }, []);
+  
+  // Always render children initially to prevent hydration mismatch
+  // Then conditionally show/hide based on permissions after client is ready
+  if (!isClientReady || !isInitialized) {
+    // Return children wrapped in the expected structure to prevent hydration mismatch
+    return <div className={className}>{children}</div>;
+  }
   
   // Check if user has any of the allowed roles
   const hasPermission = hasRole(allowedRoles);
