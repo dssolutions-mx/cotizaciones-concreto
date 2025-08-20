@@ -102,8 +102,89 @@ export default function QualityDashboardPage() {
   const [selectedSpecimenType, setSelectedSpecimenType] = useState<'all' | 'CILINDRO' | 'VIGA' | 'CUBO'>('all');
   const [selectedStrengthRange, setSelectedStrengthRange] = useState<'all' | 'lt-200' | '200-250' | '250-300' | '300-350' | '350-400' | 'gt-400'>('all');
 
+  // State for filtered advanced metrics
+  const [filteredAdvancedMetrics, setFilteredAdvancedMetrics] = useState({
+    eficiencia: 0,
+    rendimientoVolumetrico: 0
+  });
+  const [calculatingAdvancedMetrics, setCalculatingAdvancedMetrics] = useState(false);
+
   // Guard against race conditions on concurrent loads
   const requestIdRef = useRef(0);
+
+  // Calculate filtered advanced metrics when filters or data change
+  useEffect(() => {
+    const calculateFilteredAdvancedMetrics = async () => {
+      if (datosGrafico.length === 0) {
+        setFilteredAdvancedMetrics({ eficiencia: 0, rendimientoVolumetrico: 0 });
+        return;
+      }
+
+      setCalculatingAdvancedMetrics(true);
+      try {
+        // Extract unique muestreos from filtered data
+        const uniqueMuestreos = new Map();
+        datosGrafico.forEach(d => {
+          if (d.muestra?.muestreo?.id) {
+            uniqueMuestreos.set(d.muestra.muestreo.id, d.muestra.muestreo);
+          }
+        });
+
+        // Calculate efficiency and rendimiento for each muestreo
+        const eficiencias: number[] = [];
+        const rendimientos: number[] = [];
+
+        // Use Array.from to avoid TypeScript iteration issues
+        const muestreosArray = Array.from(uniqueMuestreos.entries());
+        for (const [muestreoId, muestreo] of muestreosArray) {
+          try {
+            const { data: metricasRPC } = await supabase
+              .rpc('calcular_metricas_muestreo', {
+                p_muestreo_id: muestreoId
+              });
+            
+            if (metricasRPC && metricasRPC.length > 0) {
+              const metricas = metricasRPC[0];
+              
+              // Add efficiency if available and non-zero
+              if (metricas.eficiencia && metricas.eficiencia > 0 && !isNaN(metricas.eficiencia)) {
+                eficiencias.push(metricas.eficiencia);
+              }
+              
+              // Add rendimiento volumétrico if available and non-zero
+              if (metricas.rendimiento_volumetrico && metricas.rendimiento_volumetrico > 0 && !isNaN(metricas.rendimiento_volumetrico)) {
+                rendimientos.push(metricas.rendimiento_volumetrico);
+              }
+            }
+          } catch (err) {
+            // Silently continue if RPC fails for this muestreo
+            console.debug(`Failed to get metrics for muestreo ${muestreoId}:`, err);
+          }
+        }
+
+        // Calculate averages using the utility function
+        const eficiencia = eficiencias.length > 0 ? calcularMediaSinCeros(eficiencias) : 0;
+        const rendimientoVolumetrico = rendimientos.length > 0 ? calcularMediaSinCeros(rendimientos) : 0;
+
+        console.log('🔍 Filtered Advanced Metrics calculated:', {
+          eficiencia,
+          rendimientoVolumetrico,
+          totalMuestreos: uniqueMuestreos.size,
+          eficienciasFound: eficiencias.length,
+          rendimientosFound: rendimientos.length
+        });
+        
+        setFilteredAdvancedMetrics({ eficiencia, rendimientoVolumetrico });
+      } catch (err) {
+        console.error('Error calculating filtered advanced metrics:', err);
+        setFilteredAdvancedMetrics({ eficiencia: 0, rendimientoVolumetrico: 0 });
+      } finally {
+        setCalculatingAdvancedMetrics(false);
+      }
+    };
+
+    calculateFilteredAdvancedMetrics();
+  }, [datosGrafico]);
 
   // Load available filter options
   useEffect(() => {
@@ -615,7 +696,11 @@ export default function QualityDashboardPage() {
         muestrasEnCumplimiento: 0,
         resistenciaPromedio: 0,
         porcentajeResistenciaGarantia: 0,
-        coeficienteVariacion: 0
+        coeficienteVariacion: 0,
+        // Add advanced KPIs with default values
+        eficiencia: 0,
+        rendimientoVolumetrico: 0,
+        desviacionEstandar: 0
       };
     }
 
@@ -634,20 +719,33 @@ export default function QualityDashboardPage() {
       ? cumplimientos.reduce((a, b) => a + b, 0) / cumplimientos.length
       : 0;
 
+    // Calculate standard deviation
+    let desviacionEstandar = 0;
+    if (resistencias.length > 1 && resistenciaPromedio > 0) {
+      const variance = resistencias.reduce((acc, val) => acc + Math.pow(val - resistenciaPromedio, 2), 0) / resistencias.length;
+      desviacionEstandar = Math.sqrt(variance);
+    }
+
     // Calculate coefficient of variation
     let coeficienteVariacion = 0;
     if (resistencias.length > 1 && resistenciaPromedio > 0) {
-      const variance = resistencias.reduce((acc, val) => acc + Math.pow(val - resistenciaPromedio, 2), 0) / resistencias.length;
-      const standardDeviation = Math.sqrt(variance);
-      coeficienteVariacion = (standardDeviation / resistenciaPromedio) * 100;
+      coeficienteVariacion = (desviacionEstandar / resistenciaPromedio) * 100;
     }
+
+    // Note: Advanced KPIs (eficiencia, rendimientoVolumetrico) are calculated separately
+    // in a useEffect to handle async operations, since React.useMemo doesn't support async
+    const eficiencia = 0; // Will be populated by filteredAdvancedMetrics state
+    const rendimientoVolumetrico = 0; // Will be populated by filteredAdvancedMetrics state
 
     return {
       numeroMuestras: preparedData.length,
       muestrasEnCumplimiento,
       resistenciaPromedio,
       porcentajeResistenciaGarantia,
-      coeficienteVariacion
+      coeficienteVariacion,
+      eficiencia,
+      rendimientoVolumetrico,
+      desviacionEstandar
     };
   }, [preparedData]);
 
@@ -1783,14 +1881,29 @@ export default function QualityDashboardPage() {
             </TabsContent>
             
             <TabsContent value="metricas">
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-700">
+                  <strong>Nota:</strong> Las métricas avanzadas ahora se calculan correctamente basándose en los datos filtrados, 
+                  reflejando solo la información que coincide con los filtros aplicados (planta, clasificación, tipo de probeta, rango de resistencia, etc.).
+                </p>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium">Eficiencia</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-xl font-bold">{typeof metricas.eficiencia === 'number' ? metricas.eficiencia.toFixed(2) : '0.00'}</div>
-                    <div className="text-xs text-gray-500">kg/cm² por kg de cemento</div>
+                    {calculatingAdvancedMetrics ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span className="text-sm text-gray-500">Calculando...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="text-xl font-bold">{typeof filteredAdvancedMetrics.eficiencia === 'number' ? filteredAdvancedMetrics.eficiencia.toFixed(2) : '0.00'}</div>
+                        <div className="text-xs text-gray-500">kg/cm² por kg de cemento</div>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
                 
@@ -1799,8 +1912,17 @@ export default function QualityDashboardPage() {
                     <CardTitle className="text-sm font-medium">Rendimiento Volumétrico</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-xl font-bold">{typeof metricas.rendimientoVolumetrico === 'number' ? metricas.rendimientoVolumetrico.toFixed(2) : '0.00'}%</div>
-                    <div className="text-xs text-gray-500">volumen real vs. registrado</div>
+                    {calculatingAdvancedMetrics ? (
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span className="text-sm text-gray-500">Calculando...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="text-xl font-bold">{typeof filteredAdvancedMetrics.rendimientoVolumetrico === 'number' ? filteredAdvancedMetrics.rendimientoVolumetrico.toFixed(2) : '0.00'}%</div>
+                        <div className="text-xs text-gray-500">volumen real vs. registrado</div>
+                      </>
+                    )}
                   </CardContent>
                 </Card>
                 
@@ -1809,7 +1931,7 @@ export default function QualityDashboardPage() {
                     <CardTitle className="text-sm font-medium">Desviación Estándar</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-xl font-bold">{typeof metricas.desviacionEstandar === 'number' ? metricas.desviacionEstandar.toFixed(2) : '0.00'}</div>
+                    <div className="text-xl font-bold">{typeof filteredMetrics.desviacionEstandar === 'number' ? filteredMetrics.desviacionEstandar.toFixed(2) : '0.00'}</div>
                     <div className="text-xs text-gray-500">variabilidad de resistencia</div>
                   </CardContent>
                 </Card>
