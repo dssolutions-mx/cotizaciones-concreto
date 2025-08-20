@@ -257,42 +257,28 @@ export default function QualityDashboardPage() {
           setConstructionSites(allSitesData);
         }
         
-        // Instead of fetching all recipes, fetch only recipes that have quality data
-        const { data: recipesData } = await supabase
-          .rpc('get_recipes_with_quality_data');
-          
-        if (recipesData) {
-          // Sort and extract the fields we need
-          type MinimalRecipe = { id: string; recipe_code: string };
-          const formattedRecipes: MinimalRecipe[] = (recipesData as any[])
-            .map((recipe) => ({
-              id: recipe.id as string,
-              recipe_code: String(recipe.recipe_code || '')
-            }))
-            .sort((a, b) => a.recipe_code.localeCompare(b.recipe_code));
-            
-            setRecipes(formattedRecipes);
-        } else {
-          // Fallback if RPC doesn't exist - fetch through joins
-          const { data: fallbackRecipesData } = await supabase
+        // Load initial recipes (will be updated when filters change)
+        // Load initial recipes without filters first
+        try {
+          const { data: initialRecipesData } = await supabase
             .from('ensayos')
             .select(`
               muestra:muestra_id (
                 muestreo:muestreo_id (
                   remision:remision_id (
                     recipe:recipe_id (
-                      id, recipe_code
+                      id,
+                      recipe_code
                     )
                   )
                 )
               )
-            `);
+            `)
+            .limit(1000); // Limit to avoid performance issues
             
-          if (fallbackRecipesData) {
-            // Extract unique recipes from the nested data
+          if (initialRecipesData) {
             const uniqueRecipes = new Map();
-            
-            fallbackRecipesData.forEach((ensayo: any) => {
+            initialRecipesData.forEach((ensayo: any) => {
               const muestra = ensayo?.muestra;
               if (!muestra) return;
               
@@ -311,10 +297,15 @@ export default function QualityDashboardPage() {
               });
             });
             
-            setRecipes(Array.from(uniqueRecipes.values()));
+            const formattedRecipes = Array.from(uniqueRecipes.values())
+              .sort((a, b) => a.recipe_code.localeCompare(b.recipe_code));
+              
+            setRecipes(formattedRecipes);
           }
+        } catch (err) {
+          console.error('Error loading initial recipes:', err);
         }
-
+        
         // Load distinct plants from muestreos for plant filter
         try {
           const { data: plantsData } = await supabase
@@ -335,6 +326,8 @@ export default function QualityDashboardPage() {
     
     loadFilterOptions();
   }, []);
+
+  // OLD FUNCTION REMOVED - loadAvailableRecipes moved after getFilteredConstructionSites
   
   // Filter construction sites based on selected client
   useEffect(() => {
@@ -352,6 +345,138 @@ export default function QualityDashboardPage() {
     
     return constructionSites.filter(site => site.client_id === selectedClient);
   }, [selectedClient, constructionSites]);
+
+  // Function to load available recipes based on current filters
+  const loadAvailableRecipes = useCallback(async () => {
+    try {
+      // Build the base query for recipes with quality data
+      let query = supabase
+        .from('ensayos')
+        .select(`
+          muestra:muestra_id (
+            muestreo:muestreo_id (
+              remision:remision_id (
+                order:order_id (
+                  client_id,
+                  construction_site
+                ),
+                recipe:recipe_id (
+                  id,
+                  recipe_code
+                )
+              )
+            )
+          )
+        `);
+
+      // Apply date range filter if available
+      if (dateRange?.from && dateRange?.to) {
+        const fromDate = format(dateRange.from, 'yyyy-MM-dd');
+        const toDate = format(dateRange.to, 'yyyy-MM-dd');
+        query = query.gte('fecha_ensayo', fromDate).lte('fecha_ensayo', toDate);
+      }
+
+      const { data: recipesData, error } = await query;
+
+      if (error) {
+        console.error('Error fetching recipes data:', error);
+        return;
+      }
+
+      if (recipesData) {
+        // Extract unique recipes from the nested data
+        const uniqueRecipes = new Map();
+        
+        recipesData.forEach((ensayo: any) => {
+          const muestra = ensayo?.muestra;
+          if (!muestra) return;
+          
+          const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
+          if (!muestreo) return;
+          
+          const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
+          if (!remision) return;
+          
+          const order = Array.isArray(remision.order) ? remision.order[0] : remision.order;
+          if (!order) return;
+          
+          const recipe = Array.isArray(remision.recipe) ? remision.recipe[0] : remision.recipe;
+          if (!recipe || !recipe.id || !recipe.recipe_code) return;
+
+          // Apply client filter
+          if (selectedClient !== 'all' && order.client_id !== selectedClient) {
+            return;
+          }
+
+          // Apply construction site filter
+          if (selectedConstructionSite !== 'all') {
+            const siteName = getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name;
+            if (siteName && order.construction_site !== siteName) {
+              return;
+            }
+          }
+
+          // Apply plant filter
+          if (selectedPlant !== 'all' && muestreo.planta !== selectedPlant) {
+            return;
+          }
+
+          // Apply classification filter
+          if (selectedClasificacion !== 'all') {
+            // This would need to be implemented based on how classification is stored
+            // For now, we'll include all recipes
+          }
+
+          // Apply specimen type filter
+          if (selectedSpecimenType !== 'all' && muestra.tipo_muestra !== selectedSpecimenType) {
+            return;
+          }
+
+          // Apply strength range filter
+          if (selectedStrengthRange !== 'all') {
+            // This would need to be implemented based on how strength_fc is stored
+            // For now, we'll include all recipes
+          }
+          
+          uniqueRecipes.set(recipe.id, {
+            id: recipe.id,
+            recipe_code: recipe.recipe_code
+          });
+        });
+        
+        const formattedRecipes = Array.from(uniqueRecipes.values())
+          .sort((a, b) => a.recipe_code.localeCompare(b.recipe_code));
+        
+        setRecipes(formattedRecipes);
+        
+        // Reset recipe selection if the currently selected recipe is no longer available
+        if (selectedRecipe !== 'all' && !formattedRecipes.some(r => r.recipe_code === selectedRecipe)) {
+          setSelectedRecipe('all');
+        }
+      }
+    } catch (err) {
+      console.error('Error loading available recipes:', err);
+    }
+  }, [dateRange, selectedClient, selectedConstructionSite, selectedPlant, selectedClasificacion, selectedSpecimenType, selectedStrengthRange]);
+
+  // Update available recipes when filters change
+  useEffect(() => {
+    loadAvailableRecipes();
+  }, [loadAvailableRecipes]);
+  
+  // Filter construction sites based on selected client
+  useEffect(() => {
+    if (selectedClient && selectedClient !== 'all') {
+      // If client changes, reset construction site selection
+      setSelectedConstructionSite('all');
+    }
+  }, [selectedClient]);
+  
+
+
+
+
+
 
   // Add this helper function near the top of the component, before the component definition
   const formatDataForChart = (ensayos: any[]): [number, number][] => {
