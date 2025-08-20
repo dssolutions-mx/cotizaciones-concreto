@@ -74,6 +74,7 @@ export interface Order {
   client_id: string;
   construction_site: string;
   construction_site_id?: string;
+  plant_id?: string;
   requires_invoice: boolean;
   delivery_date: string;
   delivery_time: string;
