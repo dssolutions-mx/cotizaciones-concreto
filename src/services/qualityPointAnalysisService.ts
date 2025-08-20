@@ -110,18 +110,21 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
 
     if (evolutionError) throw evolutionError;
 
-    // Process evolution data to group by age
-    const evolutionMap = new Map<number, any[]>();
+    // Process evolution data to show time progression, not guarantee age grouping
+    const evolutionMap = new Map<string, any[]>();
     
     // Add data from the current muestreo first
     if (muestreoData.muestras) {
       muestreoData.muestras.forEach(muestra => {
         if (muestra.ensayos && muestra.ensayos.length > 0) {
-          const edad = muestreoData.concrete_specs?.valor_edad || 28;
-          if (!evolutionMap.has(edad)) {
-            evolutionMap.set(edad, []);
-          }
-          evolutionMap.get(edad)!.push(...muestra.ensayos);
+          // Use the actual test date as key, not the guarantee age
+          muestra.ensayos.forEach(ensayo => {
+            const testDate = ensayo.fecha_ensayo;
+            if (!evolutionMap.has(testDate)) {
+              evolutionMap.set(testDate, []);
+            }
+            evolutionMap.get(testDate)!.push(ensayo);
+          });
         }
       });
     }
@@ -129,37 +132,45 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
     // Add data from evolution query if available
     evolutionData?.forEach(ensayo => {
       if (ensayo.muestras?.muestras?.muestreos) {
-        const edad = ensayo.muestras.muestras.muestreos.concrete_specs?.valor_edad || 28;
-        if (!evolutionMap.has(edad)) {
-          evolutionMap.set(edad, []);
+        const testDate = ensayo.fecha_ensayo;
+        if (!evolutionMap.has(testDate)) {
+          evolutionMap.set(testDate, []);
         }
-        evolutionMap.get(edad)!.push(ensayo);
+        evolutionMap.get(testDate)!.push(ensayo);
       }
     });
 
     // If we still don't have data, create a single point from the current muestreo
     if (evolutionMap.size === 0 && muestreoData.muestras) {
-      const currentEdad = muestreoData.concrete_specs?.valor_edad || 28;
       const currentEnsayos = muestreoData.muestras.flatMap(m => m.ensayos || []);
       
       if (currentEnsayos.length > 0) {
-        const resistencias = currentEnsayos.map(e => e.resistencia_calculada).filter(r => r > 0);
-        if (resistencias.length > 0) {
-          evolutionMap.set(currentEdad, currentEnsayos);
-        }
+        currentEnsayos.forEach(ensayo => {
+          const testDate = ensayo.fecha_ensayo;
+          if (!evolutionMap.has(testDate)) {
+            evolutionMap.set(testDate, []);
+          }
+          evolutionMap.get(testDate)!.push(ensayo);
+        });
       }
     }
 
-    const resistanceEvolution = Array.from(evolutionMap.entries()).map(([edad, ensayos]) => {
+    const resistanceEvolution = Array.from(evolutionMap.entries()).map(([testDate, ensayos]) => {
       const resistencias = ensayos.map(e => e.resistencia_calculada).filter(r => r > 0);
+      
+      // Calculate actual age in days from muestreo date to test date
+      const muestreoDate = new Date(muestreoData.fecha_muestreo);
+      const testDateObj = new Date(testDate);
+      const ageInDays = Math.ceil((testDateObj.getTime() - muestreoDate.getTime()) / (1000 * 60 * 60 * 24));
+      
       return {
-        edad_dias: edad,
+        edad_dias: ageInDays,
         resistencia_promedio: resistencias.length > 0 ? 
           resistencias.reduce((a, b) => a + b, 0) / resistencias.length : 0,
         resistencia_min: resistencias.length > 0 ? Math.min(...resistencias) : 0,
         resistencia_max: resistencias.length > 0 ? Math.max(...resistencias) : 0,
         numero_muestras: resistencias.length,
-        fecha_ensayo: ensayos[0]?.fecha_ensayo || ''
+        fecha_ensayo: testDate
       };
     }).sort((a, b) => a.edad_dias - b.edad_dias);
 

@@ -332,14 +332,14 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                     Información Limitada de Evolución
                   </h4>
                   <p className="text-amber-700 mb-4">
-                    Solo se encontraron datos para la edad actual ({analysisData.muestreo.concrete_specs?.valor_edad || 28} días).
-                    Para ver la evolución completa, se necesitan muestras de diferentes edades de curado.
+                    Solo se encontraron datos para una fecha de ensayo.
+                    Para ver la evolución completa, se necesitan ensayos en diferentes fechas para mostrar el progreso de la resistencia a través del tiempo.
                   </p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="text-center p-3 bg-amber-100 rounded-lg">
-                      <p className="text-sm font-medium text-amber-800">Edad Actual</p>
+                      <p className="text-sm font-medium text-amber-800">Fecha Muestreo</p>
                       <p className="text-lg font-bold text-amber-900">
-                        {analysisData.muestreo.concrete_specs?.valor_edad || 28} días
+                        {new Date(analysisData.muestreo.fecha_muestreo).toLocaleDateString('es-ES')}
                       </p>
                     </div>
                     <div className="text-center p-3 bg-amber-100 rounded-lg">
