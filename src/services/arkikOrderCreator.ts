@@ -1033,23 +1033,38 @@ async function createSingleOrderWithoutBalanceUpdate(
     }
 
     // Create remisiones for this order
-    const remisionesData = suggestion.remisiones
+    const remisionesData: RemisionData[] = [];
+    suggestion.remisiones
       .filter(remision => !remision.is_excluded_from_import)
-      .map(remision => ({
-        arkik_id: parseInt(remision.id),
-        order_id: order.id,
-        client_id: firstRemision.client_id || '',
-        recipe_id: remision.recipe_id,
-        driver_id: remision.driver_id,
-        truck_id: remision.truck_id,
-        delivery_date: new Date(remision.fecha),
-        delivery_time: typeof remision.hora_carga === 'string' ? remision.hora_carga : remision.hora_carga?.toTimeString().split(' ')[0] || '08:00:00',
-        volume_fabricated: remision.volumen_fabricado,
-        volume_delivered: remision.volumen_fabricado, // Use fabricated volume as delivered for completed deliveries
-        plant_id: plantId,
-        construction_site: constructionSiteName,
-        status: 'terminado'
-      }));
+      .forEach(remisionStaging => {
+        const fullRemisionData = validatedRows.find(row => 
+          row.remision_number === remisionStaging.remision_number
+        );
+
+        if (fullRemisionData) {
+          let horaCarga: string;
+          if (fullRemisionData.hora_carga instanceof Date) {
+            horaCarga = fullRemisionData.hora_carga.toTimeString().split(' ')[0];
+          } else if (typeof fullRemisionData.hora_carga === 'string') {
+            horaCarga = fullRemisionData.hora_carga;
+          } else {
+            horaCarga = '08:00:00';
+          }
+
+          remisionesData.push({
+            order_id: order.id,
+            remision_number: fullRemisionData.remision_number,
+            fecha: fullRemisionData.fecha.toISOString().split('T')[0],
+            hora_carga: horaCarga,
+            volumen_fabricado: fullRemisionData.volumen_fabricado,
+            conductor: fullRemisionData.conductor || undefined,
+            unidad: fullRemisionData.placas || undefined, // Map placas from Excel to unidad field
+            tipo_remision: 'CONCRETO',
+            recipe_id: fullRemisionData.recipe_id!,
+            plant_id: plantId
+          });
+        }
+      });
 
     if (remisionesData.length > 0) {
       const { error: remisionesError } = await supabase
