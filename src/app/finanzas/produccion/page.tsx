@@ -28,6 +28,10 @@ import { ApexOptions } from 'apexcharts';
 import * as XLSX from 'xlsx';
 import { usePlantContext } from '@/contexts/PlantContext';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Separator } from "@/components/ui/separator";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Search, AlertTriangle, CheckCircle, Info } from "lucide-react";
 
 // Dynamically import ApexCharts
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -76,17 +80,71 @@ interface RemisionData {
   };
 }
 
+// New interface for investigation data
+interface InvestigationData {
+  remisiones: RemisionData[];
+  materialPrices: MaterialPriceData[];
+  recipeConsumption: RecipeConsumptionData[];
+  missingPrices: MissingPriceData[];
+}
+
+interface MaterialPriceData {
+  material_id: string;
+  material_name: string;
+  material_code: string;
+  category: string;
+  unit_of_measure: string;
+  current_price: number;
+  effective_date: string;
+  plant_id: string | null;
+  has_price: boolean;
+}
+
+interface RecipeConsumptionData {
+  recipe_id: string;
+  recipe_code: string;
+  strength_fc: number;
+  remisiones_count: number;
+  total_volume: number;
+  materials: MaterialConsumptionDetail[];
+}
+
+interface MaterialConsumptionDetail {
+  material_id: string;
+  material_name: string;
+  material_code: string;
+  category: string;
+  total_consumption: number;
+  unit: string;
+  has_price: boolean;
+  price: number;
+  total_cost: number;
+}
+
+interface MissingPriceData {
+  material_id: string;
+  material_name: string;
+  material_code: string;
+  category: string;
+  unit_of_measure: string;
+  last_known_price?: number;
+  last_price_date?: string;
+}
+
 export default function ProduccionDashboard() {
   const { currentPlant } = usePlantContext();
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
   const [productionData, setProductionData] = useState<ProductionData[]>([]);
   const [remisionesData, setRemisionesData] = useState<RemisionData[]>([]);
+  const [investigationData, setInvestigationData] = useState<InvestigationData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [strengthFilter, setStrengthFilter] = useState<string>('all');
   const [availableStrengths, setAvailableStrengths] = useState<number[]>([]);
+  const [investigationLoading, setInvestigationLoading] = useState(false);
+  const [investigationProgress, setInvestigationProgress] = useState<string>('');
 
   // Format the dates for display
   const dateRangeText = useMemo(() => {
@@ -716,6 +774,258 @@ export default function ProduccionDashboard() {
     }
   };
 
+  // Fetch investigation data
+  const fetchInvestigationData = async () => {
+    if (!startDate || !endDate) return;
+
+    setInvestigationLoading(true);
+    try {
+      const formattedStartDate = format(startDate, 'yyyy-MM-dd');
+      const formattedEndDate = format(endDate, 'yyyy-MM-dd');
+
+      // 1. Fetch all remisiones with detailed material consumption
+      let remisionesQuery = supabase
+        .from('remisiones')
+        .select(`
+          id,
+          remision_number,
+          fecha,
+          volumen_fabricado,
+          recipe_id,
+          order_id,
+          plant_id,
+          recipes!inner(
+            id,
+            recipe_code,
+            strength_fc
+          ),
+          orders!inner(
+            client_id,
+            clients!inner(
+              business_name
+            )
+          )
+        `)
+        .eq('tipo_remision', 'CONCRETO')
+        .gte('fecha', formattedStartDate)
+        .lte('fecha', formattedEndDate);
+
+      if (currentPlant?.id) {
+        remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
+      }
+
+      const { data: remisiones, error: remisionesError } = await remisionesQuery;
+      if (remisionesError) throw remisionesError;
+
+      // 2. Fetch material consumption details - chunked to avoid URL length limits
+      const remisionIds = remisiones.map((r: any) => r.id);
+      const chunkSize = 50; // Supabase has URL length limits, so we chunk the requests
+      const materialesResults: any[] = [];
+      
+      console.log(`Fetching material consumption data for ${remisionIds.length} remisiones in chunks of ${chunkSize}`);
+      
+      for (let i = 0; i < remisionIds.length; i += chunkSize) {
+        const chunk = remisionIds.slice(i, i + chunkSize);
+        const currentChunk = Math.floor(i / chunkSize) + 1;
+        const totalChunks = Math.ceil(remisionIds.length / chunkSize);
+        
+        setInvestigationProgress(`Procesando chunk ${currentChunk}/${totalChunks} - ${chunk.length} remisiones`);
+        console.log(`Processing chunk ${currentChunk}/${totalChunks}`);
+        
+        const { data, error } = await supabase
+          .from('remision_materiales')
+          .select(`
+            remision_id,
+            material_id,
+            cantidad_real,
+            materials!inner(
+              id,
+              material_name,
+              material_code,
+              category,
+              unit_of_measure
+            )
+          `)
+          .in('remision_id', chunk);
+        
+        if (error) {
+          console.error(`Error fetching remision_materiales chunk ${currentChunk}:`, error);
+          
+          // Try to retry the chunk once
+          console.log(`Retrying chunk ${currentChunk}...`);
+          const retryResult = await supabase
+            .from('remision_materiales')
+            .select(`
+              remision_id,
+              material_id,
+              cantidad_real,
+              materials!inner(
+                id,
+                material_name,
+                material_code,
+                category,
+                unit_of_measure
+              )
+            `)
+            .in('remision_id', chunk);
+          
+          if (retryResult.error) {
+            console.error(`Retry failed for chunk ${currentChunk}:`, retryResult.error);
+            continue; // Continue with other chunks even if retry fails
+          }
+          
+          if (retryResult.data) {
+            materialesResults.push(...retryResult.data);
+            console.log(`Retry successful for chunk ${currentChunk}`);
+          }
+        }
+        
+        if (data) {
+          materialesResults.push(...data);
+        }
+      }
+      
+      const materiales = materialesResults;
+      const totalChunks = Math.ceil(remisionIds.length / chunkSize);
+      console.log(`Successfully fetched material consumption data for ${materiales.length} records from ${totalChunks} chunks`);
+
+      // 3. Fetch all material prices
+      const materialIds = Array.from(new Set(materiales.map((m: any) => m.material_id)));
+      const currentDate = format(new Date(), 'yyyy-MM-dd');
+      
+      let pricesQuery = supabase
+        .from('material_prices')
+        .select('material_id, price_per_unit, effective_date, end_date, plant_id')
+        .in('material_id', materialIds)
+        .lte('effective_date', currentDate)
+        .or(`end_date.is.null,end_date.gte.${currentDate}`)
+        .order('effective_date', { ascending: false });
+
+      if (currentPlant?.id) {
+        pricesQuery = pricesQuery.eq('plant_id', currentPlant.id);
+      }
+
+      const { data: materialPrices, error: pricesError } = await pricesQuery;
+      if (pricesError) throw pricesError;
+
+      // 4. Create price lookup map
+      const priceMap = new Map();
+      materialPrices?.forEach((mp: any) => {
+        if (!priceMap.has(mp.material_id)) {
+          priceMap.set(mp.material_id, mp.price_per_unit);
+        }
+      });
+
+      // 5. Process recipe consumption data
+      const recipeConsumption = new Map<string, RecipeConsumptionData>();
+      const materialConsumptionMap = new Map<string, MaterialConsumptionDetail>();
+
+      // Group by recipe
+      remisiones.forEach((remision: any) => {
+        const recipeKey = remision.recipe_id;
+        if (!recipeConsumption.has(recipeKey)) {
+          recipeConsumption.set(recipeKey, {
+            recipe_id: remision.recipe_id,
+            recipe_code: remision.recipes.recipe_code,
+            strength_fc: remision.recipes.strength_fc,
+            remisiones_count: 0,
+            total_volume: 0,
+            materials: []
+          });
+        }
+
+        const recipe = recipeConsumption.get(recipeKey)!;
+        recipe.remisiones_count++;
+        recipe.total_volume += remision.volumen_fabricado;
+      });
+
+      // Process material consumption
+      materiales.forEach((material: any) => {
+        const materialKey = `${material.material_id}-${material.materials.material_name}`;
+        if (!materialConsumptionMap.has(materialKey)) {
+          materialConsumptionMap.set(materialKey, {
+            material_id: material.material_id,
+            material_name: material.materials.material_name,
+            material_code: material.materials.material_code,
+            category: material.materials.category,
+            total_consumption: 0,
+            unit: material.materials.unit_of_measure,
+            has_price: priceMap.has(material.material_id),
+            price: priceMap.get(material.material_id) || 0,
+            total_cost: 0
+          });
+        }
+
+        const mat = materialConsumptionMap.get(materialKey)!;
+        mat.total_consumption += material.cantidad_real;
+        mat.total_cost = mat.total_consumption * mat.price;
+      });
+
+      // Add materials to recipes
+      recipeConsumption.forEach((recipe) => {
+        recipe.materials = Array.from(materialConsumptionMap.values());
+      });
+
+      // 6. Identify materials without prices
+      const missingPrices: MissingPriceData[] = [];
+      materialConsumptionMap.forEach((material) => {
+        if (!material.has_price) {
+          missingPrices.push({
+            material_id: material.material_id,
+            material_name: material.material_name,
+            material_code: material.material_code,
+            category: material.category,
+            unit_of_measure: material.unit
+          });
+        }
+      });
+
+      // 7. Create material prices summary
+      const materialPricesSummary: MaterialPriceData[] = Array.from(materialConsumptionMap.values()).map(material => ({
+        material_id: material.material_id,
+        material_name: material.material_name,
+        material_code: material.material_code,
+        category: material.category,
+        unit_of_measure: material.unit,
+        current_price: material.price,
+        effective_date: material.has_price ? 'Current' : 'N/A',
+        plant_id: currentPlant?.id || null,
+        has_price: material.has_price
+      }));
+
+      setInvestigationData({
+        remisiones: remisiones.map((r: any) => ({
+          id: r.id,
+          remision_number: r.remision_number,
+          fecha: r.fecha,
+          volumen_fabricado: r.volumen_fabricado,
+          recipe: {
+            id: r.recipes.id,
+            recipe_code: r.recipes.recipe_code,
+            strength_fc: r.recipes.strength_fc
+          },
+          order: {
+            client_id: r.orders?.client_id,
+            clients: {
+              business_name: r.orders?.clients?.business_name || 'Desconocido'
+            }
+          }
+        })),
+        materialPrices: materialPricesSummary,
+        recipeConsumption: Array.from(recipeConsumption.values()),
+        missingPrices
+      });
+
+      setInvestigationProgress(''); // Clear progress when complete
+
+    } catch (error) {
+      console.error('Error fetching investigation data:', error);
+      setError('Error al cargar datos de investigación');
+    } finally {
+      setInvestigationLoading(false);
+    }
+  };
+
   return (
     <div className="container mx-auto p-6">
       {/* Header Section */}
@@ -924,12 +1234,15 @@ export default function ProduccionDashboard() {
 
             <CardContent>
               <Tabs defaultValue="summary" className="w-full">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="summary">
                     Resumen por Resistencia
                   </TabsTrigger>
                   <TabsTrigger value="materials">
                     Desglose de Materiales por Resistencia
+                  </TabsTrigger>
+                  <TabsTrigger value="investigation">
+                    Herramienta de Investigación
                   </TabsTrigger>
                 </TabsList>
 
@@ -1128,6 +1441,367 @@ export default function ProduccionDashboard() {
                         </CardContent>
                       </Card>
                     ))}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="investigation">
+                  <div className="space-y-6">
+                    {/* Investigation Controls */}
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                          <Search className="h-5 w-5" />
+                          Herramienta de Investigación
+                        </CardTitle>
+                        <CardDescription>
+                          Analiza datos detallados de remisiones, consumo de materiales y precios para validación.
+                          <br />
+                          <span className="text-sm text-amber-600 font-medium">
+                            💡 Para períodos largos, considera usar rangos de fechas más pequeños para mejor rendimiento.
+                          </span>
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex gap-4 mb-4">
+                          <Button 
+                            onClick={fetchInvestigationData}
+                            disabled={investigationLoading}
+                            variant="outline"
+                          >
+                            {investigationLoading ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
+                                Procesando...
+                              </>
+                            ) : (
+                              'Cargar Datos de Investigación'
+                            )}
+                          </Button>
+                          {investigationData && (
+                            <Button 
+                              onClick={() => {
+                                // Export investigation data to Excel
+                                const workbook = XLSX.utils.book_new();
+                                
+                                // Export remisiones
+                                const remisionesSheet = XLSX.utils.json_to_sheet(
+                                  investigationData.remisiones.map(r => ({
+                                    'UUID': r.id,
+                                    'Número Remisión': r.remision_number,
+                                    'Fecha': r.fecha,
+                                    'Volumen (m³)': r.volumen_fabricado,
+                                    'Código Receta': r.recipe.recipe_code,
+                                    'Resistencia (kg/cm²)': r.recipe.strength_fc,
+                                    'Cliente': r.order.clients.business_name
+                                  }))
+                                );
+                                XLSX.utils.book_append_sheet(workbook, remisionesSheet, 'Remisiones');
+                                
+                                // Export material prices
+                                const pricesSheet = XLSX.utils.json_to_sheet(
+                                  investigationData.materialPrices.map(m => ({
+                                    'ID Material': m.material_id,
+                                    'Nombre': m.material_name,
+                                    'Código': m.material_code,
+                                    'Categoría': m.category,
+                                    'Unidad': m.unit_of_measure,
+                                    'Precio Actual': m.current_price,
+                                    'Tiene Precio': m.has_price ? 'Sí' : 'No'
+                                  }))
+                                );
+                                XLSX.utils.book_append_sheet(workbook, pricesSheet, 'Precios Materiales');
+                                
+                                XLSX.writeFile(workbook, `Investigacion_Produccion_${format(startDate!, 'dd-MM-yyyy')}_${format(endDate!, 'dd-MM-yyyy')}.xlsx`);
+                              }}
+                              variant="outline"
+                            >
+                              <Download className="h-4 w-4 mr-2" />
+                              Exportar Datos
+                            </Button>
+                          )}
+                        </div>
+
+                        {investigationData && (
+                          <div className="space-y-6">
+                            {/* Summary Cards */}
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                              <Card>
+                                <CardContent className="p-4">
+                                  <div className="text-2xl font-bold text-blue-600">
+                                    {investigationData.remisiones.length}
+                                  </div>
+                                  <div className="text-sm text-muted-foreground">Total Remisiones</div>
+                                </CardContent>
+                              </Card>
+                              <Card>
+                                <CardContent className="p-4">
+                                  <div className="text-2xl font-bold text-green-600">
+                                    {investigationData.recipeConsumption.length}
+                                  </div>
+                                  <div className="text-sm text-muted-foreground">Recetas Utilizadas</div>
+                                </CardContent>
+                              </Card>
+                              <Card>
+                                <CardContent className="p-4">
+                                  <div className="text-2xl font-bold text-orange-600">
+                                    {investigationData.materialPrices.length}
+                                  </div>
+                                  <div className="text-sm text-muted-foreground">Materiales Totales</div>
+                                </CardContent>
+                              </Card>
+                              <Card>
+                                <CardContent className="p-4">
+                                  <div className="text-2xl font-bold text-red-600">
+                                    {investigationData.missingPrices.length}
+                                  </div>
+                                  <div className="text-sm text-muted-foreground">Sin Precios</div>
+                                </CardContent>
+                              </Card>
+                            </div>
+
+                            {/* Missing Prices Alert */}
+                            {investigationData.missingPrices.length > 0 && (
+                              <Alert className="border-red-200 bg-red-50">
+                                <AlertTriangle className="h-4 w-4 text-red-600" />
+                                <AlertDescription className="text-red-800">
+                                  <strong>¡Atención!</strong> Se encontraron {investigationData.missingPrices.length} materiales sin precios configurados. 
+                                  Esto puede afectar los cálculos de costos.
+                                </AlertDescription>
+                              </Alert>
+                            )}
+
+                            {/* Remisiones with UUIDs */}
+                            <Card>
+                              <CardHeader>
+                                <CardTitle>Remisiones Detalladas (con UUIDs)</CardTitle>
+                                <CardDescription>
+                                  Lista completa de remisiones con identificadores únicos para investigación en base de datos
+                                </CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                <ScrollArea className="h-96">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>UUID</TableHead>
+                                        <TableHead>Número</TableHead>
+                                        <TableHead>Fecha</TableHead>
+                                        <TableHead>Volumen (m³)</TableHead>
+                                        <TableHead>Receta</TableHead>
+                                        <TableHead>Resistencia</TableHead>
+                                        <TableHead>Cliente</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {investigationData.remisiones.map((remision) => (
+                                        <TableRow key={remision.id}>
+                                          <TableCell className="font-mono text-xs text-muted-foreground">
+                                            {remision.id}
+                                          </TableCell>
+                                          <TableCell className="font-medium">
+                                            {remision.remision_number}
+                                          </TableCell>
+                                          <TableCell>
+                                            {format(new Date(remision.fecha), 'dd/MM/yyyy')}
+                                          </TableCell>
+                                          <TableCell className="text-right">
+                                            {remision.volumen_fabricado.toFixed(2)}
+                                          </TableCell>
+                                          <TableCell className="font-medium">
+                                            {remision.recipe.recipe_code}
+                                          </TableCell>
+                                          <TableCell>
+                                            <Badge variant="outline">
+                                              {remision.recipe.strength_fc} kg/cm²
+                                            </Badge>
+                                          </TableCell>
+                                          <TableCell className="max-w-[200px] truncate">
+                                            {remision.order.clients.business_name}
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </ScrollArea>
+                              </CardContent>
+                            </Card>
+
+                            {/* Material Prices Validation */}
+                            <Card>
+                              <CardHeader>
+                                <CardTitle>Validación de Precios de Materiales</CardTitle>
+                                <CardDescription>
+                                  Estado de precios para todos los materiales utilizados en el período
+                                </CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                <ScrollArea className="h-96">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow>
+                                        <TableHead>ID</TableHead>
+                                        <TableHead>Material</TableHead>
+                                        <TableHead>Código</TableHead>
+                                        <TableHead>Categoría</TableHead>
+                                        <TableHead>Unidad</TableHead>
+                                        <TableHead className="text-right">Precio</TableHead>
+                                        <TableHead>Estado</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {investigationData.materialPrices.map((material) => (
+                                        <TableRow key={material.material_id}>
+                                          <TableCell className="font-mono text-xs text-muted-foreground">
+                                            {material.material_id}
+                                          </TableCell>
+                                          <TableCell className="font-medium">
+                                            {material.material_name}
+                                          </TableCell>
+                                          <TableCell className="font-mono text-sm">
+                                            {material.material_code}
+                                          </TableCell>
+                                          <TableCell>
+                                            <Badge variant="outline" className="text-xs">
+                                              {material.category}
+                                            </Badge>
+                                          </TableCell>
+                                          <TableCell className="text-sm text-muted-foreground">
+                                            {material.unit_of_measure}
+                                          </TableCell>
+                                          <TableCell className="text-right font-medium">
+                                            {material.has_price ? formatCurrency(material.current_price) : 'N/A'}
+                                          </TableCell>
+                                          <TableCell>
+                                            {material.has_price ? (
+                                              <div className="flex items-center gap-2 text-green-600">
+                                                <CheckCircle className="h-4 w-4" />
+                                                <span className="text-sm">Configurado</span>
+                                              </div>
+                                            ) : (
+                                              <div className="flex items-center gap-2 text-red-600">
+                                                <AlertTriangle className="h-4 w-4" />
+                                                <span className="text-sm">Sin Precio</span>
+                                              </div>
+                                            )}
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </ScrollArea>
+                              </CardContent>
+                            </Card>
+
+                            {/* Recipe Consumption Analysis */}
+                            <Card>
+                              <CardHeader>
+                                <CardTitle>Análisis de Consumo por Receta</CardTitle>
+                                <CardDescription>
+                                  Consumo detallado de materiales por receta con validación de precios
+                                </CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="space-y-4">
+                                  {investigationData.recipeConsumption.map((recipe) => (
+                                    <div key={recipe.recipe_id} className="border rounded-lg p-4">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <div>
+                                          <h4 className="text-lg font-semibold">
+                                            {recipe.recipe_code}
+                                          </h4>
+                                          <div className="flex items-center gap-3">
+                                            <Badge variant="outline">
+                                              {recipe.strength_fc} kg/cm²
+                                            </Badge>
+                                            <span className="text-sm text-muted-foreground">
+                                              {recipe.remisiones_count} remisiones
+                                            </span>
+                                            <span className="text-sm text-muted-foreground">
+                                              {recipe.total_volume.toFixed(2)} m³ total
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      
+                                      <div className="overflow-x-auto">
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead>Material</TableHead>
+                                              <TableHead>Código</TableHead>
+                                              <TableHead className="text-right">Consumo Total</TableHead>
+                                              <TableHead className="text-right">Unidad</TableHead>
+                                              <TableHead className="text-right">Precio Unitario</TableHead>
+                                              <TableHead className="text-right">Costo Total</TableHead>
+                                              <TableHead>Estado Precio</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {recipe.materials.map((material, idx) => (
+                                              <TableRow key={`${recipe.recipe_id}-${material.material_id}-${idx}`}>
+                                                <TableCell className="font-medium">
+                                                  {material.material_name}
+                                                </TableCell>
+                                                <TableCell className="font-mono text-sm">
+                                                  {material.material_code}
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                  {material.total_consumption.toFixed(2)}
+                                                </TableCell>
+                                                <TableCell className="text-right text-muted-foreground">
+                                                  {material.unit}
+                                                </TableCell>
+                                                <TableCell className="text-right font-medium">
+                                                  {material.has_price ? formatCurrency(material.price) : 'N/A'}
+                                                </TableCell>
+                                                <TableCell className="text-right font-bold">
+                                                  {material.has_price ? formatCurrency(material.total_cost) : 'N/A'}
+                                                </TableCell>
+                                                <TableCell>
+                                                  {material.has_price ? (
+                                                    <div className="flex items-center gap-2 text-green-600">
+                                                      <CheckCircle className="h-4 w-4" />
+                                                      <span className="text-xs">OK</span>
+                                                    </div>
+                                                  ) : (
+                                                    <div className="flex items-center gap-2 text-red-600">
+                                                      <AlertTriangle className="h-4 w-4" />
+                                                      <span className="text-xs">Sin Precio</span>
+                                                    </div>
+                                                  )}
+                                                </TableCell>
+                                              </TableRow>
+                                            ))}
+                                          </TableBody>
+                                        </Table>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </div>
+                        )}
+
+                        {investigationLoading && investigationProgress && (
+                          <Alert className="border-blue-200 bg-blue-50">
+                            <Info className="h-4 w-4 text-blue-600" />
+                            <AlertDescription className="text-blue-800">
+                              {investigationProgress}
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        {!investigationData && !investigationLoading && (
+                          <Alert>
+                            <Info className="h-4 w-4" />
+                            <AlertDescription>
+                              Haz clic en "Cargar Datos de Investigación" para analizar los datos del período seleccionado.
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </CardContent>
+                    </Card>
                   </div>
                 </TabsContent>
               </Tabs>

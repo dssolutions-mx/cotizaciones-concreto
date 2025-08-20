@@ -321,10 +321,8 @@ export default function VentasDashboard() {
           .select('*')
           .in('order_id', orderIds);
         
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          orderItemsQuery = orderItemsQuery.eq('plant_id', currentPlant.id);
-        }
+        // Note: order_items don't have plant_id, so no plant filtering needed here
+        // Plant filtering is already applied to the orders table above
         
         const { data: orderItems, error: itemsError } = await orderItemsQuery;
         
