@@ -6,6 +6,21 @@ import { supabase } from '@/lib/supabase/client';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
 import { TrendingUp, DollarSign, MapPin, User, Zap, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
 
+// Helper functions for date formatting without timezone conversion
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatLocalTime = (date: Date): string => {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+};
+
 type Props = {
   rows: StagingRemision[];
   onRowsChange: (rows: StagingRemision[]) => void;
@@ -461,7 +476,7 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
                   </td>
                   <td className="p-2 font-medium">{r.remision_number}</td>
                   <td className="p-2">
-                    <div>{r.fecha.toISOString().split('T')[0]}</div>
+                    <div>{formatLocalDate(r.fecha)}</div>
                     <div className="text-xs text-gray-500">{formatTime(r.hora_carga)}</div>
                   </td>
                   <td className="p-2">

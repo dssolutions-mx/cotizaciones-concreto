@@ -9,6 +9,13 @@
  */
 
 import { supabase } from '@/lib/supabase/client';
+import { 
+  normalizeRecipeCode, 
+  exactRecipeMatch, 
+  findRecipeMatch, 
+  getRecipeCodeSuggestions,
+  validateRecipeCodeFormat 
+} from '@/lib/utils/recipeCodeUtils';
 import { ArkikErrorType, StagingRemision, ValidationError } from '@/types/arkik';
 
 interface DebugPricing {
@@ -152,18 +159,18 @@ export class DebugArkikValidator {
       this.loadAllProductPrices()
     ]);
 
-    // Build recipe lookup maps first
+    // Build recipe lookup maps first using standardized normalization
     const recipes = new Map<string, any>();
     recipesData.forEach(recipe => {
-      // Index by all possible codes for fast lookup
+      // Index by all possible codes for fast lookup using standardized normalization
       if (recipe.arkik_long_code) {
-        recipes.set(this.normalizeString(recipe.arkik_long_code), recipe);
+        recipes.set(normalizeRecipeCode(recipe.arkik_long_code), recipe);
       }
       if (recipe.recipe_code) {
-        recipes.set(this.normalizeString(recipe.recipe_code), recipe);
+        recipes.set(normalizeRecipeCode(recipe.recipe_code), recipe);
       }
       if (recipe.arkik_short_code) {
-        recipes.set(this.normalizeString(recipe.arkik_short_code), recipe);
+        recipes.set(normalizeRecipeCode(recipe.arkik_short_code), recipe);
       }
     });
 
@@ -609,36 +616,54 @@ export class DebugArkikValidator {
       return null;
     }
 
-    // Try exact matches first
-    if (primaryCode) {
-      const normalizedPrimary = this.normalizeString(primaryCode);
-      const recipe = recipesMap.get(normalizedPrimary);
-      if (recipe) return recipe;
-    }
-
-    if (fallbackCode) {
-      const normalizedFallback = this.normalizeString(fallbackCode);
-      const recipe = recipesMap.get(normalizedFallback);
-      if (recipe) return recipe;
-    }
-
-    // Fuzzy matching - iterate through all recipes
-    const searchCode = primaryCode || fallbackCode || '';
-    const normalizedSearch = this.normalizeString(searchCode);
+    // Convert map to array for the new utility function
+    const recipes = Array.from(recipesMap.values());
     
-    for (const [key, recipe] of Array.from(recipesMap.entries())) {
-      if (this.isFuzzyMatch(normalizedSearch, key)) {
+    // Try primary code first (arkik_long_code)
+    if (primaryCode) {
+      // Validate format
+      if (!validateRecipeCodeFormat(primaryCode)) {
+        console.warn(`[DebugArkikValidator] Invalid recipe code format: "${primaryCode}"`);
+      }
+      
+      const recipe = findRecipeMatch(primaryCode, recipes, false); // No fuzzy matching
+      if (recipe) {
+        console.log(`[DebugArkikValidator] ✅ Exact match found for primary code: "${primaryCode}" -> Recipe ID: ${recipe.id}`);
         return recipe;
       }
     }
 
-    // No matches found
+    // Try fallback code (recipe_code/prod_tecnico)
+    if (fallbackCode) {
+      // Validate format
+      if (!validateRecipeCodeFormat(fallbackCode)) {
+        console.warn(`[DebugArkikValidator] Invalid recipe code format: "${fallbackCode}"`);
+      }
+      
+      const recipe = findRecipeMatch(fallbackCode, recipes, false); // No fuzzy matching
+      if (recipe) {
+        console.log(`[DebugArkikValidator] ✅ Exact match found for fallback code: "${fallbackCode}" -> Recipe ID: ${recipe.id}`);
+        return recipe;
+      }
+    }
+
+    // No exact matches found - provide suggestions for manual review
+    const searchCode = primaryCode || fallbackCode || '';
+    const suggestions = getRecipeCodeSuggestions(searchCode, recipes, 3);
+    
+    let suggestionText = '';
+    if (suggestions.length > 0) {
+      suggestionText = ` Possible matches: [${suggestions.join(', ')}]`;
+    }
+
+    console.log(`[DebugArkikValidator] ❌ No exact match found for: "${searchCode}"${suggestionText}`);
+
     errors.push({
       row_number: row.row_number,
       error_type: ArkikErrorType.RECIPE_NOT_FOUND,
       field_name: 'product_description',
-      field_value: primaryCode || fallbackCode,
-      message: `Recipe not found: "${primaryCode || fallbackCode}"`,
+      field_value: searchCode,
+      message: `Recipe not found: "${searchCode}"${suggestionText}`,
       recoverable: true
     });
     
@@ -1033,57 +1058,40 @@ export class DebugArkikValidator {
       return null;
     }
 
-    // Try exact matches first
-    let recipe = null;
-
-    // 1. Exact match on arkik_long_code
-    if (primaryCode) {
-      recipe = recipes.find(r => 
-        r.arkik_long_code && 
-        this.normalizeString(r.arkik_long_code) === this.normalizeString(primaryCode)
-      );
-      if (recipe) {
-        return recipe;
-      }
+        // Use standardized recipe matching (exact matches only)
+    const searchCode = primaryCode || fallbackCode || '';
+    
+    // Validate format
+    if (!validateRecipeCodeFormat(searchCode)) {
+      console.warn(`[DebugArkikValidator] Invalid recipe code format: "${searchCode}"`);
     }
-
-    // 2. Exact match on recipe_code
-    if (fallbackCode) {
-      recipe = recipes.find(r => 
-        r.recipe_code && 
-        this.normalizeString(r.recipe_code) === this.normalizeString(fallbackCode)
-      );
-      if (recipe) {
-        return recipe;
-      }
-    }
-
-    // 3. Fuzzy matching
-    const candidates = recipes.filter(r => {
-      const codes = [r.arkik_long_code, r.recipe_code, r.arkik_short_code].filter(Boolean);
-      return codes.some(code => 
-        this.isFuzzyMatch(primaryCode || fallbackCode || '', code)
-      );
-    });
-
-    if (candidates.length === 1) {
-      recipe = candidates[0];
-      return recipe;
-    } else if (candidates.length > 1) {
-      recipe = candidates[0]; // Take first match
+    
+    const recipe = findRecipeMatch(searchCode, recipes, false); // No fuzzy matching
+    
+    if (recipe) {
+      console.log(`[DebugArkikValidator] ✅ Exact match found for: "${searchCode}" -> Recipe ID: ${recipe.id}`);
       return recipe;
     }
 
-    // No matches found
+    // No exact matches found - provide suggestions for manual review
+    const suggestions = getRecipeCodeSuggestions(searchCode, recipes, 3);
+    
+    let suggestionText = '';
+    if (suggestions.length > 0) {
+      suggestionText = ` Possible matches: [${suggestions.join(', ')}]`;
+    }
+
+    console.log(`[DebugArkikValidator] ❌ No exact match found for: "${searchCode}"${suggestionText}`);
+
     errors.push({
       row_number: row.row_number,
       error_type: ArkikErrorType.RECIPE_NOT_FOUND,
       field_name: 'product_description',
-      field_value: primaryCode || fallbackCode,
-      message: `Recipe not found: "${primaryCode || fallbackCode}"`,
+      field_value: searchCode,
+      message: `Recipe not found: "${searchCode}"${suggestionText}`,
       recoverable: true
     });
-    
+
     return null;
   }
 
@@ -1337,45 +1345,15 @@ export class DebugArkikValidator {
     return 0.1; // Small base score
   }
 
+  // DEPRECATED: Use standardized functions from recipeCodeUtils instead
+  // Kept for client/site name normalization only
   private normalizeString(str: string): string {
     return str.toLowerCase().trim().replace(/\s+/g, ' ');
   }
 
-  private isFuzzyMatch(input: string, target: string): boolean {
-    const normalizedInput = this.normalizeString(input);
-    const normalizedTarget = this.normalizeString(target);
-    
-    // Substring match
-    if (normalizedTarget.includes(normalizedInput) || normalizedInput.includes(normalizedTarget)) {
-      return true;
-    }
-    
-    // Simple Levenshtein check for typos
-    return this.levenshteinDistance(normalizedInput, normalizedTarget) <= 2;
-  }
-
-  private levenshteinDistance(a: string, b: string): number {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-    
-    const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
-    
-    for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
-    for (let j = 0; j <= b.length; j++) matrix[j][0] = j;
-    
-    for (let j = 1; j <= b.length; j++) {
-      for (let i = 1; i <= a.length; i++) {
-        const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-        matrix[j][i] = Math.min(
-          matrix[j][i - 1] + 1,
-          matrix[j - 1][i] + 1,
-          matrix[j - 1][i - 1] + cost
-        );
-      }
-    }
-    
-    return matrix[b.length][a.length];
-  }
+  // REMOVED: Old fuzzy matching logic that caused recipe mismatches
+  // The old isFuzzyMatch and levenshteinDistance methods have been replaced
+  // with standardized utilities from recipeCodeUtils.ts
 
   private async validateMaterials(row: StagingRemision, errors: ValidationError[]): Promise<void> {
     // Get all material codes from teorico and real

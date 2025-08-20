@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase/client';
+import { normalizeRecipeCode } from '@/lib/utils/recipeCodeUtils';
 import { StagingRemision, OrderSuggestion } from '@/types/arkik';
 import { Order, OrderItem } from '@/types/orders';
 
@@ -372,7 +373,9 @@ export class ArkikOrderMatcher {
   }
 
   /**
-   * Normalize string for comparison (using same logic as validation)
+   * Normalize string for comparison
+   * For recipe codes: use standardized normalization
+   * For client/site names: use simplified normalization
    */
   private normalizeString(str: string): string {
     return str
@@ -380,6 +383,13 @@ export class ArkikOrderMatcher {
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, '')
       .replace(/\s+/g, ' ');
+  }
+  
+  /**
+   * Normalize recipe code using standardized function
+   */
+  private normalizeRecipeCode(str: string): string {
+    return normalizeRecipeCode(str);
   }
 
   /**

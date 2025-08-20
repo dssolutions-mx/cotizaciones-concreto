@@ -11,8 +11,8 @@ import type { Material as RecipeMaterial } from '@/types/recipes';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface MaterialPriceFormData {
-  // legacy field maintained for backward compatibility in the API
-  materialType: string;
+  // Store the material ID for selection
+  materialId: string;
   pricePerUnit: number;
   effectiveDate: string;
 }
@@ -38,7 +38,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
   );
 
   const [formData, setFormData] = useState<MaterialPriceFormData>({
-    materialType: '',
+    materialId: '',
     pricePerUnit: 0,
     effectiveDate: ''
   });
@@ -78,10 +78,10 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
     fetchMaterials();
   }, [selectedPlantId]);
 
-  // Selected material from list (derived from formData.materialType which now stores the material ID)
+  // Selected material from list (derived from formData.materialId which stores the material ID)
   const selectedMaterial: RecipeMaterial | undefined = useMemo(
-    () => materials.find(m => m.id === formData.materialType),
-    [materials, formData.materialType]
+    () => materials.find(m => m.id === formData.materialId),
+    [materials, formData.materialId]
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -89,7 +89,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
     setError(null);
     setSuccess(false);
 
-    if (!formData.materialType) {
+    if (!formData.materialId) {
       setError('Selecciona un material');
       return;
     }
@@ -131,9 +131,8 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       setIsSubmitting(true);
       
       // Create material price with plant assignment
-      const fallbackType = selectedMaterial?.material_code || selectedMaterial?.category?.toUpperCase() || 'MATERIAL';
       const materialPriceData = {
-        materialType: fallbackType,
+        materialType: selectedMaterial?.material_code || 'MATERIAL',
         material_id: selectedMaterial?.id,
         pricePerUnit: formData.pricePerUnit,
         effectiveDate: formData.effectiveDate,
@@ -146,7 +145,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
       console.log('Selected plant ID:', selectedPlantId);
       console.log('Profile ID:', profile?.id);
       console.log('Form data:', formData);
-      console.log('Material type from form:', formData.materialType);
+      console.log('Material ID from form:', formData.materialId);
       console.log('Material ID from selected material:', selectedMaterial?.id);
       
       const { error: supabaseError } = await priceService.saveMaterialPrice(materialPriceData);
@@ -155,7 +154,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
 
       setSuccess(true);
       setFormData({
-        materialType: '',
+        materialId: '',
         pricePerUnit: 0,
         effectiveDate: ''
       });
@@ -218,8 +217,8 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
             Material *
           </label>
           <Select
-            value={formData.materialType}
-            onValueChange={(value) => setFormData(prev => ({ ...prev, materialType: value }))}
+            value={formData.materialId}
+            onValueChange={(value) => setFormData(prev => ({ ...prev, materialId: value }))}
             disabled={!selectedPlantId || loadingMaterials}
           >
             <SelectTrigger className="w-full">

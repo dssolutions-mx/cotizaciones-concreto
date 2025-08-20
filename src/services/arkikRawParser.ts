@@ -59,13 +59,13 @@ export class ArkikRawParser {
     let workbook: XLSX.WorkBook;
     if (isCsv) {
       const text = await file.text();
-      workbook = XLSX.read(text, { type: 'string', raw: false });
+      workbook = XLSX.read(text, { type: 'string', raw: true, cellDates: false });
     } else {
       const arrayBuffer = await file.arrayBuffer();
       workbook = XLSX.read(arrayBuffer, {
         type: 'array',
-        cellDates: true,
-        raw: false,
+        cellDates: false, // Don't let XLSX convert dates automatically (causes timezone issues)
+        raw: true, // Get raw Excel values so we can handle dates properly
         dateNF: 'yyyy-mm-dd'
       });
     }
@@ -247,16 +247,109 @@ export class ArkikRawParser {
 
   private parseDate(value: any): Date {
     if (!value) return new Date();
-    if (value instanceof Date) return value;
-    try {
-      const date = new Date(value);
-      if (isNaN(date.getTime())) {
-        return new Date();
-      }
-      return date;
-    } catch {
-      return new Date();
+    
+    console.log('[ArkikRawParser] Parsing date value:', {
+      value,
+      type: typeof value,
+      isDate: value instanceof Date
+    });
+    
+    // Handle Excel serial dates (numbers representing days since 1900-01-01)
+    if (typeof value === 'number') {
+      // Excel stores dates as serial numbers starting from January 1, 1900
+      // But Excel has a leap year bug: it treats 1900 as a leap year (which it wasn't)
+      // So we need to account for this when converting
+      
+      const excelSerialDate = value;
+      const millisecondsPerDay = 24 * 60 * 60 * 1000;
+      
+      // Excel epoch is January 1, 1900, but Excel starts counting from 1, not 0
+      // Also account for the leap year bug
+      const excelEpoch = new Date(1899, 11, 30); // December 30, 1899 (Excel day 0)
+      
+      // Calculate the target date
+      const targetTimestamp = excelEpoch.getTime() + (excelSerialDate * millisecondsPerDay);
+      const targetDate = new Date(targetTimestamp);
+      
+      // Create a clean local date without timezone interference
+      const localDate = new Date(
+        targetDate.getFullYear(),
+        targetDate.getMonth(),
+        targetDate.getDate(),
+        targetDate.getHours(),
+        targetDate.getMinutes(),
+        targetDate.getSeconds(),
+        targetDate.getMilliseconds()
+      );
+      
+      console.log('[ArkikRawParser] Excel serial date conversion:', {
+        excelSerial: excelSerialDate,
+        calculatedDate: targetDate.toISOString(),
+        localDate: localDate.toISOString(),
+        localString: localDate.toLocaleDateString() + ' ' + localDate.toLocaleTimeString()
+      });
+      
+      return localDate;
     }
+    
+    // If it's already a Date object (shouldn't happen with our new config, but just in case)
+    if (value instanceof Date) {
+      const localDate = new Date(
+        value.getFullYear(),
+        value.getMonth(),
+        value.getDate(),
+        value.getHours(),
+        value.getMinutes(),
+        value.getSeconds(),
+        value.getMilliseconds()
+      );
+      console.log('[ArkikRawParser] Date object conversion:', {
+        original: value.toISOString(),
+        converted: localDate.toISOString(),
+        preservedLocal: true
+      });
+      return localDate;
+    }
+    
+    // Handle string dates
+    if (typeof value === 'string') {
+      try {
+        // Try to parse as ISO string first
+        if (value.includes('T') || value.includes('-')) {
+          const parsed = new Date(value);
+          if (!isNaN(parsed.getTime())) {
+            // Extract components to avoid timezone conversion
+            const localDate = new Date(
+              parsed.getFullYear(),
+              parsed.getMonth(),
+              parsed.getDate(),
+              parsed.getHours(),
+              parsed.getMinutes(),
+              parsed.getSeconds()
+            );
+            console.log('[ArkikRawParser] String date conversion:', {
+              original: value,
+              parsed: parsed.toISOString(),
+              converted: localDate.toISOString()
+            });
+            return localDate;
+          }
+        }
+        
+        // Try parsing the string as a number (could be Excel serial date as string)
+        const numValue = parseFloat(value);
+        if (!isNaN(numValue) && numValue > 0) {
+          return this.parseDate(numValue); // Recursive call to handle as number
+        }
+        
+      } catch (error) {
+        console.warn('[ArkikRawParser] Error parsing string date:', value, error);
+      }
+    }
+    
+    // Default fallback
+    console.warn('[ArkikRawParser] Using fallback date for value:', value);
+    return new Date();
   }
 
   private findHeaderRowIndex(rawData: any[][]): number {

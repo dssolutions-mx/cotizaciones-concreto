@@ -7,6 +7,21 @@ import type { StagingRemision, ValidationError } from '@/types/arkik';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { FileSpreadsheet, PlayCircle, AlertTriangle } from 'lucide-react';
 
+// Helper functions for date formatting without timezone conversion
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatLocalTime = (date: Date): string => {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+};
+
 type DebugResult = {
   validated: StagingRemision[];
   errors: ValidationError[];
@@ -404,8 +419,8 @@ export default function DebugArkikRunner() {
                           <span className="text-gray-400">—</span>
                         )}
                       </td>
-                      <td className="p-2">{row.fecha.toISOString().split('T')[0]}</td>
-                      <td className="p-2">{(() => { const t = row.hora_carga instanceof Date ? row.hora_carga : new Date(row.hora_carga as any); return t.toISOString().split('T')[1]?.split('.')[0] || ''; })()}</td>
+                      <td className="p-2">{formatLocalDate(row.fecha)}</td>
+                      <td className="p-2">{(() => { const t = row.hora_carga instanceof Date ? row.hora_carga : new Date(row.hora_carga as any); return formatLocalTime(t); })()}</td>
                       <td className="p-2 text-right">{Number(row.volumen_fabricado).toFixed(2)}</td>
                       <td className="p-2">{(row as any).placas || ''}</td>
                       <td className="p-2">{(row as any).conductor || (row as any).chofer || ''}</td>
