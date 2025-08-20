@@ -4,7 +4,7 @@ import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Area, AreaChart } from 'recharts';
-import { TrendingUp, Target, Activity, Calendar, BarChart3 } from 'lucide-react';
+import { TrendingUp, Target, Activity, Calendar, BarChart3, Info, Beaker } from 'lucide-react';
 import { PointAnalysisData } from '@/services/qualityPointAnalysisService';
 
 interface ResistanceEvolutionChartProps {
@@ -53,21 +53,41 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
     if (active && payload && payload.length) {
       const data = payload[0].payload as ChartDataPoint;
       return (
-        <div className="bg-white/95 backdrop-blur border border-slate-200 rounded-lg p-3 shadow-lg">
-          <p className="font-medium text-slate-800">{`Edad: ${label} días`}</p>
-          <div className="space-y-1 mt-2">
-            <p className="text-sm text-slate-600">
-              <span className="font-medium">Resistencia:</span> {data.resistencia.toFixed(1)} kg/cm²
+        <div className="bg-white border-2 border-slate-300 rounded-xl p-4 shadow-xl">
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-3 mb-3">
+            <p className="font-bold text-lg text-slate-800 text-center">{`Día ${label} desde muestreo`}</p>
+            <p className="text-sm text-slate-600 text-center">
+              {new Date(data.fecha).toLocaleDateString('es-ES', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+              })}
             </p>
-            <p className="text-sm text-slate-600">
-              <span className="font-medium">Cumplimiento:</span> {data.cumplimiento}%
-            </p>
-            <p className="text-sm text-slate-600">
-              <span className="font-medium">Muestras:</span> {data.muestras}
-            </p>
-            <p className="text-sm text-slate-600">
-              <span className="font-medium">Rango:</span> {data.resistencia_min.toFixed(1)} - {data.resistencia_max.toFixed(1)} kg/cm²
-            </p>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-blue-50 rounded-lg p-2 text-center">
+              <p className="text-xs text-blue-600 font-medium">Resistencia</p>
+              <p className="text-lg font-bold text-blue-800">{data.resistencia.toFixed(1)} kg/cm²</p>
+            </div>
+            
+            <div className="bg-green-50 rounded-lg p-2 text-center">
+              <p className="text-xs text-green-600 font-medium">Cumplimiento</p>
+              <p className="text-lg font-bold text-green-800">{data.cumplimiento}%</p>
+            </div>
+            
+            <div className="bg-purple-50 rounded-lg p-2 text-center">
+              <p className="text-xs text-purple-600 font-medium">Muestras</p>
+              <p className="text-lg font-bold text-purple-800">{data.muestras}</p>
+            </div>
+            
+            <div className="bg-orange-50 rounded-lg p-2 text-center">
+              <p className="text-xs text-orange-600 font-medium">Rango</p>
+              <p className="text-sm font-bold text-orange-800">
+                {data.resistencia_min.toFixed(1)} - {data.resistencia_max.toFixed(1)}
+              </p>
+            </div>
           </div>
         </div>
       );
@@ -128,74 +148,118 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
           </div>
         </div>
         <p className="text-sm text-slate-600">
-          Seguimiento de resistencia por edad de curado
+          Seguimiento de resistencia a través del tiempo (desde muestreo)
         </p>
       </CardHeader>
       
       <CardContent>
         {/* Summary Metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-100">
-            <p className="text-2xl font-bold text-blue-600">
+          <div className="text-center p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl border-2 border-blue-200 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-center mb-2">
+              <Target className="w-5 h-5 text-blue-600" />
+            </div>
+            <p className="text-3xl font-bold text-blue-700 mb-1">
               {targetResistance}
             </p>
-            <p className="text-xs text-blue-700 font-medium">Resistencia Objetivo (kg/cm²)</p>
+            <p className="text-sm text-blue-800 font-semibold">Resistencia Objetivo</p>
+            <p className="text-xs text-blue-600">kg/cm²</p>
           </div>
           
-          <div className="text-center p-3 bg-green-50 rounded-lg border border-green-100">
-            <p className="text-2xl font-bold text-green-600">
+          <div className="text-center p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-xl border-2 border-green-200 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-center mb-2">
+              <TrendingUp className="w-5 h-5 text-green-600" />
+            </div>
+            <p className="text-3xl font-bold text-green-700 mb-1">
               {averageResistance.toFixed(1)}
             </p>
-            <p className="text-xs text-green-700 font-medium">Promedio General (kg/cm²)</p>
+            <p className="text-sm text-green-800 font-semibold">Promedio General</p>
+            <p className="text-xs text-green-600">kg/cm²</p>
           </div>
           
-          <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-100">
-            <p className="text-2xl font-bold text-purple-600">
+          <div className="text-center p-4 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl border-2 border-purple-200 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-center mb-2">
+              <Calendar className="w-5 h-5 text-purple-600" />
+            </div>
+            <p className="text-3xl font-bold text-purple-700 mb-1">
               {chartData.length}
             </p>
-            <p className="text-xs text-purple-700 font-medium">Edades Evaluadas</p>
+            <p className="text-sm text-purple-800 font-semibold">Fechas de Ensayo</p>
+            <p className="text-xs text-purple-600">puntos de datos</p>
           </div>
           
-          <div className="text-center p-3 bg-orange-50 rounded-lg border border-orange-100">
-            <p className="text-2xl font-bold text-orange-600">
+          <div className="text-center p-4 bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl border-2 border-orange-200 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-center mb-2">
+              <Beaker className="w-5 h-5 text-orange-600" />
+            </div>
+            <p className="text-3xl font-bold text-orange-700 mb-1">
               {chartData.reduce((sum, point) => sum + point.muestras, 0)}
             </p>
-            <p className="text-xs text-orange-700 font-medium">Total Muestras</p>
+            <p className="text-sm text-orange-800 font-semibold">Total Muestras</p>
+            <p className="text-xs text-orange-600">analizadas</p>
           </div>
         </div>
 
         {/* Main Chart */}
-        <div className="h-80 w-full">
+        <div className="h-96 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
               <defs>
                 <linearGradient id="colorResistencia" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.1}/>
+                  <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.15}/>
                 </linearGradient>
                 <linearGradient id="colorRange" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.2}/>
-                  <stop offset="95%" stopColor="#10B981" stopOpacity={0.05}/>
+                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.35}/>
+                  <stop offset="95%" stopColor="#10B981" stopOpacity={0.15}/>
+                </linearGradient>
+                <linearGradient id="colorBackground" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#F8FAFC" stopOpacity={0.8}/>
+                  <stop offset="95%" stopColor="#F8FAFC" stopOpacity={0.3}/>
                 </linearGradient>
               </defs>
               
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+              {/* Background area for better visibility */}
+              <Area
+                type="monotone"
+                dataKey="resistencia_max"
+                stackId="background"
+                stroke="none"
+                fill="url(#colorBackground)"
+                fillOpacity={0.1}
+              />
+              
+              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeWidth={0.5} />
               
               <XAxis 
                 dataKey="edad" 
-                stroke="#64748B"
-                fontSize={12}
+                stroke="#475569"
+                fontSize={13}
+                fontWeight={500}
                 tickLine={false}
-                axisLine={false}
-                label={{ value: 'Edad (días)', position: 'insideBottom', offset: -10, style: { textAnchor: 'middle', fill: '#64748B' } }}
+                axisLine={{ stroke: '#CBD5E1', strokeWidth: 1 }}
+                tick={{ fill: '#475569', fontSize: 12 }}
+                label={{ 
+                  value: 'Días desde Muestreo', 
+                  position: 'insideBottom', 
+                  offset: -10, 
+                  style: { textAnchor: 'middle', fill: '#475569', fontSize: 13, fontWeight: 600 } 
+                }}
               />
               
               <YAxis 
-                stroke="#64748B"
-                fontSize={12}
+                stroke="#475569"
+                fontSize={13}
+                fontWeight={500}
                 tickLine={false}
-                axisLine={false}
-                label={{ value: 'Resistencia (kg/cm²)', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: '#64748B' } }}
+                axisLine={{ stroke: '#CBD5E1', strokeWidth: 1 }}
+                tick={{ fill: '#475569', fontSize: 12 }}
+                label={{ 
+                  value: 'Resistencia (kg/cm²)', 
+                  angle: -90, 
+                  position: 'insideLeft', 
+                  style: { textAnchor: 'middle', fill: '#475569', fontSize: 13, fontWeight: 600 } 
+                }}
               />
               
               <Tooltip content={<CustomTooltip />} />
@@ -203,25 +267,26 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
               {/* Target resistance reference line */}
               <ReferenceLine 
                 y={targetResistance} 
-                stroke="#EF4444" 
-                strokeDasharray="5 5"
-                strokeWidth={2}
+                stroke="#DC2626" 
+                strokeDasharray="6 4"
+                strokeWidth={3}
                 label={{
                   value: `Objetivo: ${targetResistance} kg/cm²`,
                   position: 'top',
-                  fill: '#EF4444',
-                  fontSize: 12
+                  fill: '#DC2626',
+                  fontSize: 13,
+                  fontWeight: 600
                 }}
               />
               
-              {/* Resistance range area */}
+              {/* Resistance range area with better visibility */}
               <Area
                 type="monotone"
                 dataKey="resistencia_max"
                 stackId="1"
                 stroke="none"
                 fill="url(#colorRange)"
-                fillOpacity={0.3}
+                fillOpacity={0.4}
               />
               <Area
                 type="monotone"
@@ -229,54 +294,92 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
                 stackId="1"
                 stroke="none"
                 fill="url(#colorRange)"
-                fillOpacity={0.3}
+                fillOpacity={0.4}
               />
               
-              {/* Main resistance line */}
+              {/* Main resistance line with enhanced styling */}
               <Line
                 type="monotone"
                 dataKey="resistencia"
-                stroke="#3B82F6"
-                strokeWidth={3}
-                dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
-                activeDot={{ r: 6, stroke: '#3B82F6', strokeWidth: 2 }}
+                stroke="#2563EB"
+                strokeWidth={4}
+                dot={{ 
+                  fill: '#2563EB', 
+                  stroke: '#FFFFFF', 
+                  strokeWidth: 3, 
+                  r: 6,
+                  filter: 'drop-shadow(0 2px 4px rgba(37, 99, 235, 0.3))'
+                }}
+                activeDot={{ 
+                  r: 8, 
+                  stroke: '#2563EB', 
+                  strokeWidth: 3,
+                  fill: '#FFFFFF',
+                  filter: 'drop-shadow(0 4px 8px rgba(37, 99, 235, 0.4))'
+                }}
               />
               
-              {/* Min/Max lines */}
+              {/* Min/Max lines with enhanced visibility */}
               <Line
                 type="monotone"
                 dataKey="resistencia_max"
-                stroke="#10B981"
-                strokeWidth={1.5}
-                strokeDasharray="3 3"
-                dot={{ fill: '#10B981', r: 3 }}
+                stroke="#059669"
+                strokeWidth={2.5}
+                strokeDasharray="4 4"
+                dot={{ 
+                  fill: '#059669', 
+                  stroke: '#FFFFFF', 
+                  strokeWidth: 2, 
+                  r: 4,
+                  filter: 'drop-shadow(0 2px 4px rgba(5, 150, 105, 0.3))'
+                }}
               />
               <Line
                 type="monotone"
                 dataKey="resistencia_min"
-                stroke="#10B981"
-                strokeWidth={1.5}
-                strokeDasharray="3 3"
-                dot={{ fill: '#10B981', r: 3 }}
+                stroke="#059669"
+                strokeWidth={2.5}
+                strokeDasharray="4 4"
+                dot={{ 
+                  fill: '#059669', 
+                  stroke: '#FFFFFF', 
+                  strokeWidth: 2, 
+                  r: 4,
+                  filter: 'drop-shadow(0 2px 4px rgba(5, 150, 105, 0.3))'
+                }}
               />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
         {/* Chart Legend */}
-        <div className="flex items-center justify-center gap-6 mt-4 text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-            <span className="text-slate-700">Resistencia Promedio</span>
+        <div className="bg-slate-50 rounded-xl p-4 mt-6 border border-slate-200">
+          <h4 className="text-sm font-semibold text-slate-700 mb-3 text-center">Leyenda del Gráfico</h4>
+          <div className="flex items-center justify-center gap-8 text-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-4 h-4 rounded-full bg-blue-600 border-2 border-white shadow-sm"></div>
+              <span className="text-slate-700 font-medium">Resistencia Promedio</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-4 h-4 rounded-full bg-green-600 border-2 border-white shadow-sm"></div>
+              <span className="text-slate-700 font-medium">Rango Min-Max</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-4 h-4 rounded-full bg-red-600 border-2 border-white shadow-sm"></div>
+              <span className="text-slate-700 font-medium">Resistencia Objetivo</span>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-green-500"></div>
-            <span className="text-slate-700">Rango Min-Max</span>
+        </div>
+        
+        <div className="text-center mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Info className="w-4 h-4 text-blue-600" />
+            <span className="text-sm font-medium text-blue-800">Información del Gráfico</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-500"></div>
-            <span className="text-slate-700">Resistencia Objetivo</span>
-          </div>
+          <p className="text-xs text-blue-700">
+            El eje X muestra los días transcurridos desde la fecha de muestreo. 
+            No se agrupa por edad de garantía, sino por tiempo real de evolución.
+          </p>
         </div>
       </CardContent>
     </Card>

@@ -65,6 +65,7 @@ export default function MuestreoDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddSampleModal, setShowAddSampleModal] = useState(false);
+  const [orderTotalsLoading, setOrderTotalsLoading] = useState(false);
   
   const fetchMuestreoDetails = async () => {
     if (!params.id) return;
@@ -79,14 +80,52 @@ export default function MuestreoDetailPage() {
       
       // Fetch order totals if we have order info
       if (data?.remision?.order?.id) {
+        setOrderTotalsLoading(true);
         try {
-          const totalsResponse = await fetch(`/api/orders/${data.remision.order.id}/order-totals`);
+          // First test if the API is accessible
+          console.log('Testing API accessibility...');
+          try {
+            const healthResponse = await fetch('/api/health');
+            console.log('Health endpoint status:', healthResponse.status);
+          } catch (healthErr) {
+            console.warn('Health endpoint test failed:', healthErr);
+          }
+          
+          // Add timeout to prevent hanging requests
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+          
+          console.log('Fetching order totals for order:', data.remision.order.id);
+          
+          const totalsResponse = await fetch(`/api/orders/${data.remision.order.id}/order-totals`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            signal: controller.signal,
+          });
+          
+          clearTimeout(timeoutId);
+          
+          console.log('Order totals response status:', totalsResponse.status);
+          
           if (totalsResponse.ok) {
             const totals = await totalsResponse.json();
+            console.log('Order totals received:', totals);
             setOrderTotals(totals);
+          } else {
+            const errorText = await totalsResponse.text();
+            console.warn('Failed to fetch order totals:', totalsResponse.status, totalsResponse.statusText, errorText);
           }
         } catch (err) {
-          console.error('Error fetching order totals:', err);
+          if (err instanceof Error && err.name === 'AbortError') {
+            console.warn('Order totals request timed out');
+          } else {
+            console.error('Error fetching order totals:', err);
+          }
+          // Don't fail the entire component if order totals fail
+        } finally {
+          setOrderTotalsLoading(false);
         }
       }
     } catch (err) {
@@ -104,6 +143,42 @@ export default function MuestreoDetailPage() {
   const handleSampleAdded = () => {
     // Refresh muestreo data after adding a sample
     fetchMuestreoDetails();
+  };
+
+  const retryOrderTotals = async () => {
+    if (!muestreo?.remision?.order?.id) return;
+    
+    setOrderTotalsLoading(true);
+    try {
+      // Add timeout to prevent hanging requests
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const totalsResponse = await fetch(`/api/orders/${muestreo.remision.order.id}/order-totals`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (totalsResponse.ok) {
+        const totals = await totalsResponse.json();
+        setOrderTotals(totals);
+      } else {
+        console.warn('Failed to fetch order totals:', totalsResponse.status, totalsResponse.statusText);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        console.warn('Order totals request timed out');
+      } else {
+        console.error('Error fetching order totals:', err);
+      }
+    } finally {
+      setOrderTotalsLoading(false);
+    }
   };
 
   // Verificar roles permitidos
@@ -442,31 +517,53 @@ export default function MuestreoDetailPage() {
                 )}
                 
                 {/* Order summary section */}
-                {getOrderInfo(muestreo) && orderTotals && (
+                {getOrderInfo(muestreo) && (
                   <div className="pt-4 border-t border-gray-200">
                     <h4 className="text-sm font-medium text-gray-700 mb-3">Resumen de la Orden</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <p className="text-sm font-medium text-gray-500 mb-1">Volumen Total</p>
-                        <div className="flex items-center gap-2">
-                          <Package className="h-4 w-4 text-gray-600" />
-                          <span className="text-lg font-bold text-gray-900">
-                            {orderTotals.totalOrderVolume} m³
-                          </span>
+                    
+                    {orderTotalsLoading ? (
+                      <div className="flex items-center gap-2 text-gray-500">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span className="text-sm">Cargando resumen...</span>
+                      </div>
+                    ) : orderTotals ? (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm font-medium text-gray-500 mb-1">Volumen Total</p>
+                          <div className="flex items-center gap-2">
+                            <Package className="h-4 w-4 text-gray-600" />
+                            <span className="text-lg font-bold text-gray-900">
+                              {orderTotals.totalOrderVolume} m³
+                            </span>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <p className="text-sm font-medium text-gray-500 mb-1">Total Muestreos</p>
+                          <div className="flex items-center gap-2">
+                            <Beaker className="h-4 w-4 text-gray-600" />
+                            <span className="text-lg font-bold text-gray-900">
+                              {orderTotals.totalOrderSamplings}
+                            </span>
+                            <span className="text-xs text-gray-500">muestreos</span>
+                          </div>
                         </div>
                       </div>
-                      
-                      <div>
-                        <p className="text-sm font-medium text-gray-500 mb-1">Total Muestreos</p>
-                        <div className="flex items-center gap-2">
-                          <Beaker className="h-4 w-4 text-gray-600" />
-                          <span className="text-lg font-bold text-gray-900">
-                            {orderTotals.totalOrderSamplings}
-                          </span>
-                          <span className="text-xs text-gray-500">muestreos</span>
-                        </div>
-                      </div>
-                    </div>
+                                         ) : (
+                       <div className="flex items-center gap-2">
+                         <span className="text-sm text-gray-500">
+                           No se pudo cargar el resumen de la orden
+                         </span>
+                         <Button 
+                           variant="outline" 
+                           size="sm" 
+                           onClick={retryOrderTotals}
+                           className="h-6 px-2 text-xs"
+                         >
+                           Reintentar
+                         </Button>
+                       </div>
+                     )}
                     
                     {getOrderInfo(muestreo)?.construction_site && (
                       <div className="mt-4">
