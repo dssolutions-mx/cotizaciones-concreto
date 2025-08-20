@@ -455,8 +455,8 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
           <div className="flex flex-col gap-2 mb-4">
             <div className="text-sm font-medium">Remisiones Registradas</div>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(concreteByRecipe).map(([recipe, data]) => (
-                <Badge key={recipe} variant="outline" className="bg-blue-50">
+              {Object.entries(concreteByRecipe).map(([recipe, data], index) => (
+                <Badge key={`recipe-list-${index}-${recipe}`} variant="outline" className="bg-blue-50">
                   {recipe}: {data.volume.toFixed(2)} m³
                 </Badge>
               ))}
@@ -471,8 +471,8 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
               <h3 className="text-base font-medium mb-3">Remisiones de Concreto</h3>
               
               {/* Recipe groups */}
-              {Object.entries(recipeGroups).map(([recipeCode, recipeRemisiones]) => (
-                <div key={recipeCode} className="mb-4">
+              {Object.entries(recipeGroups).map(([recipeCode, recipeRemisiones], index) => (
+                <div key={`recipe-group-${index}-${recipeCode}`} className="mb-4">
                   <div 
                     onClick={() => toggleRecipeExpand(recipeCode)} 
                     className="flex items-center bg-gray-100 p-3 rounded-t-md cursor-pointer border"

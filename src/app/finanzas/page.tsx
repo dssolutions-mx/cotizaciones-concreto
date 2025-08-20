@@ -57,6 +57,76 @@ export default async function FinancialHubPage() {
           </div>
         </div>
         
+        {/* Quick Navigation Section */}
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold mb-4">Reportes y Análisis</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Link href="/finanzas/produccion">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-purple-500">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-medium">Reporte de Producción</CardTitle>
+                    <BarChart className="h-5 w-5 text-purple-500" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">
+                    Análisis de costos de materiales y producción por resistencia
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+            
+            <Link href="/finanzas/ventas">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-green-500">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-medium">Reporte de Ventas</CardTitle>
+                    <PieChart className="h-5 w-5 text-green-500" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">
+                    Análisis de ventas mensuales y tendencias
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+            
+            <Link href="/finanzas/remisiones">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-blue-500">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-medium">Remisiones por Cliente</CardTitle>
+                    <FaClipboardList className="h-5 w-5 text-blue-500" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">
+                    Consulta de remisiones y entregas por cliente
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+            
+            <Link href="/finanzas/pagos-diarios">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-orange-500">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-medium">Pagos Diarios</CardTitle>
+                    <FaDollarSign className="h-5 w-5 text-orange-500" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">
+                    Registro y seguimiento de pagos diarios
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+          </div>
+        </div>
+        
         <RoleProtectedSection
           allowedRoles={['PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
           action="ver información financiera"

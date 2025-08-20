@@ -15,13 +15,15 @@ export const priceService = {
   }) {
     // Cerrar precio actual para esta planta
     const updateConditions: any = { end_date: null };
+    
+    // Use material_id if available, otherwise fall back to material_type
     if (priceData.material_id) {
       updateConditions.material_id = priceData.material_id;
     } else if (priceData.materialType) {
       updateConditions.material_type = priceData.materialType;
     }
     
-    // Si hay plant_id, solo cerrar precios de esa planta
+    // Apply plant filtering for closing existing prices
     if (priceData.plant_id) {
       updateConditions.plant_id = priceData.plant_id;
     }
@@ -34,28 +36,43 @@ export const priceService = {
     // Insertar nuevo precio
     const insertData: any = {
       price_per_unit: priceData.pricePerUnit,
-      effective_date: priceData.effectiveDate
+      effective_date: priceData.effectiveDate,
+      material_type: priceData.materialType || 'MATERIAL' // Keep for backward compatibility
     };
+    
+    // Enable new columns now that migration is applied
     if (priceData.material_id) {
       insertData.material_id = priceData.material_id;
     }
-    if (priceData.materialType) {
-      insertData.material_type = priceData.materialType;
-    }
-    
-    // Agregar plant_id si se proporciona
     if (priceData.plant_id) {
       insertData.plant_id = priceData.plant_id;
     }
-    
-    // Agregar created_by si se proporciona
     if (priceData.created_by) {
       insertData.created_by = priceData.created_by;
     }
     
-    return await supabase
+    console.log('Inserting material price with data:', insertData);
+    console.log('Data types:', {
+      material_id: typeof insertData.material_id,
+      plant_id: typeof insertData.plant_id,
+      created_by: typeof insertData.created_by,
+      price_per_unit: typeof insertData.price_per_unit
+    });
+    
+    const result = await supabase
       .from('material_prices')
-      .insert(insertData);
+      .insert(insertData)
+      .select();
+    
+    console.log('Insert result:', result);
+    
+    if (result.error) {
+      console.error('Supabase insert error:', result.error);
+      console.error('Error details:', result.error.details);
+      console.error('Error hint:', result.error.hint);
+    }
+    
+    return result;
   },
 
   // Gastos administrativos
