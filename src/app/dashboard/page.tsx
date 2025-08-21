@@ -725,14 +725,6 @@ function DashboardContent() {
     
     // Second row - Financial and operational metrics
     {
-      title: "Ingresos del Mes",
-      value: dashboardData?.metrics?.monthlyRevenue || 0,
-      growth: undefined,
-      icon: <DollarSign className="h-6 w-6 text-green-500" />,
-      suffix: '$',
-      colorScheme: 'green' as const
-    },
-    {
       title: "Créditos Pendientes",
       value: dashboardData?.metrics?.pendingCreditOrders || 0,
       growth: undefined,
