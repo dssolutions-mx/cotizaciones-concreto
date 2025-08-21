@@ -910,15 +910,7 @@ export default function ArkikProcessor() {
     }
   };
 
-  const getPriceSourceIcon = (source?: string) => {
-    switch (source) {
-      case 'client_site': return <Badge variant="default" className="bg-green-100 text-green-800">Cliente-Obra</Badge>;
-      case 'client': return <Badge variant="default" className="bg-blue-100 text-blue-800">Cliente</Badge>;
-      case 'plant': return <Badge variant="default" className="bg-gray-100 text-gray-800">Planta</Badge>;
-      case 'quotes': return <Badge variant="default" className="bg-purple-100 text-purple-800">Cotización</Badge>;
-      default: return <Badge variant="outline">Sin precio</Badge>;
-    }
-  };
+
 
   const visibleRows = useMemo(() => {
     if (!result?.validated) return [];
@@ -1366,7 +1358,7 @@ export default function ArkikProcessor() {
            <CardContent>
              <div className="space-y-6">
                {/* Summary Stats */}
-               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-blue-50 rounded-lg">
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-blue-50 rounded-lg">
                  <div className="text-center">
                    <div className="text-2xl font-bold text-blue-600">{orderSuggestions.length}</div>
                    <div className="text-sm text-blue-700">Órdenes Sugeridas</div>
@@ -1382,17 +1374,6 @@ export default function ArkikProcessor() {
                      {orderSuggestions.reduce((sum, s) => sum + s.remisiones.length, 0)}
                    </div>
                    <div className="text-sm text-purple-700">Total Remisiones</div>
-                 </div>
-                 <div className="text-center">
-                   <div className="text-2xl font-bold text-orange-600">
-                     ${orderSuggestions.reduce((sum, s) => {
-                       const orderTotal = s.remisiones.reduce((orderSum, r) => 
-                         orderSum + (r.unit_price || 0) * r.volumen_fabricado, 0
-                       );
-                       return sum + orderTotal;
-                     }, 0).toLocaleString('es-MX', { maximumFractionDigits: 0 })}
-                   </div>
-                   <div className="text-sm text-orange-700">Valor Total</div>
                  </div>
                </div>
 
@@ -1548,12 +1529,6 @@ export default function ArkikProcessor() {
                                  <span>Receta:</span>
                                  <span className="font-medium">
                                    {remision.product_description || remision.recipe_code || 'No especificada'}
-                                 </span>
-                               </div>
-                               <div className="flex justify-between">
-                                 <span>Precio:</span>
-                                 <span className="font-medium">
-                                   ${(remision.unit_price || 0).toLocaleString('es-MX')}
                                  </span>
                                </div>
                                                              {remision.quote_detail_id && (
@@ -1736,7 +1711,6 @@ export default function ArkikProcessor() {
                       <th className="p-2">Fecha</th>
                       <th className="p-2">Cliente</th>
                       <th className="p-2">Obra</th>
-                      <th className="p-2">Precio</th>
                       <th className="p-2">Quote Detail ID</th>
                       <th className="p-2">Receta</th>
                       <th className="p-2">Volumen</th>
@@ -1788,18 +1762,6 @@ export default function ArkikProcessor() {
                               <div className="font-medium text-xs">
                                 {row.suggested_site_name || row.obra_name}
                               </div>
-                            </div>
-                          </td>
-                          <td className="p-2">
-                            <div className="flex items-center gap-1">
-                              {getPriceSourceIcon(row.price_source)}
-                              {row.unit_price != null ? (
-                                <span className="text-xs font-mono">
-                                  ${Number(row.unit_price).toLocaleString('es-MX')}
-                                </span>
-                              ) : (
-                                <span className="text-xs text-gray-400">Sin precio</span>
-                              )}
                             </div>
                           </td>
                           <td className="p-2">
@@ -1932,15 +1894,7 @@ export default function ArkikProcessor() {
                                         }
                                       </span>
                                     </div>
-                                    <div className="flex justify-between">
-                                      <span className="font-medium text-gray-700">Precio:</span>
-                                      <span className="text-blue-800 font-medium">
-                                        {row.price_source === 'client_site' ? 'Cliente + Obra' :
-                                         row.price_source === 'client' ? 'Por Cliente' :
-                                         row.price_source === 'plant' ? 'General Planta' :
-                                         row.price_source === 'none' ? 'Sin precio' : 'Sin precio'}
-                                      </span>
-                                    </div>
+
                                     <div className="flex justify-between">
                                       <span className="font-medium text-gray-700">Quote Detail ID:</span>
                                       <span className="text-blue-800 font-medium">
