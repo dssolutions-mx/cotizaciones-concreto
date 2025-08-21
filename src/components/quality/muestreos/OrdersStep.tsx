@@ -142,9 +142,7 @@ export function OrdersStep({
                           <p className="text-sm">
                             <span className="font-medium">Obra:</span> {order.construction_site || "N/A"}
                           </p>
-                          <p className="text-sm">
-                            <span className="font-medium">Monto:</span> {new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(order.total_amount || 0)}
-                          </p>
+
                           <div className="mt-2">
                             <span
                               className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold ${
