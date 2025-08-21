@@ -10,7 +10,7 @@ interface UsePlantAwareRecipesOptions {
 }
 
 export function usePlantAwareRecipes(options: UsePlantAwareRecipesOptions = {}) {
-  const { limit = 100, autoRefresh = true } = options;
+  const { limit = 150, autoRefresh = true } = options;
   
   const { 
     currentPlant, 

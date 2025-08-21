@@ -32,7 +32,7 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
 
   // Use plant-aware recipes hook
   const { recipes: rawRecipes, isLoading, error, canCreateRecipe, defaultPlantForCreation } = usePlantAwareRecipes({
-    limit: 100,
+    limit: 150,
     autoRefresh: true
   });
 

@@ -569,7 +569,7 @@ export const recipeService = {
     }
   },
 
-  async getRecipes(limit = 100, plantIds?: string[] | null) {
+  async getRecipes(limit = 150, plantIds?: string[] | null) {
     try {
       let query = supabase
         .from('recipes')
