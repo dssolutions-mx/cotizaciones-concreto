@@ -862,6 +862,32 @@ Fin del reporte
       let totalMaterialsUpdated = 0;
       let totalRemisionesUpdated = 0;
       
+      // Build a single material code set for the entire batch
+      const batchMaterialCodes = new Set<string>();
+      updatedRemisiones.forEach(remision => {
+        if (remision.duplicate_strategy === 'materials_only' && remision.existing_remision_id) {
+          Object.keys(remision.materials_teorico || {}).forEach(code => batchMaterialCodes.add(code));
+          Object.keys(remision.materials_real || {}).forEach(code => batchMaterialCodes.add(code));
+          Object.keys(remision.materials_retrabajo || {}).forEach(code => batchMaterialCodes.add(code));
+          Object.keys(remision.materials_manual || {}).forEach(code => batchMaterialCodes.add(code));
+        }
+      });
+
+      // Fetch material UUIDs and names ONCE for the batch
+      const materialInfoByCode = new Map<string, { id: string; name: string }>();
+      if (batchMaterialCodes.size > 0) {
+        const { data: dbMaterials, error: dbMatError } = await supabase
+          .from('materials')
+          .select('id, material_code, material_name')
+          .eq('plant_id', currentPlant.id)
+          .in('material_code', Array.from(batchMaterialCodes));
+        if (dbMatError) {
+          console.warn('[ArkikProcessor] Could not fetch materials for mapping (batch):', dbMatError);
+        } else {
+          (dbMaterials || []).forEach((m: any) => materialInfoByCode.set(m.material_code, { id: m.id, name: m.material_name }));
+        }
+      }
+
       for (const remision of updatedRemisiones) {
         if (remision.duplicate_strategy === 'materials_only' && remision.existing_remision_id) {
           try {
@@ -884,9 +910,11 @@ Fin del reporte
               const realFinal = realBase + ajuste;
 
               if (teorico > 0 || realFinal > 0) {
+                const info = materialInfoByCode.get(materialCode);
                 materialsToInsert.push({
                   remision_id: remision.existing_remision_id,
-                  material_type: materialCode,
+                  material_id: info?.id,
+                  material_type: info?.name || materialCode,
                   cantidad_teorica: teorico,
                   cantidad_real: realFinal,
                   ajuste
