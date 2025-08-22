@@ -1,6 +1,21 @@
 import { supabase } from '@/lib/supabase/client';
 import type { OrderSuggestion, StagingRemision } from '@/types/arkik';
 
+// Helper functions for date formatting without timezone conversion
+const formatLocalDate = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatLocalTime = (date: Date): string => {
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+};
+
 /**
  * Fetches construction site information from quote_detail
  * @param quoteDetailId The quote detail ID
@@ -544,18 +559,18 @@ async function createSingleOrder(
 
     // Find the earliest date and time from all remisiones in the group
     const sortedRemisiones = suggestion.remisiones.sort((a, b) => {
-      const dateA = new Date(`${a.fecha.toISOString().split('T')[0]}T${a.hora_carga || '08:00:00'}`);
-      const dateB = new Date(`${b.fecha.toISOString().split('T')[0]}T${b.hora_carga || '08:00:00'}`);
+      const dateA = new Date(`${formatLocalDate(a.fecha)}T${a.hora_carga || '08:00:00'}`);
+      const dateB = new Date(`${formatLocalDate(b.fecha)}T${b.hora_carga || '08:00:00'}`);
       return dateA.getTime() - dateB.getTime();
     });
     
     const earliestRemision = sortedRemisiones[0];
-    const deliveryDate = earliestRemision.fecha.toISOString().split('T')[0];
+    const deliveryDate = formatLocalDate(earliestRemision.fecha);
     
     // Ensure delivery_time is in HH:MM:SS format for database
     let deliveryTime: string;
     if (earliestRemision.hora_carga instanceof Date) {
-      deliveryTime = earliestRemision.hora_carga.toTimeString().split(' ')[0];
+      deliveryTime = formatLocalTime(earliestRemision.hora_carga);
     } else if (typeof earliestRemision.hora_carga === 'string') {
       deliveryTime = earliestRemision.hora_carga;
     } else {
@@ -764,21 +779,21 @@ async function createSingleOrder(
         row.remision_number === remisionStaging.remision_number
       );
 
-      if (fullRemisionData) {
-        let horaCarga: string;
-        if (fullRemisionData.hora_carga instanceof Date) {
-          horaCarga = fullRemisionData.hora_carga.toTimeString().split(' ')[0];
-        } else if (typeof fullRemisionData.hora_carga === 'string') {
-          horaCarga = fullRemisionData.hora_carga;
-        } else {
-          horaCarga = '08:00:00';
-        }
+              if (fullRemisionData) {
+          let horaCarga: string;
+          if (fullRemisionData.hora_carga instanceof Date) {
+            horaCarga = formatLocalTime(fullRemisionData.hora_carga);
+          } else if (typeof fullRemisionData.hora_carga === 'string') {
+            horaCarga = fullRemisionData.hora_carga;
+          } else {
+            horaCarga = '08:00:00';
+          }
 
-        remisionesData.push({
-          order_id: createdOrder.id,
-          remision_number: fullRemisionData.remision_number,
-          fecha: fullRemisionData.fecha.toISOString().split('T')[0],
-          hora_carga: horaCarga,
+          remisionesData.push({
+            order_id: createdOrder.id,
+            remision_number: fullRemisionData.remision_number,
+            fecha: formatLocalDate(fullRemisionData.fecha),
+            hora_carga: horaCarga,
           volumen_fabricado: fullRemisionData.volumen_fabricado,
           conductor: fullRemisionData.conductor || undefined,
           unidad: fullRemisionData.placas || undefined, // Map placas from Excel to unidad field
@@ -960,8 +975,12 @@ async function createSingleOrderWithoutBalanceUpdate(
       }
     }
 
-    // Generate order number using pre-assigned sequence number
-    const datePrefix = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+    // Generate order number using pre-assigned sequence number (using local date)
+    const currentDate = new Date();
+    const year = currentDate.getFullYear().toString().slice(-2);
+    const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+    const day = currentDate.getDate().toString().padStart(2, '0');
+    const datePrefix = `${year}${month}${day}`;
     let orderNumber = `${dataCache.plantCode}-${datePrefix}-${sequenceNumber.toString().padStart(3, '0')}`;
     
     console.log('[ArkikOrderCreator] DEBUG: Order number generation:', {
@@ -996,12 +1015,12 @@ async function createSingleOrderWithoutBalanceUpdate(
     }
 
     // Calculate delivery date and time
-    const deliveryDate = firstRemision.fecha.toISOString().split('T')[0];
+    const deliveryDate = formatLocalDate(firstRemision.fecha);
     
     // Ensure delivery_time is in HH:MM:SS format for database
     let deliveryTime: string;
     if (firstRemision.hora_carga instanceof Date) {
-      deliveryTime = firstRemision.hora_carga.toTimeString().split(' ')[0];
+      deliveryTime = formatLocalTime(firstRemision.hora_carga);
     } else if (typeof firstRemision.hora_carga === 'string') {
       deliveryTime = firstRemision.hora_carga;
     } else {
@@ -1059,8 +1078,8 @@ async function createSingleOrderWithoutBalanceUpdate(
     };
 
     // Attempt to create order with retry mechanism for duplicate key errors
-    let order;
-    let orderError;
+    let order: any = null;
+    let orderError: any = null;
     let retryCount = 0;
     const maxRetries = 3;
     
@@ -1175,7 +1194,7 @@ async function createSingleOrderWithoutBalanceUpdate(
         if (fullRemisionData) {
           let horaCarga: string;
           if (fullRemisionData.hora_carga instanceof Date) {
-            horaCarga = fullRemisionData.hora_carga.toTimeString().split(' ')[0];
+            horaCarga = formatLocalTime(fullRemisionData.hora_carga);
           } else if (typeof fullRemisionData.hora_carga === 'string') {
             horaCarga = fullRemisionData.hora_carga;
           } else {
@@ -1185,7 +1204,7 @@ async function createSingleOrderWithoutBalanceUpdate(
           remisionesData.push({
             order_id: order.id,
             remision_number: fullRemisionData.remision_number,
-            fecha: fullRemisionData.fecha.toISOString().split('T')[0],
+            fecha: formatLocalDate(fullRemisionData.fecha),
             hora_carga: horaCarga,
             volumen_fabricado: fullRemisionData.volumen_fabricado,
             conductor: fullRemisionData.conductor || undefined,
