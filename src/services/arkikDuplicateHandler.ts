@@ -457,7 +457,9 @@ export class ArkikDuplicateHandler {
             is_duplicate_update: true,
             duplicate_strategy: 'materials_only' as const,
             existing_remision_id: duplicateInfo.existing_remision_id,
-            preserve_existing_data: true
+            preserve_existing_data: true,
+            // Ensure these remisiones are not considered for order creation later
+            is_excluded_from_import: true
           };
           updatedRemisiones.push(materialsUpdateRemision);
           updatedMaterials++;

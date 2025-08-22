@@ -802,7 +802,17 @@ Fin del reporte
         return;
       }
       
-      // Show summary for normal processing
+      // If there are any materials-only updates among duplicates, process them immediately
+      const materialsOnlyUpdates = updated.filter(r => r.duplicate_strategy === 'materials_only');
+      if (materialsOnlyUpdates.length > 0) {
+        try {
+          await handleMaterialsOnlyUpdates(materialsOnlyUpdates, duplicateResult);
+        } catch (e) {
+          console.error('[ArkikProcessor] Error while processing immediate materials-only updates:', e);
+        }
+      }
+
+      // Show summary for normal processing (remaining items continue the flow)
       const summaryMessage = [
         'Manejo de duplicados completado:',
         '',
@@ -855,63 +865,51 @@ Fin del reporte
       for (const remision of updatedRemisiones) {
         if (remision.duplicate_strategy === 'materials_only' && remision.existing_remision_id) {
           try {
-            // Prepare materials data for insertion/update
+            // Prepare materials data for insertion/update using canonical schema
             const allMaterialCodes = new Set([
               ...Object.keys(remision.materials_teorico || {}),
               ...Object.keys(remision.materials_real || {}),
               ...Object.keys(remision.materials_retrabajo || {}),
               ...Object.keys(remision.materials_manual || {})
             ]);
-            
-            // Get material IDs from the materials table
-            const { data: materials } = await supabase
-              .from('materials')
-              .select('id, material_code')
-              .eq('plant_id', currentPlant.id)
-              .in('material_code', Array.from(allMaterialCodes));
-            
-            const materialMap = new Map(materials?.map(m => [m.material_code, m.id]) || []);
-            
-            // Prepare materials records for insertion
+
             const materialsToInsert: any[] = [];
-            
+
             allMaterialCodes.forEach(materialCode => {
-              const materialId = materialMap.get(materialCode);
-              if (materialId) {
-                const teorico = remision.materials_teorico?.[materialCode] || 0;
-                const real = remision.materials_real?.[materialCode] || 0;
-                const retrabajo = remision.materials_retrabajo?.[materialCode] || 0;
-                const manual = remision.materials_manual?.[materialCode] || 0;
-                
-                if (teorico > 0 || real > 0 || retrabajo > 0 || manual > 0) {
-                  materialsToInsert.push({
-                    remision_id: remision.existing_remision_id,
-                    material_id: materialId,
-                    teorica: teorico,
-                    real: real,
-                    retrabajo: retrabajo,
-                    manual: manual
-                  });
-                }
+              const teorico = Number(remision.materials_teorico?.[materialCode] || 0);
+              const realBase = Number(remision.materials_real?.[materialCode] || 0);
+              const retrabajo = Number(remision.materials_retrabajo?.[materialCode] || 0);
+              const manual = Number(remision.materials_manual?.[materialCode] || 0);
+              const ajuste = retrabajo + manual;
+              const realFinal = realBase + ajuste;
+
+              if (teorico > 0 || realFinal > 0) {
+                materialsToInsert.push({
+                  remision_id: remision.existing_remision_id,
+                  material_type: materialCode,
+                  cantidad_teorica: teorico,
+                  cantidad_real: realFinal,
+                  ajuste
+                });
               }
             });
-            
+
             if (materialsToInsert.length > 0) {
               // Delete existing materials for this remision
               const { error: deleteError } = await supabase
                 .from('remision_materiales')
                 .delete()
                 .eq('remision_id', remision.existing_remision_id);
-              
+
               if (deleteError) {
                 console.warn(`[ArkikProcessor] Warning: Could not delete existing materials for remision ${remision.remision_number}:`, deleteError);
               }
-              
+
               // Insert new materials
               const { error: insertError } = await supabase
                 .from('remision_materiales')
                 .insert(materialsToInsert);
-              
+
               if (insertError) {
                 console.error(`[ArkikProcessor] ❌ Failed to insert materials for remision ${remision.remision_number}:`, insertError);
               } else {
