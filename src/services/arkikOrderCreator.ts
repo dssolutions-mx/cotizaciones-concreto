@@ -243,9 +243,16 @@ export async function createOrdersFromSuggestions(
     const batchSize = 5; // Process 5 orders at a time
     for (let i = 0; i < newOrderSuggestions.length; i += batchSize) {
       const batch = newOrderSuggestions.slice(i, i + batchSize);
+      
+      // CRITICAL FIX: Pre-assign unique sequence numbers to prevent race conditions
+      const batchWithSequence = batch.map((suggestion, batchIndex) => ({
+        suggestion,
+        sequenceNumber: dataCache.orderNumberSequence + batchIndex
+      }));
+      
       const batchResults = await Promise.allSettled(
-        batch.map(suggestion => 
-          createSingleOrderWithoutBalanceUpdate(suggestion, plantId, user.id, validatedRows, dataCache)
+        batchWithSequence.map(({ suggestion, sequenceNumber }) => 
+          createSingleOrderWithoutBalanceUpdate(suggestion, plantId, user.id, validatedRows, dataCache, sequenceNumber)
         )
       );
 
@@ -280,7 +287,7 @@ export async function createOrdersFromSuggestions(
         }
       });
 
-      // Update order number sequence for next batch
+      // Update order number sequence for next batch based on successful orders created
       dataCache.orderNumberSequence += batch.length;
     }
 
@@ -903,7 +910,8 @@ async function createSingleOrderWithoutBalanceUpdate(
   plantId: string,
   userId: string,
   validatedRows: StagingRemision[],
-  dataCache: DataCache
+  dataCache: DataCache,
+  sequenceNumber: number
 ): Promise<OrderCreationResult> {
   
   const result: OrderCreationResult = {
@@ -928,9 +936,8 @@ async function createSingleOrderWithoutBalanceUpdate(
       }
     }
 
-    // Generate order number using cached sequence
-    const orderNumber = `${dataCache.plantCode}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${dataCache.orderNumberSequence.toString().padStart(3, '0')}`;
-    dataCache.orderNumberSequence++;
+    // Generate order number using pre-assigned sequence number
+    const orderNumber = `${dataCache.plantCode}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${sequenceNumber.toString().padStart(3, '0')}`;
 
     // Calculate delivery date and time
     const deliveryDate = firstRemision.fecha.toISOString().split('T')[0];
@@ -1007,18 +1014,50 @@ async function createSingleOrderWithoutBalanceUpdate(
 
     result.ordersCreated = 1;
 
+    // Fetch actual recipe codes from database to ensure consistency
+    const recipeIds = Array.from(uniqueRecipes.keys());
+    const { data: actualRecipes, error: recipesError } = await supabase
+      .from('recipes')
+      .select('id, recipe_code')
+      .in('id', recipeIds);
+
+    if (recipesError) {
+      console.warn('[ArkikOrderCreator] Warning: Could not fetch recipe codes from database:', recipesError);
+    }
+
+    // Create recipe code mapping for database consistency
+    const recipeCodeMap = new Map<string, string>();
+    if (actualRecipes) {
+      actualRecipes.forEach(recipe => {
+        recipeCodeMap.set(recipe.id, recipe.recipe_code);
+      });
+    }
+
     // Create order items
-    const orderItems = Array.from(uniqueRecipes.values()).map(recipe => ({
-      order_id: order.id,
-      quote_detail_id: recipe.quote_detail_id,
-      recipe_id: recipe.recipe_id,
-      product_type: `${recipe.recipe_code} - ${dataCache.materialsMap.get(recipe.recipe_id) || 'Material desconocido'}`,
-      volume: recipe.volume,
-      unit_price: recipe.unit_price,
-      total_price: recipe.volume * recipe.unit_price,
-      has_pump_service: false,
-      has_empty_truck_charge: false
-    }));
+    const orderItems = Array.from(uniqueRecipes.values()).map(recipe => {
+      // Use database recipe_code if available, otherwise fall back to parsed code
+      const actualRecipeCode = recipeCodeMap.get(recipe.recipe_id) || recipe.recipe_code;
+      
+      console.log('[ArkikOrderCreator] Order item recipe code:', {
+        recipe_id: recipe.recipe_id,
+        parsed_code: recipe.recipe_code,
+        database_code: recipeCodeMap.get(recipe.recipe_id),
+        using_code: actualRecipeCode,
+        quote_detail_id: recipe.quote_detail_id
+      });
+
+      return {
+        order_id: order.id,
+        quote_detail_id: recipe.quote_detail_id,
+        recipe_id: recipe.recipe_id,
+        product_type: actualRecipeCode, // Use actual recipe code from database
+        volume: recipe.volume,
+        unit_price: recipe.unit_price,
+        total_price: recipe.volume * recipe.unit_price,
+        has_pump_service: false,
+        has_empty_truck_charge: false
+      };
+    });
 
     if (orderItems.length > 0) {
       const { error: itemsError } = await supabase
