@@ -92,6 +92,138 @@ export default function ArkikProcessor() {
     newDrivers: 0
   });
 
+  // Helper function to translate technical error messages into user-friendly messages for dosificadores
+  const translateErrorForDosificador = (error: any): string => {
+    if (!error || !error.error_type) return error?.message || 'Error desconocido';
+    
+    switch (error.error_type) {
+      case 'RECIPE_NOT_FOUND':
+        return `La receta "${error.field_value || 'sin código'}" no está registrada en el sistema. Contacta al equipo de calidad para que la registre.`;
+      
+      case 'RECIPE_NO_PRICE':
+        return `La receta "${error.field_value || 'sin código'}" no tiene precio configurado. Contacta al equipo de contabilidad para que configure el precio.`;
+      
+      case 'CLIENT_NOT_FOUND':
+        return `El cliente "${error.field_value || 'sin nombre'}" no está registrado. Contacta al equipo comercial para que lo registre.`;
+      
+      case 'CONSTRUCTION_SITE_NOT_FOUND':
+        return `La obra "${error.field_value || 'sin nombre'}" no está registrada. Contacta al equipo comercial para que la registre.`;
+      
+      case 'MATERIAL_NOT_FOUND':
+        return `El material "${error.field_value || 'sin código'}" no está registrado. Contacta al equipo de calidad para que lo registre.`;
+      
+      case 'DUPLICATE_REMISION':
+        return `La remisión ${error.field_value} ya existe en el sistema. Verifica que no sea un duplicado.`;
+      
+      case 'INVALID_VOLUME':
+        return `El volumen ${error.field_value} no es válido. Debe ser mayor a 0.`;
+      
+      case 'MISSING_REQUIRED_FIELD':
+        return `Falta el campo requerido: ${error.field_name}. Completa toda la información antes de procesar.`;
+      
+      default:
+        return error.message || 'Error de validación. Contacta al equipo técnico.';
+    }
+  };
+
+  // Helper function to generate user-friendly summary for dosificadores
+  const generateDosificadorSummary = () => {
+    if (!result?.validated) return null;
+    
+    const missingRecipes = new Set<string>();
+    const missingPrices = new Set<string>();
+    
+    result.validated.forEach(row => {
+      if (row.validation_errors) {
+        row.validation_errors.forEach(error => {
+          switch (error.error_type) {
+            case 'RECIPE_NOT_FOUND':
+              // Use product_description (arkik_long_code) as the primary code to show
+              const recipeCode = row.product_description || row.recipe_code || error.field_value || 'sin código';
+              missingRecipes.add(recipeCode);
+              break;
+            case 'RECIPE_NO_PRICE':
+              // Use product_description (arkik_long_code) for missing prices too
+              const priceCode = row.product_description || row.recipe_code || error.field_value || 'sin código';
+              missingPrices.add(priceCode);
+              break;
+          }
+        });
+      }
+    });
+    
+    return {
+      missingRecipes: Array.from(missingRecipes),
+      missingPrices: Array.from(missingPrices),
+      hasIssues: missingRecipes.size > 0 || missingPrices.size > 0
+    };
+  };
+
+  // Helper function to generate downloadable problem report
+  const generateProblemReport = (summary: any): string => {
+    const now = new Date().toLocaleString('es-ES');
+    const plantName = currentPlant?.name || 'Planta no especificada';
+    
+    let report = `REPORTE DE PROBLEMAS - ARKIK PROCESSOR
+Planta: ${plantName}
+Fecha: ${now}
+Usuario: Dosificador
+==================================================
+
+`;
+
+    if (summary.missingRecipes.length > 0) {
+      report += `🧪 RECETAS FALTANTES (${summary.missingRecipes.length})
+Equipo responsable: Control de Calidad
+Problema: Recetas no registradas en el sistema
+Impacto: No se pueden procesar remisiones
+
+Lista de recetas (código largo Arkik):
+${summary.missingRecipes.map((recipe: string, idx: number) => `${idx + 1}. ${recipe}`).join('\n')}
+
+Acción requerida: Registrar estas recetas en el sistema de calidad
+
+NOTA: Después de registrar cada receta, también necesitarás configurar un precio para ella.
+==================================================
+
+`;
+    }
+
+    if (summary.missingPrices.length > 0) {
+      report += `💰 PRECIOS FALTANTES (${summary.missingPrices.length})
+Equipo responsable: Contabilidad
+Problema: Recetas sin precio configurado
+Impacto: No se pueden calcular costos ni generar facturas
+
+IMPORTANTE: Para configurar un precio, la receta debe existir primero en la planta.
+
+Lista de recetas sin precio (código largo Arkik):
+${summary.missingPrices.map((recipe: string, idx: number) => `${idx + 1}. ${recipe}`).join('\n')}
+
+Acción requerida: 
+1. Si la receta no existe en la planta: Contacta al equipo de calidad primero
+2. Si la receta ya existe: Contacta al equipo de contabilidad para configurar el precio
+
+==================================================
+
+`;
+    }
+
+    report += `
+INSTRUCCIONES:
+1. Envía este reporte a los equipos correspondientes
+2. Espera confirmación de que los problemas han sido resueltos
+3. Una vez resueltos, vuelve a procesar el archivo Arkik
+
+NOTA: NO PUEDES CONTINUAR HASTA RESOLVER TODOS LOS PROBLEMAS.
+
+==================================================
+Fin del reporte
+`;
+
+    return report;
+  };
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -370,7 +502,23 @@ export default function ArkikProcessor() {
         if (missingPrice > 0) reasons.push(`${missingPrice} sin precio válido`);
         if (hasErrors > 0) reasons.push(`${hasErrors} con errores de validación`);
 
-        alert(`No hay remisiones válidas para crear órdenes.\n\nMotivos:\n• ${reasons.join('\n• ')}\n\nRevisa la validación y los procesamientos de estado antes de continuar.`);
+        const errorMessage = [
+          'No hay remisiones válidas para crear órdenes.',
+          '',
+          'Motivos:',
+          ...reasons.map(r => `• ${r}`),
+          '',
+          '📋 Para resolver estos problemas:',
+          '',
+          missingRecipe > 0 ? `• ${missingRecipe} recetas faltantes: Contacta al equipo de calidad` : '',
+          missingPrice > 0 ? `• ${missingPrice} precios faltantes: Contacta al equipo de contabilidad` : '',
+          missingClient > 0 ? `• ${missingClient} clientes faltantes: Contacta al equipo comercial` : '',
+          missingConstructionSite > 0 ? `• ${missingConstructionSite} obras faltantes: Contacta al equipo comercial` : '',
+          '',
+          'Una vez resueltos, vuelve a procesar el archivo.'
+        ].filter(Boolean).join('\n');
+
+        alert(errorMessage);
         return;
       }
 
@@ -910,7 +1058,18 @@ export default function ArkikProcessor() {
     }
   };
 
-
+  const getValidationStatusDescription = (row: StagingRemision): string => {
+    if (row.validation_status === 'valid') return 'Remisión lista para procesar';
+    if (row.validation_status === 'warning') return 'Remisión con advertencias menores';
+    if (row.validation_status === 'error') {
+      if (row.validation_errors && row.validation_errors.length > 0) {
+        const firstError = row.validation_errors[0];
+        return translateErrorForDosificador(firstError);
+      }
+      return 'Remisión con errores de validación';
+    }
+    return 'Remisión pendiente de validación';
+  };
 
   const visibleRows = useMemo(() => {
     if (!result?.validated) return [];
@@ -991,6 +1150,34 @@ export default function ArkikProcessor() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
+              {/* Helpful Information for Dosificadores */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-blue-600 text-sm font-bold">ℹ️</span>
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="font-medium text-blue-900 mb-2">
+                      Información para Dosificadores
+                    </h4>
+                    <div className="text-sm text-blue-800 space-y-1">
+                      <p>
+                        Este proceso validará tu archivo de Arkik y te mostrará si faltan:
+                      </p>
+                      <ul className="list-disc list-inside ml-2 space-y-1">
+                        <li><strong>Recetas:</strong> Códigos de producto que no están en el sistema</li>
+                        <li><strong>Precios:</strong> Recetas sin precio configurado</li>
+                        <li><strong>Clientes:</strong> Clientes no registrados</li>
+                        <li><strong>Obras:</strong> Obras de construcción no registradas</li>
+                      </ul>
+                      <p className="mt-2 font-medium">
+                        Si hay problemas, el sistema te indicará exactamente a qué equipo contactar para resolverlos.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
               {/* Processing Mode Toggle */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="mb-3">
@@ -1139,6 +1326,167 @@ export default function ArkikProcessor() {
                 <div className="text-sm text-red-800">Con Errores</div>
               </div>
             </div>
+            
+            {/* Simple Error Summary for Dosificadores */}
+            {(() => {
+              const summary = generateDosificadorSummary();
+              if (!summary || !summary.hasIssues) return null;
+              
+              return (
+                <div className="mb-6">
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <AlertTriangle className="h-5 w-5 text-red-600" />
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        Problemas Encontrados
+                      </h3>
+                    </div>
+                    
+                    {/* Order of Resolution Note */}
+                    {summary.missingRecipes.length > 0 && summary.missingPrices.length > 0 && (
+                      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                        <div className="text-sm text-blue-800">
+                          <strong>📋 Orden de Resolución:</strong> 
+                        </div>
+                        <div className="text-sm text-blue-800 mt-1 space-y-1">
+                          <div>1. <strong>Recetas faltantes:</strong> El equipo de calidad las registra</div>
+                          <div>2. <strong>Precios faltantes:</strong> El equipo de contabilidad configura precios</div>
+                          <div>3. <strong>Nota:</strong> Las recetas nuevas también necesitarán precios después de ser registradas</div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Missing Recipes */}
+                    {summary.missingRecipes.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="font-medium text-gray-900 mb-2">
+                          🧪 Recetas Faltantes ({summary.missingRecipes.length})
+                        </h4>
+                        <p className="text-sm text-gray-600 mb-2">
+                          Estas recetas no están registradas en el sistema:
+                        </p>
+                        <div className="bg-white border rounded p-3 max-h-32 overflow-y-auto">
+                          {summary.missingRecipes.map((recipe, idx) => (
+                            <div key={idx} className="font-mono text-sm py-1">
+                              {recipe}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-sm text-gray-600 mt-2">
+                          <strong>Acción:</strong> Contacta al equipo de calidad para registrar estas recetas
+                        </p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          <strong>⚠️ Nota:</strong> Después de registrar cada receta, también necesitarás configurar un precio para ella.
+                        </p>
+                      </div>
+                    )}
+                    
+                    {/* Missing Prices */}
+                    {summary.missingPrices.length > 0 && (
+                      <div className="mb-4">
+                        <h4 className="font-medium text-gray-900 mb-2">
+                          💰 Precios Faltantes ({summary.missingPrices.length})
+                        </h4>
+                        <p className="text-sm text-gray-600 mb-2">
+                          Estas recetas no tienen precio configurado:
+                        </p>
+                        <div className="bg-white border rounded p-3 max-h-32 overflow-y-auto">
+                          {summary.missingPrices.map((recipe, idx) => (
+                            <div key={idx} className="font-mono text-sm py-1">
+                              {recipe}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-sm text-gray-600 mt-2">
+                          <strong>⚠️ Importante:</strong> Para configurar un precio, la receta debe existir primero en la planta.
+                        </p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          <strong>Acción:</strong> Si la receta no existe, contacta al equipo de calidad primero. Si ya existe, contacta al equipo de contabilidad para configurar el precio.
+                        </p>
+                      </div>
+                    )}
+                    
+                    {/* Download Report Button */}
+                    <div className="mt-4 pt-4 border-t text-center">
+                      <Button
+                        onClick={() => {
+                          const reportContent = generateProblemReport(summary);
+                          const blob = new Blob([reportContent], { type: 'text/plain;charset=utf-8' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = `problemas-arkik-${new Date().toISOString().split('T')[0]}.txt`;
+                          document.body.appendChild(a);
+                          a.click();
+                          document.body.removeChild(a);
+                          URL.revokeObjectURL(url);
+                        }}
+                        variant="outline"
+                        size="sm"
+                        className="text-gray-700"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Descargar Lista de Problemas
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            
+            {/* Status Banner */}
+            {(() => {
+              const summary = generateDosificadorSummary();
+              if (!summary) return null;
+              
+              const totalProblems = summary.missingRecipes.length + summary.missingPrices.length;
+              
+              if (summary.hasIssues) {
+                return (
+                  <div className="mb-6">
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-red-500 rounded-full flex items-center justify-center">
+                          <span className="text-white text-lg font-bold">⚠️</span>
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-lg font-bold text-red-900 mb-1">
+                            ARCHIVO NO PUEDE SER PROCESADO
+                          </h3>
+                          <p className="text-red-800">
+                            Se encontraron <strong>{totalProblems} problemas</strong> que requieren resolución antes de continuar.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              } else {
+                return (
+                  <div className="mb-6">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                          <span className="text-white text-lg font-bold">✅</span>
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="text-lg font-bold text-green-900 mb-1">
+                            ARCHIVO LISTO PARA PROCESAR
+                          </h3>
+                          <p className="text-green-800">
+                            ¡Excelente! Tu archivo ha pasado todas las validaciones. Puedes continuar con el siguiente paso.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+            })()}
+            
+
+            
+
             
             <div className="flex justify-between items-center">
               <div className="text-sm text-gray-600">
@@ -1668,11 +2016,14 @@ export default function ArkikProcessor() {
                       checked={showOnlyIssues} 
                       onChange={e => setShowOnlyIssues(e.target.checked)} 
                     />
-                    Mostrar sólo incidencias
+                    <span className="font-medium">Mostrar sólo incidencias</span>
                   </label>
                   <span className="text-gray-500">
                     Mostrando: {visibleRows.length} de {result.totalRows}
                   </span>
+                  <div className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                    💡 Útil para enfocarte en los problemas que necesitan resolución
+                  </div>
                 </div>
 
                 {result?.validated && (
@@ -1736,6 +2087,11 @@ export default function ArkikProcessor() {
                                 {getValidationStatusText(row.validation_status)}
                               </span>
                             </div>
+                            {row.validation_status !== 'valid' && (
+                              <div className="text-xs text-gray-500 mt-1 max-w-[200px] truncate" title={getValidationStatusDescription(row)}>
+                                {getValidationStatusDescription(row)}
+                              </div>
+                            )}
                           </td>
                           <td className="p-2 font-medium">{row.remision_number}</td>
                           <td className="p-2">
@@ -1911,6 +2267,32 @@ export default function ArkikProcessor() {
                                       </span>
                                     </div>
                                   </div>
+                                  
+                                  {/* User-Friendly Error Messages for Dosificadores */}
+                                  {row.validation_errors && row.validation_errors.length > 0 && (
+                                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                                      <div className="text-sm font-medium text-red-900 mb-2">
+                                        ⚠️ Problemas Detectados
+                                      </div>
+                                      <div className="space-y-2">
+                                        {row.validation_errors.map((error, idx) => (
+                                          <div key={idx} className="text-xs text-red-800 bg-red-100 p-2 rounded">
+                                            <div className="font-medium mb-1">
+                                              {translateErrorForDosificador(error)}
+                                            </div>
+                                            {error.suggestion && (
+                                              <div className="text-red-700 text-xs mt-1">
+                                                💡 <strong>Sugerencia:</strong> {error.suggestion.action === 'create_price' ? 
+                                                  'Contacta al equipo de contabilidad para crear el precio' :
+                                                  'Contacta al equipo correspondiente para resolver este problema'
+                                                }
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
 
                                 {/* Materials Detail */}
