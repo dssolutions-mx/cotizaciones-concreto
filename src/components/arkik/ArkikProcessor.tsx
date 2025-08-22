@@ -1,13 +1,25 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Loader2, FileSpreadsheet, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Loader2, FileSpreadsheet, ChevronRight, CheckCircle2, Copy } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
 import { ArkikRawParser } from '@/services/arkikRawParser';
-import type { StagingRemision, OrderSuggestion, ValidationError, StatusProcessingDecision, StatusProcessingResult, RemisionReassignment } from '@/types/arkik';
+import { ArkikDuplicateHandler } from '@/services/arkikDuplicateHandler';
+import type { 
+  StagingRemision, 
+  OrderSuggestion, 
+  ValidationError, 
+  StatusProcessingDecision, 
+  StatusProcessingResult, 
+  RemisionReassignment,
+  DuplicateRemisionInfo,
+  DuplicateHandlingDecision,
+  DuplicateHandlingResult
+} from '@/types/arkik';
 import StatusProcessingDialog from './StatusProcessingDialog';
 import ManualAssignmentInterface from './ManualAssignmentInterface';
+import DuplicateHandlingInterface from './DuplicateHandlingInterface';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -53,7 +65,7 @@ export default function ArkikProcessor() {
   const [stagingData, setStagingData] = useState<StagingRemision[]>([]);
   const [orderSuggestions, setOrderSuggestions] = useState<OrderSuggestion[]>([]);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
-  const [currentStep, setCurrentStep] = useState<'validation' | 'status-processing' | 'grouping' | 'confirmation' | 'manual-assignment'>('validation');
+  const [currentStep, setCurrentStep] = useState<'validation' | 'status-processing' | 'grouping' | 'confirmation' | 'manual-assignment' | 'duplicate-handling'>('validation');
   
   // Manual assignment state for commercial mode
   const [showManualAssignment, setShowManualAssignment] = useState(false);
@@ -91,6 +103,12 @@ export default function ArkikProcessor() {
     newTrucks: 0,
     newDrivers: 0
   });
+
+  // Duplicate handling state
+  const [duplicateRemisiones, setDuplicateRemisiones] = useState<DuplicateRemisionInfo[]>([]);
+  const [duplicateHandlingDecisions, setDuplicateHandlingDecisions] = useState<DuplicateHandlingDecision[]>([]);
+  const [showDuplicateHandling, setShowDuplicateHandling] = useState(false);
+  const [duplicateHandler, setDuplicateHandler] = useState<ArkikDuplicateHandler | null>(null);
 
   // Helper function to translate technical error messages into user-friendly messages for dosificadores
   const translateErrorForDosificador = (error: any): string => {
@@ -234,6 +252,16 @@ Fin del reporte
   const handleStatusProcessing = async () => {
     if (!result?.validated || !currentPlant) return;
     
+    // Check if all remisiones are materials-only updates (should have been handled already)
+    const allAreMaterialsOnlyUpdates = result.validated.length > 0 && 
+      result.validated.every(r => r.duplicate_strategy === 'materials_only');
+    
+    if (allAreMaterialsOnlyUpdates) {
+      console.log('[ArkikProcessor] All remisiones are materials-only updates - skipping status processing');
+      alert('⚠️ Todas las remisiones son actualizaciones de materiales únicamente. El procesamiento ya se completó en el paso anterior.');
+      return;
+    }
+    
     try {
       // Import the status processor service
       const { ArkikStatusProcessor } = await import('@/services/arkikStatusProcessor');
@@ -357,7 +385,51 @@ Fin del reporte
       
       console.log('Processed remisiones data updated with', result.validated.length, 'remisiones');
       
-      // Continue to grouping with the processed data
+      // Check if all remaining remisiones are materials-only updates (no new orders needed)
+      const remainingRemisiones = processedData.filter(r => !r.is_excluded_from_import);
+      const allAreMaterialsOnlyUpdates = remainingRemisiones.length > 0 && 
+        remainingRemisiones.every(r => r.duplicate_strategy === 'materials_only');
+      
+      if (allAreMaterialsOnlyUpdates) {
+        console.log('[ArkikProcessor] All remaining remisiones are materials-only updates - skipping order grouping');
+        
+        // Show summary and return to validation
+        const summaryMessage = [
+          '✅ Procesamiento completado',
+          '',
+          `• ${remainingRemisiones.length} remisiones con actualizaciones de materiales`,
+          `• ${processingResult.waste_remisiones} remisiones marcadas como desperdicio`,
+          `• ${processingResult.reassigned_remisiones} remisiones reasignadas`,
+          '',
+          'No se requieren nuevas órdenes. Los materiales han sido actualizados.'
+        ].join('\n');
+        
+        alert(summaryMessage);
+        
+        // Reset to validation step since we're done
+        setCurrentStep('validation');
+        setResult(null);
+        setFile(null);
+        setProcessedRemisiones([]);
+        setPendingReassignments([]);
+        setStatusProcessingDecisions([]);
+        setStatusProcessingResult(null);
+        setStats({
+          totalRows: 0,
+          validRows: 0,
+          errorRows: 0,
+          ordersToCreate: 0,
+          remisionsWithoutOrder: 0,
+          newClients: 0,
+          newSites: 0,
+          newTrucks: 0,
+          newDrivers: 0
+        });
+        
+        return;
+      }
+      
+      // Continue to grouping with the processed data (only if there are remisiones that need orders)
       // Pass the processed data directly to avoid React state timing issues
       handleOrderGrouping(processedData);
       
@@ -375,6 +447,16 @@ Fin del reporte
     const remisionesToProcess = directProcessedData || (processedRemisiones.length > 0 ? processedRemisiones : (result?.validated || []));
     
     if (remisionesToProcess.length === 0) return;
+    
+    // Check if all remisiones are materials-only updates (should have been handled already)
+    const allAreMaterialsOnlyUpdates = remisionesToProcess.length > 0 && 
+      remisionesToProcess.every(r => r.duplicate_strategy === 'materials_only');
+    
+    if (allAreMaterialsOnlyUpdates) {
+      console.log('[ArkikProcessor] All remisiones are materials-only updates - skipping order grouping');
+      alert('⚠️ Todas las remisiones son actualizaciones de materiales únicamente. El procesamiento ya se completó en el paso anterior.');
+      return;
+    }
     
     try {
       console.log('[ArkikProcessor] === DEBUGGING ORDER GROUPING ===');
@@ -660,6 +742,210 @@ Fin del reporte
     setCurrentStep('grouping');
   };
 
+  const handleDuplicateHandlingComplete = async (decisions: DuplicateHandlingDecision[]) => {
+    console.log('[ArkikProcessor] Duplicate handling decisions completed:', decisions);
+    
+    // Store the decisions
+    setDuplicateHandlingDecisions(decisions);
+    setShowDuplicateHandling(false);
+    
+    try {
+      if (!duplicateHandler || !result?.validated) return;
+      
+      // Apply duplicate decisions to the validated data
+      const { processedRemisiones: processed, skippedRemisiones: skipped, updatedRemisiones: updated, result: duplicateResult } = 
+        duplicateHandler.applyDuplicateDecisions(result.validated, decisions, duplicateRemisiones);
+      
+      console.log('[ArkikProcessor] Duplicate handling results:', {
+        processed: processed.length,
+        skipped: skipped.length,
+        updated: updated.length,
+        summary: duplicateResult.summary
+      });
+      
+      // Update the result with processed data
+      const updatedValidated = [...processed, ...updated];
+      setResult(prev => prev ? { ...prev, validated: updatedValidated } : null);
+      
+      // Check if ALL remisiones are materials-only updates (no new orders needed)
+      const allAreMaterialsOnlyUpdates = updated.length > 0 && 
+        updated.every(r => r.duplicate_strategy === 'materials_only') &&
+        processed.length === 0; // No new remisiones to process
+      
+      if (allAreMaterialsOnlyUpdates) {
+        console.log('[ArkikProcessor] All remisiones are materials-only updates - processing directly');
+        
+        // Show summary
+        const summaryMessage = [
+          'Manejo de duplicados completado:',
+          '',
+          `• ${duplicateResult.total_duplicates} duplicados detectados`,
+          `• ${duplicateResult.summary.materials_only_updates} actualizaciones de materiales`,
+          `• ${duplicateResult.summary.skipped} omitidos`,
+          '',
+          '🔄 Actualizando materiales en la base de datos...'
+        ].join('\n');
+        
+        alert(summaryMessage);
+        
+        // Process materials-only updates directly
+        await handleMaterialsOnlyUpdates(updated, duplicateResult);
+        
+        // Reset to validation step since we're done
+        setCurrentStep('validation');
+        setResult(null);
+        setFile(null);
+        setProcessedRemisiones([]);
+        setDuplicateRemisiones([]);
+        setDuplicateHandlingDecisions([]);
+        
+        return;
+      }
+      
+      // Show summary for normal processing
+      const summaryMessage = [
+        'Manejo de duplicados completado:',
+        '',
+        `• ${duplicateResult.total_duplicates} duplicados detectados`,
+        `• ${duplicateResult.summary.materials_only_updates} actualizaciones de materiales`,
+        `• ${duplicateResult.summary.full_updates} actualizaciones completas`,
+        `• ${duplicateResult.merged} combinaciones`,
+        `• ${duplicateResult.summary.skipped} omitidos`,
+        '',
+        'Continuando con el procesamiento...'
+      ].join('\n');
+      
+      alert(summaryMessage);
+      
+      // Continue to status processing step for mixed scenarios
+      setCurrentStep('status-processing');
+      
+    } catch (error) {
+      console.error('Error processing duplicate decisions:', error);
+      alert('Error al procesar las decisiones de duplicados');
+    }
+  };
+
+  const handleDuplicateHandlingCancel = () => {
+    setShowDuplicateHandling(false);
+    setDuplicateRemisiones([]);
+    setDuplicateHandlingDecisions([]);
+    
+    // Go back to validation step
+    setCurrentStep('validation');
+  };
+
+  /**
+   * Handle materials-only updates for existing remisiones
+   */
+  const handleMaterialsOnlyUpdates = async (
+    updatedRemisiones: StagingRemision[], 
+    duplicateResult: any
+  ) => {
+    if (!currentPlant) return;
+    
+    setLoading(true);
+    
+    try {
+      console.log('[ArkikProcessor] Processing materials-only updates for', updatedRemisiones.length, 'remisiones');
+      
+      let totalMaterialsUpdated = 0;
+      let totalRemisionesUpdated = 0;
+      
+      for (const remision of updatedRemisiones) {
+        if (remision.duplicate_strategy === 'materials_only' && remision.existing_remision_id) {
+          try {
+            // Prepare materials data for insertion/update
+            const allMaterialCodes = new Set([
+              ...Object.keys(remision.materials_teorico || {}),
+              ...Object.keys(remision.materials_real || {}),
+              ...Object.keys(remision.materials_retrabajo || {}),
+              ...Object.keys(remision.materials_manual || {})
+            ]);
+            
+            // Get material IDs from the materials table
+            const { data: materials } = await supabase
+              .from('materials')
+              .select('id, material_code')
+              .eq('plant_id', currentPlant.id)
+              .in('material_code', Array.from(allMaterialCodes));
+            
+            const materialMap = new Map(materials?.map(m => [m.material_code, m.id]) || []);
+            
+            // Prepare materials records for insertion
+            const materialsToInsert: any[] = [];
+            
+            allMaterialCodes.forEach(materialCode => {
+              const materialId = materialMap.get(materialCode);
+              if (materialId) {
+                const teorico = remision.materials_teorico?.[materialCode] || 0;
+                const real = remision.materials_real?.[materialCode] || 0;
+                const retrabajo = remision.materials_retrabajo?.[materialCode] || 0;
+                const manual = remision.materials_manual?.[materialCode] || 0;
+                
+                if (teorico > 0 || real > 0 || retrabajo > 0 || manual > 0) {
+                  materialsToInsert.push({
+                    remision_id: remision.existing_remision_id,
+                    material_id: materialId,
+                    teorica: teorico,
+                    real: real,
+                    retrabajo: retrabajo,
+                    manual: manual
+                  });
+                }
+              }
+            });
+            
+            if (materialsToInsert.length > 0) {
+              // Delete existing materials for this remision
+              const { error: deleteError } = await supabase
+                .from('remision_materiales')
+                .delete()
+                .eq('remision_id', remision.existing_remision_id);
+              
+              if (deleteError) {
+                console.warn(`[ArkikProcessor] Warning: Could not delete existing materials for remision ${remision.remision_number}:`, deleteError);
+              }
+              
+              // Insert new materials
+              const { error: insertError } = await supabase
+                .from('remision_materiales')
+                .insert(materialsToInsert);
+              
+              if (insertError) {
+                console.error(`[ArkikProcessor] ❌ Failed to insert materials for remision ${remision.remision_number}:`, insertError);
+              } else {
+                totalRemisionesUpdated++;
+                totalMaterialsUpdated += materialsToInsert.length;
+                console.log(`[ArkikProcessor] ✅ Updated ${materialsToInsert.length} materials for remision ${remision.remision_number}`);
+              }
+            }
+          } catch (error) {
+            console.error(`[ArkikProcessor] Error updating materials for remision ${remision.remision_number}:`, error);
+          }
+        }
+      }
+      
+      // Show success message
+      const successMessage = [
+        '✅ Actualización de materiales completada',
+        '',
+        `• ${totalRemisionesUpdated} remisiones actualizadas`,
+        `• ${totalMaterialsUpdated} registros de materiales procesados`,
+        '',
+        'Los materiales han sido actualizados en la base de datos sin crear nuevas órdenes.'
+      ].join('\n');
+      
+      alert(successMessage);
+      
+    } catch (error) {
+      console.error('Error processing materials-only updates:', error);
+      alert(`Error al actualizar materiales: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleFinalConfirmation = async () => {
     if (!orderSuggestions.length || !currentPlant) return;
     
@@ -894,24 +1180,46 @@ Fin del reporte
       const processingTime = Date.now() - startTime;
       const successRate = validated.length > 0 ? (validated.filter(r => r.validation_status === 'valid').length / validated.length) * 100 : 0;
 
-              setResult({
-          validated,
-          errors,
-          debugLogs: [],
-          processingTime,
-          totalRows: validated.length,
-          successRate
-        });
+      setResult({
+        validated,
+        errors,
+        debugLogs: [],
+        processingTime,
+        totalRows: validated.length,
+        successRate
+      });
 
-              setStagingData(stagingRows);
-        setValidationErrors(errors);
+      setStagingData(stagingRows);
+      setValidationErrors(errors);
+      
+      // Auto-load names after processing
+      if (validated.length > 0) {
+        loadNamesFromDatabase(validated);
+      }
+
+      // Check for duplicates after validation
+      if (validated.length > 0) {
+        console.log('[ArkikProcessor] Starting duplicate detection...');
+        const duplicateHandlerInstance = new ArkikDuplicateHandler(currentPlant.id);
+        setDuplicateHandler(duplicateHandlerInstance);
         
-        // Auto-load names after processing
-        if (validated.length > 0) {
-          loadNamesFromDatabase(validated);
+        console.log('[ArkikProcessor] Calling detectDuplicates with', validated.length, 'remisiones');
+        const duplicates = await duplicateHandlerInstance.detectDuplicates(validated);
+        console.log('[ArkikProcessor] Duplicate detection result:', duplicates);
+        
+        setDuplicateRemisiones(duplicates);
+        
+        if (duplicates.length > 0) {
+          console.log(`[ArkikProcessor] Found ${duplicates.length} duplicate remisiones - showing interface`);
+          // Show duplicate handling interface
+          setShowDuplicateHandling(true);
+          setCurrentStep('duplicate-handling');
+          return; // Stop here and let user handle duplicates
+        } else {
+          console.log('[ArkikProcessor] No duplicates found, continuing with normal flow');
         }
-        
-      } catch (error) {
+      }
+    } catch (error) {
       console.error('Processing error:', error);
       setResult({
         validated: [],
@@ -1109,9 +1417,18 @@ Fin del reporte
           
           <ChevronRight className="h-5 w-5 text-gray-300" />
           
+          <div className={`flex items-center ${currentStep === 'duplicate-handling' ? 'text-blue-600' : 'text-gray-400'}`}>
+            <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'duplicate-handling' ? 'border-blue-600 bg-blue-600 text-white' : ['status-processing', 'grouping', 'confirmation'].includes(currentStep) ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
+              {currentStep === 'duplicate-handling' ? '2' : ['status-processing', 'grouping', 'confirmation'].includes(currentStep) ? <CheckCircle2 className="h-5 w-5" /> : '2'}
+            </div>
+            <span className="ml-2 font-medium">Duplicados</span>
+          </div>
+          
+          <ChevronRight className="h-5 w-5 text-gray-300" />
+          
           <div className={`flex items-center ${currentStep === 'status-processing' ? 'text-blue-600' : 'text-gray-400'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'status-processing' ? 'border-blue-600 bg-blue-600 text-white' : ['grouping', 'confirmation'].includes(currentStep) ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
-              {currentStep === 'status-processing' ? '2' : ['grouping', 'confirmation'].includes(currentStep) ? <CheckCircle2 className="h-5 w-5" /> : '2'}
+              {currentStep === 'status-processing' ? '3' : ['grouping', 'confirmation'].includes(currentStep) ? <CheckCircle2 className="h-5 w-5" /> : '3'}
             </div>
             <span className="ml-2 font-medium">Estados</span>
           </div>
@@ -1120,7 +1437,7 @@ Fin del reporte
           
           <div className={`flex items-center ${currentStep === 'grouping' ? 'text-blue-600' : 'text-gray-400'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'grouping' ? 'border-blue-600 bg-blue-600 text-white' : currentStep === 'confirmation' ? 'border-green-600 bg-green-600 text-white' : 'border-gray-300'}`}>
-              {currentStep === 'grouping' ? '3' : currentStep === 'confirmation' ? <CheckCircle2 className="h-5 w-5" /> : '3'}
+              {currentStep === 'grouping' ? '4' : currentStep === 'confirmation' ? <CheckCircle2 className="h-5 w-5" /> : '4'}
             </div>
             <span className="ml-2 font-medium">Agrupación</span>
           </div>
@@ -1129,7 +1446,7 @@ Fin del reporte
           
           <div className={`flex items-center ${currentStep === 'confirmation' ? 'text-blue-600' : 'text-gray-400'}`}>
             <div className={`w-8 h-8 rounded-full flex items-center justify-center border-2 ${currentStep === 'confirmation' ? 'border-blue-600 bg-blue-600 text-white' : 'border-gray-300'}`}>
-              {currentStep === 'confirmation' ? '4' : '4'}
+              {currentStep === 'confirmation' ? '5' : '5'}
             </div>
             <span className="ml-2 font-medium">Confirmación</span>
           </div>
@@ -1434,6 +1751,57 @@ Fin del reporte
               );
             })()}
             
+            {/* Debug Duplicate Detection Status */}
+            <div className="mb-6">
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-lg font-bold">🔍</span>
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="text-lg font-bold text-gray-900 mb-1">
+                      ESTADO DE DETECCIÓN DE DUPLICADOS
+                    </h3>
+                    <div className="text-sm text-gray-700 space-y-1">
+                      <div><strong>Duplicados detectados:</strong> {duplicateRemisiones.length}</div>
+                      <div><strong>Handler disponible:</strong> {duplicateHandler ? '✅ Sí' : '❌ No'}</div>
+                      <div><strong>Remisiones validadas:</strong> {result?.validated?.length || 0}</div>
+                      <div><strong>Plant ID:</strong> {currentPlant?.id || 'No disponible'}</div>
+                    </div>
+                    {duplicateRemisiones.length === 0 && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        💡 Si esperabas duplicados, usa el botón "Test Duplicados" para verificar manualmente
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Duplicate Detection Summary */}
+            {duplicateRemisiones.length > 0 && (
+              <div className="mb-6">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-amber-500 rounded-full flex items-center justify-center">
+                      <span className="text-white text-lg font-bold">🔄</span>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-amber-900 mb-1">
+                        DUPLICADOS DETECTADOS
+                      </h3>
+                      <p className="text-amber-800">
+                        Se encontraron <strong>{duplicateRemisiones.length} remisiones duplicadas</strong> que requieren tu atención antes de continuar.
+                      </p>
+                      <div className="mt-2 text-sm text-amber-700">
+                        <strong>Próximo paso:</strong> Revisar y decidir cómo manejar cada duplicado
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Status Banner */}
             {(() => {
               const summary = generateDosificadorSummary();
@@ -1492,14 +1860,49 @@ Fin del reporte
               <div className="text-sm text-gray-600">
                 Tiempo de procesamiento: {result.processingTime}ms
               </div>
-              <Button
-                onClick={handleStatusProcessing}
-                disabled={result.validated.filter(r => r.validation_status === 'error').length > 0}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                Continuar a Procesamiento de Estados
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </Button>
+              <div className="flex gap-3">
+                {/* Debug button to test duplicate detection */}
+                <Button
+                  onClick={async () => {
+                    console.log('[DEBUG] Manual duplicate detection test');
+                    if (duplicateHandler && result?.validated) {
+                      console.log('[DEBUG] Testing duplicate detection with', result.validated.length, 'remisiones');
+                      const duplicates = await duplicateHandler.detectDuplicates(result.validated);
+                      console.log('[DEBUG] Manual test result:', duplicates);
+                      setDuplicateRemisiones(duplicates);
+                      if (duplicates.length > 0) {
+                        setShowDuplicateHandling(true);
+                        setCurrentStep('duplicate-handling');
+                      }
+                    } else {
+                      console.log('[DEBUG] No duplicate handler or validated data available');
+                    }
+                  }}
+                  variant="outline"
+                  size="sm"
+                  className="bg-gray-100 hover:bg-gray-200"
+                >
+                  🧪 Test Duplicados
+                </Button>
+                
+                {duplicateRemisiones.length > 0 && (
+                  <Button
+                    onClick={() => setCurrentStep('duplicate-handling')}
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Manejar Duplicados ({duplicateRemisiones.length})
+                  </Button>
+                )}
+                <Button
+                  onClick={handleStatusProcessing}
+                  disabled={result.validated.filter(r => r.validation_status === 'error').length > 0}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  Continuar a Procesamiento de Estados
+                  <ChevronRight className="mr-2 h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -2409,6 +2812,15 @@ Fin del reporte
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Duplicate Handling Interface */}
+      {showDuplicateHandling && duplicateRemisiones.length > 0 && (
+        <DuplicateHandlingInterface
+          duplicates={duplicateRemisiones}
+          onDecisionsComplete={handleDuplicateHandlingComplete}
+          onCancel={handleDuplicateHandlingCancel}
+        />
       )}
 
       {/* Status Processing Dialog */}

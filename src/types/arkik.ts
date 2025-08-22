@@ -15,6 +15,78 @@ export enum ArkikErrorType {
   PRODUCT_CODE_MISMATCH = 'PRODUCT_CODE_MISMATCH'
 }
 
+// Duplicate Handling Types
+export enum DuplicateHandlingStrategy {
+  SKIP = 'skip',                    // Skip duplicate remisiones entirely
+  UPDATE_MATERIALS_ONLY = 'update_materials_only',  // Only update materials data
+  UPDATE_ALL = 'update_all',        // Update all data (overwrite existing)
+  MERGE = 'merge',                  // Merge data intelligently
+  SKIP_NEW_ONLY = 'skip_new_only'  // Skip only new duplicates, process existing ones
+}
+
+export interface DuplicateRemisionInfo {
+  remision_number: string;
+  existing_remision_id: string;
+  existing_order_id: string;
+  existing_order_number: string;
+  existing_data: {
+    fecha: string;
+    volumen_fabricado: number;
+    client_id?: string;
+    construction_site_id?: string;
+    recipe_id: string;
+    has_materials: boolean;
+    has_status_decisions: boolean;
+    has_reassignments: boolean;
+    has_waste_materials: boolean;
+    status: string;
+  };
+  new_data: {
+    fecha: Date;
+    volumen_fabricado: number;
+    materials_teorico: Record<string, number>;
+    materials_real: Record<string, number>;
+    materials_retrabajo: Record<string, number>;
+    materials_manual: Record<string, number>;
+  };
+  differences: {
+    volume_changed: boolean;
+    materials_changed: boolean;
+    date_changed: boolean;
+    materials_missing: boolean;
+  };
+  suggested_strategy: DuplicateHandlingStrategy;
+  risk_level: 'low' | 'medium' | 'high';
+  notes: string[];
+}
+
+export interface DuplicateHandlingDecision {
+  remision_number: string;
+  strategy: DuplicateHandlingStrategy;
+  custom_notes?: string;
+  preserve_existing_data?: boolean;
+  update_materials_only?: boolean;
+  skip_entirely?: boolean;
+}
+
+export interface DuplicateHandlingResult {
+  total_duplicates: number;
+  processed_duplicates: number;
+  skipped_duplicates: number;
+  updated_materials: number;
+  updated_all: number;
+  merged: number;
+  decisions: DuplicateHandlingDecision[];
+  summary: {
+    low_risk: number;
+    medium_risk: number;
+    high_risk: number;
+    materials_only_updates: number;
+    full_updates: number;
+    skipped: number;
+  };
+}
+
 // Enhanced Status Processing Types
 export enum RemisionStatus {
   TERMINADO = 'terminado',
@@ -168,6 +240,11 @@ export interface StagingRemision {
   is_excluded_from_import?: boolean;
   waste_reason?: string;
   status_processing_notes?: string;
+  // Duplicate Handling (new)
+  is_duplicate_update?: boolean;
+  duplicate_strategy?: 'materials_only' | 'update_all' | 'merge' | 'skip';
+  existing_remision_id?: string;
+  preserve_existing_data?: boolean;
 }
 
 export interface OrderSuggestion {
