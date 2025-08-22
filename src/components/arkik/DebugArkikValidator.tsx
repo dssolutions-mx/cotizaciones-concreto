@@ -495,8 +495,8 @@ function convertToStagingRemision(row: any, rowNumber: number): StagingRemision 
     session_id: 'debug-session',
     row_number: rowNumber,
     orden_original: row.orden || undefined,
-    fecha: new Date(row.fecha),
-    hora_carga: new Date(row.hora_carga),
+    fecha: row.fecha, // Use date directly from parser (already properly handled)
+    hora_carga: row.hora_carga, // Use date directly from parser (already properly handled)
     remision_number: String(row.remision),
     estatus: String(row.estatus || ''),
     volumen_fabricado: Number(row.volumen || 0),
