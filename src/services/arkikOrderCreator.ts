@@ -265,13 +265,7 @@ export async function createOrdersFromSuggestions(
         sequenceNumber: dataCache.orderNumberSequence + batchIndex
       }));
       
-      console.log('[ArkikOrderCreator] DEBUG: Batch sequence assignment:', {
-        batchIndex: Math.floor(i / batchSize),
-        batchSize: batch.length,
-        baseSequence: dataCache.orderNumberSequence,
-        assignedSequences: batchWithSequence.map(item => item.sequenceNumber),
-        timestamp: new Date().toISOString()
-      });
+
       
       const batchResults = await Promise.allSettled(
         batchWithSequence.map(({ suggestion, sequenceNumber }) => 
@@ -983,13 +977,7 @@ async function createSingleOrderWithoutBalanceUpdate(
     const datePrefix = `${year}${month}${day}`;
     let orderNumber = `${dataCache.plantCode}-${datePrefix}-${sequenceNumber.toString().padStart(3, '0')}`;
     
-    console.log('[ArkikOrderCreator] DEBUG: Order number generation:', {
-      plantCode: dataCache.plantCode,
-      datePrefix: datePrefix,
-      sequenceNumber: sequenceNumber,
-      generatedOrderNumber: orderNumber,
-      timestamp: new Date().toISOString()
-    });
+
 
     // SAFETY CHECK: Query database for existing order with this number
     const { data: existingOrder, error: checkError } = await supabase

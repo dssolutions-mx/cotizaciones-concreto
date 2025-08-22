@@ -6,6 +6,19 @@ type MaterialColumnBlock = {
   indicesByMeasure: Record<ArkikMeasureKey, number>;
 };
 
+// Helper function to get days in a month (accounting for leap years)
+function getDaysInMonth(year: number, month: number): number {
+  const daysInMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month === 2 && isLeapYear(year)) {
+    return 29;
+  }
+  return daysInMonth[month - 1];
+}
+
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+}
+
 export class ArkikRawParser {
   private static readonly STABLE_HEADERS = {
     orden: /\borden\b/i,
@@ -248,46 +261,59 @@ export class ArkikRawParser {
   private parseDate(value: any): Date {
     if (!value) return new Date();
     
-    console.log('[ArkikRawParser] Parsing date value:', {
-      value,
-      type: typeof value,
-      isDate: value instanceof Date
-    });
-    
     // Handle Excel serial dates (numbers representing days since 1900-01-01)
     if (typeof value === 'number') {
+
+      
       // Excel stores dates as serial numbers starting from January 1, 1900
       // But Excel has a leap year bug: it treats 1900 as a leap year (which it wasn't)
       // So we need to account for this when converting
       
       const excelSerialDate = value;
-      const millisecondsPerDay = 24 * 60 * 60 * 1000;
       
-      // Excel epoch is January 1, 1900, but Excel starts counting from 1, not 0
-      // Also account for the leap year bug
-      const excelEpoch = new Date(1899, 11, 30); // December 30, 1899 (Excel day 0)
+      // COMPLETELY NEW APPROACH: Manual date calculation to avoid timezone issues
+      // Excel serial dates are timezone-independent - let's calculate manually
       
-      // Calculate the target date
-      const targetTimestamp = excelEpoch.getTime() + (excelSerialDate * millisecondsPerDay);
-      const targetDate = new Date(targetTimestamp);
+      const wholeDays = Math.floor(excelSerialDate);
+      const timeFraction = excelSerialDate - wholeDays;
       
-      // Create a clean local date without timezone interference
-      const localDate = new Date(
-        targetDate.getFullYear(),
-        targetDate.getMonth(),
-        targetDate.getDate(),
-        targetDate.getHours(),
-        targetDate.getMinutes(),
-        targetDate.getSeconds(),
-        targetDate.getMilliseconds()
-      );
+      // Calculate time components from the fraction
+      const totalSeconds = Math.round(timeFraction * 24 * 60 * 60);
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
       
-      console.log('[ArkikRawParser] Excel serial date conversion:', {
-        excelSerial: excelSerialDate,
-        calculatedDate: targetDate.toISOString(),
-        localDate: localDate.toISOString(),
-        localString: localDate.toLocaleDateString() + ' ' + localDate.toLocaleTimeString()
-      });
+
+      
+      // Manual date calculation: Excel epoch is December 30, 1899
+      // January 1, 1900 = day 1, so December 30, 1899 = day 0
+      const baseYear = 1899;
+      const baseMonth = 12; // December
+      const baseDay = 30;
+      
+      // Calculate target date by adding wholeDays to base date
+      // Use a simple date calculation to avoid timezone issues
+      let targetYear = baseYear;
+      let targetMonth = baseMonth;
+      let targetDay = baseDay + wholeDays;
+      
+      // Handle month/year overflow manually 
+      while (targetDay > getDaysInMonth(targetYear, targetMonth)) {
+        targetDay -= getDaysInMonth(targetYear, targetMonth);
+        targetMonth++;
+        if (targetMonth > 12) {
+          targetMonth = 1;
+          targetYear++;
+        }
+      }
+      
+
+      
+      // Create the final date object using the calculated components
+      // This should be timezone-neutral since we're specifying exact components
+      const localDate = new Date(targetYear, targetMonth - 1, targetDay, hours, minutes, seconds);
+      
+
       
       return localDate;
     }
