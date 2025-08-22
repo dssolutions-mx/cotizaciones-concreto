@@ -250,6 +250,14 @@ export async function createOrdersFromSuggestions(
         sequenceNumber: dataCache.orderNumberSequence + batchIndex
       }));
       
+      console.log('[ArkikOrderCreator] DEBUG: Batch sequence assignment:', {
+        batchIndex: Math.floor(i / batchSize),
+        batchSize: batch.length,
+        baseSequence: dataCache.orderNumberSequence,
+        assignedSequences: batchWithSequence.map(item => item.sequenceNumber),
+        timestamp: new Date().toISOString()
+      });
+      
       const batchResults = await Promise.allSettled(
         batchWithSequence.map(({ suggestion, sequenceNumber }) => 
           createSingleOrderWithoutBalanceUpdate(suggestion, plantId, user.id, validatedRows, dataCache, sequenceNumber)
@@ -354,27 +362,43 @@ async function buildDataCache(plantId: string, validatedRows: StagingRemision[])
     });
   }
 
-  // Get current order number sequence
+  // Get current order number sequence with enhanced concurrency protection
   const currentDate = new Date();
   const year = currentDate.getFullYear().toString().slice(-2);
   const month = (currentDate.getMonth() + 1).toString().padStart(2, '0');
   const day = currentDate.getDate().toString().padStart(2, '0');
   const datePrefix = `${plant.code}-${year}${month}${day}`;
   
-  const { data: lastOrder, error: orderError } = await supabase
+  console.log('[ArkikOrderCreator] Fetching last order sequence for prefix:', datePrefix);
+  
+  // Get ALL orders for today to ensure we get the absolute latest sequence
+  const { data: todaysOrders, error: orderError } = await supabase
     .from('orders')
     .select('order_number')
     .like('order_number', `${datePrefix}%`)
     .order('order_number', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(10); // Get last 10 to be sure
 
   let sequence = 1;
-  if (lastOrder && orderError === null) {
-    const lastSequence = parseInt(lastOrder.order_number.slice(-3));
-    if (!isNaN(lastSequence)) {
-      sequence = lastSequence + 1;
+  if (todaysOrders && todaysOrders.length > 0 && orderError === null) {
+    // Parse all sequences and find the maximum
+    const sequences = todaysOrders
+      .map(order => {
+        const parts = order.order_number.split('-');
+        const lastPart = parts[parts.length - 1];
+        // Handle both normal sequences (003) and fallback sequences (003-1234)
+        const sequencePart = lastPart.includes('-') ? lastPart.split('-')[0] : lastPart;
+        return parseInt(sequencePart);
+      })
+      .filter(seq => !isNaN(seq));
+    
+    if (sequences.length > 0) {
+      const maxSequence = Math.max(...sequences);
+      sequence = maxSequence + 1;
+      console.log('[ArkikOrderCreator] Found sequences:', sequences, 'using next:', sequence);
     }
+  } else {
+    console.log('[ArkikOrderCreator] No existing orders found for today, starting at sequence 1');
   }
 
   console.log('[ArkikOrderCreator] Data cache built successfully');
@@ -937,7 +961,39 @@ async function createSingleOrderWithoutBalanceUpdate(
     }
 
     // Generate order number using pre-assigned sequence number
-    const orderNumber = `${dataCache.plantCode}-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${sequenceNumber.toString().padStart(3, '0')}`;
+    const datePrefix = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+    let orderNumber = `${dataCache.plantCode}-${datePrefix}-${sequenceNumber.toString().padStart(3, '0')}`;
+    
+    console.log('[ArkikOrderCreator] DEBUG: Order number generation:', {
+      plantCode: dataCache.plantCode,
+      datePrefix: datePrefix,
+      sequenceNumber: sequenceNumber,
+      generatedOrderNumber: orderNumber,
+      timestamp: new Date().toISOString()
+    });
+
+    // SAFETY CHECK: Query database for existing order with this number
+    const { data: existingOrder, error: checkError } = await supabase
+      .from('orders')
+      .select('id, order_number')
+      .eq('order_number', orderNumber)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingOrder) {
+      console.error('[ArkikOrderCreator] CRITICAL: Order number already exists!', {
+        conflictingOrderNumber: orderNumber,
+        existingOrderId: existingOrder.id,
+        currentSequence: sequenceNumber,
+        plantCode: dataCache.plantCode,
+        datePrefix: datePrefix
+      });
+      
+      // Generate a fallback order number with timestamp
+      const fallbackNumber = `${dataCache.plantCode}-${datePrefix}-${sequenceNumber.toString().padStart(3, '0')}-${Date.now().toString().slice(-4)}`;
+      console.log('[ArkikOrderCreator] Using fallback order number:', fallbackNumber);
+      orderNumber = fallbackNumber;
+    }
 
     // Calculate delivery date and time
     const deliveryDate = firstRemision.fecha.toISOString().split('T')[0];
@@ -1002,13 +1058,49 @@ async function createSingleOrderWithoutBalanceUpdate(
       elemento: suggestion.comentarios_externos[0] || undefined
     };
 
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .insert(orderData)
-      .select()
-      .single();
+    // Attempt to create order with retry mechanism for duplicate key errors
+    let order;
+    let orderError;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      const response = await supabase
+        .from('orders')
+        .insert(orderData)
+        .select()
+        .single();
+      
+      order = response.data;
+      orderError = response.error;
+      
+      if (!orderError) {
+        // Success!
+        break;
+      }
+      
+      if (orderError.message.includes('duplicate key value violates unique constraint "orders_order_number_key"')) {
+        console.warn(`[ArkikOrderCreator] Retry ${retryCount + 1}/${maxRetries}: Duplicate order number detected, generating new number`);
+        
+        // Generate a new order number with timestamp suffix
+        const timestamp = Date.now().toString().slice(-6);
+        const newOrderNumber = `${dataCache.plantCode}-${datePrefix}-${sequenceNumber.toString().padStart(3, '0')}-${timestamp}`;
+        orderData.order_number = newOrderNumber;
+        
+        console.log('[ArkikOrderCreator] Retry with new order number:', newOrderNumber);
+        retryCount++;
+      } else {
+        // Different error, don't retry
+        break;
+      }
+    }
 
     if (orderError) {
+      console.error('[ArkikOrderCreator] Final error after retries:', {
+        error: orderError,
+        retryCount: retryCount,
+        lastOrderNumber: orderData.order_number
+      });
       throw new Error(`Error creando orden: ${orderError.message}`);
     }
 
