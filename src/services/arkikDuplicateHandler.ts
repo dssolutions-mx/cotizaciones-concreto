@@ -9,7 +9,7 @@ import {
 
 export class ArkikDuplicateHandler {
   private plantId: string;
-  private tableCheckCache: Map<string, boolean>;
+  tableCheckCache: Map<string, boolean>;
 
   constructor(plantId: string) {
     this.plantId = plantId;
@@ -145,12 +145,8 @@ export class ArkikDuplicateHandler {
         'materials_remision'
       ]);
 
-      const statusProcessingTable = await this.findFirstExistingTable([
-        'remision_status_processing',
-        'remision_status',
-        'status_processing',
-        'remision_decisions'
-      ]);
+      // Disable status processing lookups to avoid 404s on non-existent tables
+      const statusProcessingTable = null;
 
       const reassignmentsTable = await this.findFirstExistingTable([
         'remision_reassignments',
