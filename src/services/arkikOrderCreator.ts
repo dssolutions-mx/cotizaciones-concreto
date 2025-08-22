@@ -338,7 +338,7 @@ async function buildDataCache(plantId: string, validatedRows: StagingRemision[])
     throw new Error('Error obteniendo código de planta');
   }
 
-  // Get all unique material codes from validated rows
+  // Get all unique material codes from validated rows (Arkik codes = material_code in database)
   const materialCodes = new Set<string>();
   validatedRows.forEach(row => {
     if (row.materials_teorico) {
@@ -349,18 +349,22 @@ async function buildDataCache(plantId: string, validatedRows: StagingRemision[])
     }
   });
 
-  // Batch fetch all materials for this plant
+  console.log('[ArkikOrderCreator] Looking up material codes:', Array.from(materialCodes));
+
+  // Batch fetch all materials for this plant using material_code
   const { data: materials, error: materialsError } = await supabase
     .from('materials')
     .select('id, material_name, material_code')
     .eq('plant_id', plantId)
+    .eq('is_active', true)
     .in('material_code', Array.from(materialCodes));
 
   if (materialsError) {
-    console.warn('[ArkikOrderCreator] Error fetching materials, will fetch individually:', materialsError);
+    console.error('[ArkikOrderCreator] Error fetching materials:', materialsError);
+    throw new Error(`Error fetching materials: ${materialsError.message}`);
   }
 
-  // Build materials map
+  // Build materials map using material_code as keys (which match Arkik codes)
   const materialsMap = new Map<string, { id: string; material_name: string }>();
   if (materials) {
     materials.forEach(material => {
@@ -369,6 +373,14 @@ async function buildDataCache(plantId: string, validatedRows: StagingRemision[])
         material_name: material.material_name
       });
     });
+  }
+
+  console.log('[ArkikOrderCreator] Materials found:', materialsMap.size, 'out of', materialCodes.size, 'codes');
+  
+  // Log missing materials for debugging
+  const missingCodes = Array.from(materialCodes).filter(code => !materialsMap.has(code));
+  if (missingCodes.length > 0) {
+    console.warn('[ArkikOrderCreator] Missing materials for codes:', missingCodes);
   }
 
   // Get current order number sequence with enhanced concurrency protection
@@ -849,8 +861,9 @@ async function createSingleOrder(
                 ajuste: ajusteValue
               });
             } else {
-              // Fallback: fetch material individually if not in cache
-              console.warn('[ArkikOrderCreator] Material not found in cache, will fetch individually:', materialCode);
+              // Material not found in materials table - this should not happen if materials are properly configured
+              console.warn('[ArkikOrderCreator] Material not found in materials table:', materialCode, 'for plant:', plantId);
+              console.warn('[ArkikOrderCreator] Available material codes:', Array.from(dataCache.materialsMap.keys()));
             }
           });
         }
@@ -858,6 +871,9 @@ async function createSingleOrder(
 
       // Create materials in batch
       if (allRemisionMaterials.length > 0) {
+        console.log('[ArkikOrderCreator] About to insert', allRemisionMaterials.length, 'material records');
+        console.log('[ArkikOrderCreator] Sample material record:', allRemisionMaterials[0]);
+
         const { error: materialsError } = await supabase
           .from('remision_materiales')
           .insert(allRemisionMaterials);
@@ -870,6 +886,8 @@ async function createSingleOrder(
           result.materialsProcessed = allRemisionMaterials.length;
           console.log('[ArkikOrderCreator] Materials created successfully:', allRemisionMaterials.length);
         }
+      } else {
+        console.warn('[ArkikOrderCreator] No materials to insert - check materials table for matching material_code entries');
       }
     }
 
