@@ -303,7 +303,7 @@ export default function QuoteBuilder() {
         basePrice,
         volume: 1,
         profitMargin: 0.04, // Minimum 4% margin
-        finalPrice: Math.ceil((basePrice * 1.04) / 5) * 5 // Round to nearest 5
+        finalPrice: Math.ceil((basePrice * 1.04) / 5) * 5 // Initial calculation: round to nearest 5
         // Pump service is now handled at the quote level, not per product
       };
 
@@ -321,15 +321,35 @@ export default function QuoteBuilder() {
     // Merge updates
     const newProduct = { ...currentProduct, ...updates };
     
-    // If base price or profit margin is updated, recalculate final price
-    if ('basePrice' in updates || 'profitMargin' in updates) {
+    // Handle different update scenarios
+    if ('basePrice' in updates) {
+      // If base price is updated, recalculate final price based on current margin
       const basePrice = updates.basePrice ?? currentProduct.basePrice;
+      const profitMargin = currentProduct.profitMargin;
+      
+      // Calculate final price: round up to nearest 5 after applying profit margin
+      const finalPrice = Math.ceil((basePrice * (1 + profitMargin)) / 5) * 5;
+      
+      newProduct.finalPrice = finalPrice;
+    } else if ('profitMargin' in updates) {
+      // If margin is updated, recalculate final price
+      const basePrice = currentProduct.basePrice;
       const profitMargin = updates.profitMargin ?? currentProduct.profitMargin;
       
       // Calculate final price: round up to nearest 5 after applying profit margin
       const finalPrice = Math.ceil((basePrice * (1 + profitMargin)) / 5) * 5;
       
       newProduct.finalPrice = finalPrice;
+    } else if ('finalPrice' in updates) {
+      // If final price is updated, recalculate margin
+      const basePrice = currentProduct.basePrice;
+      const finalPrice = updates.finalPrice ?? currentProduct.finalPrice;
+      
+      // Calculate new margin based on final price (no rounding - use exact price)
+      const newMargin = (finalPrice / basePrice) - 1;
+      
+      newProduct.profitMargin = newMargin;
+      newProduct.finalPrice = finalPrice; // Keep the exact price user entered
     }
     
     updatedProducts[index] = newProduct;
@@ -414,8 +434,8 @@ export default function QuoteBuilder() {
       // Preparar detalles de la cotización de forma más eficiente, sin múltiples llamadas anidadas a la API
       // Mapear todos los productos a detalles para una sola operación de inserción
       const quoteDetailsData = quoteProducts.map(product => {
-        // Calcular precio final y monto total una sola vez
-        const finalPrice = Math.ceil((product.basePrice * (1 + product.profitMargin)) / 5) * 5;
+        // Use the current final price from the product (which may have been manually edited)
+        const finalPrice = product.finalPrice;
         const totalAmount = finalPrice * product.volume;
 
         return {
@@ -1219,55 +1239,97 @@ export default function QuoteBuilder() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">Precio Base (MXN)</label>
-                    <input 
-                      type="number" 
-                      value={product.basePrice} 
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        updateProductDetails(index, { 
-                          basePrice: isNaN(value) ? 0 : value 
-                        });
-                      }}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-                      title="Edita el precio base para ajustar el precio final"
-                    />
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
+                      <input 
+                        type="number" 
+                        value={product.basePrice} 
+                        onChange={(e) => {
+                          const value = parseFloat(e.target.value);
+                          updateProductDetails(index, { 
+                            basePrice: isNaN(value) ? 0 : value 
+                          });
+                        }}
+                        className="w-full p-2 pl-8 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
+                        title="Edita el precio base para ajustar el precio final"
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">Margen (%)</label>
-                    <input 
-                      type="number"
-                      step="0.1"
-                      value={product.profitMargin * 100}
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        if (!isNaN(value)) {
-                          updateProductDetails(index, { 
-                            profitMargin: value / 100 
-                          });
-                        }
-                      }}
-                      onBlur={() => {
-                        // Round to 1 decimal and ensure minimum 4%
-                        const current = product.profitMargin * 100;
-                        const rounded = Math.round(current * 10) / 10;
-                        const clamped = Math.max(4, rounded);
-                        updateProductDetails(index, { 
-                          profitMargin: clamped / 100 
-                        });
-                      }}
-                      placeholder="4.0"
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-                      disabled={isLoading}
-                    />
+                    <div className="relative">
+                      <input 
+                        type="number"
+                        step="0.01"
+                        value={Math.round((product.profitMargin * 100) * 100) / 100}
+                        onChange={(e) => {
+                          const value = parseFloat(e.target.value);
+                          if (!isNaN(value)) {
+                            updateProductDetails(index, { 
+                              profitMargin: value / 100 
+                            });
+                          }
+                        }}
+                        onBlur={() => {
+                          // Ensure minimum 4% margin
+                          const current = product.profitMargin * 100;
+                          const clamped = Math.max(4, current);
+                          if (clamped !== current) {
+                            updateProductDetails(index, { 
+                              profitMargin: clamped / 100 
+                            });
+                          }
+                        }}
+                        placeholder="4.0"
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
+                        disabled={isLoading}
+                        title="Edita el margen para ajustar automáticamente el precio final"
+                      />
+                      {product.profitMargin > 0.04 && (
+                        <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-green-600 font-medium">
+                          ✓
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">Precio Final</label>
-                    <p className="font-semibold text-lg text-gray-800">
-                      $ {product.finalPrice.toLocaleString('es-MX', { 
-                          minimumFractionDigits: 2, 
-                          maximumFractionDigits: 2 
-                        })}
-                    </p>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
+                      <input 
+                        type="number"
+                        value={product.finalPrice}
+                        onChange={(e) => {
+                          const value = parseFloat(e.target.value);
+                          if (!isNaN(value) && value > 0) {
+                            updateProductDetails(index, { 
+                              finalPrice: value 
+                            });
+                          }
+                        }}
+                        onBlur={() => {
+                          // Validate that the price is positive
+                          if (product.finalPrice <= 0) {
+                            updateProductDetails(index, { 
+                              finalPrice: product.basePrice * (1 + product.profitMargin) 
+                            });
+                          }
+                        }}
+                        className="w-full p-2 pl-8 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
+                        title="Edita el precio final para ajustar automáticamente el margen"
+                        disabled={isLoading}
+                      />
+                      {product.finalPrice % 5 === 0 && Math.abs(product.finalPrice - (product.basePrice * (1 + product.profitMargin))) < 0.01 && (
+                        <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-blue-600 font-medium" title="Precio calculado automáticamente">
+                          ✓
+                        </div>
+                      )}
+                      {Math.abs(product.finalPrice - (product.basePrice * (1 + product.profitMargin))) >= 0.01 && (
+                        <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-orange-600 font-medium" title="Precio establecido manualmente">
+                          ✎
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-end">
                     <button 

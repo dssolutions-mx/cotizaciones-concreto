@@ -1991,14 +1991,22 @@ export async function fetchEficienciaReporteData(fechaDesde?: string | Date, fec
     }
     
     try {
-      // Fetch materiales
-      const { data, error } = await supabase
-        .from('remision_materiales')
-        .select('remision_id, material_type, cantidad_real')
-        .in('remision_id', remisionIds);
-        
-      if (error) throw error;
-      materialesData = data || [];
+      // Fetch materiales in chunks to avoid URL length limits
+      const chunkSize = 75;
+      const materialesResults: any[] = [];
+      for (let i = 0; i < remisionIds.length; i += chunkSize) {
+        const chunk = remisionIds.slice(i, i + chunkSize);
+        const { data, error } = await supabase
+          .from('remision_materiales')
+          .select('remision_id, material_type, cantidad_real')
+          .in('remision_id', chunk);
+        if (error) {
+          console.error('Error fetching remision_materiales chunk:', error);
+          continue;
+        }
+        if (data) materialesResults.push(...data);
+      }
+      materialesData = materialesResults;
     } catch (error) {
       console.error('Error fetching materiales:', error);
     }
