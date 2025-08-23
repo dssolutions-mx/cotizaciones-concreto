@@ -10,6 +10,7 @@ import ScheduleOrderForm from '@/components/orders/ScheduleOrderForm';
 import RejectedOrdersTab from '@/components/orders/RejectedOrdersTab';
 import OrdersCalendarView from '@/components/orders/OrdersCalendarView';
 import OrdersNavigation from '@/components/orders/OrdersNavigation';
+import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { OrderStatus, CreditStatus } from '@/types/orders';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
 
@@ -298,6 +299,11 @@ function OrdersContent() {
 
   return (
     <div className="container mx-auto px-4 py-6">
+      {/* Plant Context Display */}
+      <div className="mb-4">
+        <PlantContextDisplay showLabel={true} />
+      </div>
+      
       {/* Render the OrdersNavigation component with props to handle tab changes */}
       <div className="mb-6">
         <OrdersNavigation 

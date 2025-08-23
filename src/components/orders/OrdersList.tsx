@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import orderService from '@/services/orderService';
+import { usePlantAwareOrders } from '@/hooks/usePlantAwareOrders';
 import { OrderWithClient, OrderStatus, CreditStatus } from '@/types/orders';
 import { useRouter } from 'next/navigation';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -224,13 +224,6 @@ export default function OrdersList({
   creditStatusFilter,
   clientFilter
 }: OrdersListProps) {
-  // Estados para los datos originales y los filtros
-  const [allOrders, setAllOrders] = useState<OrderWithClient[]>([]);
-  const [filteredOrders, setFilteredOrders] = useState<OrderWithClient[]>([]);
-  const [groupedOrders, setGroupedOrders] = useState<GroupedOrders>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  
   // Estados para los filtros
   const [searchQuery, setSearchQuery] = useState(clientFilter || '');
   const [amountFilter, setAmountFilter] = useState<AmountFilter>('all');
@@ -241,42 +234,52 @@ export default function OrdersList({
   // Check if user is a dosificador
   const isDosificador = profile?.role === 'DOSIFICADOR';
 
-  // Función para cargar los datos iniciales (se ejecuta solo cuando cambian los parámetros externos)
-  const loadOrders = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // Use plant-aware orders hook for non-dosificador users
+  const { 
+    orders: plantAwareOrders, 
+    isLoading: plantLoading, 
+    error: plantError, 
+    refetch: plantRefetch 
+  } = usePlantAwareOrders({
+    statusFilter: (statusFilter || filterStatus) as OrderStatus | undefined,
+    creditStatusFilter,
+    maxItems,
+    autoRefresh: true
+  });
+
+  // Estados para los datos filtrados y agrupados
+  const [filteredOrders, setFilteredOrders] = useState<OrderWithClient[]>([]);
+  const [groupedOrders, setGroupedOrders] = useState<GroupedOrders>({});
+  
+  // Handle DOSIFICADOR role separately
+  const [dosificadorOrders, setDosificadorOrders] = useState<OrderWithClient[]>([]);
+  const [dosificadorLoading, setDosificadorLoading] = useState(false);
+  const [dosificadorError, setDosificadorError] = useState<string | null>(null);
+
+  // Load orders for DOSIFICADOR role
+  const loadDosificadorOrders = useCallback(async () => {
+    if (!isDosificador) return;
+    
+    setDosificadorLoading(true);
+    setDosificadorError(null);
 
     try {
-      // Define a date range object
-      const dateRange = {
-        startDate: undefined,
-        endDate: undefined
-      };
-      
-      let data;
-      
-      // Use special function for DOSIFICADOR role
-      if (isDosificador) {
-        const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
-        data = await getOrdersForDosificador();
-      } else {
-        data = await orderService.getOrders(
-          statusFilter || filterStatus, 
-          undefined,
-          dateRange,
-          creditStatusFilter
-        );
-      }
-      
-      // Guardar los datos originales sin filtrar
-      setAllOrders(data);
+      const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
+      const data = await getOrdersForDosificador();
+      setDosificadorOrders(data);
     } catch (err) {
-      console.error('Error loading orders:', err);
-      setError('Error al cargar los pedidos. Por favor, intente nuevamente.');
+      console.error('Error loading dosificador orders:', err);
+      setDosificadorError('Error al cargar los pedidos. Por favor, intente nuevamente.');
     } finally {
-      setLoading(false);
+      setDosificadorLoading(false);
     }
-  }, [statusFilter, creditStatusFilter, filterStatus, isDosificador]);
+  }, [isDosificador]);
+
+  // Determine which orders and loading state to use
+  const allOrders = isDosificador ? dosificadorOrders : plantAwareOrders;
+  const loading = isDosificador ? dosificadorLoading : plantLoading;
+  const error = isDosificador ? dosificadorError : plantError;
+  const loadOrders = isDosificador ? loadDosificadorOrders : plantRefetch;
 
   // Función para aplicar filtros a los datos
   const applyFilters = useCallback(() => {
@@ -483,8 +486,12 @@ export default function OrdersList({
 
   // Cargar datos iniciales cuando cambian los parámetros externos
   useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
+    if (isDosificador) {
+      loadDosificadorOrders();
+    } else {
+      // Plant-aware orders are loaded automatically by the hook
+    }
+  }, [isDosificador, loadDosificadorOrders]);
   
   // Aplicar filtros cuando cambia cualquier filtro o los datos
   useEffect(() => {
