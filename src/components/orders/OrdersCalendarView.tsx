@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isSameMonth, addDays, addWeeks, subDays, subWeeks, startOfDay, endOfDay, eachHourOfInterval, getHours, isToday, isWithinInterval } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import orderService from '@/services/orderService';
+import { usePlantAwareOrders } from '@/hooks/usePlantAwareOrders';
 import { OrderWithClient, OrderStatus, CreditStatus, OrderItem } from '@/types/orders';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
@@ -52,13 +52,23 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   });
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
   const [viewType, setViewType] = useState<ViewType>(() => preferences.calendarViewType || 'week');
-  const [loading, setLoading] = useState<boolean>(true);
   const [loadingVolumes, setLoadingVolumes] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { profile } = useAuthBridge();
+  
+  // Use plant-aware orders hook
+  const { 
+    orders: allOrders, 
+    isLoading: loading, 
+    error, 
+    refetch: loadOrders 
+  } = usePlantAwareOrders({
+    statusFilter,
+    creditStatusFilter,
+    autoRefresh: true
+  });
   
   useEffect(() => {
     if (preferences.calendarViewType !== viewType) {
@@ -91,300 +101,86 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
     };
   }, [preferences.lastScrollPosition]);
 
-  const loadOrders = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  // Filter orders based on current calendar view
+  const filteredOrders = useMemo(() => {
+    if (!allOrders || allOrders.length === 0) return [];
+    
+    // Filter out cancelled orders
+    const validOrders = allOrders.filter(order => order.order_status?.toLowerCase() !== 'cancelled');
+    
+    // Filter by date range based on current view
+    let calendarStart: Date;
+    let calendarEnd: Date;
 
-      let calendarStart: Date;
-      let calendarEnd: Date;
-
-      if (viewType === 'day') {
-        calendarStart = startOfDay(currentDate);
-        calendarEnd = endOfDay(currentDate);
-      } else if (viewType === 'week') {
-        calendarStart = startOfWeek(currentDate);
-        calendarEnd = endOfWeek(currentDate);
-      } else {
-        // Month view (default)
-        const monthStart = startOfMonth(currentDate);
-        const monthEnd = endOfMonth(currentDate);
-        calendarStart = startOfWeek(monthStart);
-        calendarEnd = endOfWeek(monthEnd);
-      }
-
-      const data = await orderService.getOrders(
-        statusFilter ? statusFilter.toString() : undefined,
-        undefined, // maxItems
-        {
-          startDate: format(calendarStart, 'yyyy-MM-dd'),
-          endDate: format(calendarEnd, 'yyyy-MM-dd')
-        },
-        creditStatusFilter ? creditStatusFilter.toString() : undefined
-      );
-
-      // Filter out cancelled orders
-      const filteredData = data.filter(order => order.order_status?.toLowerCase() !== 'cancelled');
-
-      // Obtenemos información de los sitios de construcción
-      const constructionSiteNames = Array.from(new Set(filteredData.map(order => order.construction_site)));
-      
-      // Buscamos los sitios de construcción que coincidan con los nombres
-      const siteInfoMap = new Map<string, ConstructionSiteInfo>();
-      
-      // Primero intentamos usar el construction_site_id si está disponible
-      const ordersWithSiteId = filteredData.filter(order => order.construction_site_id);
-      if (ordersWithSiteId.length > 0) {
-        const siteIds = Array.from(new Set(ordersWithSiteId.map(order => order.construction_site_id)));
-        
-        const { data: sitesById } = await supabase
-          .from('construction_sites')
-          .select('id, name, location')
-          .in('id', siteIds);
-        
-        if (sitesById) {
-          sitesById.forEach(site => {
-            siteInfoMap.set(site.id, {
-              name: site.name,
-              location: site.location || ''
-            });
-          });
-        }
-      }
-      
-      // Para órdenes más antiguas sin site_id, buscamos por nombre
-      const { data: sitesByName } = await supabase
-        .from('construction_sites')
-        .select('name, location')
-        .in('name', constructionSiteNames);
-      
-      if (sitesByName) {
-        sitesByName.forEach(site => {
-          siteInfoMap.set(site.name, {
-            name: site.name,
-            location: site.location || ''
-          });
-        });
-      }
-
-      // Primero, mostramos los datos básicos con estimaciones
-      const initialOrders = filteredData.map(order => {
-        // Buscamos la información del sitio de construcción
-        // Primero intentamos por ID, luego por nombre
-        let siteLocation = '';
-        if (order.construction_site_id && siteInfoMap.has(order.construction_site_id)) {
-          siteLocation = siteInfoMap.get(order.construction_site_id)?.location || '';
-        } else if (siteInfoMap.has(order.construction_site)) {
-          siteLocation = siteInfoMap.get(order.construction_site)?.location || '';
-        }
-        
-        return {
-          ...order,
-          siteLocation,
-          concreteVolume: order.preliminary_amount 
-            ? Math.round((order.preliminary_amount / 2000) * 10) / 10 // Estimación basada en el precio
-            : null,
-          hasPumpService: false,
-          pumpVolume: null
-        };
-      });
-
-      // Actualizar el calendario con datos iniciales para mostrar algo rápidamente
-      updateCalendarWithOrders(initialOrders, calendarStart, calendarEnd);
-      
-      // Luego, indicamos que estamos cargando los volúmenes detallados
-      setLoading(false);
-      setLoadingVolumes(true);
-
-      // Para cada orden, vamos a cargar sus items para obtener los volúmenes reales
-      const ordersWithItems = await Promise.all(
-        filteredData.map(async (order) => {
-          try {
-            // Obtenemos los detalles completos de la orden
-            const orderDetails = await orderService.getOrderById(order.id);
-            
-            // Calculamos el volumen total de concreto
-            let concreteVolume = 0;
-            let pumpVolume = 0;
-            let hasPumpService = false;
-            
-            // Si hay productos en la orden, sumamos sus volúmenes
-            // El API devuelve 'products' aunque el tipo define 'items'
-            const orderItems = (orderDetails as any)?.products || [];
-            
-            if (orderItems.length > 0) {
-              orderItems.forEach((product: any) => {
-                // Sumamos volumen solo para productos que no son específicamente "empty_truck_charge"
-                // Los productos de concreto real normalmente no tienen la propiedad has_empty_truck_charge marcada como true
-                if (product.volume) {
-                  // Si este item es específicamente un cargo por vacío de olla, no lo sumamos al concreto
-                  if (product.has_empty_truck_charge) {
-                    // No sumamos este volumen al concreto
-                  } else {
-                    // Este es volumen real de concreto
-                    concreteVolume += parseFloat(product.volume.toString());
-                  }
-                }
-                
-                // Verificamos si tiene servicio de bombeo y sumamos su volumen
-                if (product.has_pump_service) {
-                  hasPumpService = true;
-                  if (product.pump_volume) {
-                    pumpVolume += parseFloat(product.pump_volume.toString());
-                  }
-                }
-              });
-            }
-            
-            // Buscamos la información del sitio de construcción
-            let siteLocation = '';
-            if (order.construction_site_id && siteInfoMap.has(order.construction_site_id)) {
-              siteLocation = siteInfoMap.get(order.construction_site_id)?.location || '';
-            } else if (siteInfoMap.has(order.construction_site)) {
-              siteLocation = siteInfoMap.get(order.construction_site)?.location || '';
-            }
-            
-            return {
-              ...order,
-              siteLocation,
-              concreteVolume: concreteVolume > 0 ? Math.round(concreteVolume * 10) / 10 : null,
-              hasPumpService,
-              pumpVolume: pumpVolume > 0 ? Math.round(pumpVolume * 10) / 10 : null
-            };
-          } catch (error) {
-            console.error(`Error al cargar detalles de la orden ${order.id}:`, error);
-            // Si hay un error, devolvemos la orden original con valores estimados
-            let siteLocation = '';
-            if (order.construction_site_id && siteInfoMap.has(order.construction_site_id)) {
-              siteLocation = siteInfoMap.get(order.construction_site_id)?.location || '';
-            } else if (siteInfoMap.has(order.construction_site)) {
-              siteLocation = siteInfoMap.get(order.construction_site)?.location || '';
-            }
-            
-            return {
-              ...order,
-              siteLocation,
-              concreteVolume: order.preliminary_amount 
-                ? Math.round((order.preliminary_amount / 2000) * 10) / 10
-                : null,
-              hasPumpService: false,
-              pumpVolume: null
-            };
-          }
-        })
-      );
-
-      // Actualizar el calendario con los datos detallados
-      updateCalendarWithOrders(ordersWithItems, calendarStart, calendarEnd);
-      setLoadingVolumes(false);
-    } catch (err) {
-      console.error('Error loading orders for calendar:', err);
-      setError('Error al cargar las órdenes para el calendario.');
-      setLoading(false);
-      setLoadingVolumes(false);
-    }
-  }, [currentDate, viewType, statusFilter, creditStatusFilter]);
-
-  // Función auxiliar para actualizar el calendario con órdenes
-  const updateCalendarWithOrders = (ordersData: any[], calendarStart: Date, calendarEnd: Date) => {
     if (viewType === 'day') {
-      const calendarData = generateDailyCalendarData(ordersData, calendarStart);
-      setCalendarDays(calendarData);
+      calendarStart = startOfDay(currentDate);
+      calendarEnd = endOfDay(currentDate);
     } else if (viewType === 'week') {
-      const calendarData = generateWeeklyCalendarData(ordersData, calendarStart, calendarEnd);
-      setCalendarDays(calendarData);
+      calendarStart = startOfWeek(currentDate);
+      calendarEnd = endOfWeek(currentDate);
     } else {
-      const calendarData = generateMonthlyCalendarData(
-        ordersData, 
-        startOfMonth(currentDate), 
-        endOfMonth(currentDate), 
-        calendarStart, 
-        calendarEnd
-      );
-      setCalendarDays(calendarData);
+      // Month view (default)
+      const monthStart = startOfMonth(currentDate);
+      const monthEnd = endOfMonth(currentDate);
+      calendarStart = startOfWeek(monthStart);
+      calendarEnd = endOfWeek(monthEnd);
     }
-  };
+    
+    const startDateStr = format(calendarStart, 'yyyy-MM-dd');
+    const endDateStr = format(calendarEnd, 'yyyy-MM-dd');
+    
+    return validOrders.filter(order => {
+      if (!order.delivery_date) return false;
+      return order.delivery_date >= startDateStr && order.delivery_date <= endDateStr;
+    });
+  }, [allOrders, currentDate, viewType]);
 
-  // Define helper function to generate daily calendar
-  const generateDailyCalendarData = (ordersData: OrderWithClient[], day: Date) => {
-    // Generate hours for the day (6AM to 8PM)
-    const startHour = new Date(day);
-    startHour.setHours(6, 0, 0, 0);
-    const endHour = new Date(day);
-    endHour.setHours(20, 0, 0, 0);
+  // Update calendar when filtered orders change
+  useEffect(() => {
+    if (!filteredOrders || filteredOrders.length === 0) {
+      setCalendarDays([]);
+      return;
+    }
+
+    // Generate calendar days based on current view
+    const days: CalendarDay[] = [];
     
-    const hours = eachHourOfInterval({ start: startHour, end: endHour });
-    
-    // Create a single day with hours
-    return hours.map(hour => {
-      const hourOrders = ordersData.filter(order => {
-        if (!order.delivery_date || !order.delivery_time) return false;
-        const orderDate = parseISO(order.delivery_date);
-        const orderHour = parseInt(order.delivery_time.split(':')[0]);
-        return isSameDay(orderDate, day) && getHours(hour) === orderHour;
-      });
-      
-      return {
-        date: hour,
-        isCurrentMonth: true, // Not relevant for daily view
-        orders: hourOrders
-      };
-    });
-  };
-  
-  // Define helper function to generate weekly calendar
-  const generateWeeklyCalendarData = (ordersData: OrderWithClient[], weekStart: Date, weekEnd: Date) => {
-    // Generate all days for the week
-    const days = eachDayOfInterval({ start: weekStart, end: weekEnd });
-    
-    // Create array of days with their orders
-    return days.map(day => {
-      const dayOrders = ordersData.filter(order => {
-        if (!order.delivery_date) return false;
-        const orderDate = parseISO(order.delivery_date);
-        return isSameDay(orderDate, day);
-      });
-      
-      dayOrders.sort((a, b) => {
-        if (!a.delivery_time || !b.delivery_time) return 0;
-        return a.delivery_time.localeCompare(b.delivery_time);
-      });
-      
-      return {
+    if (viewType === 'day') {
+      const day = currentDate;
+      days.push({
         date: day,
-        isCurrentMonth: isSameMonth(day, currentDate),
-        orders: dayOrders
-      };
-    });
-  };
-  
-  // Define helper function to generate monthly calendar
-  const generateMonthlyCalendarData = (ordersData: OrderWithClient[], monthStart: Date, monthEnd: Date, calStart: Date, calEnd: Date) => {
-    // Generate all days for the calendar (including days from adjacent months to complete weeks)
-    const days = eachDayOfInterval({ start: calStart, end: calEnd });
+        isCurrentMonth: true,
+        orders: filteredOrders.filter(order => order.delivery_date === format(day, 'yyyy-MM-dd'))
+      });
+    } else if (viewType === 'week') {
+      const weekStart = startOfWeek(currentDate);
+      const weekEnd = endOfWeek(currentDate);
+      
+      eachDayOfInterval({ start: weekStart, end: weekEnd }).forEach(day => {
+        days.push({
+          date: day,
+          isCurrentMonth: isSameMonth(day, currentDate),
+          orders: filteredOrders.filter(order => order.delivery_date === format(day, 'yyyy-MM-dd'))
+        });
+      });
+    } else {
+      // Month view
+      const monthStart = startOfMonth(currentDate);
+      const monthEnd = endOfMonth(currentDate);
+      const calendarStart = startOfWeek(monthStart);
+      const calendarEnd = endOfWeek(monthEnd);
+      
+      eachDayOfInterval({ start: calendarStart, end: calendarEnd }).forEach(day => {
+        days.push({
+          date: day,
+          isCurrentMonth: isSameMonth(day, currentDate),
+          orders: filteredOrders.filter(order => order.delivery_date === format(day, 'yyyy-MM-dd'))
+        });
+      });
+    }
     
-    // Create array of days with their orders
-    return days.map(day => {
-      // Filter orders for this day by delivery_date
-      const dayOrders = ordersData.filter(order => {
-        if (!order.delivery_date) return false;
-        const orderDate = parseISO(order.delivery_date);
-        return isSameDay(orderDate, day);
-      });
-      
-      // Sort orders by delivery_time
-      dayOrders.sort((a, b) => {
-        if (!a.delivery_time || !b.delivery_time) return 0;
-        return a.delivery_time.localeCompare(b.delivery_time);
-      });
-      
-      return {
-        date: day,
-        isCurrentMonth: isSameMonth(day, monthStart),
-        orders: dayOrders
-      };
-    });
-  };
+    setCalendarDays(days);
+  }, [filteredOrders, currentDate, viewType]);
 
   useEffect(() => {
     loadOrders();

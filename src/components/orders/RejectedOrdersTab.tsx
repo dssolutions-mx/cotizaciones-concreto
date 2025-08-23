@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import orderService from '@/services/orderService';
+import { usePlantAwareRejectedOrders } from '@/hooks/usePlantAwareRejectedOrders';
 import { OrderWithClient } from '@/types/orders';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 
@@ -14,55 +14,46 @@ interface OrderWithGroupDate extends OrderWithClient {
 }
 
 export default function RejectedOrdersTab() {
-  const [orders, setOrders] = useState<OrderWithGroupDate[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
   const { profile } = useAuthBridge();
   
-  useEffect(() => {
-    loadRejectedOrders();
-  }, []);
+  // Use plant-aware rejected orders hook
+  const { 
+    orders: allRejectedOrders, 
+    isLoading: loading, 
+    error, 
+    refetch: loadRejectedOrders 
+  } = usePlantAwareRejectedOrders({ autoRefresh: true });
 
-  async function loadRejectedOrders() {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Obtener órdenes rechazadas
-      const data = await orderService.getRejectedOrders();
-      
-      // Agrupar las órdenes por fecha
-      const ordersWithGroupData: OrderWithGroupDate[] = data.map(order => {
-        if (!order.delivery_date) {
-          return { ...order, groupDate: '' };
-        }
+  // Process orders to add groupDate
+  const orders = useMemo(() => {
+    if (!allRejectedOrders || allRejectedOrders.length === 0) return [];
+    
+    // Agrupar las órdenes por fecha
+    const ordersWithGroupData: OrderWithGroupDate[] = allRejectedOrders.map(order => {
+      if (!order.delivery_date) {
+        return { ...order, groupDate: '' };
+      }
 
-        // Convertir formato YYYY-MM-DD a un objeto Date de manera segura
-        const parts = order.delivery_date.split('-');
-        if (parts.length !== 3) {
-          return { ...order, groupDate: '' };
-        }
-        
-        const year = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1; // Los meses en JS van de 0-11
-        const day = parseInt(parts[2], 10);
-        
-        const date = new Date(year, month, day);
-        return {
-          ...order,
-          groupDate: format(date, 'yyyy-MM-dd') // Añadir fecha para agrupar
-        };
-      }).filter(order => order.groupDate !== ''); // Filtrar órdenes sin fecha válida
+      // Convertir formato YYYY-MM-DD a un objeto Date de manera segura
+      const parts = order.delivery_date.split('-');
+      if (parts.length !== 3) {
+        return { ...order, groupDate: '' };
+      }
       
-      setOrders(ordersWithGroupData);
-    } catch (err) {
-      console.error('Error loading rejected orders:', err);
-      setError('Error al cargar las órdenes rechazadas.');
-    } finally {
-      setLoading(false);
-    }
-  }
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1; // Los meses en JS van de 0-11
+      const day = parseInt(parts[2], 10);
+      
+      const date = new Date(year, month, day);
+      return {
+        ...order,
+        groupDate: format(date, 'yyyy-MM-dd') // Añadir fecha para agrupar
+      };
+    }).filter(order => order.groupDate !== ''); // Filtrar órdenes sin fecha válida
+    
+    return ordersWithGroupData;
+  }, [allRejectedOrders]);
 
   function formatDate(dateString: string) {
     // Convertir formato YYYY-MM-DD a un objeto Date

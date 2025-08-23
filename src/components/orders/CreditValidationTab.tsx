@@ -4,14 +4,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import orderService from '@/services/orderService';
+import { usePlantAwareCreditOrders } from '@/hooks/usePlantAwareCreditOrders';
+import { usePlantAwareManagerOrders } from '@/hooks/usePlantAwareManagerOrders';
 import { OrderWithClient, CreditStatus } from '@/types/orders';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 
 export default function CreditValidationTab() {
-  const [orders, setOrders] = useState<OrderWithClient[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
   const [isRejectReasonModalOpen, setIsRejectReasonModalOpen] = useState<boolean>(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -23,32 +21,26 @@ export default function CreditValidationTab() {
   const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR';
   const isManager = profile?.role === 'EXECUTIVE' || profile?.role === 'PLANT_MANAGER';
 
-  const loadOrders = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      let data;
-      if (isCreditValidator) {
-        // Credit validators only see pending orders
-        data = await orderService.getOrdersForCreditValidation();
-      } else {
-        // Managers see both pending and rejected_by_validator orders
-        data = await orderService.getOrdersForManagerValidation();
-      }
-      
-      setOrders(data);
-    } catch (err) {
-      console.error('Error loading orders:', err);
-      setError('Error al cargar las órdenes pendientes de validación de crédito.');
-    } finally {
-      setLoading(false);
-    }
-  }, [isCreditValidator]);
+  // Use plant-aware hooks based on user role
+  const { 
+    orders: creditOrders, 
+    isLoading: creditLoading, 
+    error: creditError, 
+    refetch: creditRefetch 
+  } = usePlantAwareCreditOrders({ autoRefresh: true });
 
-  useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
+  const { 
+    orders: managerOrders, 
+    isLoading: managerLoading, 
+    error: managerError, 
+    refetch: managerRefetch 
+  } = usePlantAwareManagerOrders({ autoRefresh: true });
+
+  // Determine which orders and loading state to use
+  const orders = isCreditValidator ? creditOrders : managerOrders;
+  const loading = isCreditValidator ? creditLoading : managerLoading;
+  const error = isCreditValidator ? creditError : managerError;
+  const loadOrders = isCreditValidator ? creditRefetch : managerRefetch;
 
   function formatDate(dateString: string) {
     // Convertir formato YYYY-MM-DD a un objeto Date

@@ -207,7 +207,13 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
   }
 }
 
-export async function getOrders(filterStatus?: string, maxItems?: number, dateRange?: { startDate?: string, endDate?: string }, creditStatusFilter?: string) {
+export async function getOrders(
+  filterStatus?: string, 
+  maxItems?: number, 
+  dateRange?: { startDate?: string, endDate?: string }, 
+  creditStatusFilter?: string,
+  plantIds?: string[] | null
+) {
   // Use singleton supabase client
   // const supabase = createClientComponentClient<Database>();
   
@@ -229,6 +235,15 @@ export async function getOrders(filterStatus?: string, maxItems?: number, dateRa
   if (creditStatusFilter) {
     query = query.eq('credit_status', creditStatusFilter);
   }
+  
+  // Apply plant filtering if plantIds is provided
+  if (plantIds && plantIds.length > 0) {
+    query = query.in('plant_id', plantIds);
+  } else if (plantIds && plantIds.length === 0) {
+    // User has no access - return empty result by filtering on a non-existent condition
+    query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Non-existent UUID
+  }
+  // If plantIds is null, user can access all plants (global admin), so no filter applied
   
   if (dateRange?.startDate) {
     query = query.gte('delivery_date', dateRange.startDate);
@@ -314,18 +329,30 @@ export async function getOrderById(id: string) {
   return data as unknown as OrderWithDetails;
 }
 
-export async function getOrdersForCreditValidation() {
+export async function getOrdersForCreditValidation(plantIds?: string[] | null) {
   // Use singleton supabase client
   // const supabase = createClientComponentClient<Database>();
   
-  const { data, error } = await supabase
+  let query = supabase
     .from('orders')
     .select(`
       *,
       clients:clients(business_name, client_code)
     `)
-    .eq('credit_status', 'pending')
-    .order('created_at', { ascending: false });
+    .eq('credit_status', 'pending');
+  
+  // Apply plant filtering if plantIds is provided
+  if (plantIds && plantIds.length > 0) {
+    query = query.in('plant_id', plantIds);
+  } else if (plantIds && plantIds.length === 0) {
+    // User has no access - return empty result by filtering on a non-existent condition
+    query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Non-existent UUID
+  }
+  // If plantIds is null, user can access all plants (global admin), so no filter applied
+  
+  query = query.order('created_at', { ascending: false });
+  
+  const { data, error } = await query;
   
   if (error) throw error;
   return data as unknown as OrderWithClient[];
@@ -440,16 +467,28 @@ export async function rejectCreditByValidator(id: string, rejectionReason: strin
 }
 
 // Add function to get orders for manager validation
-export async function getOrdersForManagerValidation() {
+export async function getOrdersForManagerValidation(plantIds?: string[] | null) {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('orders')
       .select(`
         *,
         clients:clients(business_name, client_code)
       `)
-      .in('credit_status', ['pending', 'rejected_by_validator'])
-      .order('created_at', { ascending: false });
+      .in('credit_status', ['pending', 'rejected_by_validator']);
+    
+    // Apply plant filtering if plantIds is provided
+    if (plantIds && plantIds.length > 0) {
+      query = query.in('plant_id', plantIds);
+    } else if (plantIds && plantIds.length === 0) {
+      // User has no access - return empty result by filtering on a non-existent condition
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Non-existent UUID
+    }
+    // If plantIds is null, user can access all plants (global admin), so no filter applied
+    
+    query = query.order('created_at', { ascending: false });
+    
+    const { data, error } = await query;
     
     if (error) throw error;
     return data as unknown as OrderWithClient[];
@@ -460,16 +499,28 @@ export async function getOrdersForManagerValidation() {
 }
 
 // Add function to get rejected orders
-export async function getRejectedOrders() {
+export async function getRejectedOrders(plantIds?: string[] | null) {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('orders')
       .select(`
         *,
         clients:clients(business_name, client_code)
       `)
-      .in('credit_status', ['rejected', 'rejected_by_validator'])
-      .order('created_at', { ascending: false });
+      .in('credit_status', ['rejected', 'rejected_by_validator']);
+    
+    // Apply plant filtering if plantIds is provided
+    if (plantIds && plantIds.length > 0) {
+      query = query.in('plant_id', plantIds);
+    } else if (plantIds && plantIds.length === 0) {
+      // User has no access - return empty result by filtering on a non-existent condition
+      query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Non-existent UUID
+    }
+    // If plantIds is null, user can access all plants (global admin), so no filter applied
+    
+    query = query.order('created_at', { ascending: false });
+    
+    const { data, error } = await query;
     
     if (error) throw error;
     return data as unknown as OrderWithClient[];
