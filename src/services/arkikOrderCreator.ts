@@ -589,6 +589,30 @@ async function createSingleOrder(
     let constructionSiteId = firstRemision.construction_site_id;
     let constructionSiteName = firstRemision.obra_name;
 
+    // CRITICAL FIX: If we have a construction_site_id, fetch the canonical name from database
+    if (constructionSiteId) {
+      try {
+        const { data: siteData, error: siteError } = await supabase
+          .from('construction_sites')
+          .select('name')
+          .eq('id', constructionSiteId)
+          .single();
+
+        if (!siteError && siteData) {
+          constructionSiteName = siteData.name;
+          console.log('[ArkikOrderCreator] Using canonical construction site name from database:', {
+            site_id: constructionSiteId,
+            excel_name: firstRemision.obra_name,
+            database_name: siteData.name
+          });
+        } else {
+          console.warn('[ArkikOrderCreator] Could not fetch construction site name from database, using Excel name as fallback:', siteError);
+        }
+      } catch (error) {
+        console.warn('[ArkikOrderCreator] Error fetching construction site name, using Excel name as fallback:', error);
+      }
+    }
+
     console.log('[ArkikOrderCreator] Using construction site from validated remision:', {
       constructionSiteId,
       constructionSiteName,
@@ -975,15 +999,58 @@ async function createSingleOrderWithoutBalanceUpdate(
 
   try {
     const firstRemision = suggestion.remisiones[0];
-    const constructionSiteName = firstRemision.obra_name || null;
+    let constructionSiteName = firstRemision.obra_name || null;
     let constructionSiteId = firstRemision.construction_site_id || null;
     
-    // CRITICAL: Auto-lookup construction site ID to prevent future duplicates
-    if (!constructionSiteId && constructionSiteName && firstRemision.client_id) {
-      const lookedUpSiteId = await lookupConstructionSiteId(firstRemision.client_id, constructionSiteName);
-      if (lookedUpSiteId) {
-        constructionSiteId = lookedUpSiteId;
-        console.log('[ArkikOrderCreator] Auto-linked construction site:', constructionSiteName, '→', constructionSiteId);
+    // CRITICAL FIX: If we have a construction_site_id, fetch the canonical name from database
+    if (constructionSiteId) {
+      try {
+        const { data: siteData, error: siteError } = await supabase
+          .from('construction_sites')
+          .select('name')
+          .eq('id', constructionSiteId)
+          .single();
+
+        if (!siteError && siteData) {
+          constructionSiteName = siteData.name;
+          console.log('[ArkikOrderCreator] Using canonical construction site name from database (batch):', {
+            site_id: constructionSiteId,
+            excel_name: firstRemision.obra_name,
+            database_name: siteData.name
+          });
+        } else {
+          console.warn('[ArkikOrderCreator] Could not fetch construction site name from database, using Excel name as fallback (batch):', siteError);
+        }
+      } catch (error) {
+        console.warn('[ArkikOrderCreator] Error fetching construction site name, using Excel name as fallback (batch):', error);
+      }
+    } else {
+      // CRITICAL: Auto-lookup construction site ID to prevent future duplicates
+      if (constructionSiteName && firstRemision.client_id) {
+        const lookedUpSiteId = await lookupConstructionSiteId(firstRemision.client_id, constructionSiteName);
+        if (lookedUpSiteId) {
+          constructionSiteId = lookedUpSiteId;
+          console.log('[ArkikOrderCreator] Auto-linked construction site:', constructionSiteName, '→', constructionSiteId);
+          
+          // Now that we have an ID, fetch the canonical name
+          try {
+            const { data: siteData, error: siteError } = await supabase
+              .from('construction_sites')
+              .select('name')
+              .eq('id', constructionSiteId)
+              .single();
+
+            if (!siteError && siteData) {
+              constructionSiteName = siteData.name;
+              console.log('[ArkikOrderCreator] Updated to canonical construction site name after lookup:', {
+                excel_name: firstRemision.obra_name,
+                database_name: siteData.name
+              });
+            }
+          } catch (error) {
+            console.warn('[ArkikOrderCreator] Error fetching canonical name after lookup:', error);
+          }
+        }
       }
     }
 
@@ -1223,19 +1290,90 @@ async function createSingleOrderWithoutBalanceUpdate(
       });
 
     if (remisionesData.length > 0) {
-      const { error: remisionesError } = await supabase
+      const { data: createdRemisiones, error: remisionesError } = await supabase
         .from('remisiones')
-        .insert(remisionesData);
+        .insert(remisionesData)
+        .select('id, remision_number');
 
       if (remisionesError) {
         throw new Error(`Error creando remisiones: ${remisionesError.message}`);
       }
 
       result.remisionesCreated = remisionesData.length;
-    }
 
-    // Calculate materials processed
-    result.materialsProcessed = uniqueRecipes.size;
+      // CRITICAL FIX: Add materials creation that was missing
+      console.log('[ArkikOrderCreator] Creating materials for', createdRemisiones.length, 'remisiones');
+      
+      const allRemisionMaterials: RemisionMaterialData[] = [];
+      
+      // Prepare materials data for batch insertion
+      createdRemisiones.forEach(createdRemision => {
+        const fullRemisionData = validatedRows.find(row => 
+          row.remision_number === createdRemision.remision_number
+        );
+
+        if (fullRemisionData && fullRemisionData.materials_teorico && fullRemisionData.materials_real) {
+          const allMaterialCodes = new Set([
+            ...Object.keys(fullRemisionData.materials_teorico),
+            ...Object.keys(fullRemisionData.materials_real),
+            ...(fullRemisionData.materials_retrabajo ? Object.keys(fullRemisionData.materials_retrabajo) : []),
+            ...(fullRemisionData.materials_manual ? Object.keys(fullRemisionData.materials_manual) : [])
+          ]);
+
+          allMaterialCodes.forEach(materialCode => {
+            const cachedMaterial = dataCache.materialsMap.get(materialCode);
+            if (cachedMaterial) {
+              const baseRealValue = fullRemisionData.materials_real[materialCode] || 0;
+              const retrabajoValue = fullRemisionData.materials_retrabajo?.[materialCode] || 0;
+              const manualValue = fullRemisionData.materials_manual?.[materialCode] || 0;
+              
+              // Calculate ajuste as retrabajo + manual
+              const ajusteValue = retrabajoValue + manualValue;
+              
+              // Calculate final real value as base real + retrabajo + manual
+              const finalRealValue = baseRealValue + retrabajoValue + manualValue;
+              
+              allRemisionMaterials.push({
+                remision_id: createdRemision.id,
+                material_id: cachedMaterial.id,
+                material_type: cachedMaterial.material_name,
+                cantidad_real: finalRealValue,
+                cantidad_teorica: fullRemisionData.materials_teorico[materialCode] || 0,
+                ajuste: ajusteValue
+              });
+            } else {
+              // Material not found in materials table - this should not happen if materials are properly configured
+              console.warn('[ArkikOrderCreator] Material not found in materials table:', materialCode, 'for plant:', plantId);
+              console.warn('[ArkikOrderCreator] Available material codes:', Array.from(dataCache.materialsMap.keys()));
+            }
+          });
+        }
+      });
+
+      // Create materials in batch
+      if (allRemisionMaterials.length > 0) {
+        console.log('[ArkikOrderCreator] About to insert', allRemisionMaterials.length, 'material records');
+        console.log('[ArkikOrderCreator] Sample material record:', allRemisionMaterials[0]);
+
+        const { error: materialsError } = await supabase
+          .from('remision_materiales')
+          .insert(allRemisionMaterials);
+
+        if (materialsError) {
+          console.error('[ArkikOrderCreator] Error creating materials:', materialsError);
+          // Don't throw here, just log the error and add to result
+          result.errors.push(`Error creando materiales: ${materialsError.message}`);
+        } else {
+          result.materialsProcessed = allRemisionMaterials.length;
+          console.log('[ArkikOrderCreator] Materials created successfully:', allRemisionMaterials.length);
+        }
+      } else {
+        console.warn('[ArkikOrderCreator] No materials to insert - check materials table for matching material_code entries');
+        result.materialsProcessed = 0;
+      }
+    } else {
+      result.materialsProcessed = 0;
+    }
 
     console.log('[ArkikOrderCreator] Single order created successfully:', {
       order_id: order.id,
