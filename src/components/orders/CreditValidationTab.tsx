@@ -8,12 +8,14 @@ import { usePlantAwareCreditOrders } from '@/hooks/usePlantAwareCreditOrders';
 import { usePlantAwareManagerOrders } from '@/hooks/usePlantAwareManagerOrders';
 import { OrderWithClient, CreditStatus } from '@/types/orders';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import orderService from '@/services/orderService';
 
 export default function CreditValidationTab() {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
   const [isRejectReasonModalOpen, setIsRejectReasonModalOpen] = useState<boolean>(false);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('');
+  const [localError, setLocalError] = useState<string | null>(null);
   const router = useRouter();
   const { profile } = useAuthBridge();
   
@@ -71,7 +73,7 @@ export default function CreditValidationTab() {
       loadOrders();
     } catch (err) {
       console.error('Error approving credit:', err);
-      setError('Error al aprobar el crédito. Por favor, intente nuevamente.');
+      setLocalError('Error al aprobar el crédito. Por favor, intente nuevamente.');
     }
   }
 
@@ -98,7 +100,7 @@ export default function CreditValidationTab() {
       loadOrders();
     } catch (err) {
       console.error('Error rejecting credit:', err);
-      setError('Error al rechazar el crédito. Por favor, intente nuevamente.');
+      setLocalError('Error al rechazar el crédito. Por favor, intente nuevamente.');
     }
   }
   
@@ -118,7 +120,7 @@ export default function CreditValidationTab() {
       loadOrders();
     } catch (err) {
       console.error('Error rejecting credit:', err);
-      setError('Error al rechazar el crédito. Por favor, intente nuevamente.');
+      setLocalError('Error al rechazar el crédito. Por favor, intente nuevamente.');
     }
   }
 
@@ -150,6 +152,10 @@ export default function CreditValidationTab() {
 
   if (error) {
     return <div className="text-red-500 p-4">{error}</div>;
+  }
+
+  if (localError) {
+    return <div className="text-red-500 p-4">{localError}</div>;
   }
 
   if (orders.length === 0) {
