@@ -38,6 +38,7 @@ export class ReportDataService {
           id,
           order_number,
           construction_site,
+          elemento,
           requires_invoice,
           total_amount,
           final_amount,
@@ -142,6 +143,7 @@ export class ReportDataService {
           order: order ? {
             order_number: order.order_number,
             construction_site: order.construction_site,
+            elemento: order.elemento,
             requires_invoice: order.requires_invoice,
             total_amount: order.total_amount,
             final_amount: order.final_amount,
