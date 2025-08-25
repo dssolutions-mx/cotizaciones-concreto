@@ -99,12 +99,12 @@ export default function ReportesClientes() {
   
   // State for report configuration
   const [selectedColumns, setSelectedColumns] = useState<ReportColumn[]>(
-    AVAILABLE_COLUMNS.filter(col => DEFAULT_COLUMN_SETS.delivery.includes(col.id))
+    AVAILABLE_COLUMNS.filter(col => DEFAULT_COLUMN_SETS.company_standard.includes(col.id))
   );
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('delivery-summary');
-  const [reportTitle, setReportTitle] = useState<string>('Reporte de Entregas por Cliente');
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('company-standard');
+  const [reportTitle, setReportTitle] = useState<string>('Reporte Estándar de Entregas por Cliente');
   const [showSummary, setShowSummary] = useState<boolean>(true);
-  const [showVAT, setShowVAT] = useState<boolean>(false);
+  const [showVAT, setShowVAT] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>('filters');
 
   // Load clients with remisiones when date range changes
@@ -113,7 +113,10 @@ export default function ReportesClientes() {
     
     setLoadingClients(true);
     try {
-      const clientsData = await ReportDataService.getClientsWithRemisiones(dateRange);
+      const clientsData = await ReportDataService.getClientsWithRemisiones({
+        from: dateRange.from,
+        to: dateRange.to
+      });
       setClients(clientsData);
     } catch (error) {
       console.error('Error loading clients:', error);
@@ -131,7 +134,10 @@ export default function ReportesClientes() {
     try {
       // Only load recipe codes if a client is selected
       if (selectedClientId) {
-        const codes = await ReportDataService.getAvailableRecipeCodes(dateRange, selectedClientId);
+        const codes = await ReportDataService.getAvailableRecipeCodes({
+          from: dateRange.from,
+          to: dateRange.to
+        }, selectedClientId);
         setRecipeCodes(codes);
       } else {
         setRecipeCodes([]);
@@ -152,7 +158,10 @@ export default function ReportesClientes() {
     }
 
     try {
-      const sites = await ReportDataService.getClientConstructionSites(selectedClientId, dateRange);
+      const sites = await ReportDataService.getClientConstructionSites(selectedClientId, {
+        from: dateRange.from,
+        to: dateRange.to
+      });
       setClientSites(sites);
     } catch (error) {
       console.error('Error loading client sites:', error);
@@ -332,7 +341,7 @@ export default function ReportesClientes() {
                   <Label>Rango de Fechas</Label>
                   <DateRangePickerWithPresets 
                     dateRange={dateRange} 
-                    onDateRangeChange={setDateRange}
+                    onDateRangeChange={(range) => range && setDateRange(range)}
                     singleDateMode={singleDateMode}
                     onSingleDateModeChange={setSingleDateMode}
                   />
@@ -762,13 +771,22 @@ export default function ReportesClientes() {
                             {reportData.slice(0, 10).map((item, index) => (
                               <TableRow key={`preview-${item.id || `index-${index}`}`}>
                                 {selectedColumns.slice(0, 8).map(column => {
-                                  const value = column.field.split('.').reduce((obj, key) => obj?.[key], item);
+                                  // Helper function to safely access nested properties
+                                  const getValue = (obj: any, path: string): any => {
+                                    return path.split('.').reduce((current, key) => current?.[key], obj);
+                                  };
+                                  
+                                  const value = getValue(item, column.field);
                                   let formattedValue = value?.toString() || '-';
                                   
-                                  if (column.format === 'currency' && value) {
+                                  if (column.format === 'currency' && value !== null && value !== undefined) {
                                     formattedValue = formatCurrency(Number(value));
                                   } else if (column.format === 'date' && value) {
-                                    formattedValue = format(new Date(value), 'dd/MM/yyyy', { locale: es });
+                                    try {
+                                      formattedValue = format(new Date(value), 'dd/MM/yyyy', { locale: es });
+                                    } catch {
+                                      formattedValue = value?.toString() || '-';
+                                    }
                                   } else if (typeof value === 'boolean') {
                                     formattedValue = value ? 'Sí' : 'No';
                                   }

@@ -4,13 +4,17 @@ import { es } from 'date-fns/locale';
 import type { PDFReportProps, ReportColumn } from '@/types/pdf-reports';
 import { AVAILABLE_COLUMNS } from '@/types/pdf-reports';
 
-// Extend styles from QuotePDF with report-specific modifications
+// Enhanced styles optimized for report layout with better space management
 const styles = StyleSheet.create({
-  // Base page styles from QuotePDF
+  // Optimized page styles for landscape orientation
   page: {
     fontFamily: 'Helvetica',
     backgroundColor: 'white',
     position: 'relative',
+    paddingTop: 60,
+    paddingBottom: 80,
+    paddingLeft: 20,
+    paddingRight: 20,
   },
   pageBackground: {
     position: 'absolute',
@@ -23,7 +27,7 @@ const styles = StyleSheet.create({
     height: 40,
     width: '100%',
     position: 'relative',
-    marginBottom: 20,
+    marginBottom: 15,
   },
   darkBluePath: {
     fill: '#1B365D',
@@ -32,9 +36,9 @@ const styles = StyleSheet.create({
     fill: '#00A650',
   },
   mainContent: {
-    padding: 30,
-    paddingTop: 50,
-    paddingBottom: 120,
+    padding: 15, // Reduced padding for more content space
+    paddingTop: 25,
+    paddingBottom: 100,
   },
   
   // Header styles (adapted from QuotePDF)
@@ -100,34 +104,43 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   
-  // Table styles (enhanced from QuotePDF)
+  // Professional table styles for client estimates
   table: {
-    marginBottom: 20,
+    marginBottom: 15,
     alignSelf: 'center',
-    width: '95%',
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#333333',
+    borderStyle: 'solid',
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#304F1E',
-    padding: 4,
-    borderBottom: 1,
-    borderBottomColor: '#CCCCCC',
+    backgroundColor: '#1B365D',
+    borderBottomWidth: 2,
+    borderBottomColor: '#333333',
+    borderBottomStyle: 'solid',
+    minHeight: 28,
+    alignItems: 'center',
   },
   tableRow: {
     flexDirection: 'row',
-    borderBottom: 1,
-    borderBottomColor: '#CCCCCC',
-    padding: 4,
-    minHeight: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    borderBottomStyle: 'solid',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    minHeight: 22,
     alignItems: 'center',
   },
   groupHeaderRow: {
     flexDirection: 'row',
     backgroundColor: '#E8F3EA',
-    borderTop: 1,
+    borderTopWidth: 1,
     borderTopColor: '#CCCCCC',
-    borderBottom: 1,
+    borderTopStyle: 'solid',
+    borderBottomWidth: 1,
     borderBottomColor: '#CCCCCC',
+    borderBottomStyle: 'solid',
     padding: 6,
     alignItems: 'center',
   },
@@ -139,18 +152,21 @@ const styles = StyleSheet.create({
   groupTotalsRow: {
     flexDirection: 'row',
     backgroundColor: '#f1f3f4',
-    borderBottom: 1,
+    borderBottomWidth: 1,
     borderBottomColor: '#CCCCCC',
+    borderBottomStyle: 'solid',
     padding: 4,
     alignItems: 'center',
   },
   tableRowAlternate: {
     flexDirection: 'row',
-    borderBottom: 1,
-    borderBottomColor: '#CCCCCC',
-    backgroundColor: '#f9f9f9',
-    padding: 4,
-    minHeight: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    borderBottomStyle: 'solid',
+    backgroundColor: '#F8F9FA',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+    minHeight: 22,
     alignItems: 'center',
   },
   
@@ -176,26 +192,31 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   
-  // Text styles
+  // Professional text styles for client presentation
   headerText: {
     color: 'white',
     fontSize: 8,
     fontFamily: 'Helvetica-Bold',
+    textAlign: 'center',
   },
   cellText: {
     fontSize: 8,
+    color: '#333333',
   },
   cellTextBold: {
     fontSize: 8,
     fontFamily: 'Helvetica-Bold',
+    color: '#333333',
   },
   cellTextCenter: {
     fontSize: 8,
     textAlign: 'center',
+    color: '#333333',
   },
   cellTextRight: {
     fontSize: 8,
     textAlign: 'right',
+    color: '#333333',
   },
   
   // Summary section
@@ -258,8 +279,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
   },
   footerContent: {
-    borderTop: 1,
+    borderTopWidth: 1,
     borderTopColor: '#CCCCCC',
+    borderTopStyle: 'solid',
     paddingTop: 10,
   },
   contactInfo: {
@@ -380,9 +402,14 @@ const PageBackground = () => (
 );
 
 const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, generatedAt }: PDFReportProps) => {
-  // Column handling: enforce ordering, required columns and limit
-  const MAX_COLUMNS = 10;
-  const REQUIRED_COLUMN_IDS = ['order_number'];
+  // Enhanced column handling with better layout management
+  const MAX_COLUMNS = 11; // Increased to accommodate company standard columns
+  const REQUIRED_COLUMN_IDS = ['fecha', 'remision_number']; // Company requirements
+
+  // Validate date range
+  if (!dateRange.from || !dateRange.to) {
+    throw new Error('Invalid date range provided to PDF component');
+  }
 
   const byId = new Map(AVAILABLE_COLUMNS.map((c) => [c.id, c] as const));
 
@@ -396,32 +423,36 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
       initialSelected.unshift(byId.get(reqId)!);
     }
   }
-  // Include important 'elemento' by default if not present
-  if (!initialSelected.some((c) => c.id === 'elemento') && byId.has('elemento')) {
-    // Insert after order_number if exists, else prepend
-    const orderIdx = initialSelected.findIndex((c) => c.id === 'order_number');
-    if (orderIdx >= 0) {
-      initialSelected.splice(orderIdx + 1, 0, byId.get('elemento')!);
-    } else {
-      initialSelected.unshift(byId.get('elemento')!);
-    }
-  }
 
-  // Limit number of columns
+  // Limit number of columns to prevent overflow
   const limitedColumns = initialSelected.slice(0, MAX_COLUMNS);
 
-  // Normalize widths so total fits 100%
-  const totalWidth = limitedColumns.reduce((sum, c) => {
-    const widthStr = c.width || '10%';
-    const numeric = Number(widthStr.toString().replace('%', '')) || 10;
-    return sum + numeric;
-  }, 0);
-  const selectedColumns = limitedColumns.map((c) => {
-    const widthStr = c.width || '10%';
-    const numeric = Number(widthStr.toString().replace('%', '')) || 10;
-    const normalized = (numeric / totalWidth) * 100;
-    return { ...c, width: `${normalized}%` } as ReportColumn;
-  });
+  // Smart column width optimization based on content type
+  const optimizeColumnWidths = (columns: ReportColumn[]): ReportColumn[] => {
+    // Base widths optimized for landscape A4 - professional client estimate layout
+    const widthMap: Record<string, string> = {
+      'fecha': '9%',           // Fecha
+      'remision_number': '9%', // Remision
+      'business_name': '14%',  // Cliente
+      'order_number': '9%',    // N° pedido
+      'construction_site': '13%', // OBRA
+      'elemento': '11%',       // ELEMENTO
+      'unidad_cr': '7%',       // Unidad
+      'recipe_code': '11%',    // Producto
+      'volumen_fabricado': '7%', // M3
+      'unit_price': '9%',      // P.U
+      'line_total': '9%',      // Subtotal
+      'conductor': '9%',       // Additional columns
+      'unidad': '7%'
+    };
+
+    return columns.map(col => ({
+      ...col,
+      width: widthMap[col.id] || '9%'
+    }));
+  };
+
+  const selectedColumns = optimizeColumnWidths(limitedColumns);
 
   // Helper function to format values based on column type
   const formatValue = (value: any, column: ReportColumn): string => {
@@ -454,30 +485,37 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
     }
   };
 
-  // Helper function to get column width style
+  // Professional column style function with visual segmentation
   const getColumnStyle = (column: ReportColumn) => {
     const baseStyle = {
-      width: column.width || '10%',
-      padding: 3,
+      width: column.width || '9%',
+      paddingVertical: 3,
+      paddingHorizontal: 4,
+      borderRightWidth: 1,
+      borderRightColor: '#D0D0D0',
+      borderRightStyle: 'solid' as const,
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
     };
 
     switch (column.type) {
       case 'currency':
       case 'number':
-        return { ...baseStyle, textAlign: 'right' as const };
+        return { ...baseStyle, alignItems: 'flex-end' as const };
       case 'boolean':
-        return { ...baseStyle, textAlign: 'center' as const };
+        return { ...baseStyle, alignItems: 'center' as const };
       default:
-        return { ...baseStyle, textAlign: 'left' as const };
+        return { ...baseStyle, alignItems: 'flex-start' as const };
     }
   };
 
   // Helper function to get value from data using field path
   const getValue = (item: any, fieldPath: string): any => {
-    // Handle elemento from orders table
+    // Handle elemento from orders table - try multiple possible paths
     if (fieldPath === 'order.elemento') {
-      return item?.orders?.elemento ?? item?.order?.elemento ?? '-';
+      return item?.orders?.elemento ?? item?.order?.elemento ?? item?.elemento ?? '-';
     }
+    
     return fieldPath.split('.').reduce((obj, key) => obj?.[key], item);
   };
 
@@ -485,7 +523,7 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
   const formatFilterSummary = () => {
     const filters = [];
     
-    filters.push(`Período: ${format(dateRange.from, 'dd/MM/yyyy', { locale: es })} - ${format(dateRange.to, 'dd/MM/yyyy', { locale: es })}`);
+    filters.push(`Período: ${format(dateRange.from!, 'dd/MM/yyyy', { locale: es })} - ${format(dateRange.to!, 'dd/MM/yyyy', { locale: es })}`);
     
     if (configuration.filters.constructionSite && configuration.filters.constructionSite !== 'todos') {
       filters.push(`Obra: ${configuration.filters.constructionSite}`);
@@ -502,6 +540,7 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
 
     return filters;
   };
+  
   // Build grouped data by order
   type GroupInfo = {
     key: string;
@@ -545,9 +584,9 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
     flattenedRows.push({ type: 'groupTotal', group: g });
   });
 
-  // Row capacity per page (first page has header+summary)
-  const firstPageCapacity = 16;
-  const nextPageCapacity = 22;
+  // Enhanced row capacity per page with better space utilization
+  const firstPageCapacity = 20; // Increased capacity with optimized layout
+  const nextPageCapacity = 28; // More rows on subsequent pages
 
   const pages: RenderRow[][] = [];
   let current: RenderRow[] = [];
@@ -673,11 +712,26 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
         <View style={styles.table}>
           {/* Table Header */}
           <View style={styles.tableHeader}>
-            {selectedColumns.map((column) => (
-              <View key={column.id} style={getColumnStyle(column)}>
-                <Text style={styles.headerText}>{column.label.toUpperCase()}</Text>
-              </View>
-            ))}
+            {selectedColumns.map((column, index) => {
+              const headerStyle = getColumnStyle(column);
+              return (
+                <View 
+                  key={`header-${column.id}`} 
+                  style={[
+                    headerStyle,
+                    {
+                      borderRightWidth: index === selectedColumns.length - 1 ? 0 : 1,
+                      borderRightColor: '#666666',
+                      borderRightStyle: 'solid',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }
+                  ]}
+                >
+                  <Text style={styles.headerText}>{column.label.toUpperCase()}</Text>
+                </View>
+              );
+            })}
           </View>
 
           {/* Table Rows - page 1 */}
@@ -692,13 +746,13 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
             if (entry.type === 'groupTotal') {
               return (
                 <View key={`gt-${index}`} style={styles.groupTotalsRow}>
-                  <View style={{ width: '50%', padding: 3 }}>
+                  <View style={{ width: '60%', padding: 1 }}>
                     <Text style={styles.cellTextBold}>Subtotal de orden</Text>
                   </View>
-                  <View style={{ width: '20%', padding: 3, textAlign: 'right' }}>
+                  <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
                     <Text style={styles.cellTextBold}>{entry.group.totals.volume.toFixed(2)} m³</Text>
                   </View>
-                  <View style={{ width: '30%', padding: 3, textAlign: 'right' }}>
+                  <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
                     <Text style={styles.cellTextBold}>
                       ${Number(entry.group.totals.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </Text>
@@ -709,12 +763,26 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
             const item = entry.item;
             return (
               <View key={`r-${item.id || `idx-${index}`}`} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlternate}>
-                {selectedColumns.map((column) => {
+                {selectedColumns.map((column, colIndex) => {
                   const value = getValue(item, column.field);
                   const formattedValue = formatValue(value, column);
+                  const textStyle = column.type === 'currency' || column.type === 'number' ? 
+                    styles.cellTextRight : styles.cellText;
+                  
+                  const cellStyle = getColumnStyle(column);
                   return (
-                    <View key={`${item.id || index}-${column.id}-${index}`} style={getColumnStyle(column)}>
-                      <Text style={styles.cellText}>{formattedValue}</Text>
+                    <View 
+                      key={`${item.id || index}-${column.id}-${index}`} 
+                      style={[
+                        cellStyle,
+                        {
+                          borderRightWidth: colIndex === selectedColumns.length - 1 ? 0 : 1,
+                          borderRightColor: '#D0D0D0',
+                          borderRightStyle: 'solid',
+                        }
+                      ]}
+                    >
+                      <Text style={textStyle}>{formattedValue}</Text>
                     </View>
                   );
                 })}
@@ -725,13 +793,13 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
                   {/* Summary Row if enabled */}
                   {configuration.showSummary && (
             <View style={styles.tableRow}>
-              <View style={{ width: '50%', padding: 3 }}>
+              <View style={{ width: '60%', padding: 1 }}>
                 <Text style={styles.cellTextBold}>TOTALES:</Text>
                       </View>
-              <View style={{ width: '20%', padding: 3, textAlign: 'right' }}>
+              <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
                 <Text style={styles.cellTextBold}>{summary.totalVolume.toFixed(2)} m³</Text>
                       </View>
-              <View style={{ width: '30%', padding: 3, textAlign: 'right' }}>
+              <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
                 <Text style={styles.cellTextBold}>
                           ${summary.totalAmount.toLocaleString('es-MX', {
                             minimumFractionDigits: 2,
@@ -774,11 +842,26 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
             <View style={styles.table}>
               {/* Table Header */}
               <View style={styles.tableHeader}>
-                {selectedColumns.map((column) => (
-                  <View key={`header-${pageIndex}-${column.id}`} style={getColumnStyle(column)}>
-                    <Text style={styles.headerText}>{column.label.toUpperCase()}</Text>
-                  </View>
-                ))}
+                {selectedColumns.map((column, index) => {
+                  const headerStyle = getColumnStyle(column);
+                  return (
+                    <View 
+                      key={`header-${pageIndex}-${column.id}`} 
+                      style={[
+                        headerStyle,
+                        {
+                          borderRightWidth: index === selectedColumns.length - 1 ? 0 : 1,
+                          borderRightColor: '#666666',
+                          borderRightStyle: 'solid',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }
+                      ]}
+                    >
+                      <Text style={styles.headerText}>{column.label.toUpperCase()}</Text>
+                    </View>
+                  );
+                })}
               </View>
 
               {/* Table Rows for this page */}
@@ -793,13 +876,13 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
                 if (entry.type === 'groupTotal') {
                   return (
                     <View key={`pg-${pageIndex}-gt-${index}`} style={styles.groupTotalsRow}>
-                      <View style={{ width: '50%', padding: 3 }}>
+                      <View style={{ width: '60%', padding: 1 }}>
                         <Text style={styles.cellTextBold}>Subtotal de orden</Text>
                       </View>
-                      <View style={{ width: '20%', padding: 3, textAlign: 'right' }}>
+                      <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
                         <Text style={styles.cellTextBold}>{entry.group.totals.volume.toFixed(2)} m³</Text>
                       </View>
-                      <View style={{ width: '30%', padding: 3, textAlign: 'right' }}>
+                      <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
                         <Text style={styles.cellTextBold}>
                           ${Number(entry.group.totals.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </Text>
@@ -810,12 +893,26 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
                 const item = entry.item;
                 return (
                   <View key={`page-${pageIndex}-row-${item.id || `index-${index}`}-${index}`} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlternate}>
-                    {selectedColumns.map((column) => {
+                    {selectedColumns.map((column, colIndex) => {
                       const value = getValue(item, column.field);
                       const formattedValue = formatValue(value, column);
+                      const textStyle = column.type === 'currency' || column.type === 'number' ? 
+                        styles.cellTextRight : styles.cellText;
+                      
+                      const cellStyle = getColumnStyle(column);
                       return (
-                        <View key={`page-${pageIndex}-${item.id || index}-${column.id}-${index}`} style={getColumnStyle(column)}>
-                          <Text style={styles.cellText}>{formattedValue}</Text>
+                        <View 
+                          key={`page-${pageIndex}-${item.id || index}-${column.id}-${index}`} 
+                          style={[
+                            cellStyle,
+                            {
+                              borderRightWidth: colIndex === selectedColumns.length - 1 ? 0 : 1,
+                              borderRightColor: '#D0D0D0',
+                              borderRightStyle: 'solid',
+                            }
+                          ]}
+                        >
+                          <Text style={textStyle}>{formattedValue}</Text>
                         </View>
                       );
                     })}
