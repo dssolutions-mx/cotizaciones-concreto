@@ -97,6 +97,7 @@ export default function NuevoMuestreoPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
   
   // Search and filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -750,10 +751,38 @@ export default function NuevoMuestreoPage() {
                     <CardDescription>
                       Crea el muestreo ingresando los datos manualmente; podrás asociar la remisión más tarde.
                     </CardDescription>
+                    
+                    {/* Form Status Indicator */}
+                    <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                      <div className="flex items-center gap-2 text-sm text-blue-700">
+                        <Info className="h-4 w-4" />
+                        <span>
+                          <strong>Consejo:</strong> Completa todos los campos y revisa la información antes de guardar. 
+                          Presiona Enter en cualquier campo para avanzar al siguiente.
+                        </span>
+                      </div>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     <Form {...form}>
-                      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                      <form 
+                        onKeyDown={(e) => {
+                          // Prevent form submission on Enter key press in input fields
+                          if (e.key === 'Enter' && e.target !== e.currentTarget) {
+                            e.preventDefault();
+                            // Move focus to next field for better UX
+                            const formElements = e.currentTarget.elements;
+                            const currentIndex = Array.from(formElements).findIndex(el => el === e.target);
+                            if (currentIndex >= 0 && currentIndex < formElements.length - 1) {
+                              const nextElement = formElements[currentIndex + 1] as HTMLElement;
+                              if (nextElement && nextElement.focus) {
+                                nextElement.focus();
+                              }
+                            }
+                          }
+                        }}
+                        className="space-y-6"
+                      >
                         <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                           <FormField
                             control={form.control}
@@ -1134,8 +1163,31 @@ export default function NuevoMuestreoPage() {
                           </div>
                         )}
 
-                        <div className="flex justify-end">
-                          <Button type="submit" className="bg-primary" disabled={isSubmitting}>
+                        <div className="flex justify-end gap-3">
+                          {/* Validation Summary */}
+                          {!form.formState.isValid && (
+                            <div className="flex-1 text-sm text-red-600 bg-red-50 p-3 rounded-md border border-red-200">
+                              <div className="flex items-center gap-2">
+                                <AlertTriangle className="h-4 w-4" />
+                                <span>Por favor, completa todos los campos requeridos antes de continuar.</span>
+                              </div>
+                            </div>
+                          )}
+                          
+                          <Button 
+                            type="button" 
+                            className="bg-primary" 
+                            disabled={isSubmitting || !form.formState.isValid}
+                            onClick={() => {
+                              if (!form.formState.isValid) {
+                                // Trigger validation to show errors
+                                form.trigger();
+                                return;
+                              }
+                              // Show confirmation dialog
+                              setShowSubmitConfirmation(true);
+                            }}
+                          >
                             {isSubmitting ? (
                               <>
                                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1144,11 +1196,81 @@ export default function NuevoMuestreoPage() {
                             ) : (
                               <>
                                 <Save className="mr-2 h-4 w-4" />
-                                Guardar Muestreo
+                                Revisar y Guardar
                               </>
                             )}
                           </Button>
                         </div>
+                        
+                        {/* Submit Confirmation Dialog */}
+                        {showSubmitConfirmation && (
+                          <div 
+                            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                            onClick={() => setShowSubmitConfirmation(false)}
+                          >
+                            <div 
+                              className="bg-white rounded-lg p-6 max-w-md mx-4"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center gap-3 mb-4">
+                                <Info className="h-6 w-6 text-blue-600" />
+                                <h3 className="text-lg font-semibold">Confirmar Envío</h3>
+                              </div>
+                              
+                              <div className="text-gray-700 mb-6 space-y-3">
+                                <p>
+                                  ¿Estás seguro de que quieres guardar este muestreo? 
+                                  Verifica que toda la información esté correcta antes de continuar.
+                                </p>
+                                
+                                {/* Summary of what will be created */}
+                                <div className="bg-gray-50 p-3 rounded-md text-sm">
+                                  <h4 className="font-medium mb-2">Resumen del muestreo:</h4>
+                                  <ul className="space-y-1 text-gray-600">
+                                    <li>• Planta: {form.getValues('planta')}</li>
+                                    <li>• Fecha: {form.getValues('fecha_muestreo') ? format(form.getValues('fecha_muestreo') as Date, 'PPP', { locale: es }) : 'No definida'}</li>
+                                    <li>• Número de muestreo: {form.getValues('numero_muestreo')}</li>
+                                    <li>• Muestras a crear: {plannedSamples.length}</li>
+                                    {form.getValues('manual_reference') && (
+                                      <li>• Referencia manual: {form.getValues('manual_reference')}</li>
+                                    )}
+                                  </ul>
+                                </div>
+                              </div>
+                              
+                              <div className="flex justify-end gap-3">
+                                <Button 
+                                  variant="outline" 
+                                  onClick={() => setShowSubmitConfirmation(false)}
+                                  disabled={isSubmitting}
+                                >
+                                  Cancelar
+                                </Button>
+                                <Button 
+                                  className="bg-primary" 
+                                  onClick={() => {
+                                    setShowSubmitConfirmation(false);
+                                    // Now submit the form
+                                    form.handleSubmit(onSubmit)();
+                                  }}
+                                  disabled={isSubmitting}
+                                >
+                                  {isSubmitting ? (
+                                    <>
+                                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                      Guardando...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Save className="mr-2 h-4 w-4" />
+                                      Sí, Guardar
+                                    </>
+                                  )}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </form>
                     </Form>
                   </CardContent>
