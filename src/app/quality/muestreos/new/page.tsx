@@ -130,6 +130,7 @@ export default function NuevoMuestreoPage() {
       temperatura_concreto: 30,
       numero_cilindros: 1,
       numero_vigas: 0,
+      manual_reference: '',
     },
   });
   const lastBaseDateRef = useRef<Date | null>(form.getValues('fecha_muestreo') || new Date());
@@ -452,6 +453,9 @@ export default function NuevoMuestreoPage() {
         {
           ...finalData,
           created_by: profile?.id,
+          // Set sampling type based on mode and presence of manual_reference
+          sampling_type: mode === 'linked' ? 'REMISION_LINKED' : 
+                        (finalData.manual_reference ? 'STANDALONE' : 'PROVISIONAL'),
         },
         plannedSamples
       );
@@ -837,12 +841,19 @@ export default function NuevoMuestreoPage() {
                               <FormLabel>Remisión (manual)</FormLabel>
                               <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                                 <div className="md:col-span-4">
-                                  <FormItem>
-                                    <FormLabel className="h-12 flex items-end">Número de remisión</FormLabel>
-                                    <FormControl>
-                                      <Input placeholder="Número de remisión" className="w-full" />
-                                    </FormControl>
-                                  </FormItem>
+                                  <FormField
+                                    control={form.control}
+                                    name="manual_reference"
+                                    render={({ field }) => (
+                                      <FormItem>
+                                        <FormLabel className="h-12 flex items-end">Número de remisión</FormLabel>
+                                        <FormControl>
+                                          <Input placeholder="Número de remisión" className="w-full" {...field} />
+                                        </FormControl>
+                                        <FormMessage />
+                                      </FormItem>
+                                    )}
+                                  />
                                 </div>
                                 <div className="md:col-span-4">
                                   <AgePlanSelector

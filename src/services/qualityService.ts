@@ -198,6 +198,7 @@ async function mapPlantaToPlantId(planta: string): Promise<string | null> {
 type NewMuestreoInput = Omit<Partial<Muestreo>, 'fecha_muestreo'> & {
   fecha_muestreo: Date | string;
   created_by?: string;
+  sampling_type?: 'REMISION_LINKED' | 'STANDALONE' | 'PROVISIONAL';
 };
 
 export async function createMuestreoWithSamples(

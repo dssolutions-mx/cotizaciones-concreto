@@ -6,11 +6,12 @@ import { z } from "zod";
 export const muestreoFormSchema = z.object({
   // Optional in manual capture mode
   remision_id: z.string().optional(),
+  manual_reference: z.string().optional(), // For manual remision reference
   fecha_muestreo: z.date({
     required_error: "La fecha de muestreo es requerida",
   }),
   numero_muestreo: z.number().min(1, "El número de muestreo es requerido"),
-  planta: z.enum(["P001", "P002", "P003", "P004"], {
+  planta: z.enum(["P001", "P002", "P003", "P004", "P005"], {
     required_error: "La planta es requerida",
   }),
   revenimiento_sitio: z.number(),
