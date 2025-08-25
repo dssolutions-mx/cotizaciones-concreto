@@ -34,6 +34,7 @@ export interface PlantContextType {
   userAccess: UserPlantAccess | null;
   isGlobalAdmin: boolean;
   switchPlant: (plantId: string) => void;
+  switchBusinessUnit: (businessUnitId: string) => void;
   refreshPlantData: () => Promise<void>;
   isLoading: boolean;
 } 

@@ -117,8 +117,8 @@ export default function RejectedOrdersTab() {
                 <div className="p-4">
                   <div className="flex flex-col md:flex-row justify-between">
                     <div className="flex-1">
-                      <h3 className="font-semibold text-lg">{order.clients.business_name}</h3>
-                      <p className="text-sm text-gray-600">Código: {order.clients.client_code}</p>
+                      <h3 className="font-semibold text-lg">{order.clients?.business_name || 'Cliente no disponible'}</h3>
+                      <p className="text-sm text-gray-600">Código: {order.clients?.client_code || 'N/A'}</p>
                       <p className="text-sm">
                         Entrega: {formatDate(order.delivery_date)} a las {formatTime(order.delivery_time)}
                       </p>

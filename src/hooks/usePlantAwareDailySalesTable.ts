@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { usePlantContext } from '@/contexts/PlantContext';
-import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 import { supabase } from '@/lib/supabase';
 
@@ -34,7 +33,6 @@ interface OrderWithDetails {
 export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTableOptions) {
   const { date, autoRefresh = true } = options;
   
-  const { profile } = useAuthBridge();
   const { 
     currentPlant, 
     userAccess, 
@@ -56,8 +54,7 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
       const plantFilterOptions = {
         userAccess,
         isGlobalAdmin,
-        currentPlantId: currentPlant?.id || null,
-        userRole: profile?.role
+        currentPlantId: currentPlant?.id || null
       };
       
       // Get accessible plant IDs

@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { usePlantContext } from '@/contexts/PlantContext';
-import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 import orderService from '@/services/orderService';
 import type { OrderWithClient } from '@/types/orders';
@@ -12,7 +11,6 @@ interface UsePlantAwareRejectedOrdersOptions {
 export function usePlantAwareRejectedOrders(options: UsePlantAwareRejectedOrdersOptions = {}) {
   const { autoRefresh = true } = options;
   
-  const { profile } = useAuthBridge();
   const { 
     currentPlant, 
     userAccess, 
@@ -34,8 +32,7 @@ export function usePlantAwareRejectedOrders(options: UsePlantAwareRejectedOrders
       const plantFilterOptions = {
         userAccess,
         isGlobalAdmin,
-        currentPlantId: currentPlant?.id || null,
-        userRole: profile?.role
+        currentPlantId: currentPlant?.id || null
       };
       
       // Get accessible plant IDs
