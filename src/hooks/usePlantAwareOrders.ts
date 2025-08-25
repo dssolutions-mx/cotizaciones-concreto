@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { usePlantContext } from '@/contexts/PlantContext';
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { plantAwareDataService } from '@/lib/services/PlantAwareDataService';
 import orderService from '@/services/orderService';
 import type { OrderWithClient, OrderStatus, CreditStatus } from '@/types/orders';
@@ -13,7 +14,7 @@ interface UsePlantAwareOrdersOptions {
 }
 
 export function usePlantAwareOrders(options: UsePlantAwareOrdersOptions = {}) {
-  const { 
+  const {
     statusFilter, 
     creditStatusFilter, 
     maxItems, 
@@ -21,6 +22,7 @@ export function usePlantAwareOrders(options: UsePlantAwareOrdersOptions = {}) {
     autoRefresh = true 
   } = options;
   
+  const { profile } = useAuthBridge();
   const { 
     currentPlant, 
     userAccess, 
@@ -42,7 +44,8 @@ export function usePlantAwareOrders(options: UsePlantAwareOrdersOptions = {}) {
       const plantFilterOptions = {
         userAccess,
         isGlobalAdmin,
-        currentPlantId: currentPlant?.id || null
+        currentPlantId: currentPlant?.id || null,
+        userRole: profile?.role
       };
       
       // Get accessible plant IDs
