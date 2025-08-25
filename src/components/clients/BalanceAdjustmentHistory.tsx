@@ -76,13 +76,26 @@ export function BalanceAdjustmentHistory({ clientId }: BalanceAdjustmentHistoryP
         }
         
         if (filters.startDate) {
-          params.p_start_date = new Date(filters.startDate).toISOString();
+          try {
+            const startDate = new Date(filters.startDate);
+            if (!isNaN(startDate.getTime())) {
+              params.p_start_date = startDate.toISOString();
+            }
+          } catch (error) {
+            console.warn('Invalid start date:', filters.startDate, error);
+          }
         }
         
         if (filters.endDate) {
-          const endDate = new Date(filters.endDate);
-          endDate.setHours(23, 59, 59, 999);
-          params.p_end_date = endDate.toISOString();
+          try {
+            const endDate = new Date(filters.endDate);
+            if (!isNaN(endDate.getTime())) {
+              endDate.setHours(23, 59, 59, 999);
+              params.p_end_date = endDate.toISOString();
+            }
+          } catch (error) {
+            console.warn('Invalid end date:', filters.endDate, error);
+          }
         }
         
         if (filters.adjustmentType !== 'all') {

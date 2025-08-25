@@ -600,25 +600,55 @@ function ClientPaymentsList({ payments: allPayments }: { payments: ClientPayment
     startDate: Date | undefined;
     endDate: Date | undefined;
     paymentMethod: string;
-  }>({
-    startDate: subMonths(new Date(), 1), // Default to last month
-    endDate: new Date(),
-    paymentMethod: 'all', // 'all' or specific method like 'TRANSFER', 'CASH', etc.
+  }>(() => {
+    const now = new Date();
+    const lastMonth = subMonths(now, 1);
+    
+    // Ensure dates are valid
+    if (isNaN(now.getTime()) || isNaN(lastMonth.getTime())) {
+      return {
+        startDate: undefined,
+        endDate: undefined,
+        paymentMethod: 'all',
+      };
+    }
+    
+    return {
+      startDate: lastMonth,
+      endDate: now,
+      paymentMethod: 'all',
+    };
   });
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10; // Or make this configurable
 
   const handleFilterChange = (key: keyof typeof filters, value: any) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
+    if (key === 'startDate' || key === 'endDate') {
+      // Validate that the date is valid before setting it
+      if (value && !isNaN(new Date(value).getTime())) {
+        setFilters(prev => ({ ...prev, [key]: new Date(value) }));
+      } else {
+        // If invalid date, set to undefined
+        setFilters(prev => ({ ...prev, [key]: undefined }));
+      }
+    } else {
+      setFilters(prev => ({ ...prev, [key]: value }));
+    }
     setCurrentPage(1); // Reset to first page on filter change
   };
 
   const filteredPayments = useMemo(() => {
     return allPayments.filter(payment => {
       const paymentDate = new Date(payment.payment_date);
-      const startMatch = !filters.startDate || paymentDate >= filters.startDate;
-      const endMatch = !filters.endDate || paymentDate <= filters.endDate;
+      
+      // Skip invalid dates
+      if (isNaN(paymentDate.getTime())) {
+        return false;
+      }
+      
+      const startMatch = !filters.startDate || !isNaN(filters.startDate.getTime()) && paymentDate >= filters.startDate;
+      const endMatch = !filters.endDate || !isNaN(filters.endDate.getTime()) && paymentDate <= filters.endDate;
       const methodMatch = filters.paymentMethod === 'all' || payment.payment_method === filters.paymentMethod;
       return startMatch && endMatch && methodMatch;
     });
@@ -639,19 +669,44 @@ function ClientPaymentsList({ payments: allPayments }: { payments: ClientPayment
 
   const formatDateFromString = (date: string): string => {
     if (!date) return '';
-    return new Date(date).toLocaleDateString('es-MX', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    try {
+      const dateObj = new Date(date);
+      if (isNaN(dateObj.getTime())) return '';
+      return dateObj.toLocaleDateString('es-MX', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
+      });
+    } catch (error) {
+      console.warn('Error formatting date:', date, error);
+      return '';
+    }
   };
 
   const formatTimeFromString = (date: string): string => {
     if (!date) return '';
-    return new Date(date).toLocaleTimeString('es-MX', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      const dateObj = new Date(date);
+      if (isNaN(dateObj.getTime())) return '';
+      return dateObj.toLocaleTimeString('es-MX', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      console.warn('Error formatting time:', date, error);
+      return '';
+    }
+  };
+
+  // Helper function to safely format date for input value
+  const formatDateForInput = (date: Date | undefined): string => {
+    if (!date || isNaN(date.getTime())) return '';
+    try {
+      return date.toISOString().split('T')[0];
+    } catch (error) {
+      console.warn('Invalid date encountered:', date);
+      return '';
+    }
   };
 
   return (
@@ -668,8 +723,8 @@ function ClientPaymentsList({ payments: allPayments }: { payments: ClientPayment
             <input
               type="date"
               id="startDate"
-              value={filters.startDate ? filters.startDate.toISOString().split('T')[0] : ''}
-              onChange={(e) => handleFilterChange('startDate', new Date(e.target.value))}
+              value={formatDateForInput(filters.startDate)}
+              onChange={(e) => handleFilterChange('startDate', e.target.value)}
             />
           </div>
           <div className="flex-1 min-w-[150px]">
@@ -677,8 +732,8 @@ function ClientPaymentsList({ payments: allPayments }: { payments: ClientPayment
             <input
               type="date"
               id="endDate"
-              value={filters.endDate ? filters.endDate.toISOString().split('T')[0] : ''}
-              onChange={(e) => handleFilterChange('endDate', new Date(e.target.value))}
+              value={formatDateForInput(filters.endDate)}
+              onChange={(e) => handleFilterChange('endDate', e.target.value)}
             />
           </div>
           <div className="flex-1 min-w-[150px]">
