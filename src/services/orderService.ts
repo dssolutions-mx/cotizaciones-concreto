@@ -221,7 +221,7 @@ export async function getOrders(
     .from('orders')
     .select(`
       *,
-      clients:clients(business_name, client_code)
+      clients!inner(business_name, client_code)
     `);
   
   if (filterStatus) {
@@ -261,7 +261,21 @@ export async function getOrders(
   
   const { data, error } = await query;
   
-  if (error) throw error;
+  if (error) {
+    console.error('Error fetching orders:', error);
+    throw error;
+  }
+  
+  // Ensure data is not null and has the expected structure
+  if (!data) {
+    console.warn('No orders data returned from query');
+    return [];
+  }
+  
+  // Log the first few orders to debug the structure
+  if (data.length > 0) {
+    console.log('First order structure:', JSON.stringify(data[0], null, 2));
+  }
   
   // Filtrar manualmente los pedidos rechazados
   let filteredData = data;
@@ -283,7 +297,7 @@ export async function getOrderById(id: string) {
     .from('orders')
     .select(`
       *,
-      clients:clients(business_name, client_code, email, phone),
+      clients!inner(business_name, client_code, email, phone),
       products:order_items(*, quote_details(recipe_id)),
       plant:plant_id(
         id,
@@ -337,7 +351,7 @@ export async function getOrdersForCreditValidation(plantIds?: string[] | null) {
     .from('orders')
     .select(`
       *,
-      clients:clients(business_name, client_code)
+      clients!inner(business_name, client_code)
     `)
     .eq('credit_status', 'pending');
   
@@ -473,7 +487,7 @@ export async function getOrdersForManagerValidation(plantIds?: string[] | null) 
       .from('orders')
       .select(`
         *,
-        clients:clients(business_name, client_code)
+        clients!inner(business_name, client_code)
       `)
       .in('credit_status', ['pending', 'rejected_by_validator']);
     
@@ -505,7 +519,7 @@ export async function getRejectedOrders(plantIds?: string[] | null) {
       .from('orders')
       .select(`
         *,
-        clients:clients(business_name, client_code)
+        clients!inner(business_name, client_code)
       `)
       .in('credit_status', ['rejected', 'rejected_by_validator']);
     
@@ -606,7 +620,7 @@ export async function getOrdersForDosificador() {
         total_amount,
         order_status,
         credit_status,
-        clients:clients(id, business_name, client_code)
+        clients!inner(id, business_name, client_code)
       `)
       // Use only active status orders
       .in('order_status', ['CREATED', 'VALIDATED', 'SCHEDULED']) 

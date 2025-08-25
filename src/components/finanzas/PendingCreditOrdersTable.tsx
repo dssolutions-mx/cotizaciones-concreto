@@ -57,7 +57,7 @@ export function PendingCreditOrdersTable({ orders }: PendingCreditOrdersTablePro
                 <div>
                   <p className="font-medium">{order.clients?.business_name || 'N/A'}</p>
                   {order.clients?.client_code && (
-                    <p className="text-xs text-muted-foreground">Código: {order.clients.client_code}</p>
+                    <p className="text-xs text-muted-foreground">Código: {order.clients?.client_code || 'N/A'}</p>
                   )}
                 </div>
               </TableCell>

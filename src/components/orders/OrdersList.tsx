@@ -161,7 +161,9 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
       <div className="flex flex-col md:flex-row justify-between">
         <div className="flex-1">
           <div className="flex items-center">
-            <h3 className="font-semibold text-lg">{order.clients.business_name}</h3>
+            <h3 className="font-semibold text-lg">
+              {order.clients?.business_name || 'Cliente no disponible'}
+            </h3>
             <span className="ml-2 text-sm text-gray-500">#{order.order_number}</span>
           </div>
           <div className="flex flex-wrap gap-2 mt-1 mb-2">
@@ -181,7 +183,7 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
             </p>
           )}
           <p className="text-sm text-gray-700">
-            <span className="font-medium">Código:</span> {order.clients.client_code}
+            <span className="font-medium">Código:</span> {order.clients?.client_code || 'N/A'}
           </p>
           <p className="text-sm text-gray-700">
             <span className="font-medium">Entrega:</span> {formatTime(order.delivery_time)}

@@ -5,7 +5,6 @@ interface PlantFilterOptions {
   userAccess: UserPlantAccess | null;
   isGlobalAdmin: boolean;
   currentPlantId?: string | null;
-  userRole?: string; // Add user role to determine access level
 }
 
 export class PlantAwareDataService {
@@ -22,12 +21,7 @@ export class PlantAwareDataService {
    * Get accessible plant IDs for the current user
    */
   async getAccessiblePlantIds(options: PlantFilterOptions): Promise<string[] | null> {
-    const { userAccess, isGlobalAdmin, currentPlantId, userRole } = options;
-
-    // CREDIT_VALIDATOR role should have access to all plants
-    if (userRole === 'CREDIT_VALIDATOR') {
-      return null; // Can access all plants
-    }
+    const { userAccess, isGlobalAdmin, currentPlantId } = options;
 
     if (isGlobalAdmin) {
       if (currentPlantId) {
@@ -136,12 +130,7 @@ export class PlantAwareDataService {
    * Check if user can create data in a specific plant
    */
   canCreateInPlant(plantId: string, options: PlantFilterOptions): boolean {
-    const { userAccess, isGlobalAdmin, userRole } = options;
-
-    // CREDIT_VALIDATOR role should have access to all plants
-    if (userRole === 'CREDIT_VALIDATOR') {
-      return true; // Can create in any plant
-    }
+    const { userAccess, isGlobalAdmin } = options;
 
     if (isGlobalAdmin) {
       return true; // Can create in any plant
@@ -164,12 +153,7 @@ export class PlantAwareDataService {
    * Get user's default plant for creating new data
    */
   getDefaultPlantForCreation(options: PlantFilterOptions): string | null {
-    const { userAccess, isGlobalAdmin, currentPlantId, userRole } = options;
-
-    // CREDIT_VALIDATOR role should have access to all plants
-    if (userRole === 'CREDIT_VALIDATOR' && currentPlantId) {
-      return currentPlantId;
-    }
+    const { userAccess, isGlobalAdmin, currentPlantId } = options;
 
     if (isGlobalAdmin && currentPlantId) {
       return currentPlantId;

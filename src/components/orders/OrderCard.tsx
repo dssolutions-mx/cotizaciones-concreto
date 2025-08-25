@@ -101,7 +101,7 @@ const getClientName = (order: Order): string => {
     return order.client_name;
   }
   
-  return order.client_id || "Cliente sin ID";
+  return order.clients?.business_name || 'Cliente no disponible';
 };
 
 export const OrderCard: React.FC<OrderCardProps> = ({ order, onClick }) => {

@@ -63,9 +63,6 @@ const permissionsByRole: Record<UserRole, Permission[]> = {
 
   CREDIT_VALIDATOR: [
     'VIEW_REPORTS',
-    'VIEW_ALL_QUOTES',
-    'MANAGE_ADMIN_COSTS',
-    'APPROVE_QUOTE', // Allow credit validators to approve/reject orders
   ],
 
   DOSIFICADOR: [

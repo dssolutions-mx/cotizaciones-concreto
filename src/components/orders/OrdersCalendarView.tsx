@@ -348,7 +348,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       onClick={() => handleOrderClick(order.id)}
                       className={`p-3 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs`}
                     >
-                      <div className="font-medium">{order.clients.business_name}</div>
+                      <div className="font-medium">{order.clients?.business_name || 'Cliente no disponible'}</div>
                       <div className="flex items-center mt-1 text-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
@@ -442,7 +442,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       onClick={() => handleOrderClick(order.id)}
                       className={`p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-sm`}
                     >
-                      <div className="font-medium truncate">{order.clients.business_name}</div>
+                      <div className="font-medium truncate">{order.clients?.business_name || 'Cliente no disponible'}</div>
                       <div className="flex items-center mt-1 text-xs">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
@@ -533,7 +533,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                     onClick={() => handleOrderClick(order.id)}
                     className={`p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-xs`}
                   >
-                    <div className="font-medium truncate">{order.clients.business_name}</div>
+                    <div className="font-medium truncate">{order.clients?.business_name || 'Cliente no disponible'}</div>
                     <div className="text-xs mt-1 flex items-center">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
