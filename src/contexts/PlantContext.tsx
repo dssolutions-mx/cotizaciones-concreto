@@ -27,8 +27,10 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
   const [userAccess, setUserAccess] = useState<UserPlantAccess | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check if user is global admin (EXECUTIVE with no plant assignment)
-  const isGlobalAdmin = profile?.role === 'EXECUTIVE' && !profile.plant_id && !profile.business_unit_id;
+  // Check if user is global admin (EXECUTIVE or CREDIT_VALIDATOR)
+  // CREDIT_VALIDATOR should always have global access, EXECUTIVE only when no plant assignment
+  const isGlobalAdmin = profile?.role === 'CREDIT_VALIDATOR' || 
+                       (profile?.role === 'EXECUTIVE' && !profile.plant_id && !profile.business_unit_id);
 
   // Fetch plant and business unit data
   const refreshPlantData = useCallback(async () => {
@@ -77,8 +79,8 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
       setUserAccess(access);
 
       // Set current plant (without localStorage to prevent hydration mismatch)
-      if (isGlobalAdmin) {
-        // Global admin can see all plants, but prioritize plants with data
+      if (isGlobalAdmin || profile?.role === 'CREDIT_VALIDATOR') {
+        // Global admin and credit validators can see all plants, but prioritize plants with data
         // First try to find a plant with recipes/remisiones, otherwise use first non-DIACE plant
         let defaultPlant = plantsData?.[0];
         
@@ -106,9 +108,10 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
     }
   }, [session, profile, isGlobalAdmin]);
 
-  // Switch plant (only for global admins or business unit managers)
+  // Switch plant (only for global admins, credit validators, or business unit managers)
   const switchPlant = useCallback((plantId: string) => {
-    if (!isGlobalAdmin && userAccess?.accessLevel !== 'BUSINESS_UNIT') {
+    const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR';
+    if (!isGlobalAdmin && !isCreditValidator && userAccess?.accessLevel !== 'BUSINESS_UNIT') {
       console.warn('User does not have permission to switch plants');
       return;
     }
@@ -124,8 +127,8 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
 
       setCurrentPlant(plant);
       
-      // Store preference for global admins
-      if (isGlobalAdmin) {
+      // Store preference for global admins and credit validators
+      if (isGlobalAdmin || profile?.role === 'CREDIT_VALIDATOR') {
         localStorage.setItem('selectedPlantId', plantId);
       }
     }
@@ -133,7 +136,8 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
 
   // Handle localStorage access after component mounts to prevent hydration mismatch
   useEffect(() => {
-    if (isGlobalAdmin && availablePlants.length > 0 && !currentPlant) {
+    const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR';
+    if ((isGlobalAdmin || isCreditValidator) && availablePlants.length > 0 && !currentPlant) {
       const storedPlantId = localStorage.getItem('selectedPlantId');
       if (storedPlantId) {
         const storedPlant = availablePlants.find(p => p.id === storedPlantId);
