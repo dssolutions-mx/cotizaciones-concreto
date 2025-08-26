@@ -42,7 +42,7 @@ export const CloseDailyLogSchema = z.object({
 
 // File upload validation
 export const DocumentUploadSchema = z.object({
-  file: z.instanceof(File, { message: 'Archivo es requerido' }),
+  file: z.any(), // Using z.any() for server-side compatibility
   type: z.enum(['entry', 'adjustment'], { 
     required_error: 'Tipo de documento es requerido',
     invalid_type_error: 'Tipo de documento no válido'
@@ -82,7 +82,7 @@ export const UpdateMaterialAdjustmentSchema = MaterialAdjustmentInputSchema.part
 
 // Arkik upload validation
 export const ArkikUploadSchema = z.object({
-  file: z.instanceof(File, { message: 'Archivo Arkik es requerido' }),
+  file: z.any(), // Using z.any() for server-side compatibility
   plant_id: z.string().uuid('ID de planta debe ser un UUID válido').optional(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
 });
