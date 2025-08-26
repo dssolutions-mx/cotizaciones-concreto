@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
-import AlertasEnsayos from '@/components/quality/AlertasEnsayos';
+
 import DetailedPointAnalysis from '@/components/quality/DetailedPointAnalysis';
 import { supabase } from '@/lib/supabase';
 import { calcularMediaSinCeros } from '@/lib/qualityMetricsUtils';
@@ -95,6 +95,7 @@ export default function QualityDashboardPage() {
   const [openRecipe, setOpenRecipe] = useState(false);
   const [openPlant, setOpenPlant] = useState(false);
   const [openStrengthRange, setOpenStrengthRange] = useState(false);
+  const [openAge, setOpenAge] = useState(false);
 
   // Extended filters for quality team needs
   const [plants, setPlants] = useState<string[]>([]);
@@ -102,6 +103,8 @@ export default function QualityDashboardPage() {
   const [selectedClasificacion, setSelectedClasificacion] = useState<'all' | 'FC' | 'MR'>('all');
   const [selectedSpecimenType, setSelectedSpecimenType] = useState<'all' | 'CILINDRO' | 'VIGA' | 'CUBO'>('all');
   const [selectedStrengthRange, setSelectedStrengthRange] = useState<'all' | 'lt-200' | '200-250' | '250-300' | '300-350' | '350-400' | 'gt-400'>('all');
+  const [selectedAge, setSelectedAge] = useState<string>('all');
+  const [availableAges, setAvailableAges] = useState<Array<{value: string, label: string}>>([]);
 
   // State for filtered advanced metrics
   const [filteredAdvancedMetrics, setFilteredAdvancedMetrics] = useState({
@@ -625,6 +628,48 @@ export default function QualityDashboardPage() {
     }
   }, [getFilteredEnsayosData, selectedRecipe]);
 
+  // Load available ages based on current data
+  const loadAvailableAges = useCallback(async () => {
+    try {
+      const filteredData = await getFilteredEnsayosData('age');
+      
+      // Extract unique ages from the data
+      const ageSet = new Set<number>();
+      
+      filteredData.forEach((item: any) => {
+        const recipe = item.muestra?.muestreo?.remision?.recipe;
+        if (recipe) {
+          let ageInDays: number;
+          if (recipe.age_hours && recipe.age_hours > 0) {
+            ageInDays = Math.round(recipe.age_hours / 24);
+          } else if (recipe.age_days && recipe.age_days > 0) {
+            ageInDays = recipe.age_days;
+          } else {
+            ageInDays = item.edad || 28; // Fallback to existing edad or default
+          }
+          ageSet.add(ageInDays);
+        }
+      });
+
+      // Format ages for display
+      const formattedAges = Array.from(ageSet)
+        .sort((a, b) => a - b)
+        .map(age => ({
+          value: age.toString(),
+          label: age === 1 ? '1 día' : `${age} días`
+        }));
+
+      setAvailableAges(formattedAges);
+      
+      // Reset age selection if no longer available
+      if (selectedAge !== 'all' && !formattedAges.some(a => a.value === selectedAge)) {
+        setSelectedAge('all');
+      }
+    } catch (err) {
+      console.error('Error loading available ages:', err);
+    }
+  }, [getFilteredEnsayosData, selectedAge]);
+
   // Update all dynamic filters when any selection changes
   useEffect(() => {
     loadAvailableClients();
@@ -632,7 +677,8 @@ export default function QualityDashboardPage() {
     loadAvailablePlants();
     loadAvailableSpecimenTypes();
     loadAvailableRecipesDynamic();
-  }, [loadAvailableClients, loadAvailableConstructionSites, loadAvailablePlants, loadAvailableSpecimenTypes, loadAvailableRecipesDynamic]);
+    loadAvailableAges();
+  }, [loadAvailableClients, loadAvailableConstructionSites, loadAvailablePlants, loadAvailableSpecimenTypes, loadAvailableRecipesDynamic, loadAvailableAges]);
 
   // Update available recipes when filters change (keep original for compatibility)
   useEffect(() => {
@@ -716,6 +762,26 @@ export default function QualityDashboardPage() {
       filtered = filtered.filter((d) => inRange(d?.muestra?.muestreo?.remision?.recipe?.strength_fc as number | null));
     }
 
+    // Age filter
+    if (selectedAge && selectedAge !== 'all') {
+      filtered = filtered.filter((d) => {
+        const recipe = d?.muestra?.muestreo?.remision?.recipe;
+        if (!recipe) return false;
+        
+        // Calculate age in days for comparison
+        let ageInDays: number;
+        if (recipe.age_hours && recipe.age_hours > 0) {
+          ageInDays = Math.round(recipe.age_hours / 24);
+        } else if (recipe.age_days && recipe.age_days > 0) {
+          ageInDays = recipe.age_days;
+        } else {
+          ageInDays = d.edad || 28; // Fallback to existing edad or default
+        }
+        
+        return ageInDays.toString() === selectedAge;
+      });
+    }
+
     // Aggregate duplicates only when focusing on guarantee age
     if (soloEdadGarantia) {
       console.log('🔍 Aggregating data for edad garantia - total points before aggregation:', filtered.length);
@@ -796,7 +862,7 @@ export default function QualityDashboardPage() {
     }
 
     return filtered.sort((a, b) => a.x - b.x);
-  }, [selectedPlant, selectedClasificacion, selectedSpecimenType, selectedStrengthRange, soloEdadGarantia]);
+  }, [selectedPlant, selectedClasificacion, selectedSpecimenType, selectedStrengthRange, selectedAge, soloEdadGarantia]);
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -1079,17 +1145,27 @@ export default function QualityDashboardPage() {
     };
   }, [preparedData]);
 
-  // Split into meaningful buckets by compliance for better readability
+  // Split into meaningful buckets by age for better readability
   const seriesBuckets = React.useMemo(() => {
-    const below90 = [] as typeof preparedData;
-    const between90And100 = [] as typeof preparedData;
-    const above100 = [] as typeof preparedData;
+    // Group data by age
+    const ageGroups = new Map<number, typeof preparedData>();
+    
     for (const p of preparedData) {
-      if (p.y < 90) below90.push(p);
-      else if (p.y < 100) between90And100.push(p);
-      else above100.push(p);
+      const age = p.edad || 28; // Default to 28 days if no age specified
+      if (!ageGroups.has(age)) {
+        ageGroups.set(age, []);
+      }
+      ageGroups.get(age)!.push(p);
     }
-    return { below90, between90And100, above100 };
+    
+    // Convert to array of age groups, sorted by age
+    const sortedAges = Array.from(ageGroups.keys()).sort((a, b) => a - b);
+    
+    return sortedAges.reduce((acc, age) => {
+      const ageKey = `age_${age}`;
+      acc[ageKey] = ageGroups.get(age)!;
+      return acc;
+    }, {} as Record<string, typeof preparedData>);
   }, [preparedData]);
 
   const mapChartPoint = (item: DatoGraficoResistencia, idx: number) => {
@@ -1158,29 +1234,39 @@ export default function QualityDashboardPage() {
   };
 
   const chartSeries = React.useMemo(() => {
-    return [
-      {
-        id: 'below90',
-        label: 'Bajo 90%',
-        color: '#ef4444',
-        markerSize: 5,
-        data: seriesBuckets.below90.map(mapChartPoint)
-      },
-      {
-        id: 'between90And100',
-        label: '90–100%',
-        color: '#f59e0b',
-        markerSize: 5,
-        data: seriesBuckets.between90And100.map(mapChartPoint)
-      },
-      {
-        id: 'above100',
-        label: '≥ 100%',
-        color: '#10b981',
-        markerSize: 5,
-        data: seriesBuckets.above100.map(mapChartPoint)
-      }
+    // Define colors for different ages
+    const ageColors = [
+      '#ef4444', // Red
+      '#f59e0b', // Orange
+      '#10b981', // Green
+      '#3b82f6', // Blue
+      '#8b5cf6', // Purple
+      '#ec4899', // Pink
+      '#14b8a6', // Teal
+      '#f97316', // Orange-600
+      '#6366f1', // Indigo
+      '#84cc16'  // Lime
     ];
+    
+    // Get sorted ages from seriesBuckets
+    const ageKeys = Object.keys(seriesBuckets).sort((a, b) => {
+      const ageA = parseInt(a.replace('age_', ''));
+      const ageB = parseInt(b.replace('age_', ''));
+      return ageA - ageB;
+    });
+    
+    return ageKeys.map((ageKey, index) => {
+      const age = parseInt(ageKey.replace('age_', ''));
+      const colorIndex = index % ageColors.length;
+      
+      return {
+        id: ageKey,
+        label: age === 1 ? '1 día' : `${age} días`,
+        color: ageColors[colorIndex],
+        markerSize: 5,
+        data: seriesBuckets[ageKey].map(mapChartPoint)
+      };
+    });
   }, [seriesBuckets]);
 
   // Custom tooltip formatter for MUI X Charts
@@ -1471,6 +1557,52 @@ export default function QualityDashboardPage() {
               </Select>
             </div>
 
+            {/* Age Filter */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Edad de Ensayo</Label>
+              <Popover open={openAge} onOpenChange={setOpenAge}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm" className="justify-between w-full">
+                    {selectedAge === 'all' ? 'Todas las edades' : (availableAges.find(a => a.value === selectedAge)?.label || selectedAge)}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[200px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Buscar edad..." />
+                    <CommandList>
+                      <CommandEmpty>No se encontraron edades.</CommandEmpty>
+                      <CommandGroup>
+                        <CommandItem
+                          value="all"
+                          onSelect={() => {
+                            setSelectedAge('all');
+                            setOpenAge(false);
+                          }}
+                        >
+                          <Check className={`mr-2 h-4 w-4 ${selectedAge === 'all' ? 'opacity-100' : 'opacity-0'}`} />
+                          Todas las edades
+                        </CommandItem>
+                        {availableAges.map((age) => (
+                          <CommandItem
+                            key={age.value}
+                            value={age.value}
+                            onSelect={() => {
+                              setSelectedAge(age.value);
+                              setOpenAge(false);
+                            }}
+                          >
+                            <Check className={`mr-2 h-4 w-4 ${selectedAge === age.value ? 'opacity-100' : 'opacity-0'}`} />
+                            {age.label}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+
             {/* Age Guarantee Toggle */}
             <div className="space-y-2">
               <Label className="text-sm font-medium text-gray-700">Edad Garantía</Label>
@@ -1500,6 +1632,7 @@ export default function QualityDashboardPage() {
                   setSelectedClasificacion('all');
                   setSelectedSpecimenType('all');
                   setSelectedStrengthRange('all');
+                  setSelectedAge('all');
                   setSoloEdadGarantia(false);
                 }}
                 className="w-full"
@@ -1514,7 +1647,7 @@ export default function QualityDashboardPage() {
       {/* Active Filters Display */}
       {(selectedClient !== 'all' || selectedConstructionSite !== 'all' || selectedRecipe !== 'all' || 
         selectedPlant !== 'all' || selectedClasificacion !== 'all' || selectedSpecimenType !== 'all' || 
-        selectedStrengthRange !== 'all' || soloEdadGarantia) && (
+        selectedStrengthRange !== 'all' || selectedAge !== 'all' || soloEdadGarantia) && (
         <div className="mb-6 flex flex-wrap gap-2">
           {selectedClient !== 'all' && (
             <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
@@ -1577,6 +1710,13 @@ export default function QualityDashboardPage() {
             <div className="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
               <span>fc: {selectedStrengthRange}</span>
               <button className="hover:bg-amber-100 rounded-full p-1" onClick={() => setSelectedStrengthRange('all')}>×</button>
+            </div>
+          )}
+
+          {selectedAge !== 'all' && (
+            <div className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>Edad: {availableAges.find(a => a.value === selectedAge)?.label || selectedAge}</span>
+              <button className="hover:bg-indigo-100 rounded-full p-1" onClick={() => setSelectedAge('all')}>×</button>
             </div>
           )}
           
@@ -2038,59 +2178,7 @@ export default function QualityDashboardPage() {
             </TabsContent>
           </Tabs>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <Card className="bg-white/70 backdrop-blur-xl border border-slate-200/60 rounded-2xl shadow-[0_8px_24px_rgba(2,6,23,0.06)]">
-              <CardHeader>
-                <CardTitle>Acciones Rápidas</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  <Link href="/quality/muestreos/new" className="bg-blue-50/70 hover:bg-blue-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-blue-100/60">
-                    <h3 className="font-medium text-blue-700 mb-1">Nuevo Muestreo</h3>
-                    <p className="text-xs text-blue-600">Registrar un muestreo de concreto</p>
-                  </Link>
-                  <Link href="/quality/site-checks/new" className="bg-emerald-50/70 hover:bg-emerald-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-emerald-100/60">
-                    <h3 className="font-medium text-emerald-700 mb-1">Nuevo registro en obra</h3>
-                    <p className="text-xs text-emerald-600">Revenimiento/Extensibilidad y temperaturas</p>
-                  </Link>
-                  
-                  <Link href="/quality/ensayos" className="bg-green-50/70 hover:bg-green-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-green-100/60">
-                    <h3 className="font-medium text-green-700 mb-1">Ensayos Pendientes</h3>
-                    <p className="text-xs text-green-600">Ver ensayos programados para hoy</p>
-                  </Link>
-                  
-                  <Link href="/quality/muestreos" className="bg-purple-50/70 hover:bg-purple-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-purple-100/60">
-                    <h3 className="font-medium text-purple-700 mb-1">Ver Muestreos</h3>
-                    <p className="text-xs text-purple-600">Historial de muestreos registrados</p>
-                  </Link>
-                  
-                  <Link href="/quality/reportes" className="bg-amber-50/70 hover:bg-amber-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-amber-100/60">
-                    <h3 className="font-medium text-amber-700 mb-1">Reportes</h3>
-                    <p className="text-xs text-amber-600">Generar reportes de calidad</p>
-                  </Link>
 
-                  <Link href="/quality/materials" className="bg-cyan-50/70 hover:bg-cyan-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-cyan-100/60">
-                    <h3 className="font-medium text-cyan-700 mb-1">Materiales</h3>
-                    <p className="text-xs text-cyan-600">Gestionar catálogo de materiales</p>
-                  </Link>
-
-                  <Link href="/quality/recipes" className="bg-rose-50/70 hover:bg-rose-100/80 backdrop-blur p-4 rounded-xl transition-colors border border-rose-100/60">
-                    <h3 className="font-medium text-rose-700 mb-1">Recetas</h3>
-                    <p className="text-xs text-rose-600">Ver y administrar recetas</p>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle>Alertas de Ensayos</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <AlertasEnsayos />
-              </CardContent>
-            </Card>
-          </div>
         </>
       )}
     </div>
