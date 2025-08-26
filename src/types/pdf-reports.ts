@@ -73,6 +73,14 @@ export interface ReportRemisionData {
     address?: string;
   };
   
+  // Plant information for VAT calculation
+  plant_info?: {
+    plant_id: string;
+    plant_code: string;
+    plant_name: string;
+    vat_percentage: number;
+  };
+  
   // Calculated fields
   unit_price?: number;
   line_total?: number;
@@ -122,6 +130,12 @@ export interface PDFReportProps {
     name?: string;
     address?: string;
     rfc?: string;
+    plant_info?: {
+      plant_id: string;
+      plant_code: string;
+      plant_name: string;
+      vat_percentage: number;
+    };
   };
   dateRange: DateRange;
   generatedAt: Date;

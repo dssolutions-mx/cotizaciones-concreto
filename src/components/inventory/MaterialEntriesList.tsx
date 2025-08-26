@@ -9,21 +9,125 @@ import {
   Plus, 
   Edit,
   FileText,
-  Truck,
   User,
   Clock,
   DollarSign,
-  ArrowUpDown
+  ArrowUpDown,
+  Paperclip,
+  Eye,
+  Trash2
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { MaterialEntry } from '@/types/inventory'
+import { MaterialEntry, InventoryDocument } from '@/types/inventory'
 import Link from 'next/link'
 import { toast } from 'sonner'
 
 interface MaterialEntriesListProps {
   date: Date
   isEditing: boolean
+}
+
+// Documents Section Component
+function DocumentsSection({ entryId, isEditing }: { entryId: string; isEditing: boolean }) {
+  const [documents, setDocuments] = useState<InventoryDocument[]>([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    fetchDocuments()
+  }, [entryId])
+
+  const fetchDocuments = async () => {
+    setLoading(true)
+    try {
+      const response = await fetch(`/api/inventory/documents?reference_id=${entryId}&type=entry`)
+      if (response.ok) {
+        const data = await response.json()
+        setDocuments(data.data || [])
+      }
+    } catch (error) {
+      console.error('Error fetching documents:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const deleteDocument = async (documentId: string) => {
+    try {
+      const response = await fetch(`/api/inventory/documents?id=${documentId}`, {
+        method: 'DELETE'
+      })
+      
+      if (response.ok) {
+        setDocuments(prev => prev.filter(doc => doc.id !== documentId))
+        toast.success('Documento eliminado correctamente')
+      } else {
+        const error = await response.json()
+        toast.error(`Error al eliminar documento: ${error.error}`)
+      }
+    } catch (error) {
+      console.error('Error deleting document:', error)
+      toast.error('Error al eliminar documento')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="p-3 bg-gray-50 rounded-lg">
+        <div className="animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
+          <div className="h-3 bg-gray-200 rounded w-full"></div>
+        </div>
+      </div>
+    )
+  }
+
+  if (documents.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="p-3 bg-gray-50 rounded-lg">
+      <h5 className="text-sm font-medium text-gray-900 mb-2 flex items-center gap-2">
+        <Paperclip className="h-4 w-4" />
+        Documentos ({documents.length})
+      </h5>
+      <div className="space-y-2">
+        {documents.map((doc) => (
+          <div key={doc.id} className="flex items-center justify-between text-xs p-2 bg-white rounded border">
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="text-gray-700 truncate">{doc.original_name}</span>
+              <span className="text-xs text-gray-500">
+                {format(new Date(doc.created_at), 'dd/MM/yyyy HH:mm')}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              {doc.url && (
+                <a
+                  href={doc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+                  title="Ver documento"
+                >
+                  <Eye className="h-3 w-3" />
+                </a>
+              )}
+              {isEditing && (
+                <button
+                  onClick={() => deleteDocument(doc.id)}
+                  className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                  title="Eliminar documento"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 export default function MaterialEntriesList({ date, isEditing }: MaterialEntriesListProps) {
@@ -140,7 +244,7 @@ export default function MaterialEntriesList({ date, isEditing }: MaterialEntries
               <div>
                 <h4 className="text-sm font-medium text-gray-900 mb-2">Cantidad Recibida</h4>
                 <p className="text-lg font-semibold text-green-600">
-                  {entry.quantity_received.toLocaleString('es-ES', { 
+                  {entry.quantity_received.toLocaleString('es-MX', { 
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2 
                   })} kg
@@ -155,7 +259,7 @@ export default function MaterialEntriesList({ date, isEditing }: MaterialEntries
                   <div className="flex items-center gap-2">
                     <DollarSign className="h-4 w-4 text-gray-500" />
                     <span className="text-sm text-gray-600">
-                      Precio unitario: ${entry.unit_price.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                      Precio unitario: ${entry.unit_price.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 )}
@@ -163,7 +267,7 @@ export default function MaterialEntriesList({ date, isEditing }: MaterialEntries
                   <div className="flex items-center gap-2">
                     <DollarSign className="h-4 w-4 text-gray-500" />
                     <span className="text-sm font-medium text-gray-900">
-                      Total: ${entry.total_cost.toLocaleString('es-ES', { minimumFractionDigits: 2 })}
+                      Total: ${entry.total_cost.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 )}
@@ -174,30 +278,16 @@ export default function MaterialEntriesList({ date, isEditing }: MaterialEntries
             <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg">
               <ArrowUpDown className="h-4 w-4 text-blue-600" />
               <span className="text-sm text-blue-900">
-                Inventario: {entry.inventory_before.toLocaleString('es-ES')} → {entry.inventory_after.toLocaleString('es-ES')} kg
+                Inventario: {entry.inventory_before.toLocaleString('es-MX')} → {entry.inventory_after.toLocaleString('es-MX')} kg
               </span>
             </div>
 
             {/* Additional Details */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               {entry.supplier_invoice && (
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-gray-500" />
-                  <span className="text-gray-600">Factura: {entry.supplier_invoice}</span>
-                </div>
-              )}
-              
-              {entry.truck_number && (
-                <div className="flex items-center gap-2">
-                  <Truck className="h-4 w-4 text-gray-500" />
-                  <span className="text-gray-600">Camión: {entry.truck_number}</span>
-                </div>
-              )}
-              
-              {entry.driver_name && (
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-gray-500" />
-                  <span className="text-gray-600">Conductor: {entry.driver_name}</span>
+                  <span className="text-gray-600">Remisión: {entry.supplier_invoice}</span>
                 </div>
               )}
             </div>
@@ -209,6 +299,9 @@ export default function MaterialEntriesList({ date, isEditing }: MaterialEntries
                 <p className="text-sm text-yellow-800">{entry.notes}</p>
               </div>
             )}
+
+            {/* Documents */}
+            <DocumentsSection entryId={entry.id} isEditing={isEditing} />
 
             {/* Footer Info */}
             <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">

@@ -1,0 +1,42 @@
+UPDATE public.quality_notification_queue SET
+    muestra_id = '3466e9f1-0aa5-460e-b9e4-c1382497003a'::uuid,
+    fecha_programada_envio = '2025-08-04'::date,
+    estado = 'ERROR',
+    intentos = 3,
+    ultimo_intento = NULL,
+    mensaje_error = 'EXPIRED: Notification overdue by more than 1 week - test should be completed',
+    created_at = '2025-08-18 22:39:42.976775+00'::timestamptz,
+    updated_at = '2025-08-18 22:46:09.819799+00'::timestamptz,
+    plant_id = '836cbbcf-67b2-4534-97cc-b83e71722ff7'::uuid,
+    fecha_envio_timestamp_utc = '2025-08-04 07:55:00+00'::timestamptz,
+    tipo_notificacion = 'REMINDER_5MIN',
+    timezone_local = 'America/Mexico_City'
+  WHERE id = '6fec4f09-47ed-4572-bae0-42eda078bbc3'::uuid;
+UPDATE public.quality_notification_queue SET
+    muestra_id = 'f354cd8e-0347-4a49-b98e-a67282c3f55a'::uuid,
+    fecha_programada_envio = '2025-08-04'::date,
+    estado = 'ERROR',
+    intentos = 3,
+    ultimo_intento = NULL,
+    mensaje_error = 'EXPIRED: Notification overdue by more than 1 week - test should be completed',
+    created_at = '2025-08-18 22:39:42.976775+00'::timestamptz,
+    updated_at = '2025-08-18 22:46:09.819799+00'::timestamptz,
+    plant_id = '836cbbcf-67b2-4534-97cc-b83e71722ff7'::uuid,
+    fecha_envio_timestamp_utc = '2025-08-04 07:55:00+00'::timestamptz,
+    tipo_notificacion = 'REMINDER_5MIN',
+    timezone_local = 'America/Mexico_City'
+  WHERE id = '66f9d022-53ec-402c-9803-6229a19fa0d2'::uuid;
+UPDATE public.quality_notification_queue SET
+    muestra_id = '278fb701-eff8-42a4-9f6b-5887a00c19fe'::uuid,
+    fecha_programada_envio = '2025-07-14'::date,
+    estado = 'ERROR',
+    intentos = 3,
+    ultimo_intento = NULL,
+    mensaje_error = 'EXPIRED: Notification overdue by more than 1 week - test should be completed',
+    created_at = '2025-08-18 22:39:42.976775+00'::timestamptz,
+    updated_at = '2025-08-18 22:46:09.819799+00'::timestamptz,
+    plant_id = '836cbbcf-67b2-4534-97cc-b83e71722ff7'::uuid,
+    fecha_envio_timestamp_utc = '2025-07-14 07:55:00+00'::timestamptz,
+    tipo_notificacion = 'REMINDER_5MIN',
+    timezone_local = 'America/Mexico_City'
+  WHERE id = '62d40894-19f3-4fe7-9a53-db45845d715f'::uuid;

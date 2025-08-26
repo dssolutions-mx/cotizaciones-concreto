@@ -1,23 +1,33 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import React, { useState, useEffect } from 'react'
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { 
   Package, 
   TrendingDown, 
-  ArrowUpDown,
+  FileText, 
   Calendar,
-  FileText
+  ArrowUpDown
 } from 'lucide-react'
-import { useAuth } from '@/lib/hooks/useAuth'
-import { DailyInventoryLog } from '@/types/inventory'
 import Link from 'next/link'
 
+interface DailyLog {
+  id: string
+  plant_id: string
+  log_date: string
+  total_entries: number
+  total_adjustments: number
+  total_consumption: number
+  is_closed: boolean
+  daily_notes: string | null
+  created_at: string
+  updated_at: string
+}
+
 export default function DailyInventorySummary() {
-  const { userProfile } = useAuth()
-  const [dailyLog, setDailyLog] = useState<DailyInventoryLog | null>(null)
+  const [dailyLog, setDailyLog] = useState<DailyLog | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -31,7 +41,7 @@ export default function DailyInventorySummary() {
       
       if (response.ok) {
         const data = await response.json()
-        setDailyLog(data.dailyLog)
+        setDailyLog(data.data)
       }
     } catch (error) {
       console.error('Error fetching daily log:', error)
@@ -100,41 +110,45 @@ export default function DailyInventorySummary() {
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Entradas */}
-          <div className="flex items-center space-x-4 p-4 bg-blue-50 rounded-lg">
-            <div className="p-3 bg-blue-100 rounded-full">
-              <Package className="h-6 w-6 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-blue-900">Entradas</p>
-              <p className="text-2xl font-bold text-blue-700">
+          <Card className="h-full border-s-4 border-s-blue-500">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+              <CardTitle className="text-sm font-medium">Entradas</CardTitle>
+              <Package className="h-5 w-5 text-blue-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-700 mb-1">
                 {dailyLog?.total_entries || 0}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                registros del día
               </p>
-              <p className="text-xs text-blue-600">registros del día</p>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Ajustes */}
-          <div className="flex items-center space-x-4 p-4 bg-orange-50 rounded-lg">
-            <div className="p-3 bg-orange-100 rounded-full">
-              <TrendingDown className="h-6 w-6 text-orange-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-orange-900">Ajustes</p>
-              <p className="text-2xl font-bold text-orange-700">
+          <Card className="h-full border-s-4 border-s-orange-500">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+              <CardTitle className="text-sm font-medium">Ajustes</CardTitle>
+              <TrendingDown className="h-5 w-5 text-orange-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-700 mb-1">
                 {dailyLog?.total_adjustments || 0}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                movimientos manuales
               </p>
-              <p className="text-xs text-orange-600">movimientos manuales</p>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Consumo Total */}
-          <div className="flex items-center space-x-4 p-4 bg-red-50 rounded-lg">
-            <div className="p-3 bg-red-100 rounded-full">
-              <ArrowUpDown className="h-6 w-6 text-red-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-red-900">Consumo Total</p>
-              <p className="text-2xl font-bold text-red-700">
+          <Card className="h-full border-s-4 border-s-red-500">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-1">
+              <CardTitle className="text-sm font-medium">Consumo Total</CardTitle>
+              <ArrowUpDown className="h-5 w-5 text-red-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-700 mb-1">
                 {dailyLog?.total_consumption 
                   ? Number(dailyLog.total_consumption).toLocaleString('es-ES', { 
                       minimumFractionDigits: 2, 
@@ -142,10 +156,12 @@ export default function DailyInventorySummary() {
                     })
                   : '0.00'
                 }
+              </div>
+              <p className="text-xs text-muted-foreground">
+                kg de materiales
               </p>
-              <p className="text-xs text-red-600">kg de materiales</p>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Daily Notes */}
@@ -153,24 +169,6 @@ export default function DailyInventorySummary() {
           <div className="mt-6 p-4 bg-gray-50 rounded-lg">
             <h4 className="text-sm font-medium text-gray-900 mb-2">Notas del Día</h4>
             <p className="text-sm text-gray-700">{dailyLog.daily_notes}</p>
-          </div>
-        )}
-
-        {/* Action Buttons */}
-        {!dailyLog?.is_closed && userProfile?.role !== 'DOSIFICADOR' && (
-          <div className="mt-6 flex gap-3">
-            <Link href="/inventory/entries">
-              <Button variant="outline" size="sm">
-                <Package className="h-4 w-4 mr-2" />
-                Nueva Entrada
-              </Button>
-            </Link>
-            <Link href="/inventory/adjustments">
-              <Button variant="outline" size="sm">
-                <TrendingDown className="h-4 w-4 mr-2" />
-                Nuevo Ajuste
-              </Button>
-            </Link>
           </div>
         )}
       </CardContent>

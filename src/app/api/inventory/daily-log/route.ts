@@ -39,6 +39,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
+    // For users without plant_id (like EXECUTIVE), return empty data
+    if (!profile.plant_id) {
+      return NextResponse.json({
+        success: true,
+        data: {
+          id: null,
+          plant_id: null,
+          log_date: validatedQuery.date,
+          total_entries: 0,
+          total_adjustments: 0,
+          total_consumption: 0,
+          is_closed: false,
+          daily_notes: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }
+      });
+    }
+
     // Validate query parameters
     const validatedQuery = GetDailyLogQuerySchema.parse(queryParams);
 
@@ -117,6 +136,15 @@ export async function POST(request: NextRequest) {
     const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
+    }
+
+    // For users without plant_id (like EXECUTIVE), return success but no data
+    if (!profile.plant_id) {
+      return NextResponse.json({
+        success: true,
+        data: null,
+        message: 'Usuario sin planta asignada - no se puede crear bitácora diaria',
+      });
     }
 
     const body = await request.json();

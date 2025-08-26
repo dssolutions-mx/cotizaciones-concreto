@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const queryParams = {
       material_id: searchParams.get('material_id') || undefined,
+      plant_id: searchParams.get('plant_id') || undefined,
       low_stock_only: searchParams.get('low_stock_only') || undefined,
     };
 
@@ -42,24 +43,57 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
-    // Get current inventory status
-    const { data: inventory, error: inventoryError } = await supabase
-      .from('material_inventory')
-      .select(`
-        *,
-        material:materials(id, material_name, category, unit, is_active)
-      `)
-      .eq('plant_id', profile.plant_id)
-      .eq('material.is_active', true);
-
-    if (inventoryError) {
-      throw new Error(`Error al obtener inventario: ${inventoryError.message}`);
+    // Determine which plant_id to use
+    let targetPlantId = profile.plant_id;
+    if (validatedQuery.plant_id && profile.role === 'EXECUTIVE') {
+      // Only EXECUTIVE users can query other plants
+      targetPlantId = validatedQuery.plant_id;
+    } else if (validatedQuery.plant_id && profile.plant_id !== validatedQuery.plant_id) {
+      return NextResponse.json({ error: 'No puede consultar inventario de otras plantas' }, { status: 403 });
     }
 
-    return NextResponse.json({
-      success: true,
-      data: inventory,
-    });
+    if (!targetPlantId) {
+      return NextResponse.json({ error: 'Planta no especificada' }, { status: 400 });
+    }
+
+    // Get current inventory status
+    try {
+      const { data: inventory, error: inventoryError } = await supabase
+        .from('material_inventory')
+        .select(`
+          *,
+          material:materials(id, material_name, category, unit_of_measure, is_active)
+        `)
+        .eq('plant_id', targetPlantId)
+        .eq('material.is_active', true);
+
+      if (inventoryError) {
+        // If the table doesn't exist, return empty inventory
+        if (inventoryError.message.includes('does not exist') || inventoryError.message.includes('relation')) {
+          return NextResponse.json({
+            success: true,
+            inventory: [],
+            message: 'Sistema de inventario no implementado aún'
+          });
+        }
+        throw new Error(`Error al obtener inventario: ${inventoryError.message}`);
+      }
+
+      return NextResponse.json({
+        success: true,
+        inventory: inventory,
+      });
+    } catch (error) {
+      // Handle case where material_inventory table doesn't exist
+      if (error instanceof Error && error.message.includes('does not exist')) {
+        return NextResponse.json({
+          success: true,
+          inventory: [],
+          message: 'Sistema de inventario no implementado aún'
+        });
+      }
+      throw error;
+    }
 
   } catch (error) {
     console.error('Error in inventory GET:', error);
@@ -177,8 +211,6 @@ export async function POST(request: NextRequest) {
           entry_time: new Date().toTimeString().split(' ')[0],
           quantity_received: validatedData.quantity_received,
           supplier_invoice: validatedData.supplier_invoice,
-          truck_number: validatedData.truck_number,
-          driver_name: validatedData.driver_name,
           inventory_before: inventoryBefore,
           inventory_after: inventoryAfter,
           notes: validatedData.notes,

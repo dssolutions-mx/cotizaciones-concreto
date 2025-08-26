@@ -58,17 +58,50 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   const router = useRouter();
   const { profile } = useAuthBridge();
   
-  // Use plant-aware orders hook
+  // Check if user is a dosificador
+  const isDosificador = profile?.role === 'DOSIFICADOR';
+
+  // Use plant-aware orders hook for non-dosificador users
   const { 
-    orders: allOrders, 
-    isLoading: loading, 
-    error, 
-    refetch: loadOrders 
+    orders: plantAwareOrders, 
+    isLoading: plantLoading, 
+    error: plantError, 
+    refetch: plantRefetch 
   } = usePlantAwareOrders({
     statusFilter,
     creditStatusFilter,
     autoRefresh: true
   });
+
+  // Handle DOSIFICADOR role separately
+  const [dosificadorOrders, setDosificadorOrders] = useState<OrderWithClient[]>([]);
+  const [dosificadorLoading, setDosificadorLoading] = useState(false);
+  const [dosificadorError, setDosificadorError] = useState<string | null>(null);
+
+  // Load orders for DOSIFICADOR role
+  const loadDosificadorOrders = useCallback(async () => {
+    if (!isDosificador) return;
+    
+    setDosificadorLoading(true);
+    setDosificadorError(null);
+
+    try {
+      const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
+      const data = await getOrdersForDosificador();
+      setDosificadorOrders(data);
+    } catch (err) {
+      console.error('Error loading dosificador orders:', err);
+      setDosificadorError('Error al cargar los pedidos. Por favor, intente nuevamente.');
+    } finally {
+      setDosificadorLoading(false);
+    }
+  }, [isDosificador]);
+
+  // Determine which orders and loading state to use
+  const allOrders = isDosificador ? dosificadorOrders : plantAwareOrders;
+  const loading = isDosificador ? dosificadorLoading : plantLoading;
+  const error = isDosificador ? dosificadorError : plantError;
+  const loadOrders = isDosificador ? loadDosificadorOrders : plantRefetch;
   
   useEffect(() => {
     if (preferences.calendarViewType !== viewType) {
@@ -183,8 +216,12 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   }, [filteredOrders, currentDate, viewType]);
 
   useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
+    if (isDosificador) {
+      loadDosificadorOrders();
+    } else {
+      loadOrders();
+    }
+  }, [isDosificador, loadDosificadorOrders, loadOrders]);
 
   const handleViewTypeChange = useCallback((newViewType: ViewType) => {
     setViewType(newViewType);
@@ -308,7 +345,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
           {error}
-          <button onClick={loadOrders} className="ml-auto bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded-md text-sm">
+          <button onClick={() => isDosificador ? loadDosificadorOrders() : loadOrders()} className="ml-auto bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded-md text-sm">
             Reintentar
           </button>
         </div>

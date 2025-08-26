@@ -16,6 +16,7 @@ import {
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { getRecipeMaterials } from '@/utils/recipeMaterialsCache';
 
 // Define Recipe type inline if import is problematic
 interface Recipe {
@@ -254,9 +255,14 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
 
       // 2. Insert materials if it's a CONCRETO remision and materials exist
       if (tipoRemision === 'CONCRETO' && manualMaterials.length > 0) {
+        // Get recipe materials with optimized caching
+        const materialIdMap = await getRecipeMaterials(formData.recipeId);
+
+        // Prepare materials with material_id from recipe
         const materialsToInsert = manualMaterials.map(mat => ({
           remision_id: newRemisionId,
           material_type: mat.material_type,
+          material_id: materialIdMap.get(mat.material_type) || null, // Get material_id from recipe
           cantidad_real: mat.cantidad_real,
           cantidad_teorica: (mat.cantidad_teorica || 0) * volumen, // Multiply by volume
           ajuste: 0 // Manual entries don't have retrabajo/manual adjustments

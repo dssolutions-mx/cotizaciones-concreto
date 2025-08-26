@@ -96,7 +96,17 @@ export class ReportDataService {
             slump,
             age_days
           ),
-          materiales:remision_materiales(*)
+          materiales:remision_materiales(*),
+          plant:plants (
+            id,
+            code,
+            name,
+            business_unit:business_units (
+              id,
+              name,
+              vat_rate
+            )
+          )
         `)
         .in('order_id', orderIds);
 
@@ -135,7 +145,8 @@ export class ReportDataService {
         // Calculate financial fields
         const unitPrice = orderItem?.unit_price || 0;
         const lineTotal = unitPrice * remision.volumen_fabricado;
-        const vatAmount = lineTotal * 0.16; // 16% VAT
+        const vatRate = remision.plant?.business_unit?.vat_rate || 16; // Use plant's business unit VAT rate or default to 16%
+        const vatAmount = lineTotal * (vatRate / 100);
         const finalTotal = lineTotal + vatAmount;
 
         return {
@@ -163,7 +174,14 @@ export class ReportDataService {
           unit_price: unitPrice,
           line_total: lineTotal,
           vat_amount: vatAmount,
-          final_total: finalTotal
+          final_total: finalTotal,
+          // Plant information for VAT calculation
+          plant_info: remision.plant ? {
+            plant_id: remision.plant.id,
+            plant_code: remision.plant.code,
+            plant_name: remision.plant.name,
+            vat_percentage: vatRate
+          } : undefined
         };
       });
 

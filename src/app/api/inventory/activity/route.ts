@@ -39,6 +39,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
+    // For users without plant_id (like EXECUTIVE), return empty data
+    if (!profile.plant_id) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+        pagination: {
+          limit: validatedQuery.limit,
+          offset: validatedQuery.offset,
+          hasMore: false,
+        },
+      });
+    }
+
     // Validate query parameters
     const validatedQuery = GetActivitiesQuerySchema.parse(queryParams);
 
@@ -46,7 +59,7 @@ export async function GET(request: NextRequest) {
     const { data: activities, error: activitiesError } = await supabase
       .from('vw_daily_inventory_activity')
       .select('*')
-      .eq('plant_name', profile.plant_id); // Note: This view might need adjustment for plant filtering
+      .eq('plant_id', profile.plant_id); // Fixed: should be plant_id, not plant_name
 
     if (activitiesError) {
       throw new Error(`Error al obtener actividad diaria: ${activitiesError.message}`);
