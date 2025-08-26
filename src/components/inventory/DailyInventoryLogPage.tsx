@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Calendar as CalendarIcon, Package, TrendingDown, ArrowUpDown, FileText, Save, Lock } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { useAuth } from '@/lib/hooks/useAuth'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { DailyInventoryLog } from '@/types/inventory'
 import { Calendar } from '@/components/ui/calendar'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -19,7 +19,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 
 export default function DailyInventoryLogPage() {
-  const { userProfile } = useAuth()
+  const { profile } = useAuthSelectors()
   const [selectedDate, setSelectedDate] = useState<Date>(new Date())
   const [dailyLog, setDailyLog] = useState<DailyInventoryLog | null>(null)
   const [loading, setLoading] = useState(true)
@@ -39,8 +39,8 @@ export default function DailyInventoryLogPage() {
       
       if (response.ok) {
         const data = await response.json()
-        setDailyLog(data.dailyLog)
-        setNotes(data.dailyLog?.daily_notes || '')
+        setDailyLog(data.data)
+        setNotes(data.data?.daily_notes || '')
       }
     } catch (error) {
       console.error('Error fetching daily log:', error)
@@ -117,7 +117,7 @@ export default function DailyInventoryLogPage() {
     }
   }
 
-  const canEdit = userProfile?.role !== 'DOSIFICADOR' && !dailyLog?.is_closed
+  const canEdit = profile?.role !== 'DOSIFICADOR' && !dailyLog?.is_closed
   const isToday = format(selectedDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
 
   if (loading) {

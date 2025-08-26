@@ -1,4 +1,4 @@
-import { createClientSupabaseClient } from '@/lib/supabase-client'
+import { supabase } from '@/lib/supabase/client'
 
 export type UploadType = 'entry' | 'adjustment' | 'arkik' | 'general'
 
@@ -16,7 +16,6 @@ export async function uploadDocument(
   uploadType: UploadType,
   options: UploadOptions = {}
 ): Promise<string> {
-  const supabase = createClientSupabaseClient()
   
   const {
     folder = uploadType,
@@ -79,7 +78,6 @@ export async function uploadDocument(
  * Delete a file from Supabase Storage
  */
 export async function deleteDocument(url: string): Promise<void> {
-  const supabase = createClientSupabaseClient()
   
   try {
     // Extract file path from URL
@@ -108,7 +106,6 @@ export async function deleteDocument(url: string): Promise<void> {
  * Get file metadata from Supabase Storage
  */
 export async function getFileMetadata(url: string) {
-  const supabase = createClientSupabaseClient()
   
   try {
     // Extract file path from URL

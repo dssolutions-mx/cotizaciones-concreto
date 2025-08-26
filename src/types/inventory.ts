@@ -10,9 +10,6 @@ export interface MaterialEntry {
   unit_price?: number;
   total_cost?: number;
   supplier_invoice?: string;
-  truck_number?: string;
-  driver_name?: string;
-  receipt_document_url?: string;
   inventory_before: number;
   inventory_after: number;
   notes?: string;
@@ -83,11 +80,9 @@ export interface MaterialEntryInput {
   supplier_id?: string;
   quantity_received: number;
   supplier_invoice?: string;
-  truck_number?: string;
-  driver_name?: string;
   notes?: string;
   entry_date?: string; // defaults to today
-  documents?: File[];
+  plant_id?: string; // Added for plant-specific filtering
 }
 
 export interface MaterialAdjustmentInput {
@@ -194,6 +189,7 @@ export interface MaterialSelectProps {
   onChange: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  plantId?: string;
 }
 
 export interface SupplierSelectProps {
@@ -201,6 +197,7 @@ export interface SupplierSelectProps {
   onChange: (value: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  plantId?: string;
 }
 
 export interface FileUploadProps {
@@ -239,4 +236,31 @@ export interface Supplier {
   phone?: string;
   email?: string;
   is_active: boolean;
+}
+
+export interface InventoryDocument {
+  id: string;
+  entry_id?: string;
+  adjustment_id?: string;
+  file_name: string;
+  original_name: string;
+  file_path: string;
+  file_size: number;
+  mime_type: string;
+  document_type: 'entry' | 'adjustment';
+  uploaded_by: string;
+  created_at: string;
+  updated_at: string;
+  url?: string; // Signed URL for viewing
+}
+
+export interface PendingFile {
+  file: File;
+  name: string;
+  size: number;
+  type: string;
+  status: 'pending' | 'uploaded' | 'error';
+  documentId?: string;
+  error?: string;
+  url?: string;
 }

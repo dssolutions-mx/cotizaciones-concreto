@@ -1,13 +1,13 @@
 'use client'
 
 import React from 'react'
-import { useAuth } from '@/lib/hooks/useAuth'
-import { PlantContextDisplay } from '@/components/plants/PlantContextDisplay'
+import { useAuthSelectors } from '@/hooks/use-auth-zustand'
+import PlantContextDisplay from '@/components/plants/PlantContextDisplay'
 import { Button } from '@/components/ui/button'
 import { Bell, Menu } from 'lucide-react'
 
 export default function InventoryHeader() {
-  const { userProfile } = useAuth()
+  const { profile } = useAuthSelectors()
 
   return (
     <div className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-gray-200 bg-white px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
@@ -38,11 +38,11 @@ export default function InventoryHeader() {
           <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-gray-200" aria-hidden="true" />
           <div className="flex items-center gap-x-4">
             <span className="text-sm font-medium text-gray-900">
-              {userProfile?.first_name} {userProfile?.last_name}
+              {profile?.first_name} {profile?.last_name}
             </span>
             <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-              {userProfile?.role === 'DOSIFICADOR' ? 'Dosificador' : 
-               userProfile?.role === 'PLANT_MANAGER' ? 'Jefe de Planta' : 
+              {profile?.role === 'DOSIFICADOR' ? 'Dosificador' : 
+               profile?.role === 'PLANT_MANAGER' ? 'Jefe de Planta' : 
                'Ejecutivo'}
             </span>
           </div>

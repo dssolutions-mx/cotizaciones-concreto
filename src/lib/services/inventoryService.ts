@@ -84,7 +84,7 @@ export class InventoryService {
       .from('material_inventory')
       .select(`
         *,
-        material:materials(id, material_name, category, unit, is_active)
+        material:materials(id, material_name, category, unit_of_measure, is_active)
       `)
       .eq('plant_id', profile.plant_id);
 

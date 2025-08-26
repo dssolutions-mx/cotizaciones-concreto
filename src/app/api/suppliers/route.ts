@@ -22,8 +22,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    // Check if user has permission to view materials
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
+    // Check if user has permission to view suppliers
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'QUALITY_TEAM'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
@@ -32,29 +32,29 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id');
 
-    // Build query for materials
+    // Build query for suppliers
     let query = supabase
-      .from('materials')
+      .from('suppliers')
       .select('*')
       .eq('is_active', true)
-      .order('material_name');
+      .order('provider_number');
 
     // Filter by plant if specified
     if (plantId) {
       query = query.eq('plant_id', plantId);
     }
 
-    // Fetch materials
-    const { data: materials, error } = await query;
+    // Fetch suppliers
+    const { data: suppliers, error } = await query;
 
     if (error) {
-      console.error('Error fetching materials:', error);
-      return NextResponse.json({ error: 'Failed to fetch materials' }, { status: 500 });
+      console.error('Error fetching suppliers:', error);
+      return NextResponse.json({ error: 'Failed to fetch suppliers' }, { status: 500 });
     }
 
-    return NextResponse.json({ materials });
+    return NextResponse.json({ suppliers });
   } catch (error) {
-    console.error('Error in materials API:', error);
+    console.error('Error in suppliers API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -80,8 +80,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    // Check if user has permission to create materials
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
+    // Check if user has permission to create suppliers
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
@@ -89,28 +89,28 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     
     // Validate required fields
-    if (!body.material_code || !body.material_name || !body.category || !body.unit_of_measure) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    if (!body.name || !body.provider_number || !body.plant_id) {
+      return NextResponse.json({ error: 'Missing required fields: name, provider_number, plant_id' }, { status: 400 });
     }
 
-    // Create material
-    const { data: material, error } = await supabase
-      .from('materials')
+    // Create supplier
+    const { data: supplier, error } = await supabase
+      .from('suppliers')
       .insert([{
         ...body,
-        plant_id: profile.plant_id || null
+        is_active: true
       }])
       .select()
       .single();
 
     if (error) {
-      console.error('Error creating material:', error);
-      return NextResponse.json({ error: 'Failed to create material' }, { status: 500 });
+      console.error('Error creating supplier:', error);
+      return NextResponse.json({ error: 'Failed to create supplier' }, { status: 500 });
     }
 
-    return NextResponse.json({ material });
+    return NextResponse.json({ supplier });
   } catch (error) {
-    console.error('Error in materials API:', error);
+    console.error('Error in suppliers POST API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-} 
+}

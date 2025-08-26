@@ -5,11 +5,10 @@ export const MaterialEntryInputSchema = z.object({
   material_id: z.string().uuid('ID de material debe ser un UUID válido'),
   supplier_id: z.string().uuid('ID de proveedor debe ser un UUID válido').optional(),
   quantity_received: z.number().positive('La cantidad debe ser positiva'),
-  supplier_invoice: z.string().max(100, 'Factura del proveedor no puede exceder 100 caracteres').optional(),
-  truck_number: z.string().max(50, 'Número de camión no puede exceder 50 caracteres').optional(),
-  driver_name: z.string().max(100, 'Nombre del conductor no puede exceder 100 caracteres').optional(),
+  supplier_invoice: z.string().max(100, 'Número de remisión no puede exceder 100 caracteres').optional(),
   notes: z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres').optional(),
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
+  plant_id: z.string().uuid('ID de planta debe ser un UUID válido').optional(),
 });
 
 export const MaterialAdjustmentInputSchema = z.object({
