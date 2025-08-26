@@ -58,11 +58,24 @@ export interface PointAnalysisData {
 
 export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Promise<PointAnalysisData | null> {
   try {
+    console.log('🔍 fetchPointAnalysisData called with point:', {
+      point: point,
+      hasMuestra: !!point.muestra,
+      hasMuestreo: !!point.muestra?.muestreo,
+      muestreoId: point.muestra?.muestreo?.id
+    });
+
     if (!point.muestra?.muestreo?.id) {
+      console.error('❌ Point validation failed:', {
+        point: point,
+        muestra: point.muestra,
+        muestreo: point.muestra?.muestreo
+      });
       throw new Error('Point does not have associated muestreo data');
     }
 
     const muestreoId = point.muestra.muestreo.id;
+    console.log('🔍 Fetching muestreo data for ID:', muestreoId);
 
     // Fetch detailed muestreo data with all related information
     const { data: muestreoData, error: muestreoError } = await supabase
@@ -71,25 +84,36 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
         *,
         remision:remision_id (
           *,
-          recipe:recipes(*),
-          orders(
-            clients(*),
-            construction_sites(*)
+          recipe:recipe_id (
+            *
+          ),
+          order:order_id (
+            *,
+            clients:client_id (
+              *
+            )
           )
         ),
         muestras(
           *,
           ensayos(
-            *,
-            muestras!inner(*)
+            *
           )
         )
       `)
       .eq('id', muestreoId)
       .single();
 
-    if (muestreoError) throw muestreoError;
-    if (!muestreoData) return null;
+    console.log('🔍 Muestreo query result:', { muestreoData, muestreoError });
+    
+    if (muestreoError) {
+      console.error('❌ Supabase error fetching muestreo:', muestreoError);
+      throw muestreoError;
+    }
+    if (!muestreoData) {
+      console.warn('⚠️ No muestreo data found for ID:', muestreoId);
+      return null;
+    }
 
     // Fetch resistance evolution data for this specific point
     // First, try to get data from the same muestreo and related ones
@@ -108,7 +132,12 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
       .eq('muestras.muestreos.remision_id', muestreoData.remision_id)
       .order('fecha_ensayo', { ascending: true });
 
-    if (evolutionError) throw evolutionError;
+    console.log('🔍 Evolution query result:', { evolutionData, evolutionError });
+    
+    if (evolutionError) {
+      console.error('❌ Supabase error fetching evolution data:', evolutionError);
+      throw evolutionError;
+    }
 
     // Process evolution data to show time progression, not guarantee age grouping
     const evolutionMap = new Map<string, any[]>();
@@ -219,6 +248,13 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
 
     return analysisData;
   } catch (error) {
+    console.error('🚨 Full error details in fetchPointAnalysisData:', {
+      error: error,
+      errorType: typeof error,
+      errorConstructor: error?.constructor?.name,
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      errorStack: error instanceof Error ? error.stack : undefined
+    });
     handleError(error, 'fetchPointAnalysisData');
     return null;
   }
