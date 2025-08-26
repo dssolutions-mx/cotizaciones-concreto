@@ -39,6 +39,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
+    // Validate query parameters first
+    const validatedQuery = GetActivitiesQuerySchema.parse(queryParams);
+
     // For users without plant_id (like EXECUTIVE), return empty data
     if (!profile.plant_id) {
       return NextResponse.json({
@@ -51,9 +54,6 @@ export async function GET(request: NextRequest) {
         },
       });
     }
-
-    // Validate query parameters
-    const validatedQuery = GetActivitiesQuerySchema.parse(queryParams);
 
     // Get daily activity from the view
     const { data: activities, error: activitiesError } = await supabase
