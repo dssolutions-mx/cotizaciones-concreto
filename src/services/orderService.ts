@@ -609,7 +609,16 @@ export async function cancelOrder(orderId: string) {
 export async function getOrdersForDosificador() {
   // Fetch orders relevant for DOSIFICADOR role (read-only access)
   try {
-    const { data, error } = await supabase
+    // First, get the current user's profile to check their plant assignment
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('plant_id')
+      .eq('id', (await supabase.auth.getUser()).data.user?.id)
+      .single();
+
+    if (profileError) throw profileError;
+
+    let query = supabase
       .from('orders')
       .select(`
         id, 
@@ -620,11 +629,18 @@ export async function getOrdersForDosificador() {
         total_amount,
         order_status,
         credit_status,
+        plant_id,
         clients!inner(id, business_name, client_code)
       `)
       // Use only active status orders
-      .in('order_status', ['CREATED', 'VALIDATED', 'SCHEDULED']) 
-      .order('delivery_date', { ascending: true });
+      .in('order_status', ['CREATED', 'VALIDATED', 'SCHEDULED']);
+
+    // Filter by the user's assigned plant if they have one
+    if (profile?.plant_id) {
+      query = query.eq('plant_id', profile.plant_id);
+    }
+
+    const { data, error } = await query.order('delivery_date', { ascending: true });
     
     if (error) throw error;
     return data as unknown as OrderWithClient[];
