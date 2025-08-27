@@ -456,12 +456,12 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
             Notas y Documentos
           </CardTitle>
           <CardDescription>
-            Información adicional y documentos de evidencia
+            Información adicional y documentos de evidencia. Use la cámara para capturar documentos o suba archivos existentes.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="notes">Notas</Label>
+            <Label>Notas</Label>
             <Textarea
               id="notes"
               value={formData.notes || ''}
@@ -473,6 +473,11 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           
           <div className="space-y-2">
             <Label>Documentos de Evidencia</Label>
+            <div className="text-xs text-gray-600 mb-3">
+              <p>• Use la cámara para capturar documentos y convertirlos automáticamente a PDF</p>
+              <p>• O suba archivos existentes (imágenes, PDFs)</p>
+            </div>
+            
             <FileUpload
               onFileSelect={handleFileUpload}
               acceptedTypes={['image/*', 'application/pdf']}
@@ -497,6 +502,11 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                       }`}>
                         {fileInfo.status}
                       </span>
+                      {fileInfo.isCameraCapture && (
+                        <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">
+                          Cámara
+                        </span>
+                      )}
                       {fileInfo.error && (
                         <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-700">
                           Error: {fileInfo.error}
