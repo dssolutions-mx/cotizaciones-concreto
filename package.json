@@ -5,7 +5,6 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "node build.js",
-    "vercel-build": "npx next build",
     "start": "next start",
     "lint": "next lint"
   },
