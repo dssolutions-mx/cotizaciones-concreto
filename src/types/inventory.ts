@@ -263,4 +263,5 @@ export interface PendingFile {
   documentId?: string;
   error?: string;
   url?: string;
+  isCameraCapture?: boolean;
 }
