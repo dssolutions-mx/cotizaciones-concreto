@@ -1,8 +1,8 @@
 'use client'
 
 import React from 'react'
-import ArkikUploadPage from '@/components/inventory/ArkikUploadPage'
+import ArkikProcessor from '@/components/arkik/ArkikProcessor'
 
 export default function InventoryArkikUploadPage() {
-  return <ArkikUploadPage />
+  return <ArkikProcessor />
 }
