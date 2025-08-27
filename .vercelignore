@@ -1,0 +1,30 @@
+# Build artifacts
+build.js
+.next
+node_modules
+
+# Development files
+*.log
+.env.local
+.env.development
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode
+.idea
+
+# Test files
+__tests__
+*.test.*
+*.spec.*
+
+# Documentation
+*.md
+docs/
+
+# Archive files
+*.zip
+*.tar.gz

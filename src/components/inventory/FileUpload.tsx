@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useRef, useState, useCallback } from 'react'
+import React, { useRef, useState, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -81,6 +81,46 @@ export default function FileUpload({
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [enhanceScan, setEnhanceScan] = useState(true)
+  const [isClient, setIsClient] = useState(false)
+
+  // Ensure component is mounted on client side
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+
+  // Don't render camera functionality during SSR
+  if (!isClient) {
+    return (
+      <div className={cn('space-y-4', className)}>
+        <Card className="border-2 border-blue-200 bg-blue-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Camera className="h-5 w-5 text-blue-600" />
+              <h3 className="text-sm font-medium text-blue-900">Captura de Cámara</h3>
+            </div>
+            <p className="text-xs text-blue-700">
+              Cargando funcionalidad de cámara...
+            </p>
+          </CardContent>
+        </Card>
+        
+        {/* Upload Area */}
+        <Card className="border-dashed border-2 border-gray-300">
+          <CardContent className="flex flex-col items-center justify-center py-8">
+            <Upload className="h-8 w-8 text-gray-400 mb-2" />
+            <p className="text-sm text-gray-600 text-center mb-2">
+              <span className="font-medium">Haga clic para subir</span> o arrastre archivos aquí
+            </p>
+            <p className="text-xs text-gray-500 text-center">
+              {acceptedTypes.includes('image/*') && 'Imágenes, '}
+              {acceptedTypes.includes('application/pdf') && 'PDF, '}
+              máximo {maxSize}MB por archivo
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   const getFileIcon = (type: string) => {
     if (type.startsWith('image/')) return ImageIcon
@@ -177,8 +217,19 @@ export default function FileUpload({
 
     try {
       // Import jsPDF dynamically to avoid SSR issues and handle different exports
-      const jsPDFModule = await import('jspdf')
+      let jsPDFModule
+      try {
+        jsPDFModule = await import('jspdf')
+      } catch (importError) {
+        console.error('Failed to import jsPDF:', importError)
+        throw new Error('jsPDF library not available')
+      }
+      
       const JSPDF: any = (jsPDFModule as any).jsPDF || (jsPDFModule as any).default
+      if (!JSPDF) {
+        throw new Error('jsPDF constructor not found')
+      }
+      
       const pdf = new JSPDF({ orientation: 'p', unit: 'mm', format: 'a4' })
       const pageWidth = pdf.internal.pageSize.getWidth()
       const pageHeight = pdf.internal.pageSize.getHeight()
