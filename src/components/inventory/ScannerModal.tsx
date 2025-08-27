@@ -433,7 +433,7 @@ export default function ScannerModal({ open, onOpenChange, onConfirm }: ScannerM
     }
   }, [open, videoReady, scannerReady, isCameraActive, isLoading, error, startCamera])
 
-  // 🎯 Detectar esquinas del documento (preview)
+  // 🎯 Detectar esquinas del documento mejorado (preview)
   const detectDocumentCorners = useCallback(async (imageData: string): Promise<{ corners: any[], highlightedImage: string } | null> => {
     if (!scannerRef.current || !scannerReady) {
       return null
@@ -455,32 +455,448 @@ export default function ScannerModal({ open, onOpenChange, onConfirm }: ScannerM
       canvas.height = img.height
       ctx.drawImage(img, 0, 0)
 
-      // Usar jscanify para detectar esquinas
-      const highlightedCanvas = scannerRef.current.highlightPaper(canvas)
+      console.log('🔍 Aplicando mejoras de detección de documentos...')
 
-      // Obtener las coordenadas de las esquinas (si están disponibles)
+      // Aplicar pre-procesamiento para mejorar detección
+      const preprocessedCanvas = await preprocessImageForDetection(canvas)
+      
+      // Intentar múltiples métodos de detección
+      let highlightedCanvas = null
       let corners = []
+
+      // Método 1: highlightPaper estándar
       try {
-        // Intentar obtener las coordenadas de los puntos detectados
+        highlightedCanvas = scannerRef.current.highlightPaper(preprocessedCanvas)
+        console.log('✅ highlightPaper aplicado')
+      } catch (e) {
+        console.warn('highlightPaper falló:', e)
+        highlightedCanvas = preprocessedCanvas
+      }
+
+      // Método 2: Intentar detectar contornos manualmente
+      try {
         if (scannerRef.current.findPaperContour) {
-          const contour = scannerRef.current.findPaperContour(canvas)
-          if (contour && contour.length > 0) {
+          const contour = scannerRef.current.findPaperContour(preprocessedCanvas)
+          if (contour && contour.length >= 4) {
             corners = contour
+            console.log(`✅ Contorno detectado con ${corners.length} puntos`)
+            
+            // Dibujar contorno manualmente si jscanify no lo resalta bien
+            highlightedCanvas = drawEnhancedContour(preprocessedCanvas, corners)
           }
         }
       } catch (e) {
-        console.log('Corner detection not available:', e)
+        console.log('findPaperContour no disponible:', e)
+      }
+
+      // Método 3: Detección de bordes mejorada como fallback
+      if (!corners.length) {
+        console.log('🔄 Aplicando detección de bordes avanzada...')
+        const enhancedResult = await enhancedEdgeDetection(preprocessedCanvas)
+        if (enhancedResult) {
+          corners = enhancedResult.corners
+          highlightedCanvas = enhancedResult.highlightedCanvas
+          console.log(`✅ Detección avanzada encontró ${corners.length} esquinas`)
+        }
       }
 
       return {
         corners,
-        highlightedImage: highlightedCanvas.toDataURL('image/jpeg', 0.9)
+        highlightedImage: (highlightedCanvas || canvas).toDataURL('image/jpeg', 0.9)
       }
     } catch (e) {
       console.error('Error detecting corners:', e)
       return null
     }
   }, [scannerReady])
+
+  // 🔧 Pre-procesamiento para mejorar detección
+  const preprocessImageForDetection = useCallback(async (canvas: HTMLCanvasElement): Promise<HTMLCanvasElement> => {
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return canvas
+
+    const processedCanvas = document.createElement('canvas')
+    const processedCtx = processedCanvas.getContext('2d')
+    if (!processedCtx) return canvas
+
+    processedCanvas.width = canvas.width
+    processedCanvas.height = canvas.height
+    processedCtx.drawImage(canvas, 0, 0)
+
+    const imageData = processedCtx.getImageData(0, 0, processedCanvas.width, processedCanvas.height)
+    const data = imageData.data
+
+    // Aumentar contraste y claridad para mejor detección de bordes
+    for (let i = 0; i < data.length; i += 4) {
+      let r = data[i]
+      let g = data[i + 1]
+      let b = data[i + 2]
+
+      // Aumentar contraste dramáticamente
+      const contrast = 2.0
+      r = ((r - 128) * contrast) + 128
+      g = ((g - 128) * contrast) + 128
+      b = ((b - 128) * contrast) + 128
+
+      // Aplicar umbralización suave para resaltar papel vs fondo
+      const avg = (r + g + b) / 3
+      if (avg > 180) {
+        // Área clara (papel) - hacer más blanca
+        r = Math.min(255, r * 1.2)
+        g = Math.min(255, g * 1.2)  
+        b = Math.min(255, b * 1.2)
+      } else if (avg < 100) {
+        // Área oscura (fondo) - hacer más oscura
+        r = Math.max(0, r * 0.7)
+        g = Math.max(0, g * 0.7)
+        b = Math.max(0, b * 0.7)
+      }
+
+      data[i] = Math.max(0, Math.min(255, r))
+      data[i + 1] = Math.max(0, Math.min(255, g))
+      data[i + 2] = Math.max(0, Math.min(255, b))
+    }
+
+    processedCtx.putImageData(imageData, 0, 0)
+    return processedCanvas
+  }, [])
+
+  // 🎨 Dibujar contorno mejorado con información de confianza
+  const drawEnhancedContour = useCallback((canvas: HTMLCanvasElement, corners: any[]): HTMLCanvasElement => {
+    const resultCanvas = document.createElement('canvas')
+    const ctx = resultCanvas.getContext('2d')
+    if (!ctx) return canvas
+
+    resultCanvas.width = canvas.width
+    resultCanvas.height = canvas.height
+    ctx.drawImage(canvas, 0, 0)
+
+    if (corners.length >= 3) {
+      // Dibujar líneas del contorno con gradiente según confianza
+      const avgConfidence = corners.reduce((sum, c) => sum + (c.confidence || 50), 0) / corners.length
+      const lineColor = avgConfidence > 70 ? '#00ff00' : avgConfidence > 50 ? '#ff6b35' : '#ff0000'
+      
+      ctx.strokeStyle = lineColor
+      ctx.lineWidth = 6
+      ctx.shadowColor = 'rgba(0,0,0,0.7)'
+      ctx.shadowBlur = 3
+      ctx.lineCap = 'round'
+      ctx.lineJoin = 'round'
+
+      // Dibujar contorno principal
+      ctx.beginPath()
+      ctx.moveTo(corners[0].x, corners[0].y)
+      for (let i = 1; i < corners.length; i++) {
+        ctx.lineTo(corners[i].x, corners[i].y)
+      }
+      ctx.closePath()
+      ctx.stroke()
+
+      // Dibujar línea interior más fina
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)'
+      ctx.lineWidth = 2
+      ctx.shadowBlur = 0
+      ctx.stroke()
+
+      // Dibujar esquinas con tamaño basado en confianza
+      corners.forEach((corner, idx) => {
+        const confidence = corner.confidence || 50
+        const radius = 6 + (confidence / 100) * 6 // Radio de 6-12 según confianza
+        
+        // Color de esquina según confianza
+        const cornerColor = confidence > 70 ? '#00ff00' : confidence > 50 ? '#ff6b35' : '#ff0000'
+        
+        // Círculo exterior (sombra)
+        ctx.fillStyle = 'rgba(0,0,0,0.5)'
+        ctx.beginPath()
+        ctx.arc(corner.x + 1, corner.y + 1, radius + 2, 0, 2 * Math.PI)
+        ctx.fill()
+        
+        // Círculo principal
+        ctx.fillStyle = cornerColor
+        ctx.beginPath()
+        ctx.arc(corner.x, corner.y, radius, 0, 2 * Math.PI)
+        ctx.fill()
+        
+        // Círculo interior blanco
+        ctx.fillStyle = 'white'
+        ctx.beginPath()
+        ctx.arc(corner.x, corner.y, radius - 2, 0, 2 * Math.PI)
+        ctx.fill()
+        
+        // Número de esquina
+        ctx.fillStyle = '#333'
+        ctx.font = 'bold 10px Arial'
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        ctx.fillText((idx + 1).toString(), corner.x, corner.y)
+        
+        // Información de confianza (pequeña)
+        if (corner.confidence) {
+          ctx.fillStyle = cornerColor
+          ctx.font = 'bold 8px Arial'
+          ctx.fillText(`${Math.round(confidence)}%`, corner.x, corner.y + radius + 12)
+        }
+        
+        // Región de esquina (debug)
+        if (corner.region) {
+          ctx.fillStyle = 'rgba(0,0,0,0.7)'
+          ctx.font = '8px Arial'
+          ctx.fillText(corner.region, corner.x - radius - 15, corner.y - radius - 8)
+        }
+      })
+
+      // Dibujar información de calidad en la esquina superior
+      ctx.fillStyle = 'rgba(0,0,0,0.8)'
+      ctx.fillRect(10, 10, 180, 60)
+      
+      ctx.fillStyle = 'white'
+      ctx.font = 'bold 12px Arial'
+      ctx.textAlign = 'left'
+      ctx.fillText('Detección de Esquinas:', 15, 25)
+      
+      ctx.font = '10px Arial'
+      ctx.fillText(`Esquinas: ${corners.length}/4`, 15, 40)
+      ctx.fillText(`Confianza promedio: ${Math.round(avgConfidence)}%`, 15, 52)
+      
+      const qualityText = avgConfidence > 70 ? 'EXCELENTE' : avgConfidence > 50 ? 'BUENA' : 'BÁSICA'
+      ctx.fillStyle = lineColor
+      ctx.font = 'bold 10px Arial'
+      ctx.fillText(`Calidad: ${qualityText}`, 15, 64)
+    } else {
+      // Si hay menos de 3 esquinas, mostrar mensaje de advertencia
+      ctx.fillStyle = 'rgba(255,0,0,0.8)'
+      ctx.fillRect(10, 10, 200, 40)
+      
+      ctx.fillStyle = 'white'
+      ctx.font = 'bold 12px Arial'
+      ctx.textAlign = 'left'
+      ctx.fillText('⚠️ Detección insuficiente', 15, 25)
+      ctx.font = '10px Arial'
+      ctx.fillText(`Solo ${corners.length} esquinas detectadas`, 15, 37)
+    }
+
+    return resultCanvas
+  }, [])
+
+  // 🔍 Detección de bordes avanzada como fallback
+  const enhancedEdgeDetection = useCallback(async (canvas: HTMLCanvasElement): Promise<{ corners: any[], highlightedCanvas: HTMLCanvasElement } | null> => {
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    const data = imageData.data
+    const width = canvas.width
+    const height = canvas.height
+
+    console.log('🔍 Iniciando detección avanzada de esquinas...')
+
+    // Aplicar filtro Sobel para detección de bordes más precisa
+    const sobelData = applySobelFilter(imageData)
+    
+    // Detectar bordes usando múltiples técnicas
+    const edges = []
+    const threshold = 30 // Umbral más sensible
+
+    // Búsqueda de bordes con paso más fino
+    for (let y = 20; y < height - 20; y += 2) {
+      for (let x = 20; x < width - 20; x += 2) {
+        const idx = y * width + x
+        const sobelValue = sobelData[idx]
+        
+        if (sobelValue > threshold) {
+          // Calcular la intensidad del borde local
+          const localIntensity = calculateLocalEdgeIntensity(data, x, y, width, height)
+          edges.push({ 
+            x, 
+            y, 
+            strength: sobelValue + localIntensity,
+            sobel: sobelValue,
+            local: localIntensity
+          })
+        }
+      }
+    }
+
+    console.log(`📊 Encontrados ${edges.length} puntos de borde`)
+
+    if (edges.length < 50) {
+      console.log('❌ Insuficientes puntos de borde detectados')
+      return null
+    }
+
+    // Filtrar bordes por fortaleza (mantener solo los más fuertes)
+    const sortedEdges = edges.sort((a, b) => b.strength - a.strength)
+    const strongEdges = sortedEdges.slice(0, Math.min(200, Math.floor(edges.length * 0.3)))
+
+    // Encontrar esquinas usando algoritmo mejorado
+    const corners = findOptimalCorners(strongEdges, width, height)
+    
+    console.log(`🎯 Esquinas detectadas: ${corners.length}`)
+    corners.forEach((corner, idx) => {
+      console.log(`  Esquina ${idx + 1}: (${corner.x}, ${corner.y}) - Confianza: ${corner.confidence}`)
+    })
+
+    if (corners.length >= 3) {
+      // Ordenar esquinas en sentido horario desde la superior izquierda
+      const orderedCorners = orderCornersClockwise(corners, width, height)
+      
+      return {
+        corners: orderedCorners,
+        highlightedCanvas: drawEnhancedContour(canvas, orderedCorners)
+      }
+    }
+
+    return null
+  }, [])
+
+  // 🔧 Aplicar filtro Sobel para detección de bordes
+  const applySobelFilter = useCallback((imageData: ImageData): number[] => {
+    const data = imageData.data
+    const width = imageData.width
+    const height = imageData.height
+    const result = new Array(width * height).fill(0)
+
+    // Kernels Sobel
+    const sobelX = [-1, 0, 1, -2, 0, 2, -1, 0, 1]
+    const sobelY = [-1, -2, -1, 0, 0, 0, 1, 2, 1]
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let gx = 0, gy = 0
+
+        // Aplicar kernel Sobel
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const idx = ((y + ky) * width + (x + kx)) * 4
+            const gray = (data[idx] + data[idx + 1] + data[idx + 2]) / 3
+            const kernelIdx = (ky + 1) * 3 + (kx + 1)
+            
+            gx += gray * sobelX[kernelIdx]
+            gy += gray * sobelY[kernelIdx]
+          }
+        }
+
+        const magnitude = Math.sqrt(gx * gx + gy * gy)
+        result[y * width + x] = magnitude
+      }
+    }
+
+    return result
+  }, [])
+
+  // 🎯 Calcular intensidad de borde local
+  const calculateLocalEdgeIntensity = useCallback((data: Uint8ClampedArray, x: number, y: number, width: number, height: number): number => {
+    const radius = 5
+    let maxDiff = 0
+
+    const centerIdx = (y * width + x) * 4
+    const centerBrightness = (data[centerIdx] + data[centerIdx + 1] + data[centerIdx + 2]) / 3
+
+    // Verificar en todas las direcciones alrededor del punto
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const newX = x + dx
+        const newY = y + dy
+        
+        if (newX >= 0 && newX < width && newY >= 0 && newY < height) {
+          const idx = (newY * width + newX) * 4
+          const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3
+          const diff = Math.abs(centerBrightness - brightness)
+          maxDiff = Math.max(maxDiff, diff)
+        }
+      }
+    }
+
+    return maxDiff
+  }, [])
+
+  // 🎯 Encontrar esquinas óptimas
+  const findOptimalCorners = useCallback((edges: any[], width: number, height: number): any[] => {
+    const margin = Math.min(width, height) * 0.1 // 10% del tamaño mínimo como margen
+    const quadrantWidth = width / 2
+    const quadrantHeight = height / 2
+
+    // Definir regiones más precisas para cada esquina
+    const regions = [
+      // Superior izquierda
+      { 
+        name: 'TL',
+        filter: (e: any) => e.x < quadrantWidth && e.y < quadrantHeight,
+        score: (e: any) => -(e.x + e.y) + e.strength * 0.1 // Priorizar esquina + fortaleza
+      },
+      // Superior derecha
+      { 
+        name: 'TR',
+        filter: (e: any) => e.x > quadrantWidth && e.y < quadrantHeight,
+        score: (e: any) => -(width - e.x + e.y) + e.strength * 0.1
+      },
+      // Inferior derecha
+      { 
+        name: 'BR',
+        filter: (e: any) => e.x > quadrantWidth && e.y > quadrantHeight,
+        score: (e: any) => -(width - e.x + height - e.y) + e.strength * 0.1
+      },
+      // Inferior izquierda
+      { 
+        name: 'BL',
+        filter: (e: any) => e.x < quadrantWidth && e.y > quadrantHeight,
+        score: (e: any) => -(e.x + height - e.y) + e.strength * 0.1
+      }
+    ]
+
+    const corners = []
+
+    regions.forEach(region => {
+      const candidates = edges.filter(region.filter)
+      
+      if (candidates.length > 0) {
+        // Encontrar los mejores candidatos en esta región
+        const scored = candidates.map(e => ({
+          ...e,
+          regionScore: region.score(e),
+          confidence: Math.min(100, (e.strength / 100) * 100)
+        }))
+        
+        // Tomar el mejor candidato
+        const best = scored.sort((a, b) => b.regionScore - a.regionScore)[0]
+        
+        // Verificar que esté suficientemente lejos de otras esquinas ya encontradas
+        const tooClose = corners.some(corner => 
+          Math.sqrt(Math.pow(corner.x - best.x, 2) + Math.pow(corner.y - best.y, 2)) < margin
+        )
+        
+        if (!tooClose) {
+          corners.push({
+            x: best.x,
+            y: best.y,
+            region: region.name,
+            confidence: best.confidence,
+            strength: best.strength
+          })
+        }
+      }
+    })
+
+    return corners
+  }, [])
+
+  // 🔄 Ordenar esquinas en sentido horario
+  const orderCornersClockwise = useCallback((corners: any[], width: number, height: number): any[] => {
+    if (corners.length < 3) return corners
+
+    const centerX = width / 2
+    const centerY = height / 2
+
+    // Calcular ángulo desde el centro para cada esquina
+    const withAngles = corners.map(corner => ({
+      ...corner,
+      angle: Math.atan2(corner.y - centerY, corner.x - centerX)
+    }))
+
+    // Ordenar por ángulo (sentido horario)
+    return withAngles.sort((a, b) => a.angle - b.angle)
+  }, [])
 
   // 🖼️ Procesar imagen con jscanify (versión avanzada)
   const processImageWithJScanify = useCallback(async (imageData: string, options?: {
@@ -539,9 +955,30 @@ export default function ScannerModal({ open, onOpenChange, onConfirm }: ScannerM
       let processedCanvas: HTMLCanvasElement
 
       if (config.autoCrop && scannerRef.current.extractPaper) {
-        // Extraer documento automáticamente
-        processedCanvas = scannerRef.current.extractPaper(tempCanvas, config.targetWidth, config.targetHeight)
-        console.log('✅ Documento extraído automáticamente')
+        try {
+          // Pre-procesar imagen para mejor detección
+          const preprocessedCanvas = await preprocessImageForDetection(tempCanvas)
+          console.log('🔧 Pre-procesamiento aplicado para mejor detección')
+          
+          // Intentar extraer documento con imagen pre-procesada
+          processedCanvas = scannerRef.current.extractPaper(preprocessedCanvas, config.targetWidth, config.targetHeight)
+          console.log('✅ Documento extraído con pre-procesamiento')
+          
+          // Si el resultado es muy pequeño, intentar con imagen original
+          if (processedCanvas.width < config.targetWidth * 0.3 || processedCanvas.height < config.targetHeight * 0.3) {
+            console.log('⚠️ Resultado muy pequeño, intentando con imagen original...')
+            processedCanvas = scannerRef.current.extractPaper(tempCanvas, config.targetWidth, config.targetHeight)
+          }
+        } catch (e) {
+          console.warn('extractPaper con pre-procesamiento falló, usando imagen original:', e)
+          try {
+            processedCanvas = scannerRef.current.extractPaper(tempCanvas, config.targetWidth, config.targetHeight)
+            console.log('✅ Documento extraído con imagen original')
+          } catch (e2) {
+            console.warn('extractPaper falló completamente, usando imagen sin recortar:', e2)
+            processedCanvas = tempCanvas
+          }
+        }
       } else {
         // Solo mejorar la imagen sin recortar
         processedCanvas = tempCanvas
@@ -839,6 +1276,9 @@ export default function ScannerModal({ open, onOpenChange, onConfirm }: ScannerM
 
       try {
         if (scannerReady && scannerRef.current) {
+          // Generar información de detección primero
+          const detectionInfo = await detectDocumentCorners(imageData)
+          
           // Usar jscanify avanzado
           const result = await processImageWithJScanify(imageData, {
             autoCrop: true,
@@ -846,8 +1286,24 @@ export default function ScannerModal({ open, onOpenChange, onConfirm }: ScannerM
             quality: 0.95
           })
           finalImage = result.processedImage
-          stats = result.processingStats
-          toast.success(`Página procesada automáticamente (${stats.processingTime.toFixed(0)}ms)`)
+          stats = {
+            ...result.processingStats,
+            detectionInfo: detectionInfo ? {
+              cornersFound: detectionInfo.corners.length,
+              method: detectionInfo.corners.length >= 4 ? 'jscanify + custom' : 'fallback detection',
+              confidence: detectionInfo.corners.length >= 4 ? 85 : 60
+            } : {
+              cornersFound: 0,
+              method: 'no detection',
+              confidence: 0
+            }
+          }
+          
+          const detectionMessage = detectionInfo && detectionInfo.corners.length >= 4 
+            ? `(${detectionInfo.corners.length} esquinas detectadas)` 
+            : '(detección limitada)'
+          
+          toast.success(`Página procesada automáticamente ${detectionMessage} - ${stats.processingTime.toFixed(0)}ms`)
         } else {
           // Usar procesamiento básico como fallback
           finalImage = await processImageBasic(imageData)
@@ -855,7 +1311,12 @@ export default function ScannerModal({ open, onOpenChange, onConfirm }: ScannerM
             method: 'basic processing',
             quality: 0.9,
             dimensions: { width: video.videoWidth, height: video.videoHeight },
-            processingTime: 50
+            processingTime: 50,
+            detectionInfo: {
+              cornersFound: 0,
+              method: 'basic processing',
+              confidence: 30
+            }
           }
           toast.success('Página capturada (procesamiento básico aplicado)')
         }
@@ -865,7 +1326,12 @@ export default function ScannerModal({ open, onOpenChange, onConfirm }: ScannerM
           method: 'original',
           quality: 0.9,
           dimensions: { width: video.videoWidth, height: video.videoHeight },
-          processingTime: 0
+          processingTime: 0,
+          detectionInfo: {
+            cornersFound: 0,
+            method: 'error fallback',
+            confidence: 0
+          }
         }
         toast.success('Página capturada (sin procesamiento adicional)')
       } finally {
@@ -1016,6 +1482,16 @@ export default function ScannerModal({ open, onOpenChange, onConfirm }: ScannerM
                   <div><strong>Dimensiones:</strong> {processingStats.dimensions.width}×{processingStats.dimensions.height}</div>
                   <div><strong>Tiempo:</strong> {processingStats.processingTime.toFixed(0)}ms</div>
                 </div>
+                {processingStats.detectionInfo && (
+                  <div className="mt-2 pt-2 border-t border-gray-200">
+                    <h6 className="text-xs font-medium text-gray-600 mb-1">🎯 Detección de esquinas:</h6>
+                    <div className="text-xs text-gray-500">
+                      <div><strong>Esquinas encontradas:</strong> {processingStats.detectionInfo.cornersFound}</div>
+                      <div><strong>Método de detección:</strong> {processingStats.detectionInfo.method}</div>
+                      <div><strong>Confianza:</strong> {processingStats.detectionInfo.confidence}%</div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {!isCameraActive && !isLoading && !error && (
