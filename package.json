@@ -48,6 +48,7 @@
     "dayjs": "^1.11.13",
     "file-saver": "^2.0.5",
     "framer-motion": "^12.6.5",
+    "jscanify": "^1.4.0",
     "jspdf": "^3.0.2",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.487.0",

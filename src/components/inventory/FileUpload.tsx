@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import ScannerModal from '@/components/inventory/ScannerModal'
 
 // Safe File factory for environments/types where File constructor is not available in type defs
 const makeFile = (blob: Blob, filename: string, type: string): File => {
@@ -81,6 +82,7 @@ export default function FileUpload({
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [enhanceScan, setEnhanceScan] = useState(true)
+  const [scannerOpen, setScannerOpen] = useState(false)
 
   const getFileIcon = (type: string) => {
     if (type.startsWith('image/')) return ImageIcon
@@ -400,6 +402,12 @@ export default function FileUpload({
             <h3 className="text-sm font-medium text-blue-900">Captura de Cámara</h3>
           </div>
           
+          <div className="flex gap-2 mb-3">
+            <Button type="button" onClick={() => setScannerOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white" size="sm">
+              <Scan className="h-4 w-4 mr-2" /> Abrir escáner
+            </Button>
+          </div>
+          
           {!showCamera ? (
             <div className="space-y-3">
               <p className="text-xs text-blue-700">
@@ -589,14 +597,14 @@ export default function FileUpload({
               <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                 <Icon className="h-5 w-5 text-gray-500" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {file.name}
+                  <div className="text-sm font-medium text-gray-900 truncate flex items-center gap-2">
+                    <span className="truncate">{file.name}</span>
                     {file.isCameraCapture && (
-                      <Badge variant="secondary" className="ml-2 text-xs">
+                      <Badge variant="secondary" className="ml-2 text-xs flex-shrink-0">
                         Cámara
                       </Badge>
                     )}
-                  </p>
+                  </div>
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-gray-500">
                       {formatFileSize(file.size)}
@@ -635,6 +643,17 @@ export default function FileUpload({
         <p>• Máximo {maxFiles} archivo(s) por entrada</p>
         <p>• Use la cámara para capturar documentos y convertirlos a PDF</p>
       </div>
+
+      <ScannerModal
+        open={scannerOpen}
+        onOpenChange={setScannerOpen}
+        onConfirm={(pdfFile: File) => {
+          const dataTransfer = new DataTransfer()
+          dataTransfer.items.add(pdfFile)
+          onFileSelect(dataTransfer.files)
+          setUploadedFiles(prev => [...prev, { name: pdfFile.name, size: pdfFile.size, type: pdfFile.type, isCameraCapture: true }])
+        }}
+      />
     </div>
   )
 }
