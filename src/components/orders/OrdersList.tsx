@@ -236,17 +236,24 @@ export default function OrdersList({
   // Check if user is a dosificador
   const isDosificador = profile?.role === 'DOSIFICADOR';
 
-  // Use plant-aware orders hook for non-dosificador users
-  const { 
-    orders: plantAwareOrders, 
-    isLoading: plantLoading, 
-    error: plantError, 
-    refetch: plantRefetch 
+  // Use plant-aware orders hook for non-dosificador users with reduced refresh
+  const {
+    orders: plantAwareOrders,
+    isLoading: plantLoading,
+    error: plantError,
+    refetch: plantRefetch
   } = usePlantAwareOrders({
     statusFilter: (statusFilter || filterStatus) as OrderStatus | undefined,
     creditStatusFilter,
     maxItems,
-    autoRefresh: true
+    autoRefresh: false // Disable auto-refresh to prevent excessive queries
+  });
+
+  // Track previous props to detect changes
+  const prevPropsRef = React.useRef({
+    statusFilter: statusFilter || filterStatus,
+    creditStatusFilter,
+    maxItems
   });
 
   // Estados para los datos filtrados y agrupados
@@ -486,14 +493,39 @@ export default function OrdersList({
     setGroupedOrders(orderedGroups);
   }, [filteredOrders]);
 
-  // Cargar datos iniciales cuando cambian los parámetros externos
+  // Only load data when props actually change, not on every render
   useEffect(() => {
-    if (isDosificador) {
-      loadDosificadorOrders();
-    } else {
-      // Plant-aware orders are loaded automatically by the hook
+    const prevProps = prevPropsRef.current;
+    const propsChanged = prevProps.statusFilter !== (statusFilter || filterStatus) ||
+                        prevProps.creditStatusFilter !== creditStatusFilter ||
+                        prevProps.maxItems !== maxItems;
+
+    if (propsChanged || (isDosificador && dosificadorOrders.length === 0) ||
+        (!isDosificador && plantAwareOrders.length === 0)) {
+      if (isDosificador) {
+        loadDosificadorOrders();
+      } else {
+        loadOrders();
+      }
     }
-  }, [isDosificador, loadDosificadorOrders]);
+
+    // Update previous props reference
+    prevPropsRef.current = {
+      statusFilter: statusFilter || filterStatus,
+      creditStatusFilter,
+      maxItems
+    };
+  }, [
+    isDosificador,
+    loadDosificadorOrders,
+    loadOrders,
+    statusFilter,
+    filterStatus,
+    creditStatusFilter,
+    maxItems,
+    dosificadorOrders.length,
+    plantAwareOrders.length
+  ]);
   
   // Aplicar filtros cuando cambia cualquier filtro o los datos
   useEffect(() => {

@@ -13,6 +13,13 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
+import {
+  formatNumberWithUnits,
+  getLast6Months,
+  getDateRangeText,
+  getApexCommonOptions,
+  VAT_RATE
+} from '@/lib/sales-utils';
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, Info, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -47,65 +54,34 @@ const DateRangePickerWithPresetsComponent = dynamic(
   }
 );
 
-// Create a custom Spanish calendar component
-const SpanishCalendar = (props: any) => {
-  // Override the day names to use cleaner Spanish abbreviations
-  const dayNames = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-  
-  return (
-    <div className="spanish-calendar">
-      <style jsx>{`
-        .spanish-calendar :global(.rdp-head_cell) {
-          font-size: 0.8rem !important;
-          font-weight: 500 !important;
-          padding: 0.5rem 0 !important;
-          text-align: center !important;
-        }
-        
-        .spanish-calendar :global(.rdp-months) {
-          display: flex;
-          justify-content: space-between;
-        }
-        
-        .spanish-calendar :global(.rdp-caption) {
-          padding: 0 0.5rem;
-          font-weight: 500;
-          font-size: 0.9rem;
-          text-align: center;
-        }
-      `}</style>
-      <Calendar
-        {...props}
-        locale={es}
-        ISOWeek
-        formatters={{
-          formatWeekdayName: () => "",  // Clear default day names
-        }}
-        components={{
-          HeadCell: ({ value }: { value: Date }) => {
-            // Display our custom day names
-            const index = value.getDay();
-            // Sunday is 0 in JS but the last day in our array
-            const adjustedIndex = index === 0 ? 6 : index - 1;
-            return <th className="rdp-head_cell">{dayNames[adjustedIndex]}</th>;
-          }
-        }}
-      />
-    </div>
-  )
-}
+// Import the SpanishCalendar component
+import SpanishCalendar from '@/components/ui/spanish-calendar';
+
+// Import custom hooks
+import { useSalesData } from '@/hooks/useSalesData';
 
 export default function VentasDashboard() {
   const { currentPlant } = usePlantContext();
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
-  const [salesData, setSalesData] = useState<any[]>([]);
-  const [remisionesData, setRemisionesData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Use custom hook for data fetching
+  const {
+    salesData,
+    remisionesData,
+    clients,
+    resistances,
+    tipos,
+    productCodes,
+    loading,
+    error
+  } = useSalesData({
+    startDate,
+    endDate,
+    currentPlant
+  });
   const [searchTerm, setSearchTerm] = useState('');
   const [clientFilter, setClientFilter] = useState<string>('all');
-  const [clients, setClients] = useState<{id: string, name: string}[]>([]);
   const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>('powerbi');
   
   // State for PowerBI Filters
@@ -113,281 +89,22 @@ export default function VentasDashboard() {
   const [efectivoFiscalFilter, setEfectivoFiscalFilter] = useState<string>('all');
   const [tipoFilter, setTipoFilter] = useState<string>('all');
   const [codigoProductoFilter, setCodigoProductoFilter] = useState<string>('all');
-
-  // State for Filter Options
-  const [resistances, setResistances] = useState<string[]>([]);
-  const [tipos, setTipos] = useState<string[]>([]);
-  const [productCodes, setProductCodes] = useState<string[]>([]);
   
   // VAT Calculation State
   const [includeVAT, setIncludeVAT] = useState<boolean>(false);
-  const VAT_RATE = 0.16; // 16% VAT rate
   
   // Format the dates for display
   const formattedStartDate = startDate ? format(startDate, 'dd/MM/yyyy', { locale: es }) : '';
   const formattedEndDate = endDate ? format(endDate, 'dd/MM/yyyy', { locale: es }) : '';
   
   // Calculate date range for display
-  const dateRangeText = useMemo(() => {
-    if (!startDate || !endDate) return 'Seleccione un rango de fechas';
-    return `${format(startDate, 'dd/MM/yyyy', { locale: es })} - ${format(endDate, 'dd/MM/yyyy', { locale: es })}`;
-  }, [startDate, endDate]);
-  
-  // Add this formatNumberWithUnits function
-  const formatNumberWithUnits = (value: number) => {
-    if (value >= 1000000) {
-      return `${(value / 1000000).toFixed(value % 1000000 === 0 ? 0 : 1)}M`;
-    } else if (value >= 1000) {
-      return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}K`;
-    } else {
-      return value.toFixed(2);
-    }
-  };
+  const dateRangeText = useMemo(() => getDateRangeText(startDate, endDate), [startDate, endDate]);
 
-  // ApexCharts formatter function for tooltips
-  const formatApexCurrency = (value: number) => {
-    return formatCurrency(value);
-  };
-
-  // Helper function to get last 6 months for trend charts
-  const getLast6Months = (): string[] => {
-    const months = [];
-    const monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-    const now = new Date();
-    
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      months.push(monthNames[date.getMonth()]);
-    }
-    return months;
-  };
 
   // Common ApexCharts configurations
-  const apexCommonOptions = useMemo(() => ({
-    chart: {
-      toolbar: {
-        show: false
-      },
-      background: 'transparent',
-      fontFamily: 'Inter, system-ui, sans-serif',
-      animations: {
-        enabled: true,
-        speed: 300, // Reduced animation speed for better performance
-        dynamicAnimation: {
-          speed: 150
-        }
-      }
-    },
-    colors: ['#3EB56D', '#2D8450', '#5DC78A', '#206238', '#83D7A5'], // Company green palette
-    dataLabels: {
-      enabled: false // Disabled for cleaner look
-    },
-    legend: {
-      position: 'bottom' as const,
-      fontSize: '12px',
-      fontWeight: 500,
-      markers: {
-        size: 6
-      },
-      itemMargin: {
-        horizontal: 10,
-        vertical: 0
-      }
-    },
-    stroke: {
-      curve: 'smooth' as const,
-      width: 2
-    },
-    tooltip: {
-      y: {
-        formatter: (val: number) => formatCurrency(val)
-      },
-      theme: 'light',
-      style: {
-        fontSize: '12px',
-        fontFamily: 'Inter, system-ui, sans-serif'
-      }
-    },
-    grid: {
-      borderColor: '#f1f5f9',
-      strokeDashArray: 4,
-      padding: {
-        top: 0,
-        right: 0,
-        bottom: 0,
-        left: 0
-      }
-    }
-  }), []);
+  const apexCommonOptions = useMemo(() => getApexCommonOptions(), []);
   
-  // Fetch sales data based on the selected date range
-  useEffect(() => {
-    async function fetchSalesData() {
-      if (!startDate || !endDate) {
-        // Set default empty data
-        setSalesData([]);
-        setRemisionesData([]);
-        setLoading(false);
-        return;
-      }
-      
-      setLoading(true);
-      setError(null);
-      
-      try {
-        // Format dates for Supabase query
-        const formattedStartDate = format(startDate, 'yyyy-MM-dd');
-        const formattedEndDate = format(endDate, 'yyyy-MM-dd');
-        
-        // 1. Fetch remisiones directly by their fecha field
-        let remisionesQuery = supabase
-          .from('remisiones')
-          .select(`
-            *,
-            recipe:recipes(recipe_code, strength_fc),
-            order:orders(
-              id,
-              order_number,
-              delivery_date,
-              client_id,
-              construction_site,
-              requires_invoice,
-              clients:clients(business_name)
-            )
-          `)
-          .gte('fecha', formattedStartDate)
-          .lte('fecha', formattedEndDate);
-        
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
-        }
-        
-        const { data: remisiones, error: remisionesError } = await remisionesQuery.order('fecha', { ascending: false });
-        
-        if (remisionesError) throw remisionesError;
-        
-        // Extract order IDs from remisiones
-        const orderIdsFromRemisiones = remisiones?.map(r => r.order_id).filter(Boolean) || [];
-        const uniqueOrderIds = Array.from(new Set(orderIdsFromRemisiones));
-        
-        if (uniqueOrderIds.length === 0) {
-          setSalesData([]);
-          setRemisionesData([]);
-          setLoading(false);
-          return;
-        }
-        
-        // 2. Fetch all relevant orders (even those without remisiones in the date range)
-        // This ensures we have orders for "vacío de olla" charges
-        let ordersQuery = supabase
-          .from('orders')
-          .select(`
-            id, 
-            order_number, 
-            delivery_date, 
-            client_id,
-            construction_site,
-            requires_invoice,
-            clients:clients(business_name)
-          `)
-          .in('id', uniqueOrderIds)
-          .not('order_status', 'eq', 'cancelled');
-        
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
-        }
-        
-        const { data: orders, error: ordersError } = await ordersQuery;
-        
-        if (ordersError) throw ordersError;
-        
-        if (!orders || orders.length === 0) {
-          setSalesData([]);
-          setRemisionesData([]);
-          setLoading(false);
-          return;
-        }
-        
-        // Extract unique client names for the filter
-        const clientMap = new Map();
-        orders.forEach(order => {
-          if (order.client_id && !clientMap.has(order.client_id)) {
-            const businessName = order.clients ? 
-              (typeof order.clients === 'object' ? 
-                (order.clients as any).business_name || 'Desconocido' : 'Desconocido') 
-              : 'Desconocido';
-            
-            clientMap.set(order.client_id, {
-              id: order.client_id,
-              name: businessName
-            });
-          }
-        });
-        
-        // Convert map to array and sort by name
-        const uniqueClients = Array.from(clientMap.values());
-        uniqueClients.sort((a, b) => a.name.localeCompare(b.name));
-        setClients(uniqueClients);
-        
-        // 3. Fetch order items (products) for these orders
-        const orderIds = orders.map(order => order.id);
-        let orderItemsQuery = supabase
-          .from('order_items')
-          .select('*')
-          .in('order_id', orderIds);
-        
-        // Note: order_items don't have plant_id, so no plant filtering needed here
-        // Plant filtering is already applied to the orders table above
-        
-        const { data: orderItems, error: itemsError } = await orderItemsQuery;
-        
-        if (itemsError) throw itemsError;
-        
-        // Extract unique values for filters from remisiones
-        const uniqueResistances = Array.from(new Set(remisiones?.map(r => r.recipe?.strength_fc?.toString()).filter(Boolean) as string[] || [])).sort();
-        const uniqueTipos = Array.from(new Set(remisiones?.map(r => r.tipo_remision).filter(Boolean) as string[] || [])).sort();
-        const uniqueProductCodes = Array.from(new Set(remisiones?.map(r => r.recipe?.recipe_code).filter(Boolean) as string[] || [])).sort();
 
-        setResistances(uniqueResistances);
-        setTipos(uniqueTipos);
-        setProductCodes(uniqueProductCodes);
-        
-        // Combine orders with their items and remisiones
-        const enrichedOrders = orders.map(order => {
-          const items = orderItems?.filter(item => item.order_id === order.id) || [];
-          const orderRemisiones = remisiones?.filter(r => r.order_id === order.id) || [];
-          
-          // Extract the client name safely
-          let clientName = 'Desconocido';
-          if (order.clients) {
-            // Handle clients properly whether it's an object or has nested properties
-            if (typeof order.clients === 'object') {
-              clientName = (order.clients as any).business_name || 'Desconocido';
-            }
-          }
-          
-          return {
-            ...order,
-            items,
-            remisiones: orderRemisiones,
-            clientName
-          };
-        });
-        
-        setSalesData(enrichedOrders);
-        setRemisionesData(remisiones || []);
-      } catch (error) {
-        console.error('Error fetching sales data:', error);
-        setError('Error al cargar los datos de ventas. Por favor, intente nuevamente.');
-      } finally {
-        setLoading(false);
-      }
-    }
-    
-    fetchSalesData();
-  }, [startDate, endDate, currentPlant]);
   
   // Filter remisiones by client and search term
   const filteredRemisiones = useMemo(() => {

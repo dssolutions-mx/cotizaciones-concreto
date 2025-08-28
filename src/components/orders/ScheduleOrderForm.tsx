@@ -115,6 +115,7 @@ export default function ScheduleOrderForm({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [invoiceSelection, setInvoiceSelection] = useState<boolean | null>(null);
   
   // Load clients on component mount
   useEffect(() => {
@@ -561,9 +562,14 @@ export default function ScheduleOrderForm({
   // Handle order creation
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (selectedProducts.length === 0) {
       setError('Debe seleccionar al menos un producto para crear la orden');
+      return;
+    }
+
+    if (invoiceSelection === null) {
+      setError('Debe seleccionar si la orden requiere factura o no');
       return;
     }
     
@@ -781,22 +787,47 @@ export default function ScheduleOrderForm({
           </div>
         ) : (
         <form onSubmit={handleCreateOrder} className="space-y-6">
-          {/* Invoice requirement - Moved up and made more prominent */}
+          {/* Invoice requirement - Made mandatory with radio buttons */}
           <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg shadow-sm">
-            <div className="flex items-center">
-              <input
-                id="requiresInvoice"
-                type="checkbox"
-                checked={requiresInvoice}
-                onChange={(e) => setRequiresInvoice(e.target.checked)}
-                className="h-5 w-5 text-green-600 rounded border-gray-300"
-              />
-              <label htmlFor="requiresInvoice" className="ml-2 block text-base font-bold text-gray-800">
-                Requiere Factura
-              </label>
+            <h4 className="text-base font-bold text-gray-800 mb-3">¿Requiere Factura?</h4>
+            <div className="flex gap-6">
+              <div className="flex items-center">
+                <input
+                  id="requiresInvoiceYes"
+                  name="requiresInvoice"
+                  type="radio"
+                  value="yes"
+                  checked={invoiceSelection === true}
+                  onChange={(e) => {
+                    setInvoiceSelection(true);
+                    setRequiresInvoice(true);
+                  }}
+                  className="h-5 w-5 text-green-600 border-gray-300 focus:ring-green-500"
+                />
+                <label htmlFor="requiresInvoiceYes" className="ml-2 block text-base font-medium text-gray-800">
+                  Sí
+                </label>
+              </div>
+              <div className="flex items-center">
+                <input
+                  id="requiresInvoiceNo"
+                  name="requiresInvoice"
+                  type="radio"
+                  value="no"
+                  checked={invoiceSelection === false}
+                  onChange={(e) => {
+                    setInvoiceSelection(false);
+                    setRequiresInvoice(false);
+                  }}
+                  className="h-5 w-5 text-green-600 border-gray-300 focus:ring-green-500"
+                />
+                <label htmlFor="requiresInvoiceNo" className="ml-2 block text-base font-medium text-gray-800">
+                  No
+                </label>
+              </div>
             </div>
-            <p className="text-sm text-gray-600 mt-1 pl-7">
-              Importante: Seleccionar esta opción afectará el balance del cliente
+            <p className="text-sm text-gray-600 mt-2">
+              <span className="text-red-600 font-medium">Obligatorio:</span> Esta selección afectará el balance del cliente y es requerida para crear la orden.
             </p>
           </div>
 
@@ -1266,8 +1297,8 @@ export default function ScheduleOrderForm({
             </div>
             <div className="mt-2">
               <p className="text-sm text-gray-600">
-                {selectedProducts.length} producto(s) seleccionado(s) • 
-                {requiresInvoice ? ' Con factura' : ' Sin factura'} • 
+                {selectedProducts.length} producto(s) seleccionado(s) •
+                {invoiceSelection === true ? ' Con factura' : invoiceSelection === false ? ' Sin factura' : ' Factura pendiente'} •
                 {hasPumpService ? ` Bombeo: ${pumpVolume} m³ ($${pumpPrice?.toFixed(2) || '0.00'}/m³) • ` : ''}
                 Entrega: {deliveryDate.split('-').reverse().join('/')} a las {deliveryTime}
               </p>
@@ -1286,7 +1317,7 @@ export default function ScheduleOrderForm({
             
             <button
               type="submit"
-              disabled={isSubmitting || selectedProducts.length === 0}
+              disabled={isSubmitting || selectedProducts.length === 0 || invoiceSelection === null}
               className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? 'Creando orden...' : 'Crear Orden'}

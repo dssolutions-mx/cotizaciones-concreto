@@ -240,60 +240,62 @@ function OrdersContent() {
     router.push(`/orders?${params.toString()}`, { scroll: false });
   }, [searchParams, router]);
 
-  // Memoize the rendered content to avoid unnecessary re-renders
-  const renderContent = useMemo(() => {
-    switch (currentTab) {
-      case 'list':
-        return (
-          <OrdersList 
-            onCreateOrder={handleCreateOrderFromQuote} 
-            statusFilter={statusFilter}
-            creditStatusFilter={creditStatusFilter}
+  // Keep all components mounted to preserve state when switching tabs
+  const renderAllTabs = useMemo(() => (
+    <div className="relative">
+      {/* List Tab - Always mounted */}
+      <div className={currentTab === 'list' ? 'block' : 'hidden'}>
+        <OrdersList
+          onCreateOrder={handleCreateOrderFromQuote}
+          statusFilter={statusFilter}
+          creditStatusFilter={creditStatusFilter}
+        />
+      </div>
+
+      {/* Calendar Tab - Always mounted */}
+      <div className={currentTab === 'calendar' ? 'block' : 'hidden'}>
+        <OrdersCalendarView
+          statusFilter={statusFilter}
+          creditStatusFilter={creditStatusFilter}
+        />
+      </div>
+
+      {/* Create Tab - Only mount when needed to avoid unnecessary state */}
+      {currentTab === 'create' && (
+        <div className="block">
+          <ScheduleOrderForm
+            preSelectedQuoteId={selectedQuoteId || selectedQuoteData.quoteId || undefined}
+            preSelectedClientId={selectedQuoteData.clientId}
+            onOrderCreated={handleOrderCreated}
           />
-        );
-      case 'create':
-        return (
-          <ScheduleOrderForm 
-            preSelectedQuoteId={selectedQuoteId || selectedQuoteData.quoteId || undefined} 
-            preSelectedClientId={selectedQuoteData.clientId} 
-            onOrderCreated={handleOrderCreated} 
-          />
-        );
-      case 'credit':
-        return (
+        </div>
+      )}
+
+      {/* Credit Validation Tab - Only mount when needed */}
+      {currentTab === 'credit' && (
+        <div className="block">
           <RoleGuard allowedRoles={['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER']}>
             <CreditValidationTab />
           </RoleGuard>
-        );
-      case 'rejected':
-        return (
+        </div>
+      )}
+
+      {/* Rejected Orders Tab - Only mount when needed */}
+      {currentTab === 'rejected' && (
+        <div className="block">
           <RoleGuard allowedRoles={['EXECUTIVE', 'PLANT_MANAGER']}>
             <RejectedOrdersTab />
           </RoleGuard>
-        );
-      case 'calendar':
-        return (
-          <OrdersCalendarView 
-            statusFilter={statusFilter}
-            creditStatusFilter={creditStatusFilter}
-          />
-        );
-      default:
-        return (
-          <OrdersList 
-            onCreateOrder={handleCreateOrderFromQuote} 
-            statusFilter={statusFilter}
-            creditStatusFilter={creditStatusFilter}
-          />
-        );
-    }
-  }, [
-    currentTab, 
-    statusFilter, 
-    creditStatusFilter, 
-    handleCreateOrderFromQuote, 
-    selectedQuoteId, 
-    selectedQuoteData, 
+        </div>
+      )}
+    </div>
+  ), [
+    currentTab,
+    statusFilter,
+    creditStatusFilter,
+    handleCreateOrderFromQuote,
+    selectedQuoteId,
+    selectedQuoteData,
     handleOrderCreated
   ]);
 
@@ -315,9 +317,7 @@ function OrdersContent() {
         />
       </div>
 
-      <div className="relative">
-        {renderContent}
-      </div>
+      {renderAllTabs}
     </div>
   );
 }
