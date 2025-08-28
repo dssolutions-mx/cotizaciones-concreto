@@ -36,52 +36,39 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
 
-        // OPTIMIZED: Single query to get orders with remisiones and items in one go
-        let ordersQuery = supabase
-          .from('orders')
+        // 1. Fetch remisiones directly by their fecha field (ORIGINAL APPROACH)
+        let remisionesQuery = supabase
+          .from('remisiones')
           .select(`
-            id,
-            order_number,
-            delivery_date,
-            client_id,
-            construction_site,
-            requires_invoice,
-            order_status,
-            credit_status,
-            clients:clients(business_name),
-            remisiones!inner(
+            *,
+            recipe:recipes(recipe_code, strength_fc),
+            order:orders(
               id,
-              remision_number,
-              fecha,
-              volumen_fabricado,
-              tipo_remision,
-              recipe:recipes(recipe_code, strength_fc)
-            ),
-            items:order_items(
-              id,
-              product_type,
-              volume,
-              unit_price,
-              has_empty_truck_charge,
-              has_pump_service,
-              pump_price,
-              pump_volume
+              order_number,
+              delivery_date,
+              client_id,
+              construction_site,
+              requires_invoice,
+              clients:clients(business_name)
             )
           `)
-          .gte('remisiones.fecha', formattedStartDate)
-          .lte('remisiones.fecha', formattedEndDate)
-          .not('order_status', 'eq', 'cancelled');
+          .gte('fecha', formattedStartDate)
+          .lte('fecha', formattedEndDate);
 
         // Apply plant filter if a plant is selected
         if (currentPlant?.id) {
-          ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
+          remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
         }
 
-        const { data: ordersWithRemisiones, error: ordersError } = await ordersQuery.order('delivery_date', { ascending: false });
+        const { data: remisiones, error: remisionesError } = await remisionesQuery.order('fecha', { ascending: false });
 
-        if (ordersError) throw ordersError;
+        if (remisionesError) throw remisionesError;
 
-        if (!ordersWithRemisiones || ordersWithRemisiones.length === 0) {
+        // Extract order IDs from remisiones
+        const orderIdsFromRemisiones = remisiones?.map(r => r.order_id).filter(Boolean) || [];
+        const uniqueOrderIds = Array.from(new Set(orderIdsFromRemisiones));
+
+        if (uniqueOrderIds.length === 0) {
           setSalesData([]);
           setRemisionesData([]);
           setClients([]);
@@ -92,9 +79,44 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
           return;
         }
 
-        // Extract unique clients for the filter
+        // 2. Fetch all relevant orders (even those without remisiones in the date range)
+        let ordersQuery = supabase
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            delivery_date,
+            client_id,
+            construction_site,
+            requires_invoice,
+            clients:clients(business_name)
+          `)
+          .in('id', uniqueOrderIds)
+          .not('order_status', 'eq', 'cancelled');
+
+        // Apply plant filter if a plant is selected
+        if (currentPlant?.id) {
+          ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
+        }
+
+        const { data: orders, error: ordersError } = await ordersQuery;
+
+        if (ordersError) throw ordersError;
+
+        if (!orders || orders.length === 0) {
+          setSalesData([]);
+          setRemisionesData([]);
+          setClients([]);
+          setResistances([]);
+          setTipos([]);
+          setProductCodes([]);
+          setLoading(false);
+          return;
+        }
+
+        // Extract unique client names for the filter
         const clientMap = new Map();
-        ordersWithRemisiones.forEach(order => {
+        orders.forEach(order => {
           if (order.client_id && !clientMap.has(order.client_id)) {
             const businessName = order.clients ?
               (typeof order.clients === 'object' ?
@@ -112,50 +134,32 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
         uniqueClients.sort((a, b) => a.name.localeCompare(b.name));
         setClients(uniqueClients);
 
-        // Flatten remisiones data and extract filter values
-        const allRemisiones: any[] = [];
-        const uniqueResistances = new Set<string>();
-        const uniqueTipos = new Set<string>();
-        const uniqueProductCodes = new Set<string>();
+        // 3. Fetch order items (products) for these orders
+        const orderIds = orders.map(order => order.id);
+        let orderItemsQuery = supabase
+          .from('order_items')
+          .select('*')
+          .in('order_id', orderIds);
 
-        ordersWithRemisiones.forEach(order => {
-          if (order.remisiones && Array.isArray(order.remisiones)) {
-            order.remisiones.forEach((remision: any) => {
-              // Add recipe data to filters
-              if (remision.recipe?.strength_fc) {
-                uniqueResistances.add(remision.recipe.strength_fc.toString());
-              }
-              if (remision.tipo_remision) {
-                uniqueTipos.add(remision.tipo_remision);
-              }
-              if (remision.recipe?.recipe_code) {
-                uniqueProductCodes.add(remision.recipe.recipe_code);
-              }
+        const { data: orderItems, error: itemsError } = await orderItemsQuery;
 
-              // Create enriched remision object
-              allRemisiones.push({
-                ...remision,
-                order: {
-                  id: order.id,
-                  order_number: order.order_number,
-                  delivery_date: order.delivery_date,
-                  client_id: order.client_id,
-                  construction_site: order.construction_site,
-                  requires_invoice: order.requires_invoice,
-                  clients: order.clients
-                }
-              });
-            });
-          }
-        });
+        if (itemsError) throw itemsError;
 
-        // Set filter data
-        setResistances(Array.from(uniqueResistances).sort());
-        setTipos(Array.from(uniqueTipos).sort());
-        setProductCodes(Array.from(uniqueProductCodes).sort());
+        // Extract unique values for filters from remisiones
+        const uniqueResistances = Array.from(new Set(remisiones?.map(r => r.recipe?.strength_fc?.toString()).filter(Boolean) as string[] || [])).sort();
+        const uniqueTipos = Array.from(new Set(remisiones?.map(r => r.tipo_remision).filter(Boolean) as string[] || [])).sort();
+        const uniqueProductCodes = Array.from(new Set(remisiones?.map(r => r.recipe?.recipe_code).filter(Boolean) as string[] || [])).sort();
 
-        // Enrich orders with client names
-        const enrichedOrders = ordersWithRemisiones.map(order => {
+        setResistances(uniqueResistances);
+        setTipos(uniqueTipos);
+        setProductCodes(uniqueProductCodes);
+
+        // Combine orders with their items and remisiones (ORIGINAL STRUCTURE)
+        const enrichedOrders = orders.map(order => {
+          const items = orderItems?.filter(item => item.order_id === order.id) || [];
+          const orderRemisiones = remisiones?.filter(r => r.order_id === order.id) || [];
+
+          // Extract the client name safely
           let clientName = 'Desconocido';
           if (order.clients) {
             if (typeof order.clients === 'object') {
@@ -165,15 +169,14 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
 
           return {
             ...order,
-            clientName,
-            // Keep items and remisiones for compatibility
-            items: order.items || [],
-            remisiones: order.remisiones || []
+            items,
+            remisiones: orderRemisiones,
+            clientName
           };
         });
 
         setSalesData(enrichedOrders);
-        setRemisionesData(allRemisiones);
+        setRemisionesData(remisiones || []);
       } catch (error) {
         console.error('Error fetching sales data:', error);
         setError('Error al cargar los datos de ventas. Por favor, intente nuevamente.');
