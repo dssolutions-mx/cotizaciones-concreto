@@ -61,17 +61,20 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   // Check if user is a dosificador
   const isDosificador = profile?.role === 'DOSIFICADOR';
 
-  // Use plant-aware orders hook for non-dosificador users
-  const { 
-    orders: plantAwareOrders, 
-    isLoading: plantLoading, 
-    error: plantError, 
-    refetch: plantRefetch 
+    // Use plant-aware orders hook for non-dosificador users with reduced refresh frequency
+  const {
+    orders: plantAwareOrders,
+    isLoading: plantLoading,
+    error: plantError,
+    refetch: plantRefetch
   } = usePlantAwareOrders({
     statusFilter,
     creditStatusFilter,
-    autoRefresh: true
+    autoRefresh: false // Disable auto-refresh to prevent excessive queries
   });
+
+  // Track previous props to detect changes
+  const prevPropsRef = React.useRef({ statusFilter, creditStatusFilter });
 
   // Handle DOSIFICADOR role separately
   const [dosificadorOrders, setDosificadorOrders] = useState<OrderWithClient[]>([]);
@@ -215,13 +218,32 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
     setCalendarDays(days);
   }, [filteredOrders, currentDate, viewType]);
 
+  // Only refetch when props actually change, not on every render
   useEffect(() => {
-    if (isDosificador) {
-      loadDosificadorOrders();
-    } else {
-      loadOrders();
+    const prevProps = prevPropsRef.current;
+    const propsChanged = prevProps.statusFilter !== statusFilter ||
+                        prevProps.creditStatusFilter !== creditStatusFilter;
+
+    if (propsChanged || (isDosificador && dosificadorOrders.length === 0) ||
+        (!isDosificador && plantAwareOrders.length === 0)) {
+      if (isDosificador) {
+        loadDosificadorOrders();
+      } else {
+        loadOrders();
+      }
     }
-  }, [isDosificador, loadDosificadorOrders, loadOrders]);
+
+    // Update previous props reference
+    prevPropsRef.current = { statusFilter, creditStatusFilter };
+  }, [
+    isDosificador,
+    loadDosificadorOrders,
+    loadOrders,
+    statusFilter,
+    creditStatusFilter,
+    dosificadorOrders.length,
+    plantAwareOrders.length
+  ]);
 
   const handleViewTypeChange = useCallback((newViewType: ViewType) => {
     setViewType(newViewType);
@@ -616,6 +638,20 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
           </h2>
           
           <div className="flex flex-wrap gap-3">
+            {/* Manual refresh button */}
+            <Button
+              onClick={() => isDosificador ? loadDosificadorOrders() : loadOrders()}
+              disabled={loading}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-1"
+            >
+              <svg className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Actualizar
+            </Button>
+
             <div className="flex bg-gray-100 rounded-md overflow-hidden shadow-xs">
               <button
                 onClick={() => handleViewTypeChange('day')}
