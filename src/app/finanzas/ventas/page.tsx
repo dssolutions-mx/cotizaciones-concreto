@@ -36,6 +36,7 @@ import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-wi
 import * as XLSX from 'xlsx';
 import { usePlantContext } from '@/contexts/PlantContext';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
+import { SalesCharts } from '@/components/finanzas/SalesCharts';
 
 // Dynamically import ApexCharts with SSR disabled
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -54,7 +55,7 @@ const DateRangePickerWithPresetsComponent = dynamic(
 import SpanishCalendar from '@/components/ui/spanish-calendar';
 
 // Import custom hooks
-import { useSalesData } from '@/hooks/useSalesData';
+import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
 
 export default function VentasDashboard() {
   const { currentPlant } = usePlantContext();
@@ -76,6 +77,14 @@ export default function VentasDashboard() {
     endDate,
     currentPlant
   });
+
+  // Use historical data hook for trend analysis (independent of date filters)
+  const {
+    historicalData,
+    historicalRemisiones,
+    loading: historicalLoading,
+    error: historicalError
+  } = useHistoricalSalesData(currentPlant);
   const [searchTerm, setSearchTerm] = useState('');
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>('powerbi');
@@ -1108,106 +1117,7 @@ export default function VentasDashboard() {
     return series;
   }, [clientVolumeData, clientAmountData, includeVAT]);
 
-  // New Chart Options for Enhanced Dashboard
-  const salesTrendChartOptions = useMemo((): ApexOptions => ({
-    chart: {
-      type: 'line' as const,
-      background: 'transparent',
-      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-      toolbar: {
-        show: false
-      },
-      animations: {
-        enabled: true,
-        speed: 800
-      },
-      dropShadow: {
-        enabled: true,
-        top: 2,
-        left: 2,
-        blur: 4,
-        opacity: 0.15
-      }
-    },
-    colors: ['#10B981', '#3B82F6'],
-    stroke: {
-      curve: 'smooth',
-      width: 4
-    },
-    fill: {
-      type: 'gradient',
-      gradient: {
-        shade: 'light',
-        type: 'vertical',
-        shadeIntensity: 0.15,
-        opacityFrom: 0.4,
-        opacityTo: 0.1
-      }
-    },
-    xaxis: {
-      categories: getLast6Months(),
-      labels: {
-        style: {
-          fontSize: '13px',
-          fontWeight: 600,
-          colors: '#111827',
-          fontFamily: 'Inter, system-ui, sans-serif'
-        }
-      },
-      axisBorder: {
-        show: false
-      },
-      axisTicks: {
-        show: false
-      }
-    },
-    yaxis: {
-      labels: {
-        style: {
-          fontSize: '13px',
-          fontWeight: 600,
-          colors: '#111827',
-          fontFamily: 'Inter, system-ui, sans-serif'
-        },
-        formatter: (val: number) => includeVAT ? formatCurrency(val) : `${val.toFixed(0)} m³`
-      }
-    },
-    dataLabels: {
-      enabled: false
-    },
-    tooltip: {
-      enabled: true,
-      theme: 'light',
-      style: {
-        fontSize: '16px',
-        fontFamily: 'Inter, system-ui, sans-serif'
-      },
-      y: {
-        formatter: (val: number) => includeVAT ? formatCurrency(val) : `${val.toFixed(1)} m³`
-      }
-    },
-    grid: {
-      show: true,
-      borderColor: '#D1D5DB',
-      strokeDashArray: 4,
-      xaxis: {
-        lines: {
-          show: true
-        }
-      },
-      yaxis: {
-        lines: {
-          show: true
-        }
-      }
-    },
-    legend: {
-      position: 'top',
-      fontSize: '16px',
-      fontWeight: 700,
-      fontFamily: 'Inter, system-ui, sans-serif'
-    }
-  }), [includeVAT]);
+
 
   const activeClientsChartOptions = useMemo((): ApexOptions => ({
     chart: {
@@ -1442,69 +1352,493 @@ export default function VentasDashboard() {
     }
   }), []);
 
-  // Chart Series Data for New Charts - Real Historical Data
+  // Chart Series Data for New Charts - Real Historical Data (Filtered)
   const salesTrendChartSeries = useMemo(() => {
-    if (!salesData.length) return [
-      { name: 'Ventas', data: [] },
-      { name: 'Volumen (m³)', data: [] }
+    if (!historicalData.length || !historicalRemisiones.length) return [
+      { name: 'Ventas Históricas', data: [] },
+      { name: 'Volumen Concreto (m³)', data: [] },
+      { name: 'Volumen Bombeo (m³)', data: [] },
+      { name: 'Volumen Vacío (m³)', data: [] }
     ];
-    
-    const months = getLast6Months();
+
+    // Get last 24 months for comprehensive historical view
+    const months: string[] = [];
+    const monthDates: Date[] = [];
+    for (let i = 23; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      months.push(format(date, 'MMM yyyy', { locale: es }));
+      monthDates.push(new Date(date));
+    }
+
+
+
     const monthlyData = months.map((month, index) => {
-      // Calculate data for each month based on actual sales data
-      const monthStart = new Date();
-      monthStart.setMonth(monthStart.getMonth() - (5 - index));
+      // Calculate data for each month based on historical remisiones (MATCHING MAIN SALES LOGIC)
+      const monthStart = new Date(monthDates[index]);
       monthStart.setDate(1);
       monthStart.setHours(0, 0, 0, 0);
-      
+
       const monthEnd = new Date(monthStart);
       monthEnd.setMonth(monthEnd.getMonth() + 1);
       monthEnd.setDate(0);
       monthEnd.setHours(23, 59, 59, 999);
-      
-      // Filter sales data for this month
-      const monthSales = salesData.filter(order => {
-        const orderDate = new Date(order.delivery_date + 'T00:00:00');
-        return orderDate >= monthStart && orderDate <= monthEnd;
+
+      // Filter historical remisiones for this month (including virtual ones)
+      const monthRemisiones = historicalRemisiones.filter(remision => {
+        if (!remision.fecha) return false;
+        const remisionDate = new Date(remision.fecha + 'T00:00:00');
+        return remisionDate >= monthStart && remisionDate <= monthEnd;
       });
-      
-      // Calculate total sales amount for the month
-      const monthTotal = monthSales.reduce((sum, order) => {
-        const orderTotal = order.order_items?.reduce((itemSum: number, item: any) => {
-          const itemAmount = (parseFloat(item.unit_price) || 0) * (parseFloat(item.volume) || 0);
-          return itemSum + itemAmount;
-        }, 0) || 0;
-        return sum + orderTotal;
-      }, 0);
-      
-      // Calculate total volume for the month
-      const monthVolume = monthSales.reduce((sum, order) => {
-        const orderVolume = order.order_items?.reduce((itemSum: number, item: any) => {
-          return itemSum + (parseFloat(item.volume) || 0);
-        }, 0) || 0;
-        return sum + orderVolume;
-      }, 0);
-      
+
+      // Calculate totals using the same logic as main sales report
+      let monthTotal = 0;
+      let concreteVolume = 0;
+      let pumpVolume = 0;
+      let vacioVolume = 0;
+
+      // Process each remision (including virtual ones)
+      monthRemisiones.forEach(remision => {
+        const volume = remision.volumen_fabricado || 0;
+        const orderForRemision = historicalData.find(order => order.id === remision.order_id);
+
+        // Find the corresponding order item for pricing
+        let orderItemForRemision = null;
+        if (orderForRemision?.items) {
+          if (remision.isVirtualVacioDeOlla) {
+            // For virtual vacío de olla remisiones, use the original order item
+            orderItemForRemision = remision.originalOrderItem;
+          } else {
+            // For regular remisiones, find the matching order item
+            const recipeCode = remision.recipe?.recipe_code;
+            orderItemForRemision = orderForRemision.items.find((item: any) => {
+              if (remision.tipo_remision !== 'BOMBEO' && (item.product_type === recipeCode || (item.recipe_id && item.recipe_id.toString() === recipeCode))) {
+                return true;
+              }
+              return false;
+            });
+          }
+        }
+
+        if (orderItemForRemision) {
+          let price = 0;
+
+          if (remision.tipo_remision === 'BOMBEO') {
+            price = orderItemForRemision.pump_price || 0;
+            pumpVolume += volume;
+          } else if (remision.isVirtualVacioDeOlla) {
+            // Handle vacío de olla pricing (MATCHING MAIN SALES LOGIC)
+            if (orderItemForRemision.total_price) {
+              // If total_price is available, use it directly (already includes volume)
+              price = parseFloat(orderItemForRemision.total_price);
+              // Don't multiply by volume since total_price already includes it
+              monthTotal += price;
+              vacioVolume += volume;
+            } else {
+              // Otherwise calculate from unit_price * volume
+              price = parseFloat(orderItemForRemision.unit_price) ||
+                      parseFloat(orderItemForRemision.empty_truck_price) || 0;
+              vacioVolume += volume;
+            }
+          } else {
+            // Regular concrete pricing
+            price = orderItemForRemision.unit_price || 0;
+            concreteVolume += volume;
+          }
+
+          // Only add to monthTotal if we haven't already handled it (for vacío de olla with total_price)
+          if (!(remision.isVirtualVacioDeOlla && orderItemForRemision.total_price)) {
+            monthTotal += price * volume;
+          }
+        }
+      });
+
       return {
         month,
         sales: monthTotal,
-        volume: monthVolume
+        concreteVolume,
+        pumpVolume,
+        vacioVolume,
+        hasData: monthTotal > 0 || concreteVolume > 0 || pumpVolume > 0 || vacioVolume > 0
       };
     });
-    
+
+    // Filter out months with no data
+    const filteredData = monthlyData.filter(item => item.hasData);
+
+    // If no data, return empty arrays
+    if (filteredData.length === 0) {
+      return [
+        { name: 'Ventas Históricas', data: [] },
+        { name: 'Volumen Histórico (m³)', data: [] },
+        { name: 'Proyección Ventas', data: [] }
+      ];
+    }
+
+    // Calculate projections only if we have at least 3 months of data
+    const projectionMonths = 3;
+    const projectionData = [];
+
+    if (filteredData.length >= 3) {
+      // Use last 6 months (or all available) for projection calculation
+      const recentData = filteredData.slice(-Math.min(6, filteredData.length));
+      const salesTrend = recentData.map(item => includeVAT ? item.sales * (1 + VAT_RATE) : item.sales);
+      const volumeTrend = recentData.map(item => item.concreteVolume + item.pumpVolume + item.vacioVolume);
+
+      // Calculate growth rates (only if we have meaningful data)
+      const validSalesData = salesTrend.filter(val => val > 0);
+      const validVolumeData = volumeTrend.filter(val => val > 0);
+
+      let salesGrowthRate = 0;
+      let volumeGrowthRate = 0;
+
+      if (validSalesData.length > 1) {
+        const firstValidSales = validSalesData[0];
+        const lastValidSales = validSalesData[validSalesData.length - 1];
+        salesGrowthRate = (lastValidSales - firstValidSales) / firstValidSales;
+      }
+
+      if (validVolumeData.length > 1) {
+        const firstValidVolume = validVolumeData[0];
+        const lastValidVolume = validVolumeData[validVolumeData.length - 1];
+        volumeGrowthRate = (lastValidVolume - firstValidVolume) / firstValidVolume;
+      }
+
+      // Generate projection data with safety checks
+      const lastSalesValue = salesTrend[salesTrend.length - 1] || 0;
+      const lastVolumeValue = volumeTrend[volumeTrend.length - 1] || 0;
+
+      for (let i = 1; i <= projectionMonths; i++) {
+        const projectedSales = lastSalesValue > 0 ? lastSalesValue * Math.pow(1 + salesGrowthRate, i) : 0;
+        const projectedVolume = lastVolumeValue > 0 ? lastVolumeValue * Math.pow(1 + volumeGrowthRate, i) : 0;
+        projectionData.push({
+          sales: Math.max(0, projectedSales),
+          volume: Math.max(0, projectedVolume)
+        });
+      }
+    }
+
+
+
+    // Create historical data series mapped to 24-month categories
+    const historicalSalesData = new Array(24).fill(0);
+    const concreteVolumeData = new Array(24).fill(0);
+    const pumpVolumeData = new Array(24).fill(0);
+    const vacioVolumeData = new Array(24).fill(0);
+
+    // Map filtered data to the correct month positions
+    filteredData.forEach((item, index) => {
+      // Find the month index in the 24-month array by comparing month strings
+      const monthIndex = months.findIndex(month => month === item.month);
+      
+      if (monthIndex !== -1) {
+        historicalSalesData[monthIndex] = includeVAT ? item.sales * (1 + VAT_RATE) : item.sales;
+        concreteVolumeData[monthIndex] = item.concreteVolume;
+        pumpVolumeData[monthIndex] = item.pumpVolume;
+        vacioVolumeData[monthIndex] = item.vacioVolume;
+      }
+    });
+
+
+
     return [
       {
-        name: includeVAT ? 'Ventas (Con IVA)' : 'Ventas (Sin IVA)',
-        data: monthlyData.map(item => 
-          includeVAT ? item.sales * (1 + VAT_RATE) : item.sales
-        )
+        name: includeVAT ? 'Ventas Históricas (Con IVA)' : 'Ventas Históricas (Sin IVA)',
+        data: historicalSalesData,
+        type: 'line',
+        yAxisIndex: 0
       },
       {
-        name: 'Volumen (m³)',
-        data: monthlyData.map(item => item.volume)
+        name: 'Volumen Concreto (m³)',
+        data: concreteVolumeData,
+        type: 'line',
+        yAxisIndex: 1
+      },
+      {
+        name: 'Volumen Bombeo (m³)',
+        data: pumpVolumeData,
+        type: 'line',
+        yAxisIndex: 1
+      },
+      {
+        name: 'Volumen Vacío (m³)',
+        data: vacioVolumeData,
+        type: 'line',
+        yAxisIndex: 1
       }
     ];
-  }, [salesData, includeVAT]);
+  }, [historicalData, includeVAT]);
+
+  // Enhanced Chart Options for Historical Trends with Projections
+  const salesTrendChartOptions = useMemo((): ApexOptions => {
+    // Always generate 24-month categories for comprehensive historical view
+    const categories = [];
+    for (let i = 23; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      categories.push(format(date, 'MMM yyyy', { locale: es }));
+    }
+
+    return {
+      chart: {
+        type: 'line' as const,
+        background: 'transparent',
+        fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+        toolbar: {
+          show: true,
+          tools: {
+            download: true,
+            selection: true,
+            zoom: true,
+            zoomin: true,
+            zoomout: true,
+            pan: true,
+            reset: true
+          }
+        },
+        animations: {
+          enabled: true,
+          speed: 1000,
+          animateGradually: {
+            enabled: true,
+            delay: 150
+          }
+        },
+        dropShadow: {
+          enabled: true,
+          top: 3,
+          left: 3,
+          blur: 6,
+          opacity: 0.2
+        }
+      },
+      colors: ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B'],
+      stroke: {
+        curve: 'smooth',
+        width: [4, 3, 3, 3],
+        dashArray: [0, 0, 0, 0]
+      },
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shade: 'light',
+          type: 'vertical',
+          shadeIntensity: 0.2,
+          opacityFrom: 0.6,
+          opacityTo: 0.1,
+          stops: [0, 100]
+        }
+      },
+      xaxis: {
+        categories,
+        labels: {
+          style: {
+            fontSize: '12px',
+            fontWeight: 500,
+            colors: '#374151',
+            fontFamily: 'Inter, system-ui, sans-serif'
+          },
+          rotate: -45,
+          rotateAlways: false,
+          hideOverlappingLabels: true
+        },
+        axisBorder: {
+          show: true,
+          color: '#D1D5DB'
+        },
+        axisTicks: {
+          show: true,
+          color: '#D1D5DB'
+        },
+        crosshairs: {
+          show: true,
+          width: 1,
+          position: 'back',
+          opacity: 0.9,
+          stroke: {
+            color: '#775DD0',
+            width: 1,
+            dashArray: 3
+          }
+        }
+      },
+      yaxis: [
+        {
+          // Primary y-axis for sales (currency)
+          labels: {
+            style: {
+              fontSize: '12px',
+              fontWeight: 500,
+              colors: '#10B981',
+              fontFamily: 'Inter, system-ui, sans-serif'
+            },
+            formatter: (val: number) => {
+              if (val === null || val === undefined || isNaN(val)) {
+                return 'Sin datos';
+              }
+              return includeVAT ? formatCurrency(val) : formatCurrency(val);
+            }
+          },
+          axisBorder: {
+            show: true,
+            color: '#10B981'
+          },
+          title: {
+            text: includeVAT ? 'Ventas (Con IVA)' : 'Ventas (Sin IVA)',
+            style: {
+              color: '#10B981',
+              fontSize: '12px',
+              fontWeight: '600'
+            }
+          }
+        },
+        {
+          // Secondary y-axis for volumes (m³)
+          opposite: true,
+          labels: {
+            style: {
+              fontSize: '12px',
+              fontWeight: 500,
+              colors: '#3B82F6',
+              fontFamily: 'Inter, system-ui, sans-serif'
+            },
+            formatter: (val: number) => {
+              if (val === null || val === undefined || isNaN(val)) {
+                return 'Sin datos';
+              }
+              return `${val.toFixed(0)} m³`;
+            }
+          },
+          axisBorder: {
+            show: true,
+            color: '#3B82F6'
+          },
+          title: {
+            text: 'Volumen (m³)',
+            style: {
+              color: '#3B82F6',
+              fontSize: '12px',
+              fontWeight: '600'
+            }
+          }
+        }
+      ],
+      dataLabels: {
+        enabled: false
+      },
+      tooltip: {
+        enabled: true,
+        theme: 'light',
+        style: {
+          fontSize: '14px',
+          fontFamily: 'Inter, system-ui, sans-serif'
+        },
+        y: {
+          formatter: (val: number, { seriesIndex, seriesName }: any) => {
+            if (val === null || val === undefined || isNaN(val)) {
+              return 'Sin datos';
+            }
+            
+            // First series (index 0) is sales - format as currency
+            if (seriesIndex === 0) {
+              return includeVAT ? formatCurrency(val) : formatCurrency(val);
+            }
+            
+            // Other series (index 1-3) are volumes - format as m³
+            return `${val.toFixed(1)} m³`;
+          }
+        },
+        x: {
+          show: true,
+          formatter: (val: any) => `Período: ${val}`
+        },
+        marker: {
+          show: true
+        }
+      },
+      grid: {
+        show: true,
+        borderColor: '#E5E7EB',
+        strokeDashArray: 3,
+        xaxis: {
+          lines: {
+            show: false
+          }
+        },
+        yaxis: {
+          lines: {
+            show: true
+          }
+        },
+        padding: {
+          top: 20,
+          right: 40,
+          bottom: 20,
+          left: 20
+        }
+      },
+      legend: {
+        position: 'top',
+        fontSize: '14px',
+        fontWeight: 600,
+        fontFamily: 'Inter, system-ui, sans-serif',
+        markers: {
+          size: 6,
+          strokeWidth: 2,
+          shape: 'circle' as const
+        },
+        itemMargin: {
+          horizontal: 16,
+          vertical: 8
+        }
+      },
+      markers: {
+        size: [6, 5, 5, 5],
+        colors: ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B'],
+        strokeColors: '#fff',
+        strokeWidth: 2,
+        hover: {
+          size: 8
+        }
+      },
+      annotations: {
+        xaxis: [
+          {
+            x: categories[categories.length - 4], // Mark last 3 months as recent
+            strokeDashArray: 0,
+            borderColor: '#10B981',
+            label: {
+              borderColor: '#10B981',
+              style: {
+                color: '#fff',
+                background: '#10B981'
+              },
+              text: 'Tendencia Reciente'
+            }
+          }
+        ]
+      },
+      responsive: [
+        {
+          breakpoint: 768,
+          options: {
+            xaxis: {
+              labels: {
+                rotate: -90,
+                style: {
+                  fontSize: '10px'
+                }
+              }
+            },
+            legend: {
+              position: 'bottom',
+              fontSize: '12px'
+            }
+          }
+        }
+      ]
+    };
+  }, [includeVAT, salesTrendChartSeries]);
 
   const activeClientsChartSeries = useMemo(() => {
     if (!salesData.length) return [{ name: 'Clientes Activos', data: [] }];
@@ -3102,36 +3436,17 @@ export default function VentasDashboard() {
                    </div>
                  </CardContent>
                </Card>
-              </CardContent>
-            </Card>
+
+               {/* Improved Sales Charts Component */}
+               <SalesCharts 
+                 includeVAT={includeVAT}
+                 formatNumberWithUnits={formatNumberWithUnits}
+                 formatCurrency={formatCurrency}
+               />
+            </CardContent>
+          </Card>
         </>
       )}
     </div>
   );
 }
-
-// Helper function to add weighted price/resistance to summary (adjust placement if needed)
-interface SummaryMetrics {
-  concreteVolume: number;
-  pumpVolume: number;
-  emptyTruckVolume: number;
-  totalVolume: number;
-  concreteAmount: number;
-  pumpAmount: number;
-  emptyTruckAmount: number;
-  totalAmount: number;
-  cashAmount: number;
-  invoiceAmount: number;
-  weightedConcretePrice: number;
-  weightedPumpPrice: number;
-  weightedEmptyTruckPrice: number;
-  weightedResistance: number;
-  resistanceTooltip?: string;
-  // VAT-related metrics
-  totalAmountWithVAT: number;
-  cashAmountWithVAT: number;
-  invoiceAmountWithVAT: number;
-  weightedConcretePriceWithVAT: number;
-  weightedPumpPriceWithVAT: number;
-  weightedEmptyTruckPriceWithVAT: number;
-} 
