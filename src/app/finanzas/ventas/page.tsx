@@ -1,17 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { format, subDays, subMonths, isValid, startOfMonth, endOfMonth, addMonths } from 'date-fns';
+import React, { useState, useMemo } from 'react';
+import { startOfMonth, endOfMonth, format, isValid, addMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import {
   formatNumberWithUnits,
@@ -20,9 +18,7 @@ import {
   getApexCommonOptions,
   VAT_RATE
 } from '@/lib/sales-utils';
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Info, Download } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Info, Download } from "lucide-react";
 import {
   Select,
   SelectContent,
