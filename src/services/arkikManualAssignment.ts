@@ -29,6 +29,29 @@ export interface OrderItem {
 export interface ManualAssignmentCandidate {
   remision: StagingRemision;
   compatibleOrders: CompatibleOrder[];
+  isCurrentlyAssigned?: boolean;
+  currentAssignment?: {
+    orderId: string;
+    orderNumber: string;
+  };
+}
+
+export interface RemisionSearchFilters {
+  searchTerm?: string;
+  clientId?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
+  includeAssigned?: boolean;
+  plantId?: string;
+}
+
+export interface RemisionSearchResult {
+  remision: StagingRemision;
+  isAssigned: boolean;
+  currentOrder?: {
+    id: string;
+    orderNumber: string;
+  };
 }
 
 export class ArkikManualAssignmentService {
@@ -175,6 +198,160 @@ export class ArkikManualAssignmentService {
   }
 
   /**
+   * Search and filter remisiones for manual reassignment
+   */
+  async searchRemisiones(filters: RemisionSearchFilters): Promise<RemisionSearchResult[]> {
+    console.log('[ManualAssignment] Searching remisiones with filters:', filters);
+
+    try {
+      let query = supabase
+        .from('staging_remisiones')
+        .select(`
+          *,
+          clients:business_name,
+          construction_sites:obra_name,
+          recipes:arkik_long_code
+        `)
+        .eq('plant_id', filters.plantId || this.plantId);
+
+      // Apply filters
+      if (filters.searchTerm) {
+        query = query.or(`
+          remision_number.ilike.%${filters.searchTerm}%,
+          cliente_name.ilike.%${filters.searchTerm}%,
+          obra_name.ilike.%${filters.searchTerm}%
+        `);
+      }
+
+      if (filters.clientId) {
+        query = query.eq('client_id', filters.clientId);
+      }
+
+      if (filters.dateFrom) {
+        query = query.gte('fecha', filters.dateFrom.toISOString().split('T')[0]);
+      }
+
+      if (filters.dateTo) {
+        query = query.lte('fecha', filters.dateTo.toISOString().split('T')[0]);
+      }
+
+      // Get remisiones
+      const { data: remisiones, error: remisionesError } = await query
+        .order('fecha', { ascending: false })
+        .limit(100); // Limit for performance
+
+      if (remisionesError) {
+        console.error('[ManualAssignment] Error fetching remisiones:', remisionesError);
+        return [];
+      }
+
+      if (!remisiones || remisiones.length === 0) {
+        return [];
+      }
+
+      // Get current assignments if including assigned remisiones
+      let assignments: any[] = [];
+      if (filters.includeAssigned) {
+        const remisionIds = remisiones.map(r => r.id);
+        const { data: assignmentData } = await supabase
+          .from('remisiones')
+          .select(`
+            staging_remision_id,
+            order_id,
+            orders:order_id (
+              id,
+              order_number
+            )
+          `)
+          .in('staging_remision_id', remisionIds);
+
+        assignments = assignmentData || [];
+      }
+
+      // Build results
+      const results: RemisionSearchResult[] = remisiones.map(remision => {
+        const assignment = assignments.find(a => a.staging_remision_id === remision.id);
+
+        return {
+          remision: remision as StagingRemision,
+          isAssigned: !!assignment,
+          currentOrder: assignment ? {
+            id: assignment.orders?.id,
+            orderNumber: assignment.orders?.order_number
+          } : undefined
+        };
+      });
+
+      return results;
+
+    } catch (error) {
+      console.error('[ManualAssignment] Error searching remisiones:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get candidates for reassignment including already assigned remisiones
+   */
+  async findReassignmentCandidates(
+    remisionIds: string[],
+    includeAssigned: boolean = false
+  ): Promise<ManualAssignmentCandidate[]> {
+    console.log('[ManualAssignment] Finding reassignment candidates for', remisionIds.length, 'remisiones');
+
+    const candidates: ManualAssignmentCandidate[] = [];
+
+    for (const remisionId of remisionIds) {
+      // Get remision details
+      const { data: remision, error } = await supabase
+        .from('staging_remisiones')
+        .select('*')
+        .eq('id', remisionId)
+        .single();
+
+      if (error || !remision) {
+        console.warn('[ManualAssignment] Could not find remision:', remisionId);
+        continue;
+      }
+
+      // Get current assignment if exists
+      let currentAssignment = undefined;
+      if (includeAssigned) {
+        const { data: assignment } = await supabase
+          .from('remisiones')
+          .select(`
+            order_id,
+            orders:order_id (
+              id,
+              order_number
+            )
+          `)
+          .eq('staging_remision_id', remisionId)
+          .single();
+
+        if (assignment) {
+          currentAssignment = {
+            orderId: assignment.orders?.id,
+            orderNumber: assignment.orders?.order_number
+          };
+        }
+      }
+
+      // Find compatible orders
+      const compatibleOrders = await this.findCompatibleOrdersForRemision(remision as StagingRemision);
+
+      candidates.push({
+        remision: remision as StagingRemision,
+        compatibleOrders,
+        isCurrentlyAssigned: !!currentAssignment,
+        currentAssignment
+      });
+    }
+
+    return candidates;
+  }
+
+  /**
    * Evaluate compatibility between a remision and an order
    */
   private evaluateOrderCompatibility(
@@ -205,7 +382,7 @@ export class ArkikManualAssignmentService {
     const orderDate = new Date(order.delivery_date);
     const remisionDate = remision.fecha;
     const daysDiff = Math.abs((orderDate.getTime() - remisionDate.getTime()) / (1000 * 60 * 60 * 24));
-    
+
     if (daysDiff === 0) {
       score += 2;
       reasons.push('Fecha exacta');
@@ -219,7 +396,7 @@ export class ArkikManualAssignmentService {
 
     // Recipe/Product compatibility
     const orderItems = order.order_items || [];
-    const hasMatchingRecipe = orderItems.some((item: any) => 
+    const hasMatchingRecipe = orderItems.some((item: any) =>
       item.recipe_id === remision.recipe_id
     );
 
@@ -230,10 +407,10 @@ export class ArkikManualAssignmentService {
 
     // Quote compatibility (bonus points)
     if (remision.quote_detail_id) {
-      const hasMatchingQuote = orderItems.some((item: any) => 
+      const hasMatchingQuote = orderItems.some((item: any) =>
         item.quote_detail_id === remision.quote_detail_id
       );
-      
+
       if (hasMatchingQuote) {
         score += 1;
         reasons.push('Cotización exacta');
