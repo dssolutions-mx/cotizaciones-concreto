@@ -106,7 +106,7 @@ export default function VentasDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [clients, setClients] = useState<{id: string, name: string}[]>([]);
-  const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>('current');
+  const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>('powerbi');
   
   // State for PowerBI Filters
   const [resistanceFilter, setResistanceFilter] = useState<string>('all');
@@ -118,6 +118,10 @@ export default function VentasDashboard() {
   const [resistances, setResistances] = useState<string[]>([]);
   const [tipos, setTipos] = useState<string[]>([]);
   const [productCodes, setProductCodes] = useState<string[]>([]);
+  
+  // VAT Calculation State
+  const [includeVAT, setIncludeVAT] = useState<boolean>(false);
+  const VAT_RATE = 0.16; // 16% VAT rate
   
   // Format the dates for display
   const formattedStartDate = startDate ? format(startDate, 'dd/MM/yyyy', { locale: es }) : '';
@@ -535,7 +539,14 @@ export default function VentasDashboard() {
       weightedPumpPrice: 0,
       weightedEmptyTruckPrice: 0,
       weightedResistance: 0,
-      resistanceTooltip: ''
+      resistanceTooltip: '',
+      // VAT-related metrics
+      totalAmountWithVAT: 0,
+      cashAmountWithVAT: 0,
+      invoiceAmountWithVAT: 0,
+      weightedConcretePriceWithVAT: 0,
+      weightedPumpPriceWithVAT: 0,
+      weightedEmptyTruckPriceWithVAT: 0
     };
     
     // Process remisiones (Concrete, Bombeo)
@@ -568,24 +579,28 @@ export default function VentasDashboard() {
         return false;
       });
       
-      if (orderItemForRemision) {
-        if (remision.tipo_remision === 'BOMBEO') {
-          price = orderItemForRemision.pump_price || 0;
-          result.pumpVolume += volume;
-          result.pumpAmount += price * volume;
-        } else { // Assumed to be CONCRETO if not BOMBEO and not empty truck
-          price = orderItemForRemision.unit_price || 0;
-          result.concreteVolume += volume;
-          result.concreteAmount += price * volume;
-        }
+              if (orderItemForRemision) {
+          if (remision.tipo_remision === 'BOMBEO') {
+            price = orderItemForRemision.pump_price || 0;
+            result.pumpVolume += volume;
+            result.pumpAmount += price * volume;
+          } else { // Assumed to be CONCRETO if not BOMBEO and not empty truck
+            price = orderItemForRemision.unit_price || 0;
+            result.concreteVolume += volume;
+            result.concreteAmount += price * volume;
+          }
 
-        // Add to cash or invoice amount based on the order's requirement
-        if (orderForRemision?.requires_invoice) {
-          result.invoiceAmount += price * volume;
-        } else {
-          result.cashAmount += price * volume;
+          // Add to cash or invoice amount based on the order's requirement
+          if (orderForRemision?.requires_invoice) {
+            result.invoiceAmount += price * volume;
+            // Add VAT amount for fiscal orders
+            result.invoiceAmountWithVAT += (price * volume) * (1 + VAT_RATE);
+          } else {
+            result.cashAmount += price * volume;
+            // Cash orders don't include VAT
+            result.cashAmountWithVAT += price * volume;
+          }
         }
-      }
     });
     
     // Process "Vacío de Olla" charges from filteredOrders that match current client filter
@@ -637,8 +652,12 @@ export default function VentasDashboard() {
         // Add to cash or invoice amount based on the order's requirement
         if (order.requires_invoice) {
           result.invoiceAmount += chargeAmount;
+          // Add VAT amount for fiscal orders
+          result.invoiceAmountWithVAT += chargeAmount * (1 + VAT_RATE);
         } else {
           result.cashAmount += chargeAmount;
+          // Cash orders don't include VAT
+          result.cashAmountWithVAT += chargeAmount;
         }
       }
     });
@@ -649,11 +668,22 @@ export default function VentasDashboard() {
     result.totalVolume = result.concreteVolume + result.pumpVolume + result.emptyTruckVolume;
     result.totalAmount = result.concreteAmount + result.pumpAmount + result.emptyTruckAmount;
     
+    // Calculate totals with VAT
+    result.totalAmountWithVAT = result.cashAmountWithVAT + result.invoiceAmountWithVAT;
+    
     // Part 4: Calculate Weighted Prices
     result.weightedConcretePrice = result.concreteVolume > 0 ? result.concreteAmount / result.concreteVolume : 0;
     result.weightedPumpPrice = result.pumpVolume > 0 ? result.pumpAmount / result.pumpVolume : 0;
     // Calculate weighted price per cubic meter for empty truck service
     result.weightedEmptyTruckPrice = result.emptyTruckVolume > 0 ? result.emptyTruckAmount / result.emptyTruckVolume : 0;
+    
+    // Calculate weighted prices with VAT
+    result.weightedConcretePriceWithVAT = result.concreteVolume > 0 ? 
+      (result.concreteAmount + (result.invoiceAmount * VAT_RATE)) / result.concreteVolume : 0;
+    result.weightedPumpPriceWithVAT = result.pumpVolume > 0 ? 
+      (result.pumpAmount + (result.pumpAmount * VAT_RATE)) / result.pumpVolume : 0;
+    result.weightedEmptyTruckPriceWithVAT = result.emptyTruckVolume > 0 ? 
+      (result.emptyTruckAmount + (result.emptyTruckAmount * VAT_RATE)) / result.emptyTruckVolume : 0;
 
     // Part 5: Weighted Resistance (remains based on filteredRemisiones for concrete)
     let totalWeightedResistanceSum = 0;
@@ -729,86 +759,107 @@ export default function VentasDashboard() {
 
   // --- Data for Power BI Charts ---
   const cashInvoiceData = useMemo(() => [
-    { name: 'Efectivo', value: summaryMetrics.cashAmount },
-    { name: 'Fiscal', value: summaryMetrics.invoiceAmount },
-  ], [summaryMetrics]);
+    { name: 'Efectivo', value: includeVAT ? summaryMetrics.cashAmountWithVAT : summaryMetrics.cashAmount },
+    { name: 'Fiscal', value: includeVAT ? summaryMetrics.invoiceAmountWithVAT : summaryMetrics.invoiceAmount },
+  ], [summaryMetrics, includeVAT]);
 
-  const cashInvoiceChartOptions: ApexOptions = {
+  const cashInvoiceChartOptions = useMemo((): ApexOptions => ({
     chart: {
-      type: 'donut',
+      type: 'donut' as const,
       background: 'transparent',
-      fontFamily: 'Inter, sans-serif',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
       toolbar: {
         show: false
       },
       animations: {
         enabled: true,
-        speed: 300
+        speed: 800
+      },
+      dropShadow: {
+        enabled: true,
+        top: 2,
+        left: 2,
+        blur: 4,
+        opacity: 0.1
       }
     },
-    colors: ['#3EB56D', '#3B82F6'], // Green for Efectivo, Blue for Fiscal
+    colors: ['#10B981', '#3B82F6'], // Enhanced green and blue
     labels: ['Efectivo', 'Fiscal'],
     plotOptions: {
       pie: {
         donut: {
-          size: '65%',
+          size: '70%',
+          background: 'transparent',
           labels: {
             show: true,
             name: {
               show: true,
-              fontSize: '14px',
-              fontWeight: 600,
-              color: '#334155'
+              fontSize: '16px',
+              fontWeight: 700,
+              color: '#1F2937',
+              fontFamily: 'Inter, system-ui, sans-serif'
             },
             value: {
               show: true,
-              fontSize: '14px',
-              fontWeight: 400,
-              color: '#64748b'
+              fontSize: '18px',
+              fontWeight: 600,
+              color: '#10B981',
+              fontFamily: 'Inter, system-ui, sans-serif'
             },
             total: {
               show: true,
               showAlways: true,
-              fontSize: '16px',
-              fontWeight: 600,
-              color: '#334155',
+              fontSize: '20px',
+              fontWeight: 700,
+              color: '#1F2937',
               label: 'Total',
+              fontFamily: 'Inter, system-ui, sans-serif',
               formatter: (w: any) => formatCurrency(w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0))
             }
           }
         },
-        offsetX: 0, // Center horizontally
-        offsetY: -10 // Move slightly up to center in container
+        offsetX: 0,
+        offsetY: 0
       }
     },
     stroke: {
-      width: 1,
+      width: 3,
       colors: ['#ffffff']
     },
     dataLabels: {
       enabled: true,
       formatter: (val: number) => {
-        if (val < 3) return ''; // Hide very small percentages
+        if (val < 5) return ''; // Hide very small percentages
         return `${val.toFixed(1)}%`;
       },
       style: {
-        fontSize: '12px',
-        fontWeight: 500,
-        colors: ['#ffffff']
+        fontSize: '13px',
+        fontWeight: 600,
+        colors: ['#ffffff'],
+        fontFamily: 'Inter, system-ui, sans-serif'
       },
       background: {
         enabled: false
+      },
+      dropShadow: {
+        enabled: true,
+        top: 1,
+        left: 1,
+        blur: 2,
+        opacity: 0.3
       }
     },
     legend: {
       position: 'bottom',
-      fontSize: '13px',
-      fontWeight: 500,
+      fontSize: '14px',
+      fontWeight: 600,
+      fontFamily: 'Inter, system-ui, sans-serif',
       markers: {
-        size: 8
+        size: 12
       },
       itemMargin: {
-        horizontal: 10
+        horizontal: 16,
+        vertical: 8
       },
       formatter: (seriesName: string, opts: any) => {
         const percentage = opts.w.globals.series[opts.seriesIndex] / 
@@ -817,24 +868,85 @@ export default function VentasDashboard() {
       }
     },
     tooltip: {
+      enabled: true,
+      theme: 'light',
+      style: {
+        fontSize: '13px',
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
       y: {
         formatter: (val: number) => formatCurrency(val)
+      },
+      marker: {
+        show: true
+      }
+    },
+    states: {
+      hover: {
+        filter: {
+          type: 'darken'
+        }
       }
     },
     responsive: [{
       breakpoint: 480,
       options: {
         legend: {
-          position: 'bottom'
+          position: 'bottom',
+          fontSize: '12px'
         }
       }
     }]
-  };
+  }), []);
 
   const cashInvoiceChartSeries = useMemo(() => 
-    [summaryMetrics.cashAmount, summaryMetrics.invoiceAmount], 
-    [summaryMetrics]
+    [
+      includeVAT ? summaryMetrics.cashAmountWithVAT : summaryMetrics.cashAmount, 
+      includeVAT ? summaryMetrics.invoiceAmountWithVAT : summaryMetrics.invoiceAmount
+    ], 
+    [summaryMetrics, includeVAT]
   );
+
+  // Enhanced product code data with VAT support - shows amounts instead of just volume
+  const productCodeAmountData = useMemo(() => {
+    const grouped = filteredRemisiones.reduce((acc, r) => {
+      const recipeCode = r.recipe?.recipe_code || 'N/A';
+      if (r.tipo_remision !== 'BOMBEO' && recipeCode !== 'SER001') { // Only concrete
+        const volume = r.volumen_fabricado || 0;
+        const order = salesData.find(o => o.id === r.order_id);
+        const orderItems = order?.items || [];
+        
+        // Find the order item for this remision
+        const orderItem = orderItems.find((item: any) => 
+          item.product_type === recipeCode || 
+          (item.recipe_id && item.recipe_id.toString() === recipeCode)
+        );
+        
+        const price = orderItem?.unit_price || 0;
+        let amount = price * volume;
+        
+        // Apply VAT if enabled and order requires invoice
+        if (includeVAT && order?.requires_invoice) {
+          amount *= (1 + VAT_RATE);
+        }
+        
+        if (!acc[recipeCode]) {
+          acc[recipeCode] = { volume: 0, amount: 0 };
+        }
+        acc[recipeCode].volume += volume;
+        acc[recipeCode].amount += amount;
+      }
+      return acc as Record<string, { volume: number; amount: number }>;
+    }, {} as Record<string, { volume: number; amount: number }>);
+
+    return Object.entries(grouped)
+      .map(([name, data]) => ({ 
+        name, 
+        volume: (data as { volume: number; amount: number }).volume, 
+        amount: (data as { volume: number; amount: number }).amount 
+      }))
+      .sort((a, b) => b.amount - a.amount); // Sort by amount instead of volume
+  }, [filteredRemisiones, salesData, includeVAT]);
 
   const productCodeVolumeData = useMemo(() => {
     const grouped = filteredRemisiones.reduce((acc, r) => {
@@ -853,26 +965,33 @@ export default function VentasDashboard() {
       .sort((a, b) => b.volume - a.volume); // Sort descending by volume
   }, [filteredRemisiones]);
 
-  const productCodeChartOptions: ApexOptions = {
+  const productCodeChartOptions = useMemo((): ApexOptions => ({
     chart: {
-      type: 'bar',
+      type: 'bar' as const,
       background: 'transparent',
-      fontFamily: 'Inter, sans-serif',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
       toolbar: {
         show: false
       },
       animations: {
         enabled: true,
-        speed: 300
+        speed: 600
+      },
+      dropShadow: {
+        enabled: true,
+        top: 1,
+        left: 1,
+        blur: 3,
+        opacity: 0.1
       }
     },
-    colors: ['#3EB56D', '#2D8450', '#5DC78A', '#206238', '#83D7A5'].reverse(),
+    colors: ['#10B981', '#059669', '#34D399', '#6EE7B7', '#A7F3D0', '#D1FAE5', '#ECFDF5', '#F0FDF4'],
     plotOptions: {
       bar: {
         horizontal: true,
         distributed: true,
-        barHeight: '75%',
-        borderRadius: 3,
+        barHeight: '80%',
+        borderRadius: 6,
         borderRadiusApplication: 'end',
         dataLabels: {
           position: 'bottom'
@@ -880,12 +999,13 @@ export default function VentasDashboard() {
       }
     },
     xaxis: {
-      categories: productCodeVolumeData.slice(0, 8).map(item => item.name), // Limit to top 8 for visibility
+      categories: (includeVAT ? productCodeAmountData : productCodeVolumeData).slice(0, 8).map(item => item.name),
       labels: {
         style: {
-          fontSize: '10px',
-          fontWeight: 500,
-          colors: '#64748b'
+          fontSize: '11px',
+          fontWeight: 600,
+          colors: '#374151',
+          fontFamily: 'Inter, system-ui, sans-serif'
         }
       },
       axisBorder: {
@@ -898,25 +1018,36 @@ export default function VentasDashboard() {
     yaxis: {
       labels: {
         style: {
-          fontSize: '10px',
-          colors: '#64748b'
+          fontSize: '11px',
+          fontWeight: 500,
+          colors: '#6B7280',
+          fontFamily: 'Inter, system-ui, sans-serif'
         }
       }
     },
     dataLabels: {
       enabled: true,
-      formatter: (val: number) => val.toFixed(1) + ' m³',
-      offsetX: 5,
+      formatter: (val: number) => includeVAT ? formatCurrency(val) : val.toFixed(1) + ' m³',
+      offsetX: 8,
       style: {
-        fontSize: '10px',
-        fontFamily: 'Inter, sans-serif',
-        fontWeight: 500,
-        colors: ['#333333']
+        fontSize: '11px',
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontWeight: 600,
+        colors: ['#1F2937']
       }
     },
     tooltip: {
+      enabled: true,
+      theme: 'light',
+      style: {
+        fontSize: '12px',
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
       y: {
-        formatter: (val: number) => val.toFixed(2) + ' m³'
+        formatter: (val: number) => includeVAT ? formatCurrency(val) : val.toFixed(2) + ' m³'
+      },
+      marker: {
+        show: true
       }
     },
     grid: {
@@ -925,17 +1056,19 @@ export default function VentasDashboard() {
     legend: {
       show: false
     }
-  };
+  }), [includeVAT, productCodeAmountData, productCodeVolumeData]);
 
   const productCodeChartSeries = useMemo(() => [{
-    name: 'Volumen',
-    data: productCodeVolumeData.slice(0, 8).map(item => item.volume)
-  }], [productCodeVolumeData]);
+    name: includeVAT ? 'Monto' : 'Volumen',
+    data: includeVAT ? 
+      productCodeAmountData.slice(0, 8).map(item => item.amount) :
+      productCodeVolumeData.slice(0, 8).map(item => item.volume)
+  }], [productCodeAmountData, productCodeVolumeData, includeVAT]);
 
   const clientVolumeData = useMemo(() => {
      const clientSummary = filteredRemisiones.reduce((acc: Record<string, { clientName: string; volume: number }>, remision) => {
         const clientId = remision.order?.client_id || 'unknown';
-        const clientName = remision.order?.clients ?
+        const clientName = remision.order.clients ?
           (typeof remision.order.clients === 'object' ?
             (remision.order.clients as any).business_name || 'Desconocido' : 'Desconocido')
           : 'Desconocido';
@@ -956,48 +1089,114 @@ export default function VentasDashboard() {
       return mappedData.sort((a, b) => b.value - a.value);
   }, [filteredRemisiones, salesData]);
 
-  const clientChartOptions: ApexOptions = {
+  // Enhanced client data with VAT support - shows amounts instead of just volume
+  const clientAmountData = useMemo(() => {
+    const clientSummary = filteredRemisiones.reduce((acc: Record<string, { clientName: string; volume: number; amount: number }>, remision) => {
+      const clientId = remision.order?.client_id || 'unknown';
+      const clientName = remision.order.clients ?
+        (typeof remision.order.clients === 'object' ?
+          (remision.order.clients as any).business_name || 'Desconocido' : 'Desconocido')
+        : 'Desconocido';
+
+      if (!acc[clientId]) {
+        acc[clientId] = { clientName, volume: 0, amount: 0 };
+      }
+
+      const volume = remision.volumen_fabricado || 0;
+      const order = salesData.find(o => o.id === remision.order_id);
+      const orderItems = order?.items || [];
+      const recipeCode = remision.recipe?.recipe_code;
+      
+      // Find the right order item based on product type
+      const orderItem = orderItems.find((item: any) => {
+        if (remision.tipo_remision === 'BOMBEO' && item.has_pump_service) {
+          return true;
+        }
+        return item.product_type === recipeCode || 
+          (item.recipe_id && item.recipe_id.toString() === recipeCode);
+      });
+      
+      let price = 0;
+      if (orderItem) {
+        if (remision.tipo_remision === 'BOMBEO') {
+          price = orderItem.pump_price || 0;
+        } else {
+          price = orderItem.unit_price || 0;
+        }
+      }
+      
+      let amount = price * volume;
+      
+      // Apply VAT if enabled and order requires invoice
+      if (includeVAT && order?.requires_invoice) {
+        amount *= (1 + VAT_RATE);
+      }
+      
+      acc[clientId].volume += volume;
+      acc[clientId].amount += amount;
+      return acc;
+    }, {} as Record<string, { clientName: string; volume: number; amount: number }>);
+
+    return Object.values(clientSummary)
+      .map(summary => ({ 
+        name: summary.clientName, 
+        value: summary.amount, // Use amount instead of volume for better business insight
+        volume: summary.volume 
+      }))
+      .sort((a, b) => b.value - a.value); // Sort by amount
+  }, [filteredRemisiones, salesData, includeVAT]);
+
+  const clientChartOptions = useMemo((): ApexOptions => ({
     chart: {
-      type: 'pie',
+      type: 'pie' as const,
       background: 'transparent',
-      fontFamily: 'Inter, sans-serif',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
       toolbar: {
         show: false
       },
       animations: {
         enabled: true,
-        speed: 300
-      }
-    },
-    colors: ['#3EB56D', '#2D8450', '#5DC78A', '#206238', '#83D7A5', '#174D2B'],
-    labels: clientVolumeData.map(item => item.name).slice(0, 6).concat(clientVolumeData.length > 6 ? ['Otros'] : []),
-    dataLabels: {
-      enabled: true,
-      formatter: (val: number) => {
-        if (val < 3) return ''; // Hide very small percentages
-        return `${val.toFixed(1)}%`;
-      },
-      style: {
-        fontSize: '11px',
-        fontWeight: 500,
-        colors: ['#ffffff']
+        speed: 600
       },
       dropShadow: {
         enabled: true,
-        blur: 2,
-        opacity: 0.5
+        top: 2,
+        left: 2,
+        blur: 4,
+        opacity: 0.1
+      }
+    },
+    colors: ['#10B981', '#059669', '#34D399', '#6EE7B7', '#A7F3D0', '#D1FAE5', '#ECFDF5', '#F0FDF4'],
+    labels: (includeVAT ? clientAmountData : clientVolumeData).map(item => item.name).slice(0, 6).concat((includeVAT ? clientAmountData : clientVolumeData).length > 6 ? ['Otros'] : []),
+    dataLabels: {
+      enabled: true,
+      formatter: (val: number) => {
+        if (val < 4) return ''; // Hide very small percentages
+        return `${val.toFixed(1)}%`;
+      },
+      style: {
+        fontSize: '12px',
+        fontWeight: 600,
+        colors: ['#ffffff'],
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
+      dropShadow: {
+        enabled: true,
+        blur: 3,
+        opacity: 0.6
       }
     },
     stroke: {
-      width: 1,
+      width: 2,
       colors: ['#ffffff']
     },
     legend: {
       position: 'bottom',
-      fontSize: '11px',
-      fontWeight: 500,
+      fontSize: '12px',
+      fontWeight: 600,
+      fontFamily: 'Inter, system-ui, sans-serif',
       formatter: (seriesName: string, opts: any) => {
-        // Truncate long client names and add volume
+        // Truncate long client names and add value
         const name = seriesName.length > 15 ? seriesName.substring(0, 15) + '...' : seriesName;
         const percentage = opts.w.globals.series[opts.seriesIndex] / 
           opts.w.globals.series.reduce((a: number, b: number) => a + b, 0) * 100;
@@ -1006,16 +1205,25 @@ export default function VentasDashboard() {
         return `${name}${percentText}`;
       },
       markers: {
-        size: 8
+        size: 10
       },
       itemMargin: {
-        horizontal: 8,
-        vertical: 4
+        horizontal: 12,
+        vertical: 6
       }
     },
     tooltip: {
+      enabled: true,
+      theme: 'light',
+      style: {
+        fontSize: '12px',
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
       y: {
-        formatter: (val: number) => val.toFixed(2) + ' m³'
+        formatter: (val: number) => includeVAT ? formatCurrency(val) : val.toFixed(2) + ' m³'
+      },
+      marker: {
+        show: true
       }
     },
     plotOptions: {
@@ -1031,27 +1239,28 @@ export default function VentasDashboard() {
       options: {
         legend: {
           position: 'bottom',
+          fontSize: '11px',
           itemMargin: {
-            horizontal: 5,
-            vertical: 0
+            horizontal: 8,
+            vertical: 4
           }
         }
       }
     }]
-  };
+  }), [includeVAT, clientAmountData, clientVolumeData]);
 
-  const clientChartSeries = useMemo(() => 
-    clientVolumeData.slice(0, 6).map(item => item.value).concat(
-      clientVolumeData.length > 6 
-        ? [clientVolumeData.slice(6).reduce((sum, item) => sum + item.value, 0)] 
+  const clientChartSeries = useMemo(() => {
+    const dataToUse = includeVAT ? clientAmountData : clientVolumeData;
+    return dataToUse.slice(0, 6).map(item => item.value).concat(
+      dataToUse.length > 6 
+        ? [dataToUse.slice(6).reduce((sum, item) => sum + item.value, 0)] 
         : []
-    ), 
-    [clientVolumeData]
-  );
+    );
+  }, [clientAmountData, clientVolumeData, includeVAT]);
 
-  const clientVolumeChartOptions: ApexOptions = {
+  const clientVolumeChartOptions = useMemo((): ApexOptions => ({
     chart: {
-      type: 'pie',
+      type: 'pie' as const,
       background: 'transparent',
       fontFamily: 'Inter, sans-serif',
       toolbar: {
@@ -1063,7 +1272,7 @@ export default function VentasDashboard() {
       }
     },
     colors: ['#3EB56D', '#2D8450', '#5DC78A', '#206238', '#83D7A5', '#174D2B'],
-    labels: clientVolumeData.map(item => item.name).slice(0, 6).concat(clientVolumeData.length > 6 ? ['Otros'] : []),
+    labels: (includeVAT ? clientAmountData : clientVolumeData).map(item => item.name).slice(0, 6).concat((includeVAT ? clientAmountData : clientVolumeData).length > 6 ? ['Otros'] : []),
     dataLabels: {
       enabled: true,
       formatter: (val: number) => {
@@ -1090,7 +1299,7 @@ export default function VentasDashboard() {
       fontSize: '11px',
       fontWeight: 500,
       formatter: (seriesName: string, opts: any) => {
-        // Truncate long client names and add volume
+        // Truncate long client names and add value
         const name = seriesName.length > 15 ? seriesName.substring(0, 15) + '...' : seriesName;
         const percentage = opts.w.globals.series[opts.seriesIndex] / 
           opts.w.globals.series.reduce((a: number, b: number) => a + b, 0) * 100;
@@ -1108,7 +1317,7 @@ export default function VentasDashboard() {
     },
     tooltip: {
       y: {
-        formatter: (val: number) => val.toFixed(2) + ' m³'
+        formatter: (val: number) => includeVAT ? formatCurrency(val) : val.toFixed(2) + ' m³'
       }
     },
     plotOptions: {
@@ -1131,11 +1340,11 @@ export default function VentasDashboard() {
         }
       }
     }]
-  };
+  }), [includeVAT, clientAmountData, clientVolumeData]);
 
   const clientVolumeSeries = useMemo(() => {
     // Limit to top 5 clients, and combine the rest as "Others"
-    const chartData = [...clientVolumeData];
+    const chartData = includeVAT ? [...clientAmountData] : [...clientVolumeData];
     let series: number[] = [];
     
     if (chartData.length > 5) {
@@ -1152,7 +1361,7 @@ export default function VentasDashboard() {
     }
     
     return series;
-  }, [clientVolumeData]);
+  }, [clientVolumeData, clientAmountData, includeVAT]);
 
   const COLORS_CASH = ['#10B981', '#3B82F6']; // Green, Blue
   const COLORS_CLIENTS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#a4de6c', '#d0ed57', '#ff7300'];
@@ -1292,7 +1501,7 @@ export default function VentasDashboard() {
         'Producto': '',
         'Volumen (m³)': summaryMetrics.totalVolume.toFixed(1),
         'Precio de Venta': '',
-        'SubTotal': `$${summaryMetrics.totalAmount.toFixed(2)}`,
+        'SubTotal': `$${includeVAT ? summaryMetrics.totalAmountWithVAT.toFixed(2) : summaryMetrics.totalAmount.toFixed(2)}`,
         'Tipo Facturación': '',
         'Número de Orden': ''
       };
@@ -1436,6 +1645,48 @@ export default function VentasDashboard() {
                     </svg>
                   </div>
                 </div>
+                
+                {/* VAT Toggle for Current Layout */}
+                <div className="flex flex-col">
+                  <Label className="mb-1">Incluir IVA</Label>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="vat-toggle-current"
+                      checked={includeVAT}
+                      onCheckedChange={setIncludeVAT}
+                    />
+                    <Label htmlFor="vat-toggle-current" className="text-sm">
+                      {includeVAT ? 'Sí' : 'No'}
+                    </Label>
+                  </div>
+                </div>
+              </div>
+              
+              {/* VAT Status Indicator */}
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4 text-xs text-muted-foreground">
+                    <span className="font-medium">
+                      📍 Planta: {currentPlant?.name || 'Todas'}
+                    </span>
+                    {clientFilter !== 'all' && (
+                      <span>
+                        👤 Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
+                      </span>
+                    )}
+                    {includeVAT && (
+                      <span className="flex items-center space-x-1">
+                        <span>💰 Con IVA</span>
+                        <Badge variant="default" className="text-xs bg-green-100 text-green-800">
+                          IVA ACTIVO
+                        </Badge>
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    📊 {filteredRemisionesWithVacioDeOlla.length} elementos mostrados
+                  </div>
+                </div>
               </div>
               
               {/* Dashboard Cards - Similar to Power BI */}
@@ -1456,8 +1707,11 @@ export default function VentasDashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-3xl font-bold text-green-700">
-                          {formatCurrency(summaryMetrics.cashAmount)}
+                          {includeVAT ? formatCurrency(summaryMetrics.cashAmountWithVAT) : formatCurrency(summaryMetrics.cashAmount)}
                         </div>
+                        {includeVAT && (
+                          <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+                        )}
                       </CardContent>
                     </Card>
                     
@@ -1468,8 +1722,11 @@ export default function VentasDashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-3xl font-bold text-blue-700">
-                          {formatCurrency(summaryMetrics.invoiceAmount)}
+                          {includeVAT ? formatCurrency(summaryMetrics.invoiceAmountWithVAT) : formatCurrency(summaryMetrics.invoiceAmount)}
                         </div>
+                        {includeVAT && (
+                          <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+                        )}
                       </CardContent>
                     </Card>
                     
@@ -1480,16 +1737,19 @@ export default function VentasDashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-3xl font-bold text-gray-700">
-                          {formatCurrency(summaryMetrics.totalAmount)}
+                          {includeVAT ? formatCurrency(summaryMetrics.totalAmountWithVAT) : formatCurrency(summaryMetrics.totalAmount)}
                         </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {includeVAT ? 'Con IVA' : 'Sin IVA'}
+                        </p>
                       </CardContent>
                     </Card>
                   </div>
                   
                   {/* Product Type Breakdown */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    {/* Concrete */}
-                    <Card className="overflow-hidden border-0 shadow-md">
+                                        {/* Concrete */}
+                     <Card className="overflow-hidden border-0 shadow-md">
                         <CardHeader className="p-3 pb-1 bg-gradient-to-r from-blue-50 to-blue-100 border-b">
                             <CardTitle className="text-sm font-semibold text-blue-700">CONCRETO PREMEZCLADO</CardTitle>
                         </CardHeader>
@@ -1503,9 +1763,11 @@ export default function VentasDashboard() {
                                 </div>
                                  <div>
                                      <div className="text-2xl font-bold text-slate-800">
-                                         ${summaryMetrics.weightedConcretePrice.toFixed(2)}
+                                         ${includeVAT ? summaryMetrics.weightedConcretePriceWithVAT.toFixed(2) : summaryMetrics.weightedConcretePrice.toFixed(2)}
                                      </div>
-                                    <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                    <p className="text-xs text-slate-500 font-medium text-right">
+                                        PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                    </p>
                                 </div>
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
@@ -1535,8 +1797,11 @@ export default function VentasDashboard() {
                         <div className="w-full">
                           <span className="text-sm text-muted-foreground">SubTotal</span>
                           <div className="text-lg font-semibold">
-                            ${formatNumberWithUnits(summaryMetrics.pumpAmount)}
+                            ${formatNumberWithUnits(includeVAT ? summaryMetrics.pumpAmount * (1 + VAT_RATE) : summaryMetrics.pumpAmount)}
                           </div>
+                          {includeVAT && (
+                            <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+                          )}
                         </div>
                       </CardFooter>
                     </Card>
@@ -1556,8 +1821,11 @@ export default function VentasDashboard() {
                         <div className="w-full">
                           <span className="text-sm text-muted-foreground">SubTotal</span>
                           <div className="text-lg font-semibold">
-                            ${formatNumberWithUnits(summaryMetrics.emptyTruckAmount)}
+                            ${formatNumberWithUnits(includeVAT ? summaryMetrics.emptyTruckAmount * (1 + VAT_RATE) : summaryMetrics.emptyTruckAmount)}
                           </div>
+                          {includeVAT && (
+                            <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+                          )}
                         </div>
                       </CardFooter>
                     </Card>
@@ -1738,7 +2006,7 @@ export default function VentasDashboard() {
                               </TableCell>
                               <TableCell></TableCell>
                               <TableCell className="text-right font-semibold">
-                                ${summaryMetrics.totalAmount.toFixed(2)}
+                                ${includeVAT ? summaryMetrics.totalAmountWithVAT.toFixed(2) : summaryMetrics.totalAmount.toFixed(2)}
                               </TableCell>
                             </TableRow>
                           )}
@@ -1974,6 +2242,21 @@ export default function VentasDashboard() {
                                 </SelectContent>
                              </Select>
                         </div>
+                        
+                        {/* VAT Toggle */}
+                        <div className="flex flex-col space-y-1">
+                            <Label className="text-xs font-semibold">INCLUIR IVA</Label>
+                            <div className="flex items-center space-x-2 h-8">
+                                <Switch
+                                    id="vat-toggle"
+                                    checked={includeVAT}
+                                    onCheckedChange={setIncludeVAT}
+                                />
+                                <Label htmlFor="vat-toggle" className="text-xs">
+                                    {includeVAT ? 'Sí' : 'No'}
+                                </Label>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
 
@@ -1983,9 +2266,11 @@ export default function VentasDashboard() {
                     <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-white to-slate-50">
                     <CardHeader className="p-4 pb-0">
                         <CardTitle className="text-center text-2xl font-bold text-slate-800">
-                            {formatCurrency(summaryMetrics.totalAmount)}
+                            {includeVAT ? formatCurrency(summaryMetrics.totalAmountWithVAT) : formatCurrency(summaryMetrics.totalAmount)}
                          </CardTitle>
-                        <CardDescription className='text-center text-xs font-medium text-slate-500'>Total de ventas (Subtotal)</CardDescription>
+                        <CardDescription className='text-center text-xs font-medium text-slate-500'>
+                            Total de ventas {includeVAT ? '(Con IVA)' : '(Subtotal)'}
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className='p-2'></CardContent>
                     </Card>
@@ -2040,9 +2325,11 @@ export default function VentasDashboard() {
                                 </div>
                                  <div>
                                      <div className="text-2xl font-bold text-slate-800">
-                                         ${summaryMetrics.weightedConcretePrice.toFixed(2)}
+                                         ${includeVAT ? summaryMetrics.weightedConcretePriceWithVAT.toFixed(2) : summaryMetrics.weightedConcretePrice.toFixed(2)}
                                      </div>
-                                    <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                    <p className="text-xs text-slate-500 font-medium text-right">
+                                        PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                    </p>
                                 </div>
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
@@ -2070,9 +2357,11 @@ export default function VentasDashboard() {
                             </div>
                             <div>
                                 <div className="text-2xl font-bold text-slate-800">
-                                    ${summaryMetrics.weightedPumpPrice.toFixed(2)}
+                                    ${includeVAT ? summaryMetrics.weightedPumpPriceWithVAT.toFixed(2) : summaryMetrics.weightedPumpPrice.toFixed(2)}
                                 </div>
-                                <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                <p className="text-xs text-slate-500 font-medium text-right">
+                                    PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                </p>
                             </div>
                          </CardContent>
                     </Card>
@@ -2090,16 +2379,56 @@ export default function VentasDashboard() {
                             </div>
                             <div>
                                 <div className="text-2xl font-bold text-slate-800">
-                                     ${summaryMetrics.weightedEmptyTruckPrice.toFixed(2)}
+                                     ${includeVAT ? summaryMetrics.weightedEmptyTruckPriceWithVAT.toFixed(2) : summaryMetrics.weightedEmptyTruckPrice.toFixed(2)}
                                 </div>
-                                <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                <p className="text-xs text-slate-500 font-medium text-right">
+                                    PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                </p>
                             </div>
                          </CardContent>
                      </Card>
                  </div>
 
                  {/* Export Button for PowerBI Layout */}
-              <div className="flex justify-end mb-4">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center space-x-4 text-xs text-muted-foreground">
+                  <div className="flex items-center space-x-2">
+                    <span>
+                      {includeVAT ? 
+                        '💡 Mostrando montos con IVA (16%) aplicado a órdenes fiscales' : 
+                        '💡 Mostrando montos sin IVA (solo subtotales)'
+                      }
+                    </span>
+                    {includeVAT && (
+                      <Badge variant="default" className="text-xs bg-green-100 text-green-800">
+                        IVA ACTIVO
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <span className="flex items-center">
+                      <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                      Efectivo: {formatCurrency(includeVAT ? summaryMetrics.cashAmountWithVAT : summaryMetrics.cashAmount)}
+                    </span>
+                    <span className="flex items-center">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full mr-1"></div>
+                      Fiscal: {formatCurrency(includeVAT ? summaryMetrics.invoiceAmountWithVAT : summaryMetrics.invoiceAmount)}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-medium">
+                      📍 Planta: {currentPlant?.name || 'Todas'}
+                    </span>
+                    {clientFilter !== 'all' && (
+                      <span className="text-xs">
+                        👤 Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
+                      </span>
+                    )}
+                    <span className="text-xs">
+                      📊 {filteredRemisionesWithVacioDeOlla.length} elementos
+                    </span>
+                  </div>
+                </div>
                 <Button 
                   onClick={exportToExcel} 
                   variant="outline" 
@@ -2113,24 +2442,31 @@ export default function VentasDashboard() {
               </div>
 
               {/* Charts Section */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-4">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-6">
                     {/* Efectivo/Fiscal Donut */}
-                    <Card className="lg:col-span-4 overflow-hidden border-0 shadow-md">
-                        <CardHeader className="p-3 pb-1 bg-gray-50 border-b">
-                            <CardTitle className="text-sm font-semibold text-gray-700">EFECTIVO/FISCAL</CardTitle>
+                    <Card className="lg:col-span-4 overflow-hidden border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                        <CardHeader className="p-4 pb-3 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                            <CardTitle className="text-sm font-bold text-gray-800 flex items-center justify-between">
+                                <span>EFECTIVO/FISCAL</span>
+                                {includeVAT && (
+                                  <Badge variant="default" className="text-xs bg-green-100 text-green-700 border-green-200">
+                                    Con IVA
+                                  </Badge>
+                                )}
+                            </CardTitle>
                         </CardHeader>
-                        <CardContent className="p-2 h-72"> {/* Increased height */}
+                        <CardContent className="p-4 h-80 flex items-center justify-center">
                             {typeof window !== 'undefined' && (
                                 <Chart
                                     options={{
                                         ...cashInvoiceChartOptions,
-                                        colors: ['#3EB56D', '#3B82F6'], // Green for Efectivo, Blue for Fiscal
+                                        colors: ['#10B981', '#3B82F6'], // Enhanced green and blue
                                         chart: {
                                             ...cashInvoiceChartOptions.chart,
                                             background: 'transparent',
                                             animations: {
                                                 enabled: true,
-                                                speed: 500
+                                                speed: 800
                                             }
                                         }
                                     }}
@@ -2142,11 +2478,11 @@ export default function VentasDashboard() {
                         </CardContent>
                     </Card>
                     {/* Codigo Producto Bar Chart */}
-                    <Card className="lg:col-span-4 overflow-hidden border-0 shadow-md">
-                         <CardHeader className="p-3 pb-1 bg-gray-50 border-b">
-                            <CardTitle className="text-sm font-semibold text-gray-700">CODIGO PRODUCTO</CardTitle>
+                    <Card className="lg:col-span-4 overflow-hidden border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                         <CardHeader className="p-4 pb-3 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                            <CardTitle className="text-sm font-bold text-gray-800">CODIGO PRODUCTO</CardTitle>
                         </CardHeader>
-                        <CardContent className="p-2 h-72"> {/* Increased height */}
+                        <CardContent className="p-4 h-80"> {/* Increased height */}
                             {typeof window !== 'undefined' && (
                                 <Chart 
                                     options={productCodeChartOptions}
@@ -2158,11 +2494,11 @@ export default function VentasDashboard() {
                         </CardContent>
                      </Card>
                      {/* Cliente Original Pie Chart */}
-                    <Card className="lg:col-span-4 overflow-hidden border-0 shadow-md">
-                        <CardHeader className="p-3 pb-1 bg-gray-50 border-b">
-                            <CardTitle className="text-sm font-semibold text-gray-700">Cliente</CardTitle>
+                    <Card className="lg:col-span-4 overflow-hidden border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                        <CardHeader className="p-4 pb-3 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                            <CardTitle className="text-sm font-bold text-gray-800">Cliente</CardTitle>
                         </CardHeader>
-                        <CardContent className="p-2 h-72"> {/* Increased height */}
+                        <CardContent className="p-4 h-80"> {/* Increased height */}
                             {typeof window !== 'undefined' && (
                                 <Chart
                                     options={{
@@ -2172,7 +2508,11 @@ export default function VentasDashboard() {
                                             position: 'bottom',
                                             fontSize: '11px',
                                             formatter: (seriesName, opts) => {
-                                                return `${seriesName.length > 15 ? seriesName.substring(0, 15) + '...' : seriesName}: ${formatNumberWithUnits(opts.w.globals.series[opts.seriesIndex])} m³`;
+                                                const value = opts.w.globals.series[opts.seriesIndex];
+                                                const formattedValue = includeVAT ? 
+                                                    formatCurrency(value) : 
+                                                    `${formatNumberWithUnits(value)} m³`;
+                                                return `${seriesName.length > 15 ? seriesName.substring(0, 15) + '...' : seriesName}: ${formattedValue}`;
                                             }
                                         }
                                     }}
@@ -2209,4 +2549,11 @@ interface SummaryMetrics {
   weightedEmptyTruckPrice: number;
   weightedResistance: number;
   resistanceTooltip?: string;
+  // VAT-related metrics
+  totalAmountWithVAT: number;
+  cashAmountWithVAT: number;
+  invoiceAmountWithVAT: number;
+  weightedConcretePriceWithVAT: number;
+  weightedPumpPriceWithVAT: number;
+  weightedEmptyTruckPriceWithVAT: number;
 } 
