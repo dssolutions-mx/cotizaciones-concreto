@@ -6,12 +6,12 @@ import { usePlantContext } from '@/contexts/PlantContext';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
 import { ArkikRawParser } from '@/services/arkikRawParser';
 import { ArkikDuplicateHandler } from '@/services/arkikDuplicateHandler';
-import type { 
-  StagingRemision, 
-  OrderSuggestion, 
-  ValidationError, 
-  StatusProcessingDecision, 
-  StatusProcessingResult, 
+import type {
+  StagingRemision,
+  OrderSuggestion,
+  ValidationError,
+  StatusProcessingDecision,
+  StatusProcessingResult,
   RemisionReassignment,
   DuplicateRemisionInfo,
   DuplicateHandlingDecision,
@@ -249,13 +249,56 @@ Fin del reporte
     }
   };
 
+  const handleValidationContinue = async () => {
+    if (!result?.validated || !currentPlant) return;
+
+    // Check if there are validation errors that prevent continuation
+    const hasErrors = result.validated.filter(r => r.validation_status === 'error').length > 0;
+    if (hasErrors) {
+      alert('❌ No puedes continuar hasta resolver todos los errores de validación. Revisa las remisiones con errores y contacta a los equipos correspondientes.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Check for duplicates after validation is complete
+      console.log('[ArkikProcessor] Starting duplicate detection after validation...');
+      const duplicateHandlerInstance = new ArkikDuplicateHandler(currentPlant.id);
+      setDuplicateHandler(duplicateHandlerInstance);
+
+      console.log('[ArkikProcessor] Calling detectDuplicates with', result.validated.length, 'remisiones');
+      const duplicates = await duplicateHandlerInstance.detectDuplicates(result.validated);
+      console.log('[ArkikProcessor] Duplicate detection result:', duplicates);
+
+      setDuplicateRemisiones(duplicates);
+
+      if (duplicates.length > 0) {
+        console.log(`[ArkikProcessor] Found ${duplicates.length} duplicate remisiones - showing manual interface`);
+        // Show duplicate handling interface for user to decide
+        setShowDuplicateHandling(true);
+        setCurrentStep('duplicate-handling');
+        return;
+      }
+
+      // No duplicates found, proceed directly to status processing
+      console.log('[ArkikProcessor] No duplicates found, proceeding to status processing');
+      handleStatusProcessing();
+
+    } catch (error) {
+      console.error('Error in duplicate processing:', error);
+      alert('Error al detectar duplicados');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleStatusProcessing = async () => {
     if (!result?.validated || !currentPlant) return;
-    
+
     // Check if all remisiones are materials-only updates (should have been handled already)
-    const allAreMaterialsOnlyUpdates = result.validated.length > 0 && 
+    const allAreMaterialsOnlyUpdates = result.validated.length > 0 &&
       result.validated.every(r => r.duplicate_strategy === 'materials_only');
-    
+
     if (allAreMaterialsOnlyUpdates) {
       console.log('[ArkikProcessor] All remisiones are materials-only updates - skipping status processing');
       alert('⚠️ Todas las remisiones son actualizaciones de materiales únicamente. El procesamiento ya se completó en el paso anterior.');
@@ -742,39 +785,39 @@ Fin del reporte
     setCurrentStep('grouping');
   };
 
-  const handleDuplicateHandlingComplete = async (decisions: DuplicateHandlingDecision[]) => {
+    const handleDuplicateHandlingComplete = async (decisions: DuplicateHandlingDecision[]) => {
     console.log('[ArkikProcessor] Duplicate handling decisions completed:', decisions);
-    
+
     // Store the decisions
     setDuplicateHandlingDecisions(decisions);
     setShowDuplicateHandling(false);
-    
+
     try {
       if (!duplicateHandler || !result?.validated) return;
-      
+
       // Apply duplicate decisions to the validated data
-      const { processedRemisiones: processed, skippedRemisiones: skipped, updatedRemisiones: updated, result: duplicateResult } = 
+      const { processedRemisiones: processed, skippedRemisiones: skipped, updatedRemisiones: updated, result: duplicateResult } =
         duplicateHandler.applyDuplicateDecisions(result.validated, decisions, duplicateRemisiones);
-      
+
       console.log('[ArkikProcessor] Duplicate handling results:', {
         processed: processed.length,
         skipped: skipped.length,
         updated: updated.length,
         summary: duplicateResult.summary
       });
-      
+
       // Update the result with processed data
       const updatedValidated = [...processed, ...updated];
       setResult(prev => prev ? { ...prev, validated: updatedValidated } : null);
-      
+
       // Check if ALL remisiones are materials-only updates (no new orders needed)
-      const allAreMaterialsOnlyUpdates = updated.length > 0 && 
+      const allAreMaterialsOnlyUpdates = updated.length > 0 &&
         updated.every(r => r.duplicate_strategy === 'materials_only') &&
         processed.length === 0; // No new remisiones to process
-      
+
       if (allAreMaterialsOnlyUpdates) {
         console.log('[ArkikProcessor] All remisiones are materials-only updates - processing directly');
-        
+
         // Show summary
         const summaryMessage = [
           'Manejo de duplicados completado:',
@@ -785,12 +828,12 @@ Fin del reporte
           '',
           '🔄 Actualizando materiales en la base de datos...'
         ].join('\n');
-        
+
         alert(summaryMessage);
-        
+
         // Process materials-only updates directly
         await handleMaterialsOnlyUpdates(updated, duplicateResult);
-        
+
         // Reset to validation step since we're done
         setCurrentStep('validation');
         setResult(null);
@@ -798,10 +841,10 @@ Fin del reporte
         setProcessedRemisiones([]);
         setDuplicateRemisiones([]);
         setDuplicateHandlingDecisions([]);
-        
+
         return;
       }
-      
+
       // If there are any materials-only updates among duplicates, process them immediately
       const materialsOnlyUpdates = updated.filter(r => r.duplicate_strategy === 'materials_only');
       if (materialsOnlyUpdates.length > 0) {
@@ -812,7 +855,7 @@ Fin del reporte
         }
       }
 
-      // Show summary for normal processing (remaining items continue the flow)
+      // Show summary for normal processing
       const summaryMessage = [
         'Manejo de duplicados completado:',
         '',
@@ -824,12 +867,13 @@ Fin del reporte
         '',
         'Continuando con el procesamiento...'
       ].join('\n');
-      
+
       alert(summaryMessage);
-      
+
       // Continue to status processing step for mixed scenarios
+      console.log('[ArkikProcessor] Proceeding to status processing after duplicate handling');
       setCurrentStep('status-processing');
-      
+
     } catch (error) {
       console.error('Error processing duplicate decisions:', error);
       alert('Error al procesar las decisiones de duplicados');
@@ -1223,28 +1267,8 @@ Fin del reporte
         loadNamesFromDatabase(validated);
       }
 
-      // Check for duplicates after validation
-      if (validated.length > 0) {
-        console.log('[ArkikProcessor] Starting duplicate detection...');
-        const duplicateHandlerInstance = new ArkikDuplicateHandler(currentPlant.id);
-        setDuplicateHandler(duplicateHandlerInstance);
-        
-        console.log('[ArkikProcessor] Calling detectDuplicates with', validated.length, 'remisiones');
-        const duplicates = await duplicateHandlerInstance.detectDuplicates(validated);
-        console.log('[ArkikProcessor] Duplicate detection result:', duplicates);
-        
-        setDuplicateRemisiones(duplicates);
-        
-        if (duplicates.length > 0) {
-          console.log(`[ArkikProcessor] Found ${duplicates.length} duplicate remisiones - showing interface`);
-          // Show duplicate handling interface
-          setShowDuplicateHandling(true);
-          setCurrentStep('duplicate-handling');
-          return; // Stop here and let user handle duplicates
-        } else {
-          console.log('[ArkikProcessor] No duplicates found, continuing with normal flow');
-        }
-      }
+      // Always go to validation step first - duplicate detection will happen later
+      console.log('[ArkikProcessor] Validation completed - showing results to user');
     } catch (error) {
       console.error('Processing error:', error);
       setResult({
@@ -1921,12 +1945,21 @@ Fin del reporte
                   </Button>
                 )}
                 <Button
-                  onClick={handleStatusProcessing}
-                  disabled={result.validated.filter(r => r.validation_status === 'error').length > 0}
+                  onClick={handleValidationContinue}
+                  disabled={loading || result.validated.filter(r => r.validation_status === 'error').length > 0}
                   className="bg-green-600 hover:bg-green-700"
                 >
-                  Continuar a Procesamiento de Estados
-                  <ChevronRight className="mr-2 h-4 w-4" />
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Procesando...
+                    </>
+                  ) : (
+                    <>
+                      Continuar al Siguiente Paso
+                      <ChevronRight className="mr-2 h-4 w-4" />
+                    </>
+                  )}
                 </Button>
               </div>
             </div>
