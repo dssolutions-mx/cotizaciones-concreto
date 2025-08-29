@@ -65,19 +65,19 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
 
         // 1. Fetch remisiones for current month (SAME as ventas page)
         let remisionesQuery = supabase
-          .from('remisiones')
-          .select(`
-            *,
-            recipe:recipes(recipe_code, strength_fc),
-            order:orders(
-              id,
-              order_number,
-              delivery_date,
-              client_id,
-              construction_site,
-              requires_invoice,
-              clients:clients(business_name)
-            )
+            .from('remisiones')
+            .select(`
+              *,
+              recipe:recipes(recipe_code, strength_fc),
+              order:orders(
+                id,
+                order_number,
+                delivery_date,
+                client_id,
+                construction_site,
+                requires_invoice,
+                clients:clients(business_name)
+              )
           `)
           .gte('fecha', formattedStartDate)
           .lte('fecha', formattedEndDate);
@@ -93,6 +93,19 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
           console.error('❌ HistoricalCharts: Error fetching remisiones:', remisionesError);
           throw remisionesError;
         }
+
+        console.log('🔍 STEP 1: Raw remisiones data from database:', {
+          totalRemisiones: remisiones?.length || 0,
+          dateRange: `${formattedStartDate} to ${formattedEndDate}`,
+          sampleRemisiones: remisiones?.slice(0, 3).map(r => ({
+            id: r.id,
+            fecha: r.fecha,
+            tipo_remision: r.tipo_remision,
+            volumen_fabricado: r.volumen_fabricado,
+            order_id: r.order_id,
+            recipe_code: r.recipe?.recipe_code
+          }))
+        });
 
         console.log('✅ HistoricalCharts: Remisiones fetched for current month:', remisiones?.length || 0);
 
@@ -123,26 +136,26 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         }
 
         // 2. Fetch all relevant orders (SAME as ventas page)
-        let ordersQuery = supabase
-          .from('orders')
-          .select(`
-            id,
-            order_number,
-            delivery_date,
-            client_id,
-            construction_site,
-            requires_invoice,
-            order_status,
+          let ordersQuery = supabase
+            .from('orders')
+            .select(`
+              id,
+              order_number,
+              delivery_date,
+              client_id,
+              construction_site,
+              requires_invoice,
+              order_status,
             plant_id,
             final_amount
-          `)
+            `)
           .in('id', uniqueOrderIds)
-          .not('order_status', 'eq', 'cancelled');
+            .not('order_status', 'eq', 'cancelled');
 
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
-        }
+          // Apply plant filter if a plant is selected
+          if (currentPlant?.id) {
+            ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
+          }
 
         const { data: orders, error: ordersError } = await ordersQuery;
         
@@ -152,6 +165,17 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         }
         
         const allOrders = orders || [];
+
+        console.log('🔍 STEP 2: Raw orders data from database:', {
+          totalOrders: allOrders.length,
+          sampleOrders: allOrders.slice(0, 3).map(o => ({
+            id: o.id,
+            order_number: o.order_number,
+            delivery_date: o.delivery_date,
+            client_id: o.client_id,
+            plant_id: o.plant_id
+          }))
+        });
 
         console.log('📋 HistoricalCharts: Orders fetched:', {
           count: allOrders.length,
@@ -169,7 +193,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         // 3. Fetch order items (SAME as ventas page)
         const orderIds = allOrders.map(order => order.id);
         const { data: orderItems, error: itemsError } = await supabase
-          .from('order_items')
+            .from('order_items')
           .select(`
             id,
             order_id,
@@ -183,7 +207,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
             has_empty_truck_charge,
             empty_truck_price,
             empty_truck_volume,
-            recipe_id
+            recipe_id,
+            total_price
           `)
           .in('order_id', orderIds);
 
@@ -191,6 +216,18 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
           console.error('❌ HistoricalCharts: Error fetching order items:', itemsError);
           throw itemsError;
         }
+
+        console.log('🔍 STEP 3: Raw order_items data from database:', {
+          totalOrderItems: orderItems?.length || 0,
+          sampleOrderItems: orderItems?.slice(0, 3).map(oi => ({
+            id: oi.id,
+            order_id: oi.order_id,
+            product_type: oi.product_type,
+            unit_price: oi.unit_price,
+            volume: oi.volume,
+            recipe_id: oi.recipe_id
+          }))
+        });
 
         console.log('📦 HistoricalCharts: Order items fetched:', {
           count: orderItems?.length || 0,
@@ -200,7 +237,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         // 4. Combine orders with their items and remisiones (SAME as ventas page)
         const enrichedOrders = allOrders.map(order => {
           const items = orderItems?.filter(item => item.order_id === order.id) || [];
-          const orderRemisiones = remisiones?.filter(r => r.order_id === order.id) || [];
+            const orderRemisiones = remisiones?.filter(r => r.order_id === order.id) || [];
 
           return {
             ...order,
@@ -230,191 +267,335 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
     fetchHistoricalData();
   }, [currentPlant]);
 
-  // Process monthly data from historical remisiones
+  // Monthly data processing - CLEAN & SCALABLE for multiple months
   const monthlyData = useMemo(() => {
-    console.log('🔄 HistoricalCharts: Processing monthly data:', {
-      historicalDataLength: historicalData.length,
-      historicalRemisionesLength: historicalRemisiones.length
-    });
-
-    if (historicalData.length === 0) {
-      console.warn('⚠️ HistoricalCharts: No historical data available for monthly processing');
+    if (!historicalRemisiones.length || !historicalData.length || !orderItems.length) {
       return [];
     }
 
-    // Create month buckets from orders (using the EXACT SAME logic as ventas page)
-    const monthBuckets = new Map<string, {
-      month: string;
-      monthKey: string;
-      orders: any[];
-      totalSales: number;
-      concreteVolume: number;
-      hasData: boolean;
-    }>();
-
-    // Process each order and group by month using the EXACT SAME logic as ventas page
-    historicalData.forEach(order => {
-      if (!order.delivery_date) return;
-
-      const date = new Date(order.delivery_date + 'T00:00:00');
+    console.log('🔄 Processing monthly data with CLEAN & SCALABLE approach...');
+    
+    // Helper function to get month key from date
+    const getMonthKey = (dateString: string) => {
+      const date = new Date(dateString + 'T00:00:00');
+      return format(date, 'yyyy-MM');
+    };
+    
+    // Helper function to get month name from month key
+    const getMonthName = (monthKey: string) => {
+      // Debug: log the monthKey and what we're parsing
+      console.log(`🔍 getMonthName Debug: monthKey="${monthKey}"`);
+      
+      // Parse the monthKey properly: "2025-03" -> Date(2025, 2, 1) (month is 0-indexed)
+      const [year, month] = monthKey.split('-');
+      const date = new Date(parseInt(year), parseInt(month) - 1, 1);
+      
+      console.log(`🔍 getMonthName Debug: parsed date="${date.toISOString()}"`);
+      
+      const monthName = format(date, 'MMMM yyyy', { locale: es });
+      console.log(`🔍 getMonthName Debug: formatted result="${monthName}"`);
+      
+      return monthName;
+    };
+    
+    // Helper function to check if date is in specific month
+    const isDateInMonth = (dateString: string, targetMonthKey: string) => {
+      const date = new Date(dateString + 'T00:00:00');
       const monthKey = format(date, 'yyyy-MM');
-      const monthLabel = format(date, 'MMM yyyy', { locale: es });
-
-      // ONLY PROCESS MARCH 2025 DATA - skip other months
-      if (monthKey !== '2025-03') {
-        console.log(`⏭️ Skipping order ${order.order_number} - not March 2025 (${monthKey})`);
+      return monthKey === targetMonthKey;
+    };
+    
+    // Helper function to get all months from remisiones data
+    const getAllAvailableMonths = () => {
+      const monthKeys = historicalRemisiones.map(r => getMonthKey(r.fecha));
+      return Array.from(new Set(monthKeys)).sort();
+    };
+    
+    // Helper function to get March 2025 empty truck data for summary
+    const getMarchEmptyTruckSummary = () => {
+      const marchRemisionOrderIds = historicalRemisiones
+        .filter(r => isDateInMonth(r.fecha, '2025-03'))
+        .map(r => r.order_id);
+      
+      const marchOrderItems = orderItems.filter(oi => marchRemisionOrderIds.includes(oi.order_id));
+      const emptyTruckItems = marchOrderItems.filter(item => 
+        item.product_type === 'VACÍO DE OLLA' ||
+        item.product_type === 'EMPTY_TRUCK_CHARGE' ||
+        item.has_empty_truck_charge === true
+      );
+      
+      return {
+        orderCount: Array.from(new Set(marchRemisionOrderIds)).length,
+        itemCount: marchOrderItems.length,
+        emptyTruckCount: emptyTruckItems.length,
+        volume: emptyTruckItems.reduce((sum, item) => sum + (parseFloat(item.empty_truck_volume) || parseFloat(item.volume) || 0), 0)
+      };
+    };
+    
+    // Log available months for debugging and future expansion
+    const availableMonths = getAllAvailableMonths();
+    console.log('📅 Available months in remisiones data:', availableMonths);
+    console.log('🎯 Currently processing month:', '2025-03');
+    
+    // Helper function to process concrete remisiones
+    const processConcreteRemisiones = (remision: any, orderItemsForOrder: any[]) => {
+      const volume = remision.volumen_fabricado || 0;
+      const recipeCode = remision.recipe?.recipe_code;
+      
+      // Find matching order item for price
+      const orderItemForRemision = orderItemsForOrder.find((item: any) => {
+        return item.product_type === recipeCode || 
+               (item.recipe_id && item.recipe_id.toString() === recipeCode);
+      });
+      
+      if (orderItemForRemision) {
+        const price = orderItemForRemision.unit_price || 0;
+        const amount = price * volume;
+        
+        console.log(`✅ Concrete: ${volume}m³ × $${price} = $${amount} (Remision: ${remision.id})`);
+        
+        return {
+          type: 'concrete',
+          volume,
+          amount,
+          remisionId: remision.id,
+          orderId: remision.order_id,
+          recipeCode
+        };
+      }
+      return null;
+    };
+    
+    // Helper function to process pump remisiones
+    const processPumpRemisiones = (remision: any, orderItemsForOrder: any[]) => {
+      const volume = remision.volumen_fabricado || 0;
+      
+      // Find pump service order item - MUST have has_pump_service = true
+      const pumpItem = orderItemsForOrder.find((item: any) => 
+        item.has_pump_service === true
+      );
+      
+      if (pumpItem) {
+        // Use pump_price, not unit_price (EXACT SAME as ventas report)
+        const price = pumpItem.pump_price || 0;
+        const amount = price * volume;
+        
+        console.log(`✅ Pump: ${volume}m³ × $${price} (pump_price) = $${amount} (Remision: ${remision.id})`);
+        
+        return {
+          type: 'pump',
+          volume,
+          amount,
+          remisionId: remision.id,
+          orderId: remision.order_id
+        };
+      } else {
+        console.warn(`⚠️ No pump service order item found for remision ${remision.id} - missing has_pump_service=true`);
+      }
+      return null;
+    };
+    
+    // Helper function to process empty truck charges
+    const processEmptyTruckCharges = (orderIds: string[]) => {
+      // Process order_items for these orders
+      const orderItemsForOrders = orderItems.filter(oi => orderIds.includes(oi.order_id));
+      
+      console.log(`📦 Found ${orderItemsForOrders.length} order items for orders with remisiones`);
+      
+      // Find empty truck charges from these order items
+      const emptyTruckItems = orderItemsForOrders.filter((item: any) => 
+        item.product_type === 'VACÍO DE OLLA' ||
+        item.product_type === 'EMPTY_TRUCK_CHARGE' ||
+        item.has_empty_truck_charge === true
+      );
+      
+      console.log(`🚛 Found ${emptyTruckItems.length} empty truck items:`, emptyTruckItems.map(item => ({
+        id: item.id,
+        order_id: item.order_id,
+        product_type: item.product_type,
+        empty_truck_volume: item.empty_truck_volume,
+        volume: item.volume,
+        unit_price: item.unit_price,
+        total_price: item.total_price
+      })));
+      
+      return emptyTruckItems.map(item => {
+        // For "vacío de olla" items, use the values directly from the order_item (SAME as ventas)
+        const volumeAmount = 
+          parseFloat(item.empty_truck_volume) || 
+          parseFloat(item.volume) || 
+          1;
+        
+        // For the amount, prefer to use the pre-calculated total_price if available
+        let chargeAmount;
+        if (item.total_price) {
+          // If total_price is available, use it directly
+          chargeAmount = parseFloat(item.total_price);
+          console.log(`✅ Empty Truck: ${volumeAmount}m³ × $${chargeAmount} (total_price) = $${chargeAmount} (Order Item: ${item.id})`);
+        } else {
+          // Otherwise calculate from unit_price * volume
+          const unitPrice = 
+            parseFloat(item.unit_price) || 
+            parseFloat(item.empty_truck_price) || 
+            0;
+          chargeAmount = unitPrice * volumeAmount;
+          console.log(`✅ Empty Truck: ${volumeAmount}m³ × $${unitPrice} (unit_price) = $${chargeAmount} (Order Item: ${item.id})`);
+        }
+        
+        if (volumeAmount > 0 && chargeAmount > 0) {
+          return {
+            type: 'empty_truck',
+            volume: volumeAmount,
+            amount: chargeAmount,
+            orderId: item.order_id,
+            orderNumber: historicalData.find(o => o.id === item.order_id)?.order_number || 'Unknown',
+            itemId: item.id
+          };
+        }
+        return null;
+      }).filter(Boolean);
+    };
+    
+    // Group by month based on REMISION dates
+    const monthBuckets: { [key: string]: any[] } = {};
+    
+    console.log('🔍 MonthBuckets Debug: Starting with empty buckets');
+    
+    // STEP 1: Process REMISIONES for concrete and pump (volume from remision, price from order_item)
+    historicalRemisiones.forEach(remision => {
+      const monthKey = getMonthKey(remision.fecha);
+      
+      // For now, focus on March 2025 for debugging
+      // TODO: To expand to multiple months, simply remove this filter:
+      // if (monthKey !== '2025-03') { return; }
+      if (!isDateInMonth(remision.fecha, '2025-03')) {
         return;
       }
-
-      if (!monthBuckets.has(monthKey)) {
-        monthBuckets.set(monthKey, {
-          month: monthLabel,
-          monthKey,
-          orders: [],
-          totalSales: 0,
-          concreteVolume: 0,
-          hasData: false
-        });
+      
+      if (!monthBuckets[monthKey]) {
+        monthBuckets[monthKey] = [];
       }
-
-      const bucket = monthBuckets.get(monthKey)!;
-      bucket.orders.push(order);
-      bucket.hasData = true;
-
-      // Use the EXACT SAME calculation logic as ventas page - ONLY CONCRETE for now
+      
+      // Find the order for this remision
+      const order = historicalData.find(o => o.id === remision.order_id);
+      if (!order) {
+        console.warn(`⚠️ No order found for remision ${remision.id}`);
+        return;
+      }
+      
+      // Find order items for this order
       const orderItemsForOrder = orderItems.filter(oi => oi.order_id === order.id);
       
-      // ONLY CONCRETE VOLUME & SALES for debugging
-      let orderConcreteVolume = 0;
-      let orderConcreteAmount = 0;
-      
-      // Get remisiones for this order - ONLY MARCH 2025 REMISIONES
-      const orderRemisiones = historicalRemisiones.filter(r => {
-        if (r.order_id === order.id) {
-          // Check if remision fecha is actually in March 2025
-          const remisionDate = new Date(r.fecha + 'T00:00:00');
-          const remisionMonthKey = format(remisionDate, 'yyyy-MM');
-          
-          if (remisionMonthKey !== '2025-03') {
-            console.log(`⏭️ Skipping remision ${r.id} - not March 2025 (${remisionMonthKey})`);
-            return false;
-          }
-          return true;
+      // Process based on remision type
+      if (remision.tipo_remision === 'CONCRETO') {
+        const concreteItem = processConcreteRemisiones(remision, orderItemsForOrder);
+        if (concreteItem) {
+          monthBuckets[monthKey].push(concreteItem);
         }
-        return false;
-      });
-      
-      console.log(`📊 Order ${order.order_number}: Found ${orderRemisiones.length} March 2025 remisiones`);
-      
-      // Process remisiones for concrete ONLY (same as ventas page)
-      orderRemisiones.forEach(remision => {
-        // Skip BOMBEO and VACIO for now - only CONCRETO
-        if (remision.tipo_remision === 'BOMBEO' || remision.tipo_remision === 'VACIO') {
-          return;
+      } else if (remision.tipo_remision === 'BOMBEO') {
+        const pumpItem = processPumpRemisiones(remision, orderItemsForOrder);
+        if (pumpItem) {
+          monthBuckets[monthKey].push(pumpItem);
         }
-        
-        const volume = remision.volumen_fabricado || 0;
-        const recipeCode = remision.recipe?.recipe_code;
-        
-        // Find the right order item for this remision, EXCLUDING "Vacío de Olla" types
-        const orderItemForRemision = orderItemsForOrder.find((item: any) => {
-          // Explicitly skip if this item looks like a "Vacío de Olla" charge
-          if (
-            item.product_type === 'VACÍO DE OLLA' ||
-            item.product_type === 'EMPTY_TRUCK_CHARGE' ||
-            (recipeCode === 'SER001' && (item.product_type === recipeCode || item.has_empty_truck_charge)) ||
-            item.has_empty_truck_charge === true
-          ) {
-            return false;
-          }
-          // Match concrete product by recipe code
-          if (item.product_type === recipeCode || (item.recipe_id && item.recipe_id.toString() === recipeCode)) {
-            return true;
-          }
-          return false;
-        });
-        
-        if (orderItemForRemision) {
-          const price = orderItemForRemision.unit_price || 0;
-          orderConcreteVolume += volume;
-          orderConcreteAmount += price * volume;
-          
-          console.log(`🔍 Concrete calculation for order ${order.order_number}:`, {
-            remisionId: remision.id,
-            remisionType: remision.tipo_remision,
-            recipeCode,
-            volume,
-            unitPrice: price,
-            amount: price * volume,
-            runningTotal: orderConcreteAmount
-          });
-        } else {
-          console.warn(`⚠️ No order item found for remision ${remision.id} with recipe ${recipeCode}`);
-        }
-      });
-
-      // TOTAL SALES = only concrete for now
-      let orderTotalSales = orderConcreteAmount;
-      
-      // Validate final calculations
-      if (isNaN(orderTotalSales) || orderTotalSales < 0) {
-        console.warn(`⚠️ Invalid sales calculation for order ${order.order_number}: ${orderTotalSales}`);
-        orderTotalSales = 0;
       }
-
-      // Add to bucket totals
-      bucket.totalSales += orderTotalSales;
-      bucket.concreteVolume += orderConcreteVolume;
-
-      console.log(`📊 Order ${order.order_number} (${monthLabel}): Sales=${orderTotalSales.toFixed(2)}, Concrete=${orderConcreteVolume.toFixed(1)}`);
     });
-
-    // Convert to array and sort by month key
-    const monthlyDataArray = Array.from(monthBuckets.values())
-      .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
-
-    // Clean and validate the data
-    const cleanedMonthlyData = monthlyDataArray.map(month => ({
-      ...month,
-      totalSales: Math.max(0, month.totalSales || 0),
-      concreteVolume: Math.max(0, month.concreteVolume || 0)
-    }));
-
-    console.log('📅 HistoricalCharts: Monthly data processed (CONCRETE ONLY):', {
-      totalMonths: cleanedMonthlyData.length,
-      months: cleanedMonthlyData.map(m => m.month),
-      sampleData: cleanedMonthlyData.slice(0, 3).map(m => ({
-        month: m.month,
-        orders: m.orders.length,
-        sales: m.totalSales,
-        concrete: m.concreteVolume
+    
+    console.log('🔍 MonthBuckets Debug: After processing remisiones:', {
+      bucketKeys: Object.keys(monthBuckets),
+      bucketContents: Object.entries(monthBuckets).map(([key, items]) => ({
+        monthKey: key,
+        itemCount: items.length,
+        itemTypes: items.map(item => item.type)
       }))
     });
-
-    // Confirm we only have March data
-    if (cleanedMonthlyData.length > 0) {
-      console.log('✅ HistoricalCharts: Confirmed - Only processing March 2025 data');
-      console.log('📊 March 2025 Summary:', {
-        totalOrders: cleanedMonthlyData[0].orders.length,
-        totalSales: cleanedMonthlyData[0].totalSales,
-        totalConcreteVolume: cleanedMonthlyData[0].concreteVolume
+    
+    // STEP 2: Process ORDER_ITEMS for empty truck charges (associated with March 2025 remisiones)
+    // TODO: To expand to multiple months, change this filter to process all months:
+    // const allRemisionOrderIds = historicalRemisiones.map(r => r.order_id);
+    const marchRemisionOrderIds = historicalRemisiones
+      .filter(r => isDateInMonth(r.fecha, '2025-03'))
+      .map(r => r.order_id);
+    
+    console.log(`🔍 Found ${marchRemisionOrderIds.length} orders with March 2025 remisiones:`, marchRemisionOrderIds.slice(0, 10));
+    
+    const emptyTruckItems = processEmptyTruckCharges(marchRemisionOrderIds);
+    
+    // Add empty truck items to the March bucket
+    if (!monthBuckets['2025-03']) {
+      monthBuckets['2025-03'] = [];
+    }
+    monthBuckets['2025-03'].push(...emptyTruckItems);
+    
+    console.log('🔍 MonthBuckets Debug: After adding empty truck items:', {
+      bucketKeys: Object.keys(monthBuckets),
+      bucketContents: Object.entries(monthBuckets).map(([key, items]) => ({
+        monthKey: key,
+        itemCount: items.length,
+        itemTypes: items.map(item => item.type)
+      }))
+    });
+    
+    // STEP 3: Aggregate by month
+    const processedData = Object.entries(monthBuckets).map(([monthKey, items]) => {
+      const concreteItems = items.filter(item => item.type === 'concrete');
+      const pumpItems = items.filter(item => item.type === 'pump');
+      const emptyTruckItems = items.filter(item => item.type === 'empty_truck');
+      
+      const concreteVolume = concreteItems.reduce((sum, item) => sum + item.volume, 0);
+      const pumpVolume = pumpItems.reduce((sum, item) => sum + item.volume, 0);
+      const emptyTruckVolume = emptyTruckItems.reduce((sum, item) => sum + item.volume, 0);
+      
+      const concreteSales = concreteItems.reduce((sum, item) => sum + item.amount, 0);
+      const pumpSales = pumpItems.reduce((sum, item) => sum + item.amount, 0);
+      const emptyTruckSales = emptyTruckItems.reduce((sum, item) => sum + item.amount, 0);
+      
+      // TOTAL SALES = CONCRETE + PUMP + EMPTY TRUCK
+      const totalSales = concreteSales + pumpSales + emptyTruckSales;
+      const totalVolume = concreteVolume + pumpVolume + emptyTruckVolume;
+      
+      const monthName = getMonthName(monthKey);
+      
+      console.log(`📊 Month ${monthKey} (${monthName}) - CONCRETE + PUMP + VACIO:`, {
+        concrete: `${concreteVolume}m³ × $${concreteSales.toFixed(2)}`,
+        pump: `${pumpVolume}m³ × $${pumpSales.toFixed(2)}`,
+        emptyTruck: `${emptyTruckVolume}m³ × $${emptyTruckSales.toFixed(2)}`,
+        total: `$${totalSales.toFixed(2)}`
       });
       
-      // Compare with reference KPIs
-      const referenceTotal = 3128.0 * 1925.16;
-      const difference = cleanedMonthlyData[0].totalSales - referenceTotal;
-      console.log('🔍 Comparison with Reference KPIs:', {
-        referenceVolume: '3,128.0 m³',
-        referencePrice: '$1,925.16/m³',
-        referenceTotal: `$${referenceTotal.toFixed(2)}`,
-        calculatedTotal: `$${cleanedMonthlyData[0].totalSales.toFixed(2)}`,
-        difference: `$${difference.toFixed(2)}`,
-        percentageDiff: `${((difference / referenceTotal) * 100).toFixed(2)}%`
+      console.log(`🔍 MonthName Debug: monthKey="${monthKey}" -> monthName="${monthName}"`);
+      console.log(`🔍 MonthName Debug: monthKey type=${typeof monthKey}, length=${monthKey.length}`);
+      
+      return {
+        month: monthKey,
+        monthName,
+        concreteVolume,
+        pumpVolume,
+        emptyTruckVolume,
+        totalVolume,
+        concreteSales,
+        pumpSales,
+        emptyTruckSales,
+        totalSales,
+        hasData: totalVolume > 0 || totalSales > 0,
+        itemCount: items.length
+      };
+    });
+    
+    console.log('🎯 FINAL PROCESSED DATA:', processedData);
+    
+    // Final verification - we should only have March 2025
+    if (processedData.length > 0) {
+      console.log('🔍 VERIFICATION - Month processing:', {
+        totalMonths: processedData.length,
+        monthKeys: processedData.map(m => m.month),
+        monthNames: processedData.map(m => m.monthName),
+        expectedMonth: '2025-03',
+        expectedName: 'March 2025'
       });
     }
-
-    return cleanedMonthlyData;
-  }, [historicalData, orderItems, historicalRemisiones]);
+    
+    return processedData;
+  }, [historicalRemisiones, historicalData, orderItems]);
 
   // Create chart series data
   const salesTrendChartSeries = useMemo(() => {
@@ -446,6 +627,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
       includeVAT ? item.totalSales * 1.16 : item.totalSales
     );
     const concreteVolumeData = filteredMonthlyData.map(item => item.concreteVolume);
+    const pumpVolumeData = filteredMonthlyData.map(item => item.pumpVolume);
+    const emptyTruckVolumeData = filteredMonthlyData.map(item => item.emptyTruckVolume);
 
     console.log('📈 HistoricalCharts: Chart series data created (CONCRETE ONLY):', {
       salesData: historicalSalesData.filter(val => val > 0).length,
@@ -468,6 +651,18 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         data: concreteVolumeData,
         type: 'line' as const,
         yAxisIndex: 1
+      },
+      {
+        name: 'Volumen Bombeo (m³)',
+        data: pumpVolumeData,
+        type: 'line' as const,
+        yAxisIndex: 1
+      },
+      {
+        name: 'Volumen Vacío (m³)',
+        data: emptyTruckVolumeData,
+        type: 'line' as const,
+        yAxisIndex: 1
       }
     ];
 
@@ -477,11 +672,16 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
   // Chart options for historical trends
   const salesTrendChartOptions = useMemo((): ApexOptions => {
     // Generate categories from months with actual data
-    const categories = monthlyData.filter(item => item.hasData).map(item => item.month);
+    const categories = monthlyData.filter(item => item.hasData).map(item => item.monthName);
 
     console.log('📊 HistoricalCharts: Chart options created with categories:', {
       categoryCount: categories.length,
-      categories: categories.slice(0, 5)
+      categories: categories.slice(0, 5),
+      rawMonthlyData: monthlyData.filter(item => item.hasData).map(item => ({
+        month: item.month,
+        monthName: item.monthName,
+        hasData: item.hasData
+      }))
     });
 
     // Ensure we have at least one category
@@ -807,7 +1007,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
                 <p>Error: {error || 'None'}</p>
                 <p className="font-semibold text-green-700">✅ Using SAME calculation as sales system</p>
                 {monthlyData.length > 0 && (
-                  <p>Data Range: {monthlyData[0]?.month} to {monthlyData[monthlyData.length - 1]?.month}</p>
+                  <p>Data Range: {monthlyData[0]?.monthName} to {monthlyData[monthlyData.length - 1]?.monthName}</p>
                 )}
                 {monthlyData.length > 0 && (
                   <p>Total Sales: {formatCurrency(monthlyData.reduce((sum, m) => sum + m.totalSales, 0))}</p>
@@ -818,6 +1018,367 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
                 <p className="font-semibold text-red-700">🔍 DEBUG MODE: Only concrete data</p>
                 <p className="font-semibold text-purple-700">📅 Fetching MARCH 2025 data specifically</p>
                 <p className="font-semibold text-green-700">🎯 Only processing March 2025 orders</p>
+              </div>
+            )}
+            
+            {/* Debug Table - Raw Data */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded">
+                <h3 className="font-semibold text-blue-800 mb-3">🔍 DEBUG TABLE - Raw Data from Database</h3>
+                
+                {/* Date Validation Warning */}
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded">
+                  <h4 className="font-semibold text-red-700 mb-2">⚠️ DATE VALIDATION - Check for Discrepancies</h4>
+                  <div className="text-xs text-red-600">
+                    <p><strong>Problem:</strong> Orders with April delivery dates but March remisiones</p>
+                    <p><strong>Impact:</strong> This can cause incorrect calculations</p>
+                    <p><strong>Solution:</strong> Filter by remision date, not order delivery date</p>
+                  </div>
+                  
+                  {/* Date Discrepancy Table */}
+                  <div className="mt-3">
+                    <h5 className="font-medium text-red-700 mb-2">📅 Date Discrepancies Found:</h5>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border border-red-300">
+                        <thead className="bg-red-100">
+                          <tr>
+                            <th className="border border-red-300 p-1">Order #</th>
+                            <th className="border border-red-300 p-1">Order Delivery Date</th>
+                            <th className="border border-red-300 p-1">Remisiones Dates</th>
+                            <th className="border border-red-300 p-1">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(() => {
+                            const discrepancies = historicalData.slice(0, 10).map(order => {
+                              const orderRemisiones = historicalRemisiones.filter(r => r.order_id === order.id);
+                              const remisionDates = orderRemisiones.map(r => r.fecha).filter(Boolean);
+                              const hasDiscrepancy = remisionDates.some(date => {
+                                const remisionMonth = format(new Date(date + 'T00:00:00'), 'yyyy-MM');
+                                const orderMonth = format(new Date(order.delivery_date + 'T00:00:00'), 'yyyy-MM');
+                                return remisionMonth !== orderMonth;
+                              });
+                              
+                              return {
+                                order,
+                                remisionDates,
+                                hasDiscrepancy
+                              };
+                            }).filter(d => d.hasDiscrepancy);
+                            
+                            return discrepancies.map((d, idx) => (
+                              <tr key={idx} className="bg-white">
+                                <td className="border border-red-300 p-1 text-xs">{d.order.order_number}</td>
+                                <td className="border border-red-300 p-1 text-xs">{d.order.delivery_date}</td>
+                                <td className="border border-red-300 p-1 text-xs">{d.remisionDates.join(', ')}</td>
+                                <td className="border border-red-300 p-1 text-xs">
+                                  <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">⚠️ MISMATCH</span>
+                                </td>
+                              </tr>
+                            ));
+                          })()}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-xs text-red-600 mt-1">
+                      Found {historicalData.filter(order => {
+                        const orderRemisiones = historicalRemisiones.filter(r => r.order_id === order.id);
+                        return orderRemisiones.some(r => {
+                          const remisionMonth = format(new Date(r.fecha + 'T00:00:00'), 'yyyy-MM');
+                          const orderMonth = format(new Date(order.delivery_date + 'T00:00:00'), 'yyyy-MM');
+                          return remisionMonth !== orderMonth;
+                        });
+                      }).length} orders with date mismatches
+                    </p>
+                  </div>
+                </div>
+
+                {/* Step 1: Remisiones */}
+                <div className="mb-4">
+                  <h4 className="font-medium text-blue-700 mb-2">📋 STEP 1: Remisiones (March 2025)</h4>
+                  
+                  {/* March 2025 Concrete Remisiones Summary */}
+                  <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded">
+                    <h5 className="font-medium text-green-700 mb-1">🌱 March 2025 Concrete Remisiones Summary:</h5>
+                    <div className="text-xs text-green-600">
+                      <p><strong>Total Remisiones:</strong> {historicalRemisiones.length}</p>
+                      <p><strong>Concrete Remisiones:</strong> {historicalRemisiones.filter(r => r.tipo_remision !== 'BOMBEO' && r.tipo_remision !== 'VACIO').length}</p>
+                      <p><strong>Total Volume:</strong> {historicalRemisiones.filter(r => r.tipo_remision !== 'BOMBEO' && r.tipo_remision !== 'VACIO').reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0).toFixed(1)} m³</p>
+                      <p><strong>Date Range:</strong> {historicalRemisiones.length > 0 ? `${historicalRemisiones[0]?.fecha} to ${historicalRemisiones[historicalRemisiones.length - 1]?.fecha}` : 'No data'}</p>
+                    </div>
+                  </div>
+                  
+                  {/* March 2025 Pump Remisiones Summary */}
+                  <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
+                    <h5 className="font-medium text-blue-700 mb-1">💧 March 2025 Pump Remisiones Summary:</h5>
+                    <div className="text-xs text-blue-600">
+                      <p><strong>Pump Remisiones:</strong> {historicalRemisiones.filter(r => r.tipo_remision === 'BOMBEO').length}</p>
+                      <p><strong>Total Pump Volume:</strong> {historicalRemisiones.filter(r => r.tipo_remision === 'BOMBEO').reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0).toFixed(1)} m³</p>
+                      <p><strong>Pump Remisiones IDs:</strong> {historicalRemisiones.filter(r => r.tipo_remision === 'BOMBEO').slice(0, 5).map(r => r.id).join(', ')}...</p>
+                    </div>
+                  </div>
+                  
+                  {/* March 2025 Empty Truck Summary */}
+                  <div className="mb-3 p-2 bg-purple-50 border border-purple-200 rounded">
+                    <h5 className="font-medium text-purple-700 mb-1">🚛 March 2025 Empty Truck Summary:</h5>
+                    <div className="text-xs text-purple-600">
+                      <p><strong>Orders with March Remisiones:</strong> {(() => {
+                        const marchRemisionOrderIds = historicalRemisiones
+                          .filter(r => {
+                            const remisionDate = new Date(r.fecha + 'T00:00:00');
+                            const monthKey = format(remisionDate, 'yyyy-MM');
+                            return monthKey === '2025-03';
+                          })
+                          .map(r => r.order_id);
+                        return Array.from(new Set(marchRemisionOrderIds)).length;
+                      })()}</p>
+                      <p><strong>Order Items for March Orders:</strong> {(() => {
+                        const marchRemisionOrderIds = historicalRemisiones
+                          .filter(r => {
+                            const remisionDate = new Date(r.fecha + 'T00:00:00');
+                            const monthKey = format(remisionDate, 'yyyy-MM');
+                            return monthKey === '2025-03';
+                          })
+                          .map(r => r.order_id);
+                        return orderItems.filter(oi => marchRemisionOrderIds.includes(oi.order_id)).length;
+                      })()}</p>
+                      <p><strong>Empty Truck Items Found:</strong> {(() => {
+                        const marchRemisionOrderIds = historicalRemisiones
+                          .filter(r => {
+                            const remisionDate = new Date(r.fecha + 'T00:00:00');
+                            const monthKey = format(remisionDate, 'yyyy-MM');
+                            return monthKey === '2025-03';
+                          })
+                          .map(r => r.order_id);
+                        const marchOrderItems = orderItems.filter(oi => marchRemisionOrderIds.includes(oi.order_id));
+                        return marchOrderItems.filter(item => 
+                          item.product_type === 'VACÍO DE OLLA' ||
+                          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
+                          item.has_empty_truck_charge === true
+                        ).length;
+                      })()}</p>
+                      <p><strong>Calculated Volume:</strong> {(() => {
+                        const marchRemisionOrderIds = historicalRemisiones
+                          .filter(r => {
+                            const remisionDate = new Date(r.fecha + 'T00:00:00');
+                            const monthKey = format(remisionDate, 'yyyy-MM');
+                            return monthKey === '2025-03';
+                          })
+                          .map(r => r.order_id);
+                        const marchOrderItems = orderItems.filter(oi => marchRemisionOrderIds.includes(oi.order_id));
+                        const emptyTruckItems = marchOrderItems.filter(item => 
+                          item.product_type === 'VACÍO DE OLLA' ||
+                          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
+                          item.has_empty_truck_charge === true
+                        );
+                        return emptyTruckItems.reduce((sum, item) => sum + (parseFloat(item.empty_truck_volume) || parseFloat(item.volume) || 0), 0).toFixed(1);
+                      })()} m³</p>
+                      <p><strong>Expected Volume:</strong> 105.5 m³</p>
+                      <p><strong>Difference:</strong> {(105.5 - (() => {
+                        const marchRemisionOrderIds = historicalRemisiones
+                          .filter(r => {
+                            const remisionDate = new Date(r.fecha + 'T00:00:00');
+                            const monthKey = format(remisionDate, 'yyyy-MM');
+                            return monthKey === '2025-03';
+                          })
+                          .map(r => r.order_id);
+                        const marchOrderItems = orderItems.filter(oi => marchRemisionOrderIds.includes(oi.order_id));
+                        const emptyTruckItems = marchOrderItems.filter(item => 
+                          item.product_type === 'VACÍO DE OLLA' ||
+                          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
+                          item.has_empty_truck_charge === true
+                        );
+                        return emptyTruckItems.reduce((sum, item) => sum + (parseFloat(item.empty_truck_volume) || parseFloat(item.volume) || 0), 0);
+                      })()).toFixed(1)} m³</p>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border border-blue-300">
+                      <thead className="bg-blue-100">
+                        <tr>
+                          <th className="border border-blue-300 p-1">ID</th>
+                          <th className="border border-blue-300 p-1">Fecha</th>
+                          <th className="border border-blue-300 p-1">Tipo</th>
+                          <th className="border border-blue-300 p-1">Volumen</th>
+                          <th className="border border-blue-300 p-1">Order ID</th>
+                          <th className="border border-blue-300 p-1">Recipe</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {historicalRemisiones.slice(0, 10).map((r, idx) => (
+                          <tr key={idx} className="bg-white">
+                            <td className="border border-blue-300 p-1 text-xs">{r.id?.slice(0, 8)}...</td>
+                            <td className="border border-blue-300 p-1 text-xs">{r.fecha}</td>
+                            <td className="border border-blue-300 p-1 text-xs">{r.tipo_remision}</td>
+                            <td className="border border-blue-300 p-1 text-xs">{r.volumen_fabricado}</td>
+                            <td className="border border-blue-300 p-1 text-xs">{r.order_id?.slice(0, 8)}...</td>
+                            <td className="border border-blue-300 p-1 text-xs">{r.recipe?.recipe_code}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-1">Total: {historicalRemisiones.length} remisiones</p>
+                </div>
+
+                {/* Step 2: Orders */}
+                <div className="mb-4">
+                  <h4 className="font-medium text-blue-700 mb-2">📋 STEP 2: Orders</h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border border-blue-300">
+                      <thead className="bg-blue-100">
+                        <tr>
+                          <th className="border border-blue-300 p-1">ID</th>
+                          <th className="border border-blue-300 p-1">Order #</th>
+                          <th className="border border-blue-300 p-1">Delivery Date</th>
+                          <th className="border border-blue-300 p-1">Client ID</th>
+                          <th className="border border-blue-300 p-1">Plant ID</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {historicalData.slice(0, 10).map((o, idx) => (
+                          <tr key={idx} className="bg-white">
+                            <td className="border border-blue-300 p-1 text-xs">{o.id?.slice(0, 8)}...</td>
+                            <td className="border border-blue-300 p-1 text-xs">{o.order_number}</td>
+                            <td className="border border-blue-300 p-1 text-xs">{o.delivery_date}</td>
+                            <td className="border border-blue-300 p-1 text-xs">{o.client_id?.slice(0, 8)}...</td>
+                            <td className="border border-blue-300 p-1 text-xs">{o.plant_id?.slice(0, 8)}...</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-1">Total: {historicalData.length} orders</p>
+                </div>
+
+                {/* Step 3: Order Items */}
+                <div className="mb-4">
+                  <h4 className="font-medium text-blue-700 mb-2">📋 STEP 3: Order Items</h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border border-blue-300">
+                      <thead className="bg-blue-100">
+                        <tr>
+                          <th className="border border-blue-300 p-1">ID</th>
+                          <th className="border border-blue-300 p-1">Order ID</th>
+                          <th className="border border-blue-300 p-1">Product Type</th>
+                          <th className="border border-blue-300 p-1">Unit Price</th>
+                          <th className="border border-blue-300 p-1">Volume</th>
+                          <th className="border border-blue-300 p-1">Recipe ID</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {orderItems.slice(0, 10).map((oi, idx) => (
+                          <tr key={idx} className="bg-white">
+                            <td className="border border-blue-300 p-1 text-xs">{oi.id?.slice(0, 8)}...</td>
+                            <td className="border border-blue-300 p-1 text-xs">{oi.order_id?.slice(0, 8)}...</td>
+                            <td className="border border-blue-300 p-1 text-xs">{oi.product_type}</td>
+                            <td className="border border-blue-300 p-1 text-xs">${oi.unit_price}</td>
+                            <td className="border border-blue-300 p-1 text-xs">{oi.volume}</td>
+                            <td className="border border-blue-300 p-1 text-xs">{oi.recipe_id?.slice(0, 8)}...</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-1">Total: {orderItems.length} order items</p>
+                </div>
+              </div>
+            )}
+            
+            {/* Final Debug Table - Processed Data */}
+            {process.env.NODE_ENV === 'development' && monthlyData.length > 0 && (
+              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded">
+                <h3 className="font-semibold text-green-800 mb-3">🔍 FINAL DEBUG TABLE - Processed Data</h3>
+                
+                {/* New Calculation Approach Summary */}
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
+                  <h4 className="font-semibold text-blue-700 mb-2">🎯 NEW CALCULATION APPROACH</h4>
+                  <div className="text-xs text-blue-600">
+                    <p><strong>✅ CONCRETE:</strong> Volume from REMISIONES, Price from ORDER_ITEMS</p>
+                    <p><strong>✅ PUMP:</strong> Volume from REMISIONES, Price from ORDER_ITEMS</p>
+                    <p><strong>✅ EMPTY TRUCK:</strong> Volume from ORDER_ITEMS, Price from ORDER_ITEMS</p>
+                    <p><strong>🎯 Current Focus:</strong> Concrete + Pump + Empty Truck sales to match KPIs exactly</p>
+                    <p><strong>🚀 Ready for Multi-Month:</strong> Code is now clean and scalable for multiple months</p>
+                    <p><strong>📅 Date Consistency:</strong> All date operations use standardized helper functions for consistency</p>
+                  </div>
+                </div>
+
+                {/* Monthly Summary */}
+                <div className="mb-4">
+                  <h4 className="font-medium text-green-700 mb-2">📊 Monthly Summary - CONCRETE + PUMP + VACIO</h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border border-green-300">
+                      <thead className="bg-green-100">
+                        <tr>
+                          <th className="border border-green-300 p-1">Month</th>
+                          <th className="border border-green-300 p-1">Items</th>
+                          <th className="border border-green-300 p-1">Concrete</th>
+                          <th className="border border-green-300 p-1">Pump</th>
+                          <th className="border border-green-300 p-1">Vacío</th>
+                          <th className="border border-green-300 p-1">Total Sales</th>
+                          <th className="border border-green-300 p-1">Total Volume</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlyData.map((m, idx) => (
+                          <tr key={idx} className="bg-white">
+                            <td className="border border-green-300 p-1 text-xs">{m.monthName}</td>
+                            <td className="border border-green-300 p-1 text-xs">{m.itemCount}</td>
+                            <td className="border border-green-300 p-1 text-xs">
+                              {m.concreteVolume.toFixed(1)} m³<br/>
+                              <span className="text-green-600">{formatCurrency(m.concreteSales)}</span>
+                            </td>
+                            <td className="border border-green-300 p-1 text-xs">
+                              {m.pumpVolume.toFixed(1)} m³<br/>
+                              <span className="text-blue-600">{formatCurrency(m.pumpSales)}</span>
+                            </td>
+                            <td className="border border-green-300 p-1 text-xs">
+                              {m.emptyTruckVolume.toFixed(1)} m³<br/>
+                              <span className="text-purple-600">{formatCurrency(m.emptyTruckSales)}</span>
+                            </td>
+                            <td className="border border-green-300 p-1 text-xs font-semibold">{formatCurrency(m.totalSales)}</td>
+                            <td className="border border-green-300 p-1 text-xs font-semibold">{m.totalVolume.toFixed(1)} m³</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Comparison with Reference KPIs */}
+                <div className="mb-4">
+                  <h4 className="font-medium text-green-700 mb-2">🔍 Comparison with Reference KPIs</h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border border-green-300">
+                      <thead className="bg-green-100">
+                        <tr>
+                          <th className="border border-green-300 p-1">Metric</th>
+                          <th className="border border-green-300 p-1">Reference (KPIs)</th>
+                          <th className="border border-green-300 p-1">Calculated</th>
+                          <th className="border border-green-300 p-1">Difference</th>
+                          <th className="border border-green-300 p-1">% Diff</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="bg-white">
+                          <td className="border border-green-300 p-1 text-xs">Volume</td>
+                          <td className="border border-green-300 p-1 text-xs">3,128.0 m³</td>
+                          <td className="border border-green-300 p-1 text-xs">{monthlyData.reduce((sum, m) => sum + m.concreteVolume, 0).toFixed(1)} m³</td>
+                          <td className="border border-green-300 p-1 text-xs">{(monthlyData.reduce((sum, m) => sum + m.concreteVolume, 0) - 3128.0).toFixed(1)} m³</td>
+                          <td className="border border-green-300 p-1 text-xs">{(((monthlyData.reduce((sum, m) => sum + m.concreteVolume, 0) - 3128.0) / 3128.0) * 100).toFixed(2)}%</td>
+                        </tr>
+                        <tr className="bg-white">
+                          <td className="border border-green-300 p-1 text-xs">Total Sales</td>
+                          <td className="border border-green-300 p-1 text-xs">$6,019,380.48</td>
+                          <td className="border border-green-300 p-1 text-xs">{formatCurrency(monthlyData.reduce((sum, m) => sum + m.totalSales, 0))}</td>
+                          <td className="border border-green-300 p-1 text-xs">{formatCurrency(monthlyData.reduce((sum, m) => sum + m.totalSales, 0) - 6019380.48)}</td>
+                          <td className="border border-green-300 p-1 text-xs">{(((monthlyData.reduce((sum, m) => sum + m.totalSales, 0) - 6019380.48) / 6019380.48) * 100).toFixed(2)}%</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             )}
           </CardHeader>
@@ -839,6 +1400,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
                     <p>Months with Data: {monthlyData.filter(item => item.hasData).length}</p>
                     <p>Total Sales: {formatCurrency(monthlyData.reduce((sum, m) => sum + m.totalSales, 0))}</p>
                     <p>Total Concrete Volume: {monthlyData.reduce((sum, m) => sum + m.concreteVolume, 0).toFixed(1)} m³</p>
+                    <p>Total Pump Volume: {monthlyData.reduce((sum, m) => sum + m.pumpVolume, 0).toFixed(1)} m³</p>
+                    <p>Total Vacío Volume: {monthlyData.reduce((sum, m) => sum + m.emptyTruckVolume, 0).toFixed(1)} m³</p>
                     <p className="font-semibold text-green-700">✅ Using concrete_volume_delivered & pump_volume_delivered</p>
                     <p className="font-semibold text-blue-700">📊 Using KPI logic: volume × unit_price (not *_delivered fields)</p>
                     <p className="font-semibold text-purple-700">🎯 Using EXACT SAME logic as ventas page</p>
@@ -855,7 +1418,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
                 />
                 {monthlyData.length > 0 && (
                   <div className="mt-2 text-center text-xs text-gray-500">
-                    Datos disponibles: {monthlyData[0]?.month} a {monthlyData[monthlyData.length - 1]?.month}
+                    Datos disponibles: {monthlyData[0]?.monthName} a {monthlyData[monthlyData.length - 1]?.monthName}
                   </div>
                 )}
               </div>
