@@ -74,6 +74,11 @@ const finanzasSubMenuItems = [
     IconComponent: BarChart2,
   },
   {
+    title: "Datos Históricos",
+    href: "/finanzas/historical-data",
+    IconComponent: TrendingUp,
+  },
+  {
     title: "Reporte Diario",
     href: "/finanzas/ventas-diarias",
     IconComponent: BarChart,

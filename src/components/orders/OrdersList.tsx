@@ -3,10 +3,10 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { usePlantAwareOrders } from '@/hooks/usePlantAwareOrders';
 import { OrderWithClient, OrderStatus, CreditStatus } from '@/types/orders';
 import { useRouter } from 'next/navigation';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { usePlantContext } from '@/contexts/PlantContext';
 import Link from 'next/link';
 
 type AmountFilter = 'all' | 'final' | 'preliminary';
@@ -133,8 +133,8 @@ function formatDate(dateString: string) {
 function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onClick: () => void; groupKey: string }) {
 
   // Determinar el monto a mostrar (final o preliminar)
-  const finalAmount = (order as any).final_amount;
-  const preliminaryAmount = (order as any).total_amount;
+  const finalAmount = order.final_amount || (order as any).final_amount;
+  const preliminaryAmount = order.preliminary_amount || (order as any).preliminary_amount;
   
   // Verificar si hay un monto final registrado
   const hasFinalAmount = finalAmount !== undefined && finalAmount !== null;
@@ -154,7 +154,7 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
     : 'N/A';
 
   const isPastOrder = groupKey === 'pasado' || groupKey === 'anteayer' || groupKey === 'ayer';
-  const requiresInvoice = (order as any).requires_invoice;
+  const requiresInvoice = order.requires_invoice;
 
   return (
     <div className="p-4 hover:bg-gray-50 transition duration-150">
@@ -232,69 +232,160 @@ export default function OrdersList({
   
   const router = useRouter();
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   
   // Check if user is a dosificador
   const isDosificador = profile?.role === 'DOSIFICADOR';
 
-  // Use plant-aware orders hook for non-dosificador users with reduced refresh
-  const {
-    orders: plantAwareOrders,
-    isLoading: plantLoading,
-    error: plantError,
-    refetch: plantRefetch
-  } = usePlantAwareOrders({
-    statusFilter: (statusFilter || filterStatus) as OrderStatus | undefined,
-    creditStatusFilter,
-    maxItems,
-    autoRefresh: false // Disable auto-refresh to prevent excessive queries
-  });
-
-  // Track previous props to detect changes
-  const prevPropsRef = React.useRef({
-    statusFilter: statusFilter || filterStatus,
-    creditStatusFilter,
-    maxItems
-  });
-
+  // Simple state for orders
+  const [orders, setOrders] = useState<OrderWithClient[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
   // Estados para los datos filtrados y agrupados
   const [filteredOrders, setFilteredOrders] = useState<OrderWithClient[]>([]);
   const [groupedOrders, setGroupedOrders] = useState<GroupedOrders>({});
-  
-  // Handle DOSIFICADOR role separately
-  const [dosificadorOrders, setDosificadorOrders] = useState<OrderWithClient[]>([]);
-  const [dosificadorLoading, setDosificadorLoading] = useState(false);
-  const [dosificadorError, setDosificadorError] = useState<string | null>(null);
 
-  // Load orders for DOSIFICADOR role
-  const loadDosificadorOrders = useCallback(async () => {
-    if (!isDosificador) return;
+  // Simple function to load orders
+  const loadOrders = useCallback(async () => {
+    if (!currentPlant?.id) return;
     
-    setDosificadorLoading(true);
-    setDosificadorError(null);
+    setLoading(true);
+    setError(null);
 
     try {
-      const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
-      const data = await getOrdersForDosificador();
-      setDosificadorOrders(data);
-    } catch (err) {
-      console.error('Error loading dosificador orders:', err);
-      setDosificadorError('Error al cargar los pedidos. Por favor, intente nuevamente.');
-    } finally {
-      setDosificadorLoading(false);
-    }
-  }, [isDosificador]);
+      if (isDosificador) {
+        const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
+        const data = await getOrdersForDosificador();
+        setOrders(data);
+      } else {
+        // Create a plant-aware query directly with volume information
+        const { supabase } = await import('@/lib/supabase/client');
+        let query = supabase
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            quote_id,
+            requires_invoice,
+            delivery_date,
+            delivery_time,
+            construction_site,
+            special_requirements,
+            preliminary_amount,
+            final_amount,
+            credit_status,
+            order_status,
+            created_at,
+            clients (
+              id,
+              business_name,
+              client_code,
+              contact_name,
+              phone
+            ),
+            order_items (
+              id,
+              product_type,
+              volume,
+              has_pump_service,
+              pump_volume,
+              has_empty_truck_charge,
+              empty_truck_volume
+            )
+          `)
+          .eq('plant_id', currentPlant.id);
 
-  // Determine which orders and loading state to use
-  const allOrders = isDosificador ? dosificadorOrders : plantAwareOrders;
-  const loading = isDosificador ? dosificadorLoading : plantLoading;
-  const error = isDosificador ? dosificadorError : plantError;
-  const loadOrders = isDosificador ? loadDosificadorOrders : plantRefetch;
+        // Apply status filters
+        if (statusFilter || filterStatus) {
+          query = query.eq('order_status', statusFilter || filterStatus);
+        }
+        
+        if (creditStatusFilter) {
+          query = query.eq('credit_status', creditStatusFilter);
+        }
+
+        // Apply limit if provided
+        if (maxItems) {
+          query = query.limit(maxItems);
+        }
+
+        // Sort by created_at in descending order
+        query = query.order('created_at', { ascending: false });
+
+        const { data, error } = await query;
+        
+        if (error) throw error;
+        
+        // Process the data to calculate volumes using the correct logic
+        const processedData = (data || []).map(order => {
+          const orderItems = order.order_items || [];
+          let concreteVolume = 0;
+          let pumpVolume = 0;
+          let hasPumpService = false;
+
+          // Only calculate volumes if there are items
+          if (orderItems.length > 0) {
+            orderItems.forEach((item: any) => {
+              const productType = item.product_type || '';
+              const volume = item.volume || 0;
+              const pumpVolumeItem = item.pump_volume || 0;
+
+              // Determine if this item is an empty truck charge
+              const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                                        productType === 'VACÍO DE OLLA' ||
+                                        productType === 'EMPTY_TRUCK_CHARGE';
+
+              // Determine if this item is a pump service
+              const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                                   productType.toLowerCase().includes('bombeo') ||
+                                   productType.toLowerCase().includes('pump');
+
+              // Calculate concrete volume (exclude empty truck charges and pump services)
+              if (!isEmptyTruckCharge && !isPumpService) {
+                concreteVolume += volume;
+              }
+
+              // Calculate pump volume
+              if (item.has_pump_service || isPumpService) {
+                if (pumpVolumeItem > 0) {
+                  pumpVolume += pumpVolumeItem;
+                } else if (isPumpService && volume > 0) {
+                  pumpVolume += volume;
+                }
+                hasPumpService = true;
+              }
+            });
+          }
+
+          return {
+            ...order,
+            concreteVolume: concreteVolume > 0 ? concreteVolume : undefined,
+            pumpVolume: pumpVolume > 0 ? pumpVolume : undefined,
+            hasPumpService
+          };
+        });
+        
+        setOrders(processedData);
+      }
+    } catch (err) {
+      console.error('Error loading orders:', err);
+      setError('Error al cargar los pedidos. Por favor, intente nuevamente.');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentPlant?.id, isDosificador, statusFilter, filterStatus, creditStatusFilter, maxItems]);
+
+  // Load orders when component mounts or when dependencies change
+  useEffect(() => {
+    loadOrders();
+  }, [loadOrders]);
 
   // Función para aplicar filtros a los datos
   const applyFilters = useCallback(() => {
-    if (allOrders.length === 0) return;
+    if (orders.length === 0) return;
     
-    let result = [...allOrders];
+    let result = [...orders];
     
     // Búsqueda unificada (combina búsqueda global y búsqueda por cliente)
     if (searchQuery) {
@@ -336,7 +427,7 @@ export default function OrdersList({
     // Filtrar por tipo de monto
     if (amountFilter !== 'all') {
       result = result.filter(order => {
-        const finalAmount = (order as any).final_amount;
+        const finalAmount = order.final_amount || (order as any).final_amount;
         const hasFinalAmount = finalAmount !== undefined && finalAmount !== null;
         
         if (amountFilter === 'final') {
@@ -349,7 +440,7 @@ export default function OrdersList({
     }
     
     setFilteredOrders(result);
-  }, [allOrders, searchQuery, amountFilter]);
+  }, [orders, searchQuery, amountFilter]);
 
   // Función para agrupar las órdenes por fecha
   const groupOrdersByDate = useCallback(() => {
@@ -492,45 +583,11 @@ export default function OrdersList({
     
     setGroupedOrders(orderedGroups);
   }, [filteredOrders]);
-
-  // Only load data when props actually change, not on every render
-  useEffect(() => {
-    const prevProps = prevPropsRef.current;
-    const propsChanged = prevProps.statusFilter !== (statusFilter || filterStatus) ||
-                        prevProps.creditStatusFilter !== creditStatusFilter ||
-                        prevProps.maxItems !== maxItems;
-
-    if (propsChanged || (isDosificador && dosificadorOrders.length === 0) ||
-        (!isDosificador && plantAwareOrders.length === 0)) {
-      if (isDosificador) {
-        loadDosificadorOrders();
-      } else {
-        loadOrders();
-      }
-    }
-
-    // Update previous props reference
-    prevPropsRef.current = {
-      statusFilter: statusFilter || filterStatus,
-      creditStatusFilter,
-      maxItems
-    };
-  }, [
-    isDosificador,
-    loadDosificadorOrders,
-    loadOrders,
-    statusFilter,
-    filterStatus,
-    creditStatusFilter,
-    maxItems,
-    dosificadorOrders.length,
-    plantAwareOrders.length
-  ]);
   
   // Aplicar filtros cuando cambia cualquier filtro o los datos
   useEffect(() => {
     applyFilters();
-  }, [applyFilters, allOrders, searchQuery, amountFilter]);
+  }, [applyFilters, orders, searchQuery, amountFilter]);
   
   // Agrupar los datos cuando cambian los datos filtrados
   useEffect(() => {
@@ -586,7 +643,7 @@ export default function OrdersList({
   }
 
   // Indicador de carga
-  if (loading && allOrders.length === 0) {
+  if (loading && orders.length === 0) {
     return <div className="flex justify-center p-4">Cargando órdenes...</div>;
   }
 
@@ -613,6 +670,17 @@ export default function OrdersList({
     <div className="space-y-6">
       {/* Add DOSIFICADOR info message */}
       <DosificadorInfo />
+      
+      {/* Loading indicator for refresh */}
+      {loading && orders.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-center justify-center">
+          <svg className="animate-spin h-4 w-4 mr-2 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span className="text-blue-700 text-sm">Actualizando órdenes...</span>
+        </div>
+      )}
       
       {/* Filtros */}
       <div className="bg-white rounded-lg overflow-hidden shadow-sm p-4 border border-gray-200">
