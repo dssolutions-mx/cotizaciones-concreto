@@ -3,6 +3,7 @@
 import React, { useState, Suspense, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { usePlantContext } from '@/contexts/PlantContext';
 import RoleGuard from '@/components/auth/RoleGuard';
 import OrdersList from '@/components/orders/OrdersList';
 import CreditValidationTab from '@/components/orders/CreditValidationTab';
@@ -20,6 +21,7 @@ const ORDERS_PAGE_STATE = 'orders_page_state';
 // Separate component to use searchParams
 function OrdersContent() {
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   const searchParams = useSearchParams();
   const router = useRouter();
   const { 
@@ -62,6 +64,16 @@ function OrdersContent() {
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(
     savedState.selectedQuoteId || null
   );
+
+  // Refresh key to force child components to reload when plant changes
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Refresh orders when plant context changes
+  useEffect(() => {
+    if (currentPlant?.id) {
+      setRefreshKey(prev => prev + 1);
+    }
+  }, [currentPlant?.id]);
 
   // Save current tab to preferences when it changes
   useEffect(() => {
@@ -246,6 +258,7 @@ function OrdersContent() {
       {/* List Tab - Always mounted */}
       <div className={currentTab === 'list' ? 'block' : 'hidden'}>
         <OrdersList
+          key={`list-${refreshKey}`}
           onCreateOrder={handleCreateOrderFromQuote}
           statusFilter={statusFilter}
           creditStatusFilter={creditStatusFilter}
@@ -255,6 +268,7 @@ function OrdersContent() {
       {/* Calendar Tab - Always mounted */}
       <div className={currentTab === 'calendar' ? 'block' : 'hidden'}>
         <OrdersCalendarView
+          key={`calendar-${refreshKey}`}
           statusFilter={statusFilter}
           creditStatusFilter={creditStatusFilter}
         />
@@ -296,7 +310,8 @@ function OrdersContent() {
     handleCreateOrderFromQuote,
     selectedQuoteId,
     selectedQuoteData,
-    handleOrderCreated
+    handleOrderCreated,
+    refreshKey
   ]);
 
   return (

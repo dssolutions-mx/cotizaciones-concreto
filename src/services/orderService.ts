@@ -220,7 +220,7 @@ export async function getOrders(
     .select(`
       *,
       clients!inner(business_name, client_code),
-      order_items!inner(
+      order_items(
         id,
         volume,
         pump_volume,
@@ -293,24 +293,39 @@ export async function getOrders(
     let pumpVolume = 0;
     let hasPumpService = false;
 
-    items.forEach((item: any) => {
-      // Skip empty truck charges and pump service items for concrete volume calculation
-      if (item.product_type !== 'VACÍO DE OLLA' &&
-          item.product_type !== 'EMPTY_TRUCK_CHARGE' &&
-          item.product_type !== 'SERVICIO DE BOMBEO' &&
-          !item.has_empty_truck_charge) {
-        concreteVolume += item.volume || 0;
-      }
+    // Only calculate volumes if there are items
+    if (items.length > 0) {
+      items.forEach((item: any) => {
+        const productType = item.product_type || '';
+        const volume = item.volume || 0;
+        const pumpVolumeItem = item.pump_volume || 0;
 
-      // Calculate pump volume
-      if (item.has_pump_service && item.pump_volume) {
-        pumpVolume += item.pump_volume;
-        hasPumpService = true;
-      } else if (item.product_type === 'SERVICIO DE BOMBEO') {
-        pumpVolume += item.volume || 0;
-        hasPumpService = true;
-      }
-    });
+        // Determine if this item is an empty truck charge
+        const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                                  productType === 'VACÍO DE OLLA' ||
+                                  productType === 'EMPTY_TRUCK_CHARGE';
+
+        // Determine if this item is a pump service
+        const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                             productType.toLowerCase().includes('bombeo') ||
+                             productType.toLowerCase().includes('pump');
+
+        // Calculate concrete volume (exclude empty truck charges and pump services)
+        if (!isEmptyTruckCharge && !isPumpService) {
+          concreteVolume += volume;
+        }
+
+        // Calculate pump volume
+        if (item.has_pump_service || isPumpService) {
+          if (pumpVolumeItem > 0) {
+            pumpVolume += pumpVolumeItem;
+          } else if (isPumpService && volume > 0) {
+            pumpVolume += volume;
+          }
+          hasPumpService = true;
+        }
+      });
+    }
 
     return {
       ...order,
@@ -386,7 +401,7 @@ export async function getOrdersForCreditValidation(plantIds?: string[] | null) {
     .select(`
       *,
       clients!inner(business_name, client_code),
-      order_items!inner(
+      order_items(
         id,
         volume,
         pump_volume,
@@ -565,7 +580,7 @@ export async function getOrdersForManagerValidation(plantIds?: string[] | null) 
       .select(`
         *,
         clients!inner(business_name, client_code),
-        order_items!inner(
+        order_items(
           id,
           volume,
           pump_volume,
@@ -598,24 +613,39 @@ export async function getOrdersForManagerValidation(plantIds?: string[] | null) 
       let pumpVolume = 0;
       let hasPumpService = false;
 
-      items.forEach((item: any) => {
-        // Skip empty truck charges and pump service items for concrete volume calculation
-        if (item.product_type !== 'VACÍO DE OLLA' &&
-            item.product_type !== 'EMPTY_TRUCK_CHARGE' &&
-            item.product_type !== 'SERVICIO DE BOMBEO' &&
-            !item.has_empty_truck_charge) {
-          concreteVolume += item.volume || 0;
-        }
+      // Only calculate volumes if there are items
+      if (items.length > 0) {
+        items.forEach((item: any) => {
+          const productType = item.product_type || '';
+          const volume = item.volume || 0;
+          const pumpVolumeItem = item.pump_volume || 0;
 
-        // Calculate pump volume
-        if (item.has_pump_service && item.pump_volume) {
-          pumpVolume += item.pump_volume;
-          hasPumpService = true;
-        } else if (item.product_type === 'SERVICIO DE BOMBEO') {
-          pumpVolume += item.volume || 0;
-          hasPumpService = true;
-        }
-      });
+          // Determine if this item is an empty truck charge
+          const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                                    productType === 'VACÍO DE OLLA' ||
+                                    productType === 'EMPTY_TRUCK_CHARGE';
+
+          // Determine if this item is a pump service
+          const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                               productType.toLowerCase().includes('bombeo') ||
+                               productType.toLowerCase().includes('pump');
+
+          // Calculate concrete volume (exclude empty truck charges and pump services)
+          if (!isEmptyTruckCharge && !isPumpService) {
+            concreteVolume += volume;
+          }
+
+          // Calculate pump volume
+          if (item.has_pump_service || isPumpService) {
+            if (pumpVolumeItem > 0) {
+              pumpVolume += pumpVolumeItem;
+            } else if (isPumpService && volume > 0) {
+              pumpVolume += volume;
+            }
+            hasPumpService = true;
+          }
+        });
+      }
 
       return {
         ...order,
@@ -640,7 +670,7 @@ export async function getRejectedOrders(plantIds?: string[] | null) {
       .select(`
         *,
         clients!inner(business_name, client_code),
-        order_items!inner(
+        order_items(
           id,
           volume,
           pump_volume,
@@ -673,24 +703,39 @@ export async function getRejectedOrders(plantIds?: string[] | null) {
       let pumpVolume = 0;
       let hasPumpService = false;
 
-      items.forEach((item: any) => {
-        // Skip empty truck charges and pump service items for concrete volume calculation
-        if (item.product_type !== 'VACÍO DE OLLA' &&
-            item.product_type !== 'EMPTY_TRUCK_CHARGE' &&
-            item.product_type !== 'SERVICIO DE BOMBEO' &&
-            !item.has_empty_truck_charge) {
-          concreteVolume += item.volume || 0;
-        }
+      // Only calculate volumes if there are items
+      if (items.length > 0) {
+        items.forEach((item: any) => {
+          const productType = item.product_type || '';
+          const volume = item.volume || 0;
+          const pumpVolumeItem = item.pump_volume || 0;
 
-        // Calculate pump volume
-        if (item.has_pump_service && item.pump_volume) {
-          pumpVolume += item.pump_volume;
-          hasPumpService = true;
-        } else if (item.product_type === 'SERVICIO DE BOMBEO') {
-          pumpVolume += item.volume || 0;
-          hasPumpService = true;
-        }
-      });
+          // Determine if this item is an empty truck charge
+          const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                                    productType === 'VACÍO DE OLLA' ||
+                                    productType === 'EMPTY_TRUCK_CHARGE';
+
+          // Determine if this item is a pump service
+          const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                               productType.toLowerCase().includes('bombeo') ||
+                               productType.toLowerCase().includes('pump');
+
+          // Calculate concrete volume (exclude empty truck charges and pump services)
+          if (!isEmptyTruckCharge && !isPumpService) {
+            concreteVolume += volume;
+          }
+
+          // Calculate pump volume
+          if (item.has_pump_service || isPumpService) {
+            if (pumpVolumeItem > 0) {
+              pumpVolume += pumpVolumeItem;
+            } else if (isPumpService && volume > 0) {
+              pumpVolume += volume;
+            }
+            hasPumpService = true;
+          }
+        });
+      }
 
       return {
         ...order,

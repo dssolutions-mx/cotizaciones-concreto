@@ -36,7 +36,6 @@ import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-wi
 import * as XLSX from 'xlsx';
 import { usePlantContext } from '@/contexts/PlantContext';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
-import { SalesCharts } from '@/components/finanzas/SalesCharts';
 
 // Dynamically import ApexCharts with SSR disabled
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -3436,17 +3435,36 @@ export default function VentasDashboard() {
                    </div>
                  </CardContent>
                </Card>
-
-               {/* Improved Sales Charts Component */}
-               <SalesCharts 
-                 includeVAT={includeVAT}
-                 formatNumberWithUnits={formatNumberWithUnits}
-                 formatCurrency={formatCurrency}
-               />
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
         </>
       )}
     </div>
   );
 }
+
+// Helper function to add weighted price/resistance to summary (adjust placement if needed)
+interface SummaryMetrics {
+  concreteVolume: number;
+  pumpVolume: number;
+  emptyTruckVolume: number;
+  totalVolume: number;
+  concreteAmount: number;
+  pumpAmount: number;
+  emptyTruckAmount: number;
+  totalAmount: number;
+  cashAmount: number;
+  invoiceAmount: number;
+  weightedConcretePrice: number;
+  weightedPumpPrice: number;
+  weightedEmptyTruckPrice: number;
+  weightedResistance: number;
+  resistanceTooltip?: string;
+  // VAT-related metrics
+  totalAmountWithVAT: number;
+  cashAmountWithVAT: number;
+  invoiceAmountWithVAT: number;
+  weightedConcretePriceWithVAT: number;
+  weightedPumpPriceWithVAT: number;
+  weightedEmptyTruckPriceWithVAT: number;
+} 

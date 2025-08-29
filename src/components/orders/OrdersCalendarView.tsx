@@ -4,10 +4,10 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isSameMonth, addDays, addWeeks, subDays, subWeeks, startOfDay, endOfDay, eachHourOfInterval, getHours, isToday, isWithinInterval } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import { usePlantAwareOrders } from '@/hooks/usePlantAwareOrders';
 import { OrderWithClient, OrderStatus, CreditStatus, OrderItem } from '@/types/orders';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
+import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase';
 import { CalendarIcon, MixerHorizontalIcon } from '@radix-ui/react-icons';
 import { Button } from '@/components/ui/button';
@@ -57,54 +57,145 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   const calendarRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   
   // Check if user is a dosificador
   const isDosificador = profile?.role === 'DOSIFICADOR';
 
-    // Use plant-aware orders hook for non-dosificador users with reduced refresh frequency
-  const {
-    orders: plantAwareOrders,
-    isLoading: plantLoading,
-    error: plantError,
-    refetch: plantRefetch
-  } = usePlantAwareOrders({
-    statusFilter,
-    creditStatusFilter,
-    autoRefresh: false // Disable auto-refresh to prevent excessive queries
-  });
+  // Simple state for orders
+  const [orders, setOrders] = useState<OrderWithClient[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Track previous props to detect changes
-  const prevPropsRef = React.useRef({ statusFilter, creditStatusFilter });
-
-  // Handle DOSIFICADOR role separately
-  const [dosificadorOrders, setDosificadorOrders] = useState<OrderWithClient[]>([]);
-  const [dosificadorLoading, setDosificadorLoading] = useState(false);
-  const [dosificadorError, setDosificadorError] = useState<string | null>(null);
-
-  // Load orders for DOSIFICADOR role
-  const loadDosificadorOrders = useCallback(async () => {
-    if (!isDosificador) return;
+  // Simple function to load orders
+  const loadOrders = useCallback(async () => {
+    if (!currentPlant?.id) return;
     
-    setDosificadorLoading(true);
-    setDosificadorError(null);
+    setLoading(true);
+    setError(null);
 
     try {
-      const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
-      const data = await getOrdersForDosificador();
-      setDosificadorOrders(data);
-    } catch (err) {
-      console.error('Error loading dosificador orders:', err);
-      setDosificadorError('Error al cargar los pedidos. Por favor, intente nuevamente.');
-    } finally {
-      setDosificadorLoading(false);
-    }
-  }, [isDosificador]);
+      if (isDosificador) {
+        const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
+        const data = await getOrdersForDosificador();
+        setOrders(data);
+      } else {
+        // Create a plant-aware query directly with volume information
+        const { supabase } = await import('@/lib/supabase/client');
+        let query = supabase
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            quote_id,
+            requires_invoice,
+            delivery_date,
+            delivery_time,
+            construction_site,
+            special_requirements,
+            preliminary_amount,
+            final_amount,
+            credit_status,
+            order_status,
+            created_at,
+            clients (
+              id,
+              business_name,
+              client_code,
+              contact_name,
+              phone
+            ),
+            order_items (
+              id,
+              product_type,
+              volume,
+              has_pump_service,
+              pump_volume,
+              has_empty_truck_charge,
+              empty_truck_volume
+            )
+          `)
+          .eq('plant_id', currentPlant.id);
 
-  // Determine which orders and loading state to use
-  const allOrders = isDosificador ? dosificadorOrders : plantAwareOrders;
-  const loading = isDosificador ? dosificadorLoading : plantLoading;
-  const error = isDosificador ? dosificadorError : plantError;
-  const loadOrders = isDosificador ? loadDosificadorOrders : plantRefetch;
+        // Apply status filters
+        if (statusFilter) {
+          query = query.eq('order_status', statusFilter);
+        }
+        
+        if (creditStatusFilter) {
+          query = query.eq('credit_status', creditStatusFilter);
+        }
+
+        // Sort by created_at in descending order
+        query = query.order('created_at', { ascending: false });
+
+        const { data, error } = await query;
+        
+        if (error) throw error;
+        
+        // Process the data to calculate volumes using the correct logic
+        const processedData = (data || []).map(order => {
+          const orderItems = order.order_items || [];
+          let concreteVolume = 0;
+          let pumpVolume = 0;
+          let hasPumpService = false;
+
+          // Only calculate volumes if there are items
+          if (orderItems.length > 0) {
+            orderItems.forEach((item: any) => {
+              const productType = item.product_type || '';
+              const volume = item.volume || 0;
+              const pumpVolumeItem = item.pump_volume || 0;
+
+              // Determine if this item is an empty truck charge
+              const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                                        productType === 'VACÍO DE OLLA' ||
+                                        productType === 'EMPTY_TRUCK_CHARGE';
+
+              // Determine if this item is a pump service
+              const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                                   productType.toLowerCase().includes('bombeo') ||
+                                   productType.toLowerCase().includes('pump');
+
+              // Calculate concrete volume (exclude empty truck charges and pump services)
+              if (!isEmptyTruckCharge && !isPumpService) {
+                concreteVolume += volume;
+              }
+
+              // Calculate pump volume
+              if (item.has_pump_service || isPumpService) {
+                if (pumpVolumeItem > 0) {
+                  pumpVolume += pumpVolumeItem;
+                } else if (isPumpService && volume > 0) {
+                  pumpVolume += volume;
+                }
+                hasPumpService = true;
+              }
+            });
+          }
+
+          return {
+            ...order,
+            concreteVolume: concreteVolume > 0 ? concreteVolume : undefined,
+            pumpVolume: pumpVolume > 0 ? pumpVolume : undefined,
+            hasPumpService
+          };
+        });
+        
+        setOrders(processedData);
+      }
+    } catch (err) {
+      console.error('Error loading orders:', err);
+      setError('Error al cargar los pedidos. Por favor, intente nuevamente.');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentPlant?.id, isDosificador, statusFilter, creditStatusFilter]);
+
+  // Load orders when component mounts or when dependencies change
+  useEffect(() => {
+    loadOrders();
+  }, [loadOrders]);
   
   useEffect(() => {
     if (preferences.calendarViewType !== viewType) {
@@ -139,10 +230,10 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
 
   // Filter orders based on current calendar view
   const filteredOrders = useMemo(() => {
-    if (!allOrders || allOrders.length === 0) return [];
+    if (!orders || orders.length === 0) return [];
     
     // Filter out cancelled orders
-    const validOrders = allOrders.filter(order => order.order_status?.toLowerCase() !== 'cancelled');
+    const validOrders = orders.filter(order => order.order_status?.toLowerCase() !== 'cancelled');
     
     // Filter by date range based on current view
     let calendarStart: Date;
@@ -169,7 +260,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
       if (!order.delivery_date) return false;
       return order.delivery_date >= startDateStr && order.delivery_date <= endDateStr;
     });
-  }, [allOrders, currentDate, viewType]);
+  }, [orders, currentDate, viewType]);
 
   // Update calendar when filtered orders change
   useEffect(() => {
@@ -217,33 +308,6 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
     
     setCalendarDays(days);
   }, [filteredOrders, currentDate, viewType]);
-
-  // Only refetch when props actually change, not on every render
-  useEffect(() => {
-    const prevProps = prevPropsRef.current;
-    const propsChanged = prevProps.statusFilter !== statusFilter ||
-                        prevProps.creditStatusFilter !== creditStatusFilter;
-
-    if (propsChanged || (isDosificador && dosificadorOrders.length === 0) ||
-        (!isDosificador && plantAwareOrders.length === 0)) {
-      if (isDosificador) {
-        loadDosificadorOrders();
-      } else {
-        loadOrders();
-      }
-    }
-
-    // Update previous props reference
-    prevPropsRef.current = { statusFilter, creditStatusFilter };
-  }, [
-    isDosificador,
-    loadDosificadorOrders,
-    loadOrders,
-    statusFilter,
-    creditStatusFilter,
-    dosificadorOrders.length,
-    plantAwareOrders.length
-  ]);
 
   const handleViewTypeChange = useCallback((newViewType: ViewType) => {
     setViewType(newViewType);
@@ -367,7 +431,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
           {error}
-          <button onClick={() => isDosificador ? loadDosificadorOrders() : loadOrders()} className="ml-auto bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded-md text-sm">
+          <button onClick={() => loadOrders()} className="ml-auto bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded-md text-sm">
             Reintentar
           </button>
         </div>
@@ -638,20 +702,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
           </h2>
           
           <div className="flex flex-wrap gap-3">
-            {/* Manual refresh button */}
-            <Button
-              onClick={() => isDosificador ? loadDosificadorOrders() : loadOrders()}
-              disabled={loading}
-              variant="outline"
-              size="sm"
-              className="flex items-center gap-1"
-            >
-              <svg className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              Actualizar
-            </Button>
-
+            {/* View type selector */}
             <div className="flex bg-gray-100 rounded-md overflow-hidden shadow-xs">
               <button
                 onClick={() => handleViewTypeChange('day')}
@@ -718,11 +769,22 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
           </div>
         </div>
         
-        {loadingVolumes && (
+        {/* Loading indicator for refresh */}
+        {loading && orders.length > 0 && (
           <div className="bg-blue-50 px-4 py-2 border-t border-blue-100 flex items-center text-sm text-blue-700">
             <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Actualizando órdenes...
+          </div>
+        )}
+        
+        {loadingVolumes && (
+          <div className="bg-blue-50 px-4 py-2 border-t border-blue-100 flex items-center text-sm text-blue-700">
+            <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
             Actualizando volúmenes de concreto y bombeo...
           </div>

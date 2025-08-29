@@ -24,7 +24,7 @@ export default function EnhancedPlantSelector({
   onBusinessUnitChange,
   className, 
   showLabel = true,
-  required = false
+  required = false,
 }: EnhancedPlantSelectorProps) {
   const { 
     currentPlant, 
