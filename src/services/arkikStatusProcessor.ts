@@ -277,28 +277,34 @@ export class ArkikStatusProcessor {
       created_at: new Date()
     };
 
-    // Add materials to target remision (with overflow protection)
+    // Track transferred materials separately to avoid duplication
+    // The actual material transfer will be applied by applyMaterialTransfers during database operations
+    if (!targetRemision.transferred_materials) {
+      targetRemision.transferred_materials = {};
+    }
+
+    // Add materials to transfer tracking (with overflow protection)
     Object.entries(reassignment.materials_to_transfer).forEach(([materialCode, amount]) => {
-      if (!targetRemision.materials_real[materialCode]) {
-        targetRemision.materials_real[materialCode] = 0;
+      if (!targetRemision.transferred_materials[materialCode]) {
+        targetRemision.transferred_materials[materialCode] = 0;
       }
-      
-      const newTotal = targetRemision.materials_real[materialCode] + amount;
+
+      const newTotal = targetRemision.transferred_materials[materialCode] + amount;
       const maxValue = 99999999.99; // Database DECIMAL(10,2) limit
-      
+
       if (newTotal > maxValue) {
         console.warn(`[ArkikStatusProcessor] Material overflow prevented for ${materialCode}:`, {
-          current: targetRemision.materials_real[materialCode],
+          current: targetRemision.transferred_materials[materialCode],
           adding: amount,
           wouldBe: newTotal,
           limit: maxValue,
           targetRemision: targetRemision.remision_number
         });
-        
+
         // Cap at maximum value instead of causing database error
-        targetRemision.materials_real[materialCode] = maxValue;
+        targetRemision.transferred_materials[materialCode] = maxValue;
       } else {
-        targetRemision.materials_real[materialCode] = newTotal;
+        targetRemision.transferred_materials[materialCode] = newTotal;
       }
     });
 
