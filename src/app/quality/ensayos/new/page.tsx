@@ -54,6 +54,7 @@ const ensayoFormSchema = z.object({
   fecha_ensayo: z.date({
     required_error: 'La fecha del ensayo es requerida',
   }),
+  hora_ensayo: z.string().min(1, 'La hora del ensayo es requerida'),
   carga_kg: z.number()
     .min(0, 'La carga debe ser un número positivo')
     .max(500000, 'La carga parece demasiado alta'),
@@ -88,6 +89,7 @@ function NuevoEnsayoContent() {
     defaultValues: {
       muestra_id: muestraId || '',
       fecha_ensayo: new Date(),
+      hora_ensayo: new Date().toTimeString().slice(0, 5), // HH:MM format
       carga_kg: 0,
       resistencia_calculada: 0,
       porcentaje_cumplimiento: 0,
@@ -428,6 +430,7 @@ function NuevoEnsayoContent() {
       await createEnsayo({
         muestra_id: data.muestra_id,
         fecha_ensayo: data.fecha_ensayo,
+        hora_ensayo: data.hora_ensayo,
         carga_kg: data.carga_kg,
         resistencia_calculada: data.resistencia_calculada,
         porcentaje_cumplimiento: data.porcentaje_cumplimiento,
@@ -591,6 +594,21 @@ function NuevoEnsayoContent() {
                       {muestra.muestreo?.remision?.recipe?.strength_fc || 'N/A'} kg/cm²
                     </p>
                   </div>
+
+                  {muestra.muestreo?.remision && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-500">Tiempo desde Carga</h3>
+                      <p className="mt-1 text-sm">
+                        {muestra.muestreo.remision.fecha && muestra.muestreo.remision.hora_carga ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-800">
+                            Carga: {formatDate(muestra.muestreo.remision.fecha, 'PPP')} {muestra.muestreo.remision.hora_carga}
+                          </span>
+                        ) : (
+                          'Información no disponible'
+                        )}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -644,20 +662,22 @@ function NuevoEnsayoContent() {
                             <FormItem>
                               <FormLabel>Fecha del Ensayo</FormLabel>
                               <FormControl>
-                                <Input 
-                                  type="date" 
+                                <Input
+                                  type="date"
                                   {...field}
-                                  value={field.value instanceof Date && !isNaN(field.value.getTime()) 
-                                    ? field.value.toISOString().split('T')[0] 
+                                  value={field.value instanceof Date && !isNaN(field.value.getTime())
+                                    ? field.value.toLocaleDateString('en-CA', { timeZone: 'UTC' })
                                     : ''}
                                   onChange={(e) => {
                                     try {
-                                      const date = new Date(e.target.value);
-                                      // Validate the date before setting it
-                                      if (!isNaN(date.getTime())) {
+                                      // Parse the date as local date (YYYY-MM-DD format)
+                                      const dateStr = e.target.value;
+                                      if (dateStr) {
+                                        // Create date at midnight local time to avoid timezone shifts
+                                        const [year, month, day] = dateStr.split('-').map(Number);
+                                        const date = new Date(year, month - 1, day);
                                         field.onChange(date);
                                       } else {
-                                        console.warn("Invalid date entered:", e.target.value);
                                         field.onChange(undefined);
                                       }
                                     } catch (error) {
@@ -667,6 +687,30 @@ function NuevoEnsayoContent() {
                                   }}
                                 />
                               </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="hora_ensayo"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Hora del Ensayo</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="time"
+                                  {...field}
+                                  value={field.value || ''}
+                                  onChange={(e) => {
+                                    field.onChange(e.target.value);
+                                  }}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                Hora en que se completó el ensayo
+                              </FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}

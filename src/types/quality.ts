@@ -49,9 +49,11 @@ export interface Ensayo {
   id: string;
   muestra_id: string;
   fecha_ensayo: string;
+  hora_ensayo?: string; // Time when the essay was completed
   carga_kg: number;
   resistencia_calculada: number;
   porcentaje_cumplimiento: number;
+  tiempo_desde_carga?: string; // Calculated time since load (when remision data is available)
   observaciones?: string;
   created_by?: string;
   created_at?: string;
@@ -87,6 +89,7 @@ export interface MuestreoWithRelations extends Muestreo {
     id: string;
     remision_number: string;
     fecha: string;
+    hora_carga: string;
     volumen_fabricado: number;
     recipe_id: string;
     recipe?: {
