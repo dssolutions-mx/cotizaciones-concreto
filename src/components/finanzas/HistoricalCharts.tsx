@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ApexOptions } from 'apexcharts';
 import { format } from 'date-fns';
@@ -403,11 +403,27 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
       console.log(`📦 Found ${orderItemsForOrders.length} order items for orders with remisiones`);
       
       // Find empty truck charges from these order items
-      const emptyTruckItems = orderItemsForOrders.filter((item: any) => 
-        item.product_type === 'VACÍO DE OLLA' ||
-        item.product_type === 'EMPTY_TRUCK_CHARGE' ||
-        item.has_empty_truck_charge === true
-      );
+      const emptyTruckItems = orderItemsForOrders.filter((item: any) => {
+        const isEmptyTruck = 
+          item.product_type === 'VACÍO DE OLLA' ||
+          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
+          item.has_empty_truck_charge === true;
+        
+        if (isEmptyTruck) {
+          console.log(`🔍 Found Empty Truck Item:`, {
+            id: item.id,
+            order_id: item.order_id,
+            product_type: item.product_type,
+            has_empty_truck_charge: item.has_empty_truck_charge,
+            empty_truck_volume: item.empty_truck_volume,
+            volume: item.volume,
+            unit_price: item.unit_price,
+            total_price: item.total_price
+          });
+        }
+        
+        return isEmptyTruck;
+      });
       
       console.log(`🚛 Found ${emptyTruckItems.length} empty truck items:`, emptyTruckItems.map(item => ({
         id: item.id,
@@ -416,7 +432,18 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         empty_truck_volume: item.empty_truck_volume,
         volume: item.volume,
         unit_price: item.unit_price,
-        total_price: item.total_price
+        total_price: item.total_price,
+        has_empty_truck_charge: item.has_empty_truck_charge
+      })));
+      
+      // Debug: Show all order items to understand what we're working with
+      console.log(`🔍 DEBUG: All order items for orders with remisiones:`, orderItemsForOrders.slice(0, 5).map(item => ({
+        id: item.id,
+        order_id: item.order_id,
+        product_type: item.product_type,
+        has_empty_truck_charge: item.has_empty_truck_charge,
+        empty_truck_volume: item.empty_truck_volume,
+        volume: item.volume
       })));
       
       return emptyTruckItems.map(item => {
@@ -451,6 +478,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
             orderNumber: historicalData.find(o => o.id === item.order_id)?.order_number || 'Unknown',
             itemId: item.id
           };
+        } else {
+          console.warn(`⚠️ Empty Truck Item ${item.id} has invalid volume (${volumeAmount}) or amount (${chargeAmount})`);
         }
         return null;
       }).filter(Boolean);
@@ -465,12 +494,8 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
     historicalRemisiones.forEach(remision => {
       const monthKey = getMonthKey(remision.fecha);
       
-      // For now, focus on March 2025 for debugging
-      // TODO: To expand to multiple months, simply remove this filter:
-      // if (monthKey !== '2025-03') { return; }
-      if (!isDateInMonth(remision.fecha, '2025-03')) {
-        return;
-      }
+      // Process ALL months - no more March 2025 filter
+      // TODO: Previously was: if (!isDateInMonth(remision.fecha, '2025-03')) { return; }
       
       if (!monthBuckets[monthKey]) {
         monthBuckets[monthKey] = [];
@@ -509,22 +534,45 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
       }))
     });
     
-    // STEP 2: Process ORDER_ITEMS for empty truck charges (associated with March 2025 remisiones)
-    // TODO: To expand to multiple months, change this filter to process all months:
-    // const allRemisionOrderIds = historicalRemisiones.map(r => r.order_id);
-    const marchRemisionOrderIds = historicalRemisiones
-      .filter(r => isDateInMonth(r.fecha, '2025-03'))
-      .map(r => r.order_id);
+    // STEP 2: Process ORDER_ITEMS for empty truck charges (associated with ALL months)
+    // Get all order_ids from ALL remisiones (no more March filter)
+    const allRemisionOrderIds = historicalRemisiones.map(r => r.order_id);
     
-    console.log(`🔍 Found ${marchRemisionOrderIds.length} orders with March 2025 remisiones:`, marchRemisionOrderIds.slice(0, 10));
+    console.log(`🔍 Found ${allRemisionOrderIds.length} orders with remisiones across all months`);
     
-    const emptyTruckItems = processEmptyTruckCharges(marchRemisionOrderIds);
+    const emptyTruckItems = processEmptyTruckCharges(allRemisionOrderIds);
     
-    // Add empty truck items to the March bucket
-    if (!monthBuckets['2025-03']) {
-      monthBuckets['2025-03'] = [];
-    }
-    monthBuckets['2025-03'].push(...emptyTruckItems);
+    // Add empty truck items to the CORRECT month buckets (based on order delivery date)
+    const validEmptyTruckItems = emptyTruckItems.filter((item): item is NonNullable<typeof item> => item !== null);
+    
+    validEmptyTruckItems.forEach(item => {
+      // Find the order for this item to get the delivery date
+      const order = historicalData.find(o => o.id === item.orderId);
+      if (!order || !order.delivery_date) {
+        console.warn(`⚠️ No order or delivery date found for empty truck item ${item.itemId}`);
+        return;
+      }
+      
+      // Use the order's delivery date to determine the month (SAME as ventas logic)
+      const monthKey = getMonthKey(order.delivery_date);
+      
+      console.log(`🔍 Empty Truck Item ${item.itemId}:`, {
+        orderId: item.orderId,
+        orderNumber: order.order_number,
+        deliveryDate: order.delivery_date,
+        monthKey: monthKey,
+        volume: item.volume,
+        amount: item.amount
+      });
+      
+      if (!monthBuckets[monthKey]) {
+        monthBuckets[monthKey] = [];
+      }
+      
+      monthBuckets[monthKey].push(item);
+      
+      console.log(`✅ Empty Truck Item ${item.itemId} assigned to month ${monthKey} (${order.delivery_date})`);
+    });
     
     console.log('🔍 MonthBuckets Debug: After adding empty truck items:', {
       bucketKeys: Object.keys(monthBuckets),
@@ -582,6 +630,21 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
     });
     
     console.log('🎯 FINAL PROCESSED DATA:', processedData);
+    
+    // Debug: Empty Truck Summary
+    if (validEmptyTruckItems.length > 0) {
+      console.log('🚛 EMPTY TRUCK DEBUG SUMMARY:', {
+        totalItems: validEmptyTruckItems.length,
+        totalVolume: validEmptyTruckItems.reduce((sum, item) => sum + item.volume, 0),
+        totalAmount: validEmptyTruckItems.reduce((sum, item) => sum + item.amount, 0),
+        itemsByMonth: Object.entries(monthBuckets).map(([monthKey, items]) => ({
+          month: monthKey,
+          emptyTruckItems: items.filter(item => item.type === 'empty_truck'),
+          volume: items.filter(item => item.type === 'empty_truck').reduce((sum, item) => sum + item.volume, 0),
+          amount: items.filter(item => item.type === 'empty_truck').reduce((sum, item) => sum + item.amount, 0)
+        })).filter(m => m.emptyTruckItems.length > 0)
+      });
+    }
     
     // Final verification - we should only have March 2025
     if (processedData.length > 0) {
@@ -987,400 +1050,13 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
       <div className="grid grid-cols-1 gap-8">
         <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 to-red-500" />
-          <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-            <CardTitle className="text-lg font-bold text-gray-800">VENTAS DE CONCRETO - MARZO 2025</CardTitle>
-            <p className="text-xs text-gray-500 mt-1">
-              🔍 Solo concreto de MARZO 2025 | Debug | Misma lógica que ventas page
-            </p>
-            {currentPlant && (
-              <p className="text-xs text-blue-600 mt-1">🏭 Planta: {currentPlant.name}</p>
-            )}
-            
-            {/* Debug Information */}
-            {process.env.NODE_ENV === 'development' && (
-              <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs">
-                <p className="font-semibold text-yellow-800">🔍 DEBUG INFO:</p>
-                <p>Historical Data: {historicalData.length} orders</p>
-                <p>Order Items: {orderItems.length} items</p>
-                <p>Monthly Data: {monthlyData.length} months</p>
-                <p>Loading: {loading ? 'Yes' : 'No'}</p>
-                <p>Error: {error || 'None'}</p>
-                <p className="font-semibold text-green-700">✅ Using SAME calculation as sales system</p>
-                {monthlyData.length > 0 && (
-                  <p>Data Range: {monthlyData[0]?.monthName} to {monthlyData[monthlyData.length - 1]?.monthName}</p>
-                )}
-                {monthlyData.length > 0 && (
-                  <p>Total Sales: {formatCurrency(monthlyData.reduce((sum, m) => sum + m.totalSales, 0))}</p>
-                )}
-                <p className="font-semibold text-blue-700">📊 Using KPI calculation logic (volume × unit_price)</p>
-                <p className="font-semibold text-purple-700">🎯 Using EXACT SAME logic as ventas page (remisiones + order_items)</p>
-                <p className="font-semibold text-orange-700">📅 Only fetching current month data (same as ventas page)</p>
-                <p className="font-semibold text-red-700">🔍 DEBUG MODE: Only concrete data</p>
-                <p className="font-semibold text-purple-700">📅 Fetching MARCH 2025 data specifically</p>
-                <p className="font-semibold text-green-700">🎯 Only processing March 2025 orders</p>
-              </div>
-            )}
-            
-            {/* Debug Table - Raw Data */}
-            {process.env.NODE_ENV === 'development' && (
-              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded">
-                <h3 className="font-semibold text-blue-800 mb-3">🔍 DEBUG TABLE - Raw Data from Database</h3>
-                
-                {/* Date Validation Warning */}
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded">
-                  <h4 className="font-semibold text-red-700 mb-2">⚠️ DATE VALIDATION - Check for Discrepancies</h4>
-                  <div className="text-xs text-red-600">
-                    <p><strong>Problem:</strong> Orders with April delivery dates but March remisiones</p>
-                    <p><strong>Impact:</strong> This can cause incorrect calculations</p>
-                    <p><strong>Solution:</strong> Filter by remision date, not order delivery date</p>
-                  </div>
-                  
-                  {/* Date Discrepancy Table */}
-                  <div className="mt-3">
-                    <h5 className="font-medium text-red-700 mb-2">📅 Date Discrepancies Found:</h5>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs border border-red-300">
-                        <thead className="bg-red-100">
-                          <tr>
-                            <th className="border border-red-300 p-1">Order #</th>
-                            <th className="border border-red-300 p-1">Order Delivery Date</th>
-                            <th className="border border-red-300 p-1">Remisiones Dates</th>
-                            <th className="border border-red-300 p-1">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {(() => {
-                            const discrepancies = historicalData.slice(0, 10).map(order => {
-                              const orderRemisiones = historicalRemisiones.filter(r => r.order_id === order.id);
-                              const remisionDates = orderRemisiones.map(r => r.fecha).filter(Boolean);
-                              const hasDiscrepancy = remisionDates.some(date => {
-                                const remisionMonth = format(new Date(date + 'T00:00:00'), 'yyyy-MM');
-                                const orderMonth = format(new Date(order.delivery_date + 'T00:00:00'), 'yyyy-MM');
-                                return remisionMonth !== orderMonth;
-                              });
-                              
-                              return {
-                                order,
-                                remisionDates,
-                                hasDiscrepancy
-                              };
-                            }).filter(d => d.hasDiscrepancy);
-                            
-                            return discrepancies.map((d, idx) => (
-                              <tr key={idx} className="bg-white">
-                                <td className="border border-red-300 p-1 text-xs">{d.order.order_number}</td>
-                                <td className="border border-red-300 p-1 text-xs">{d.order.delivery_date}</td>
-                                <td className="border border-red-300 p-1 text-xs">{d.remisionDates.join(', ')}</td>
-                                <td className="border border-red-300 p-1 text-xs">
-                                  <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">⚠️ MISMATCH</span>
-                                </td>
-                              </tr>
-                            ));
-                          })()}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p className="text-xs text-red-600 mt-1">
-                      Found {historicalData.filter(order => {
-                        const orderRemisiones = historicalRemisiones.filter(r => r.order_id === order.id);
-                        return orderRemisiones.some(r => {
-                          const remisionMonth = format(new Date(r.fecha + 'T00:00:00'), 'yyyy-MM');
-                          const orderMonth = format(new Date(order.delivery_date + 'T00:00:00'), 'yyyy-MM');
-                          return remisionMonth !== orderMonth;
-                        });
-                      }).length} orders with date mismatches
-                    </p>
-                  </div>
-                </div>
-
-                {/* Step 1: Remisiones */}
-                <div className="mb-4">
-                  <h4 className="font-medium text-blue-700 mb-2">📋 STEP 1: Remisiones (March 2025)</h4>
-                  
-                  {/* March 2025 Concrete Remisiones Summary */}
-                  <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded">
-                    <h5 className="font-medium text-green-700 mb-1">🌱 March 2025 Concrete Remisiones Summary:</h5>
-                    <div className="text-xs text-green-600">
-                      <p><strong>Total Remisiones:</strong> {historicalRemisiones.length}</p>
-                      <p><strong>Concrete Remisiones:</strong> {historicalRemisiones.filter(r => r.tipo_remision !== 'BOMBEO' && r.tipo_remision !== 'VACIO').length}</p>
-                      <p><strong>Total Volume:</strong> {historicalRemisiones.filter(r => r.tipo_remision !== 'BOMBEO' && r.tipo_remision !== 'VACIO').reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0).toFixed(1)} m³</p>
-                      <p><strong>Date Range:</strong> {historicalRemisiones.length > 0 ? `${historicalRemisiones[0]?.fecha} to ${historicalRemisiones[historicalRemisiones.length - 1]?.fecha}` : 'No data'}</p>
-                    </div>
-                  </div>
-                  
-                  {/* March 2025 Pump Remisiones Summary */}
-                  <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded">
-                    <h5 className="font-medium text-blue-700 mb-1">💧 March 2025 Pump Remisiones Summary:</h5>
-                    <div className="text-xs text-blue-600">
-                      <p><strong>Pump Remisiones:</strong> {historicalRemisiones.filter(r => r.tipo_remision === 'BOMBEO').length}</p>
-                      <p><strong>Total Pump Volume:</strong> {historicalRemisiones.filter(r => r.tipo_remision === 'BOMBEO').reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0).toFixed(1)} m³</p>
-                      <p><strong>Pump Remisiones IDs:</strong> {historicalRemisiones.filter(r => r.tipo_remision === 'BOMBEO').slice(0, 5).map(r => r.id).join(', ')}...</p>
-                    </div>
-                  </div>
-                  
-                  {/* March 2025 Empty Truck Summary */}
-                  <div className="mb-3 p-2 bg-purple-50 border border-purple-200 rounded">
-                    <h5 className="font-medium text-purple-700 mb-1">🚛 March 2025 Empty Truck Summary:</h5>
-                    <div className="text-xs text-purple-600">
-                      <p><strong>Orders with March Remisiones:</strong> {(() => {
-                        const marchRemisionOrderIds = historicalRemisiones
-                          .filter(r => {
-                            const remisionDate = new Date(r.fecha + 'T00:00:00');
-                            const monthKey = format(remisionDate, 'yyyy-MM');
-                            return monthKey === '2025-03';
-                          })
-                          .map(r => r.order_id);
-                        return Array.from(new Set(marchRemisionOrderIds)).length;
-                      })()}</p>
-                      <p><strong>Order Items for March Orders:</strong> {(() => {
-                        const marchRemisionOrderIds = historicalRemisiones
-                          .filter(r => {
-                            const remisionDate = new Date(r.fecha + 'T00:00:00');
-                            const monthKey = format(remisionDate, 'yyyy-MM');
-                            return monthKey === '2025-03';
-                          })
-                          .map(r => r.order_id);
-                        return orderItems.filter(oi => marchRemisionOrderIds.includes(oi.order_id)).length;
-                      })()}</p>
-                      <p><strong>Empty Truck Items Found:</strong> {(() => {
-                        const marchRemisionOrderIds = historicalRemisiones
-                          .filter(r => {
-                            const remisionDate = new Date(r.fecha + 'T00:00:00');
-                            const monthKey = format(remisionDate, 'yyyy-MM');
-                            return monthKey === '2025-03';
-                          })
-                          .map(r => r.order_id);
-                        const marchOrderItems = orderItems.filter(oi => marchRemisionOrderIds.includes(oi.order_id));
-                        return marchOrderItems.filter(item => 
-                          item.product_type === 'VACÍO DE OLLA' ||
-                          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
-                          item.has_empty_truck_charge === true
-                        ).length;
-                      })()}</p>
-                      <p><strong>Calculated Volume:</strong> {(() => {
-                        const marchRemisionOrderIds = historicalRemisiones
-                          .filter(r => {
-                            const remisionDate = new Date(r.fecha + 'T00:00:00');
-                            const monthKey = format(remisionDate, 'yyyy-MM');
-                            return monthKey === '2025-03';
-                          })
-                          .map(r => r.order_id);
-                        const marchOrderItems = orderItems.filter(oi => marchRemisionOrderIds.includes(oi.order_id));
-                        const emptyTruckItems = marchOrderItems.filter(item => 
-                          item.product_type === 'VACÍO DE OLLA' ||
-                          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
-                          item.has_empty_truck_charge === true
-                        );
-                        return emptyTruckItems.reduce((sum, item) => sum + (parseFloat(item.empty_truck_volume) || parseFloat(item.volume) || 0), 0).toFixed(1);
-                      })()} m³</p>
-                      <p><strong>Expected Volume:</strong> 105.5 m³</p>
-                      <p><strong>Difference:</strong> {(105.5 - (() => {
-                        const marchRemisionOrderIds = historicalRemisiones
-                          .filter(r => {
-                            const remisionDate = new Date(r.fecha + 'T00:00:00');
-                            const monthKey = format(remisionDate, 'yyyy-MM');
-                            return monthKey === '2025-03';
-                          })
-                          .map(r => r.order_id);
-                        const marchOrderItems = orderItems.filter(oi => marchRemisionOrderIds.includes(oi.order_id));
-                        const emptyTruckItems = marchOrderItems.filter(item => 
-                          item.product_type === 'VACÍO DE OLLA' ||
-                          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
-                          item.has_empty_truck_charge === true
-                        );
-                        return emptyTruckItems.reduce((sum, item) => sum + (parseFloat(item.empty_truck_volume) || parseFloat(item.volume) || 0), 0);
-                      })()).toFixed(1)} m³</p>
-                    </div>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border border-blue-300">
-                      <thead className="bg-blue-100">
-                        <tr>
-                          <th className="border border-blue-300 p-1">ID</th>
-                          <th className="border border-blue-300 p-1">Fecha</th>
-                          <th className="border border-blue-300 p-1">Tipo</th>
-                          <th className="border border-blue-300 p-1">Volumen</th>
-                          <th className="border border-blue-300 p-1">Order ID</th>
-                          <th className="border border-blue-300 p-1">Recipe</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {historicalRemisiones.slice(0, 10).map((r, idx) => (
-                          <tr key={idx} className="bg-white">
-                            <td className="border border-blue-300 p-1 text-xs">{r.id?.slice(0, 8)}...</td>
-                            <td className="border border-blue-300 p-1 text-xs">{r.fecha}</td>
-                            <td className="border border-blue-300 p-1 text-xs">{r.tipo_remision}</td>
-                            <td className="border border-blue-300 p-1 text-xs">{r.volumen_fabricado}</td>
-                            <td className="border border-blue-300 p-1 text-xs">{r.order_id?.slice(0, 8)}...</td>
-                            <td className="border border-blue-300 p-1 text-xs">{r.recipe?.recipe_code}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-xs text-blue-600 mt-1">Total: {historicalRemisiones.length} remisiones</p>
-                </div>
-
-                {/* Step 2: Orders */}
-                <div className="mb-4">
-                  <h4 className="font-medium text-blue-700 mb-2">📋 STEP 2: Orders</h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border border-blue-300">
-                      <thead className="bg-blue-100">
-                        <tr>
-                          <th className="border border-blue-300 p-1">ID</th>
-                          <th className="border border-blue-300 p-1">Order #</th>
-                          <th className="border border-blue-300 p-1">Delivery Date</th>
-                          <th className="border border-blue-300 p-1">Client ID</th>
-                          <th className="border border-blue-300 p-1">Plant ID</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {historicalData.slice(0, 10).map((o, idx) => (
-                          <tr key={idx} className="bg-white">
-                            <td className="border border-blue-300 p-1 text-xs">{o.id?.slice(0, 8)}...</td>
-                            <td className="border border-blue-300 p-1 text-xs">{o.order_number}</td>
-                            <td className="border border-blue-300 p-1 text-xs">{o.delivery_date}</td>
-                            <td className="border border-blue-300 p-1 text-xs">{o.client_id?.slice(0, 8)}...</td>
-                            <td className="border border-blue-300 p-1 text-xs">{o.plant_id?.slice(0, 8)}...</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-xs text-blue-600 mt-1">Total: {historicalData.length} orders</p>
-                </div>
-
-                {/* Step 3: Order Items */}
-                <div className="mb-4">
-                  <h4 className="font-medium text-blue-700 mb-2">📋 STEP 3: Order Items</h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border border-blue-300">
-                      <thead className="bg-blue-100">
-                        <tr>
-                          <th className="border border-blue-300 p-1">ID</th>
-                          <th className="border border-blue-300 p-1">Order ID</th>
-                          <th className="border border-blue-300 p-1">Product Type</th>
-                          <th className="border border-blue-300 p-1">Unit Price</th>
-                          <th className="border border-blue-300 p-1">Volume</th>
-                          <th className="border border-blue-300 p-1">Recipe ID</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {orderItems.slice(0, 10).map((oi, idx) => (
-                          <tr key={idx} className="bg-white">
-                            <td className="border border-blue-300 p-1 text-xs">{oi.id?.slice(0, 8)}...</td>
-                            <td className="border border-blue-300 p-1 text-xs">{oi.order_id?.slice(0, 8)}...</td>
-                            <td className="border border-blue-300 p-1 text-xs">{oi.product_type}</td>
-                            <td className="border border-blue-300 p-1 text-xs">${oi.unit_price}</td>
-                            <td className="border border-blue-300 p-1 text-xs">{oi.volume}</td>
-                            <td className="border border-blue-300 p-1 text-xs">{oi.recipe_id?.slice(0, 8)}...</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-xs text-blue-600 mt-1">Total: {orderItems.length} order items</p>
-                </div>
-              </div>
-            )}
-            
-            {/* Final Debug Table - Processed Data */}
-            {process.env.NODE_ENV === 'development' && monthlyData.length > 0 && (
-              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded">
-                <h3 className="font-semibold text-green-800 mb-3">🔍 FINAL DEBUG TABLE - Processed Data</h3>
-                
-                {/* New Calculation Approach Summary */}
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded">
-                  <h4 className="font-semibold text-blue-700 mb-2">🎯 NEW CALCULATION APPROACH</h4>
-                  <div className="text-xs text-blue-600">
-                    <p><strong>✅ CONCRETE:</strong> Volume from REMISIONES, Price from ORDER_ITEMS</p>
-                    <p><strong>✅ PUMP:</strong> Volume from REMISIONES, Price from ORDER_ITEMS</p>
-                    <p><strong>✅ EMPTY TRUCK:</strong> Volume from ORDER_ITEMS, Price from ORDER_ITEMS</p>
-                    <p><strong>🎯 Current Focus:</strong> Concrete + Pump + Empty Truck sales to match KPIs exactly</p>
-                    <p><strong>🚀 Ready for Multi-Month:</strong> Code is now clean and scalable for multiple months</p>
-                    <p><strong>📅 Date Consistency:</strong> All date operations use standardized helper functions for consistency</p>
-                  </div>
-                </div>
-
-                {/* Monthly Summary */}
-                <div className="mb-4">
-                  <h4 className="font-medium text-green-700 mb-2">📊 Monthly Summary - CONCRETE + PUMP + VACIO</h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border border-green-300">
-                      <thead className="bg-green-100">
-                        <tr>
-                          <th className="border border-green-300 p-1">Month</th>
-                          <th className="border border-green-300 p-1">Items</th>
-                          <th className="border border-green-300 p-1">Concrete</th>
-                          <th className="border border-green-300 p-1">Pump</th>
-                          <th className="border border-green-300 p-1">Vacío</th>
-                          <th className="border border-green-300 p-1">Total Sales</th>
-                          <th className="border border-green-300 p-1">Total Volume</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {monthlyData.map((m, idx) => (
-                          <tr key={idx} className="bg-white">
-                            <td className="border border-green-300 p-1 text-xs">{m.monthName}</td>
-                            <td className="border border-green-300 p-1 text-xs">{m.itemCount}</td>
-                            <td className="border border-green-300 p-1 text-xs">
-                              {m.concreteVolume.toFixed(1)} m³<br/>
-                              <span className="text-green-600">{formatCurrency(m.concreteSales)}</span>
-                            </td>
-                            <td className="border border-green-300 p-1 text-xs">
-                              {m.pumpVolume.toFixed(1)} m³<br/>
-                              <span className="text-blue-600">{formatCurrency(m.pumpSales)}</span>
-                            </td>
-                            <td className="border border-green-300 p-1 text-xs">
-                              {m.emptyTruckVolume.toFixed(1)} m³<br/>
-                              <span className="text-purple-600">{formatCurrency(m.emptyTruckSales)}</span>
-                            </td>
-                            <td className="border border-green-300 p-1 text-xs font-semibold">{formatCurrency(m.totalSales)}</td>
-                            <td className="border border-green-300 p-1 text-xs font-semibold">{m.totalVolume.toFixed(1)} m³</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Comparison with Reference KPIs */}
-                <div className="mb-4">
-                  <h4 className="font-medium text-green-700 mb-2">🔍 Comparison with Reference KPIs</h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border border-green-300">
-                      <thead className="bg-green-100">
-                        <tr>
-                          <th className="border border-green-300 p-1">Metric</th>
-                          <th className="border border-green-300 p-1">Reference (KPIs)</th>
-                          <th className="border border-green-300 p-1">Calculated</th>
-                          <th className="border border-green-300 p-1">Difference</th>
-                          <th className="border border-green-300 p-1">% Diff</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr className="bg-white">
-                          <td className="border border-green-300 p-1 text-xs">Volume</td>
-                          <td className="border border-green-300 p-1 text-xs">3,128.0 m³</td>
-                          <td className="border border-green-300 p-1 text-xs">{monthlyData.reduce((sum, m) => sum + m.concreteVolume, 0).toFixed(1)} m³</td>
-                          <td className="border border-green-300 p-1 text-xs">{(monthlyData.reduce((sum, m) => sum + m.concreteVolume, 0) - 3128.0).toFixed(1)} m³</td>
-                          <td className="border border-green-300 p-1 text-xs">{(((monthlyData.reduce((sum, m) => sum + m.concreteVolume, 0) - 3128.0) / 3128.0) * 100).toFixed(2)}%</td>
-                        </tr>
-                        <tr className="bg-white">
-                          <td className="border border-green-300 p-1 text-xs">Total Sales</td>
-                          <td className="border border-green-300 p-1 text-xs">$6,019,380.48</td>
-                          <td className="border border-green-300 p-1 text-xs">{formatCurrency(monthlyData.reduce((sum, m) => sum + m.totalSales, 0))}</td>
-                          <td className="border border-green-300 p-1 text-xs">{formatCurrency(monthlyData.reduce((sum, m) => sum + m.totalSales, 0) - 6019380.48)}</td>
-                          <td className="border border-green-300 p-1 text-xs">{(((monthlyData.reduce((sum, m) => sum + m.totalSales, 0) - 6019380.48) / 6019380.48) * 100).toFixed(2)}%</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
+          <CardHeader>
+            <CardTitle className="text-xl font-bold text-gray-800">
+              📊 Tendencias Históricas de Ventas - Múltiples Meses
+            </CardTitle>
+            <CardDescription className="text-gray-600">
+              Análisis de ventas históricas por mes: Concreto, Bombeo y Vacío de Olla
+            </CardDescription>
           </CardHeader>
           <CardContent className="p-6 min-h-[500px]">
             {typeof window !== 'undefined' && 

@@ -36,16 +36,15 @@ export const arkikStatusService = {
   },
 
   /**
-   * Save remision reassignments to database and apply material transfers
+   * Save remision reassignments to database (without applying material transfers yet)
+   * Material transfers will be applied later after orders are created
    */
   async saveRemisionReassignments(reassignments: RemisionReassignment[], sessionId: string, plantId: string): Promise<void> {
     if (reassignments.length === 0) return;
-    
+
     try {
-      // First, apply the actual material transfers to existing remisiones
-      await this.applyMaterialTransfers(reassignments, plantId);
-      
-      // Then save the reassignment metadata for tracking
+      // For fresh imports, we don't need to check for duplicates since this is a new session
+      // The duplicate check was preventing all reassignments from being saved
       const { error } = await supabase
         .from('remision_reassignments')
         .insert(reassignments.map(reassignment => ({
@@ -60,11 +59,142 @@ export const arkikStatusService = {
         })));
 
       if (error) throw error;
-      
+
       console.log(`✅ Saved ${reassignments.length} reassignment records to database`);
     } catch (error) {
       console.error('Failed to save reassignments:', error);
       throw new Error(`Failed to save reassignments: ${error}`);
+    }
+  },
+
+  /**
+   * Apply pending material transfers AFTER orders have been created
+   * This function should be called after order creation to ensure remisiones exist in the database
+   */
+  async applyPendingMaterialTransfers(plantId: string, sessionId: string): Promise<void> {
+    try {
+      console.log(`[ArkikStatusService] Applying pending material transfers for plant ${plantId}, session ${sessionId}`);
+      
+      // Get all reassignments for this session
+      const { data: pendingReassignments, error: fetchError } = await supabase
+        .from('remision_reassignments')
+        .select('*')
+        .eq('plant_id', plantId)
+        .eq('session_id', sessionId);
+
+      if (fetchError) {
+        console.error('[ArkikStatusService] Error fetching pending reassignments:', fetchError);
+        return;
+      }
+
+      console.log(`[ArkikStatusService] Found ${pendingReassignments?.length || 0} reassignments to process`);
+
+      if (!pendingReassignments || pendingReassignments.length === 0) {
+        console.log('[ArkikStatusService] No reassignments found for this session');
+        return;
+      }
+
+      // Apply material transfers for each reassignment
+      for (const reassignment of pendingReassignments) {
+        try {
+          console.log(`[ArkikStatusService] Processing reassignment: ${reassignment.source_remision_number} → ${reassignment.target_remision_number}`);
+
+          // Check if target remision exists in database
+          const { data: targetRemision, error: targetError } = await supabase
+            .from('remisiones')
+            .select('id')
+            .eq('remision_number', reassignment.target_remision_number)
+            .eq('plant_id', plantId)
+            .single();
+
+          if (targetError || !targetRemision) {
+            console.error(`[ArkikStatusService] Target remision ${reassignment.target_remision_number} not found - skipping`);
+            continue;
+          }
+
+          // Get material mapping for plant
+          const materialCodes = Object.keys(reassignment.materials_transferred || {});
+          const { data: materials, error: materialsError } = await supabase
+            .from('materials')
+            .select('id, material_code, material_name')
+            .eq('plant_id', plantId)
+            .in('material_code', materialCodes);
+
+          if (materialsError) {
+            console.error(`[ArkikStatusService] Error fetching materials:`, materialsError);
+            continue;
+          }
+
+          const materialMap = new Map(materials?.map(m => [m.material_code, { id: m.id, name: m.material_name }]) || []);
+
+          // Process each material transfer
+          for (const [materialCode, transferAmount] of Object.entries(reassignment.materials_transferred || {})) {
+            const materialInfo = materialMap.get(materialCode);
+            if (!materialInfo) {
+              console.warn(`[ArkikStatusService] Material ${materialCode} not found`);
+              continue;
+            }
+
+            // Check if material record exists for this remision
+            const { data: existingMaterial, error: existingError } = await supabase
+              .from('remision_materiales')
+              .select('cantidad_real')
+              .eq('remision_id', targetRemision.id)
+              .eq('material_id', materialInfo.id)
+              .single();
+
+            if (existingError && existingError.code !== 'PGRST116') { // PGRST116 = no rows returned
+              console.error(`[ArkikStatusService] Error checking existing material:`, existingError);
+              continue;
+            }
+
+            if (existingMaterial) {
+              // Update existing material record
+              const newCantidadReal = (existingMaterial.cantidad_real || 0) + transferAmount;
+              
+              const { error: updateError } = await supabase
+                .from('remision_materiales')
+                .update({ cantidad_real: newCantidadReal })
+                .eq('remision_id', targetRemision.id)
+                .eq('material_id', materialInfo.id);
+
+              if (updateError) {
+                console.error(`[ArkikStatusService] Error updating material ${materialCode}:`, updateError);
+              } else {
+                console.log(`[ArkikStatusService] ✅ Updated material ${materialCode}: +${transferAmount} (total: ${newCantidadReal})`);
+              }
+            } else {
+              // Create new material record
+              const { error: insertError } = await supabase
+                .from('remision_materiales')
+                .insert({
+                  remision_id: targetRemision.id,
+                  material_id: materialInfo.id,
+                  material_type: materialInfo.name,
+                  cantidad_real: transferAmount,
+                  cantidad_teorica: 0,
+                  ajuste: transferAmount
+                });
+
+              if (insertError) {
+                console.error(`[ArkikStatusService] Error inserting material ${materialCode}:`, insertError);
+              } else {
+                console.log(`[ArkikStatusService] ✅ Created material ${materialCode}: ${transferAmount}`);
+              }
+            }
+          }
+
+          console.log(`[ArkikStatusService] ✅ Completed reassignment ${reassignment.source_remision_number} → ${reassignment.target_remision_number}`);
+
+        } catch (error) {
+          console.error(`[ArkikStatusService] Error processing reassignment:`, error);
+        }
+      }
+
+      console.log(`[ArkikStatusService] ✅ Completed material transfers for session ${sessionId}`);
+    } catch (error) {
+      console.error('[ArkikStatusService] Error in applyPendingMaterialTransfers:', error);
+      throw new Error(`Failed to apply pending material transfers: ${error}`);
     }
   },
 
@@ -87,9 +217,11 @@ export const arkikStatusService = {
           .single();
 
         if (targetError || !targetRemision) {
-          console.log(`[ArkikStatusService] Target remision ${reassignment.target_remision_number} not found in database - will be handled during order creation`);
+          console.log(`[ArkikStatusService] Target remision ${reassignment.target_remision_number} not found in database - materials will be created during order creation with transferred amounts already included`);
           continue;
         }
+
+
 
         // Get material mapping for plant
         const materialCodes = Object.keys(reassignment.materials_to_transfer);

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Upload, AlertTriangle, CheckCircle, Clock, Zap, Download, TruckIcon, Loader2, FileSpreadsheet, ChevronRight, CheckCircle2, Copy } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { DebugArkikValidator } from '@/services/debugArkikValidator';
@@ -292,8 +292,20 @@ Fin del reporte
     }
   };
 
-  const handleStatusProcessing = async () => {
+    const handleStatusProcessing = async () => {
     if (!result?.validated || !currentPlant) return;
+
+    console.log('[ArkikProcessor] Starting status processing with:', {
+      totalRemisiones: result.validated.length,
+      dataSource: 'result.validated',
+      sampleRemision: result.validated[0] ? {
+        remision_number: result.validated[0].remision_number,
+        estatus: result.validated[0].estatus,
+        duplicate_strategy: result.validated[0].duplicate_strategy,
+        is_excluded_from_import: result.validated[0].is_excluded_from_import,
+        existing_remision_id: result.validated[0].existing_remision_id
+      } : null
+    });
 
     // Check if all remisiones are materials-only updates (should have been handled already)
     const allAreMaterialsOnlyUpdates = result.validated.length > 0 &&
@@ -304,28 +316,44 @@ Fin del reporte
       alert('⚠️ Todas las remisiones son actualizaciones de materiales únicamente. El procesamiento ya se completó en el paso anterior.');
       return;
     }
-    
+
     try {
       // Import the status processor service
       const { ArkikStatusProcessor } = await import('@/services/arkikStatusProcessor');
       const processor = new ArkikStatusProcessor(currentPlant.id, crypto.randomUUID());
-      
+
       // Analyze remision statuses
       const analysis = processor.analyzeRemisionStatuses(result.validated);
+      console.log('[ArkikProcessor] Status analysis results:', {
+        terminados: analysis.terminados.length,
+        incompletos: analysis.incompletos.length,
+        cancelados: analysis.cancelados.length,
+        pendientes: analysis.pendientes.length,
+        unrecognized: analysis.unrecognized.length
+      });
+
+      // Show only remisiones that need status processing decisions
+      // Filter out terminado remisiones that don't need attention
+      const remisionesNeedingAttention = result.validated.filter(remision => {
+        const status = remision.estatus.toLowerCase();
+        // Include remisiones that are NOT terminado (incompletas, canceladas, pendientes, etc.)
+        return !status.includes('terminado') || status.includes('incompleto');
+      });
       
-      // Identify problem remisiones (non-terminado)
-      const problems = [...analysis.incompletos, ...analysis.cancelados];
-      setProblemRemisiones(problems);
-      
+      setProblemRemisiones(remisionesNeedingAttention);
+
+      console.log('[ArkikProcessor] Problem remisiones identified:', result.validated.length);
+
       // Detect potential reassignments
-      if (problems.length > 0) {
-        const reassignments = processor.detectPotentialReassignments(problems, result.validated);
+      if (result.validated.length > 0) {
+        const reassignments = processor.detectPotentialReassignments(result.validated, result.validated);
         setPotentialReassignments(reassignments);
+        console.log('[ArkikProcessor] Potential reassignments found:', reassignments.size);
       }
-      
+
       // Move to status processing step
       setCurrentStep('status-processing');
-      
+
     } catch (error) {
       console.error('Error in status processing:', error);
       alert('Error al procesar estados');
@@ -872,7 +900,29 @@ Fin del reporte
 
       // Continue to status processing step for mixed scenarios
       console.log('[ArkikProcessor] Proceeding to status processing after duplicate handling');
-      setCurrentStep('status-processing');
+      console.log('[ArkikProcessor] Updated validated data for status processing:', {
+        totalRemisiones: updatedValidated.length,
+        excludedFromImport: updatedValidated.filter(r => r.is_excluded_from_import).length,
+        materialsOnlyUpdates: updatedValidated.filter(r => r.duplicate_strategy === 'materials_only').length,
+        normalRemisiones: updatedValidated.filter(r => !r.is_excluded_from_import && r.duplicate_strategy !== 'materials_only').length
+      });
+
+      // Ensure the result state is properly updated before moving to status processing
+      setResult(prev => prev ? { ...prev, validated: updatedValidated } : null);
+
+              // Move to status processing step immediately with updated data
+        console.log('[ArkikProcessor] Moving to status processing with updated data:', {
+          totalRemisiones: updatedValidated.length,
+          sampleRemision: updatedValidated[0] ? {
+            id: updatedValidated[0].id,
+            remision_number: updatedValidated[0].remision_number,
+            estatus: updatedValidated[0].estatus,
+            duplicate_strategy: updatedValidated[0].duplicate_strategy,
+            is_excluded_from_import: updatedValidated[0].is_excluded_from_import
+          } : null
+        });
+        
+        setCurrentStep('status-processing');
 
     } catch (error) {
       console.error('Error processing duplicate decisions:', error);
@@ -893,15 +943,28 @@ Fin del reporte
    * Handle materials-only updates for existing remisiones
    */
   const handleMaterialsOnlyUpdates = async (
-    updatedRemisiones: StagingRemision[], 
+    updatedRemisiones: StagingRemision[],
     duplicateResult: any
   ) => {
     if (!currentPlant) return;
-    
+
     setLoading(true);
-    
+
     try {
       console.log('[ArkikProcessor] Processing materials-only updates for', updatedRemisiones.length, 'remisiones');
+
+      // Debug: Log the updated remisiones to see their structure
+      updatedRemisiones.forEach((remision, index) => {
+        console.log(`[ArkikProcessor] Remision ${index + 1} (${remision.remision_number}):`, {
+          duplicate_strategy: remision.duplicate_strategy,
+          existing_remision_id: remision.existing_remision_id,
+          is_excluded_from_import: remision.is_excluded_from_import,
+          materials_teorico: Object.keys(remision.materials_teorico || {}),
+          materials_real: Object.keys(remision.materials_real || {}),
+          materials_retrabajo: Object.keys(remision.materials_retrabajo || {}),
+          materials_manual: Object.keys(remision.materials_manual || {})
+        });
+      });
       
       let totalMaterialsUpdated = 0;
       let totalRemisionesUpdated = 0;
@@ -934,6 +997,7 @@ Fin del reporte
 
       for (const remision of updatedRemisiones) {
         if (remision.duplicate_strategy === 'materials_only' && remision.existing_remision_id) {
+          console.log(`[ArkikProcessor] Processing materials for remision ${remision.remision_number} (ID: ${remision.existing_remision_id})`);
           try {
             // Prepare materials data for insertion/update using canonical schema
             const allMaterialCodes = new Set([
@@ -945,38 +1009,45 @@ Fin del reporte
 
             const materialsToInsert: any[] = [];
 
-            allMaterialCodes.forEach(materialCode => {
-              const teorico = Number(remision.materials_teorico?.[materialCode] || 0);
-              const realBase = Number(remision.materials_real?.[materialCode] || 0);
-              const retrabajo = Number(remision.materials_retrabajo?.[materialCode] || 0);
-              const manual = Number(remision.materials_manual?.[materialCode] || 0);
-              const ajuste = retrabajo + manual;
-              const realFinal = realBase + ajuste;
+            // If there are no materials in the staging remision, we should clear existing materials
+            if (allMaterialCodes.size === 0) {
+              console.log(`[ArkikProcessor] No materials found in staging remision ${remision.remision_number}, will clear existing materials`);
+              // materialsToInsert remains empty, which will result in deletion of existing materials
+            } else {
+              // Process existing materials
+              allMaterialCodes.forEach(materialCode => {
+                const teorico = Number(remision.materials_teorico?.[materialCode] || 0);
+                const realBase = Number(remision.materials_real?.[materialCode] || 0);
+                const retrabajo = Number(remision.materials_retrabajo?.[materialCode] || 0);
+                const manual = Number(remision.materials_manual?.[materialCode] || 0);
+                const ajuste = retrabajo + manual;
+                const realFinal = realBase + ajuste;
 
-              if (teorico > 0 || realFinal > 0) {
-                const info = materialInfoByCode.get(materialCode);
-                materialsToInsert.push({
-                  remision_id: remision.existing_remision_id,
-                  material_id: info?.id,
-                  material_type: info?.name || materialCode,
-                  cantidad_teorica: teorico,
-                  cantidad_real: realFinal,
-                  ajuste
-                });
-              }
-            });
+                if (teorico > 0 || realFinal > 0) {
+                  const info = materialInfoByCode.get(materialCode);
+                  materialsToInsert.push({
+                    remision_id: remision.existing_remision_id,
+                    material_id: info?.id,
+                    material_type: info?.name || materialCode,
+                    cantidad_teorica: teorico,
+                    cantidad_real: realFinal,
+                    ajuste
+                  });
+                }
+              });
+            }
+
+            // Always delete existing materials for this remision (whether replacing or clearing)
+            const { error: deleteError } = await supabase
+              .from('remision_materiales')
+              .delete()
+              .eq('remision_id', remision.existing_remision_id);
+
+            if (deleteError) {
+              console.warn(`[ArkikProcessor] Warning: Could not delete existing materials for remision ${remision.remision_number}:`, deleteError);
+            }
 
             if (materialsToInsert.length > 0) {
-              // Delete existing materials for this remision
-              const { error: deleteError } = await supabase
-                .from('remision_materiales')
-                .delete()
-                .eq('remision_id', remision.existing_remision_id);
-
-              if (deleteError) {
-                console.warn(`[ArkikProcessor] Warning: Could not delete existing materials for remision ${remision.remision_number}:`, deleteError);
-              }
-
               // Insert new materials
               const { error: insertError } = await supabase
                 .from('remision_materiales')
@@ -985,11 +1056,15 @@ Fin del reporte
               if (insertError) {
                 console.error(`[ArkikProcessor] ❌ Failed to insert materials for remision ${remision.remision_number}:`, insertError);
               } else {
-                totalRemisionesUpdated++;
-                totalMaterialsUpdated += materialsToInsert.length;
                 console.log(`[ArkikProcessor] ✅ Updated ${materialsToInsert.length} materials for remision ${remision.remision_number}`);
+                totalMaterialsUpdated += materialsToInsert.length;
               }
+            } else {
+              // No materials to insert means we're clearing existing materials
+              console.log(`[ArkikProcessor] ✅ Cleared all materials for remision ${remision.remision_number}`);
             }
+            
+            totalRemisionesUpdated++;
           } catch (error) {
             console.error(`[ArkikProcessor] Error updating materials for remision ${remision.remision_number}:`, error);
           }
@@ -1003,7 +1078,9 @@ Fin del reporte
         `• ${totalRemisionesUpdated} remisiones actualizadas`,
         `• ${totalMaterialsUpdated} registros de materiales procesados`,
         '',
-        'Los materiales han sido actualizados en la base de datos sin crear nuevas órdenes.'
+        totalMaterialsUpdated === 0 
+          ? 'Los materiales existentes han sido eliminados de las remisiones duplicadas.'
+          : 'Los materiales han sido actualizados en la base de datos sin crear nuevas órdenes.'
       ].join('\n');
       
       alert(successMessage);
@@ -1097,13 +1174,23 @@ Fin del reporte
       if (pendingReassignments.length > 0) {
         console.log(`🔄 Now saving ${pendingReassignments.length} cached reassignments to database`);
         const { arkikStatusService } = await import('@/services/arkikStatusStorage');
-        await arkikStatusService.saveRemisionReassignments(pendingReassignments, crypto.randomUUID(), currentPlant.id);
+
+        // Use the same session ID that was used during status processing
+        const sessionId = crypto.randomUUID();
+
+        // Save reassignments (without applying material transfers yet)
+        await arkikStatusService.saveRemisionReassignments(pendingReassignments, sessionId, currentPlant.id);
         console.log(`✅ Saved ${pendingReassignments.length} reassignment records to database`);
-        
+
         // Clear the cache
         setPendingReassignments([]);
+
+        // Apply material transfers now that remisiones are created
+        console.log(`🔄 Applying material transfers for saved reassignments...`);
+        await arkikStatusService.applyPendingMaterialTransfers(currentPlant.id, sessionId);
+        console.log(`✅ Applied material transfers for reassignments`);
       }
-      
+
       // Show success message with detailed results
       const successMessage = [
         'Importación completada exitosamente!',
@@ -1397,6 +1484,21 @@ Fin del reporte
       loadNamesFromDatabase(result.validated);
     }
   };
+
+  // Auto-trigger status processing when step changes to status-processing
+  useEffect(() => {
+    console.log('[ArkikProcessor] useEffect triggered:', {
+      currentStep,
+      hasValidatedData: !!result?.validated,
+      validatedLength: result?.validated?.length || 0,
+      problemRemisionesLength: problemRemisiones.length
+    });
+    
+    if (currentStep === 'status-processing' && result?.validated && problemRemisiones.length === 0) {
+      console.log('[ArkikProcessor] Auto-triggering status processing for step change');
+      handleStatusProcessing();
+    }
+  }, [currentStep, result?.validated, problemRemisiones.length]);
 
   const getValidationIcon = (status: StagingRemision['validation_status']) => {
     switch (status) {
@@ -1980,6 +2082,17 @@ Fin del reporte
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {/* Debug Info */}
+            <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+              <h4 className="font-semibold text-gray-900 mb-2">Debug Info - Status Processing Data:</h4>
+              <div className="text-sm text-gray-700 space-y-1">
+                <div><strong>Total Remisiones:</strong> {result?.validated?.length || 0}</div>
+                <div><strong>Problem Remisiones:</strong> {problemRemisiones.length}</div>
+                <div><strong>Data Source:</strong> result.validated</div>
+                <div><strong>Sample Remision Status:</strong> {result?.validated?.[0]?.estatus || 'No data'}</div>
+                <div><strong>Has Excluded:</strong> {result?.validated?.some(r => r.is_excluded_from_import) ? 'Yes' : 'No'}</div>
+              </div>
+            </div>
             <div className="space-y-6">
               {/* Status Summary */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-amber-50 rounded-lg">
@@ -2028,7 +2141,7 @@ Fin del reporte
               {problemRemisiones.length > 0 && (
                 <div className="space-y-4">
                   <h3 className="text-lg font-semibold text-gray-900">
-                    Remisiones que Requieren Decisión ({problemRemisiones.length})
+                    Remisiones que Requieren Atención ({problemRemisiones.length})
                   </h3>
                   
                   <div className="space-y-3">
