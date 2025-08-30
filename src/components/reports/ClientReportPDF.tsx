@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import type { PDFReportProps, ReportColumn } from '@/types/pdf-reports';
 import { AVAILABLE_COLUMNS } from '@/types/pdf-reports';
+import { formatDate } from '@/lib/utils';
 
 // Enhanced styles optimized for report layout with better space management
 const styles = StyleSheet.create({
@@ -504,7 +505,7 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
     switch (column.format) {
       case 'date':
         try {
-          return format(new Date(value), 'dd/MM/yyyy', { locale: es });
+          return formatDate(value, 'dd/MM/yyyy');
         } catch {
           return value?.toString() || '-';
         }

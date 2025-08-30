@@ -383,8 +383,23 @@ export default function NuevoMuestreoPage() {
         }
         const derivedClas = (remision?.recipe?.recipe_code || '').toUpperCase().includes('MR') ? 'MR' : 'FC';
         setClasificacion(derivedClas as 'FC' | 'MR');
-        const edad = remision?.recipe?.age_days || 28;
+
+        // Determine guarantee age and unit from recipe
+        let edad = 28;
+        let unit: 'days' | 'hours' = 'days';
+
+        if (remision?.recipe?.age_hours && remision.recipe.age_hours > 0) {
+          // If recipe has age_hours, use that and set unit to hours
+          edad = remision.recipe.age_hours;
+          unit = 'hours';
+        } else if (remision?.recipe?.age_days && remision.recipe.age_days > 0) {
+          // Otherwise use age_days with days unit
+          edad = remision.recipe.age_days;
+          unit = 'days';
+        }
+
         setEdadGarantia(edad);
+        setAgePlanUnit(unit);
         // No precargar muestras automáticamente en remisión existente
         setPlannedSamples([]);
         setActiveStep(2);
@@ -455,8 +470,15 @@ export default function NuevoMuestreoPage() {
           ...finalData,
           created_by: profile?.id,
           // Set sampling type based on mode and presence of manual_reference
-          sampling_type: mode === 'linked' ? 'REMISION_LINKED' : 
+          sampling_type: mode === 'linked' ? 'REMISION_LINKED' :
                         (finalData.manual_reference ? 'STANDALONE' : 'PROVISIONAL'),
+          // Include concrete specifications with guarantee age
+          concrete_specs: {
+            clasificacion: clasificacion,
+            unidad_edad: agePlanUnit === 'days' ? 'DÍA' : 'HORA',
+            valor_edad: edadGarantia,
+            fc: selectedRemision?.recipe?.strength_fc || undefined, // Include FC if available from recipe
+          },
         },
         plannedSamples
       );
