@@ -472,9 +472,42 @@ export async function fetchEnsayoById(id: string) {
   }
 }
 
+// Helper function to calculate time since load
+function calculateTimeSinceLoad(fechaRemision: string, horaCarga: string, fechaEnsayo: string, horaEnsayo: string): string | null {
+  try {
+    if (!fechaRemision || !horaCarga || !fechaEnsayo || !horaEnsayo) {
+      return null;
+    }
+
+    // Create Date objects for load time and essay time
+    const loadDateTime = new Date(`${fechaRemision}T${horaCarga}`);
+    const essayDateTime = new Date(`${fechaEnsayo}T${horaEnsayo}`);
+
+    // Calculate difference in milliseconds
+    const diffMs = essayDateTime.getTime() - loadDateTime.getTime();
+
+    if (diffMs < 0) {
+      // Essay time is before load time, which shouldn't happen
+      console.warn('Essay time is before load time');
+      return null;
+    }
+
+    // Convert to hours and minutes
+    const hours = Math.floor(diffMs / (1000 * 60 * 60));
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    // Format as PostgreSQL interval string
+    return `${hours} hours ${minutes} minutes`;
+  } catch (error) {
+    console.error('Error calculating time since load:', error);
+    return null;
+  }
+}
+
 export async function createEnsayo(data: {
   muestra_id: string;
   fecha_ensayo: Date | string;
+  hora_ensayo?: string;
   carga_kg: number;
   resistencia_calculada: number;
   porcentaje_cumplimiento: number;
@@ -485,11 +518,11 @@ export async function createEnsayo(data: {
   try {
     // Get current user session to include in request
     const { data: authData } = await supabase.auth.getSession();
-    
+
     if (!authData.session?.user?.id) {
       throw new Error('Usuario no autenticado. Debe iniciar sesión para registrar ensayos.');
     }
-    
+
     const userId = authData.session.user.id;
 
     // First, get the muestra details to validate it exists
@@ -520,19 +553,54 @@ export async function createEnsayo(data: {
       throw new Error('Muestra no encontrada');
     }
 
+    // Calculate tiempo_desde_carga if we have remision data
+    let tiempoDesdeCarga: string | null = null;
+    if (muestra.muestreos?.remision && data.hora_ensayo) {
+      const remision = muestra.muestreos.remision;
+      const fechaEnsayoStr = typeof data.fecha_ensayo === 'string'
+        ? data.fecha_ensayo
+        : data.fecha_ensayo.toISOString().split('T')[0];
+
+      tiempoDesdeCarga = calculateTimeSinceLoad(
+        remision.fecha,
+        remision.hora_carga,
+        fechaEnsayoStr,
+        data.hora_ensayo
+      );
+    }
+
+    // Create proper timestamp from user-provided date and time
+    const fechaEnsayoStr = typeof data.fecha_ensayo === 'string'
+      ? data.fecha_ensayo
+      : format(data.fecha_ensayo, 'yyyy-MM-dd');
+
+    let fechaEnsayoTs: string;
+    if (data.hora_ensayo && data.hora_ensayo.trim()) {
+      // Combine date and time if both are provided - create local date/time
+      const [year, month, day] = fechaEnsayoStr.split('-').map(Number);
+      const [hours, minutes] = data.hora_ensayo.split(':').map(Number);
+      const localDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
+      fechaEnsayoTs = localDate.toISOString();
+    } else {
+      // Use just the date if no time is provided - create local date at midnight
+      const [year, month, day] = fechaEnsayoStr.split('-').map(Number);
+      const localDate = new Date(year, month - 1, day, 0, 0, 0, 0);
+      fechaEnsayoTs = localDate.toISOString();
+    }
+
     // Call our server-side API endpoint to create ensayo (bypasses RLS)
     const response = await fetch('/api/quality/ensayos', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
+            body: JSON.stringify({
         muestra_id: data.muestra_id,
-        fecha_ensayo: typeof data.fecha_ensayo === 'string' 
-          ? data.fecha_ensayo 
-          : format(data.fecha_ensayo, 'yyyy-MM-dd'),
+        fecha_ensayo: fechaEnsayoStr,
+        hora_ensayo: data.hora_ensayo || null,
+        tiempo_desde_carga: tiempoDesdeCarga,
         // Registrar también el timestamp exacto (hora/minuto/segundo) del ensayo
-        fecha_ensayo_ts: new Date().toISOString(),
+        fecha_ensayo_ts: fechaEnsayoTs,
         event_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         carga_kg: data.carga_kg,
         resistencia_calculada: data.resistencia_calculada,

@@ -22,11 +22,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { 
-  Loader2, 
-  AlertTriangle, 
-  ArrowLeft, 
-  FileText, 
+import {
+  Loader2,
+  AlertTriangle,
+  ArrowLeft,
+  FileText,
   Building,
   Calendar,
   User,
@@ -36,7 +36,8 @@ import {
   XCircle,
   FileImage,
   Download,
-  Calculator
+  Calculator,
+  Clock
 } from 'lucide-react';
 import { fetchEnsayoById } from '@/services/qualityService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -187,9 +188,73 @@ export default function EnsayoDetailPage() {
   // Calcular la edad del ensayo
   const fechaMuestreo = createSafeDate(ensayo.muestra?.muestreo?.fecha_muestreo);
   const fechaEnsayo = createSafeDate(ensayo.fecha_ensayo);
-  const edadEnsayo = fechaMuestreo && fechaEnsayo 
-    ? differenceInDays(fechaEnsayo, fechaMuestreo) 
+  const edadEnsayo = fechaMuestreo && fechaEnsayo
+    ? differenceInDays(fechaEnsayo, fechaMuestreo)
     : null;
+
+  // Calcular la diferencia entre hora de carga y hora de ensayo
+  const calculateTimeDifference = () => {
+    const ensayoDate = ensayo.fecha_ensayo_ts
+      ? new Date(ensayo.fecha_ensayo_ts)
+      : ensayo.fecha_ensayo
+        ? createSafeDate(ensayo.fecha_ensayo)
+        : null;
+
+    const cargaTime = ensayo.muestra?.muestreo?.remision?.hora_carga;
+    const remisionDate = ensayo.muestra?.muestreo?.remision?.fecha_remision ||
+                        ensayo.muestra?.muestreo?.remision?.created_at ||
+                        ensayo.muestra?.muestreo?.fecha_muestreo;
+
+    if (!ensayoDate || !cargaTime || !remisionDate) return null;
+
+    // Parse hora_carga (assuming format like "14:30" or "14:30:00")
+    const [hours, minutes, seconds] = cargaTime.split(':').map(Number);
+
+    // Create date for carga time using the remision date as base
+    const cargaDate = new Date(remisionDate);
+    cargaDate.setHours(hours || 0, minutes || 0, seconds || 0, 0);
+
+    // Calculate difference in milliseconds
+    const diffMs = ensayoDate.getTime() - cargaDate.getTime();
+    const isNegative = diffMs < 0;
+    const absDiffMs = Math.abs(diffMs);
+
+    // Calculate days, hours, minutes
+    const diffDays = Math.floor(absDiffMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor((absDiffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const diffMinutes = Math.floor((absDiffMs % (1000 * 60 * 60)) / (1000 * 60));
+
+    // Format the difference string
+    const formatDifference = () => {
+      const parts = [];
+
+      if (diffDays > 0) {
+        parts.push(`${diffDays} día${diffDays !== 1 ? 's' : ''}`);
+      }
+
+      if (diffHours > 0) {
+        parts.push(`${diffHours} hora${diffHours !== 1 ? 's' : ''}`);
+      }
+
+      if (diffMinutes > 0 || (diffDays === 0 && diffHours === 0)) {
+        parts.push(`${diffMinutes} minuto${diffMinutes !== 1 ? 's' : ''}`);
+      }
+
+      return parts.join(' ');
+    };
+
+    return {
+      days: diffDays,
+      hours: diffHours,
+      minutes: diffMinutes,
+      isNegative,
+      totalHours: (absDiffMs / (1000 * 60 * 60)),
+      formatted: formatDifference(),
+      rawMs: diffMs
+    };
+  };
+
+  const timeDifference = calculateTimeDifference();
 
   return (
     <div className="container mx-auto p-4 md:p-6">
@@ -294,11 +359,26 @@ export default function EnsayoDetailPage() {
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-gray-400" />
                     <span>
-                      {ensayo.muestra?.muestreo?.remision?.orders && 
+                      {ensayo.muestra?.muestreo?.remision?.orders &&
                        ensayo.muestra?.muestreo?.remision?.orders.clients?.business_name || 'No disponible'}
                     </span>
                   </div>
                 </div>
+
+                {timeDifference && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-500">Tiempo desde Carga</p>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-gray-400" />
+                      <span className={`font-medium ${
+                        timeDifference.isNegative ? 'text-amber-600' : 'text-gray-900'
+                      }`}>
+                        {timeDifference.isNegative ? '-' : ''}
+                        {timeDifference.formatted}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </CardContent>
