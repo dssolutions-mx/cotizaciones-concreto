@@ -61,7 +61,8 @@ const ensayoFormSchema = z.object({
   resistencia_calculada: z.number()
     .min(0, 'La resistencia debe ser un número positivo'),
   porcentaje_cumplimiento: z.number()
-    .min(0, 'El porcentaje debe ser un número positivo'),
+    .min(0, 'El porcentaje debe ser un número positivo')
+    .max(9999.99, 'El porcentaje no puede exceder 9999.99%'),
   tiene_evidencias: z.boolean(),
   observaciones: z.string().optional(),
 });
@@ -121,8 +122,18 @@ function NuevoEnsayoContent() {
       // Set fecha_ensayo to fecha_programada_ensayo if available
       if (data?.fecha_programada_ensayo) {
         try {
-          const programmedDate = new Date(data.fecha_programada_ensayo);
-          if (!isNaN(programmedDate.getTime())) {
+          // Parse the date string and create a local date to avoid timezone issues
+          const dateStr = data.fecha_programada_ensayo;
+          if (dateStr.includes('T')) {
+            // If it's an ISO string with time, extract just the date part
+            const [datePart] = dateStr.split('T');
+            const [year, month, day] = datePart.split('-').map(Number);
+            const programmedDate = new Date(year, month - 1, day);
+            form.setValue('fecha_ensayo', programmedDate);
+          } else {
+            // If it's just a date string, parse it directly
+            const [year, month, day] = dateStr.split('-').map(Number);
+            const programmedDate = new Date(year, month - 1, day);
             form.setValue('fecha_ensayo', programmedDate);
           }
         } catch (error) {
@@ -666,7 +677,7 @@ function NuevoEnsayoContent() {
                                   type="date"
                                   {...field}
                                   value={field.value instanceof Date && !isNaN(field.value.getTime())
-                                    ? field.value.toLocaleDateString('en-CA', { timeZone: 'UTC' })
+                                    ? field.value.toISOString().split('T')[0]
                                     : ''}
                                   onChange={(e) => {
                                     try {
