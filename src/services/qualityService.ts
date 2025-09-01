@@ -266,6 +266,7 @@ export async function createMuestreoWithSamples(
       ...muestreoData,
       plant_id: plantId,
       fecha_muestreo: formatDate(baseSamplingTimestamp, 'yyyy-MM-dd'),
+      hora_muestreo: formatDate(baseSamplingTimestamp, 'HH:mm:ss'),
       fecha_muestreo_ts: baseSamplingTimestamp.toISOString(),
       event_timezone: userTimezone
     } as any;

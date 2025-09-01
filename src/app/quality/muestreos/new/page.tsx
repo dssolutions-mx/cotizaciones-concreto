@@ -134,7 +134,10 @@ export default function NuevoMuestreoPage() {
       manual_reference: '',
     },
   });
-  const lastBaseDateRef = useRef<Date | null>(form.getValues('fecha_muestreo') || new Date());
+  const lastBaseDateRef = useRef<Date | null>((() => {
+    const val = form.getValues('fecha_muestreo');
+    return (val instanceof Date && !isNaN(val.getTime())) ? val : new Date();
+  })());
   // Watch helper fields for MU calculation with stable subscription
   const pesoVacio = form.watch('peso_recipiente_vacio');
   const pesoLleno = form.watch('peso_recipiente_lleno');
@@ -162,13 +165,16 @@ export default function NuevoMuestreoPage() {
   // When planning by hours: ensure there is at least one sample matching the selected warranty age in hours
   useEffect(() => {
     if (agePlanUnit !== 'hours') return;
-    const base = form.getValues('fecha_muestreo') as Date;
+    const base = (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})();
     const ageHours = Number(edadGarantia);
     if (!base || !isFinite(ageHours)) return;
     setPlannedSamples((previous) => {
       const indexOfHourSample = previous.findIndex((s) => typeof s.age_hours === 'number' && isFinite(s.age_hours));
       const computeTestDate = (): Date => {
-        const d = new Date(base);
+        const d = new Date(base || new Date());
         d.setHours(d.getHours() + ageHours);
         return d;
       };
@@ -650,7 +656,10 @@ export default function NuevoMuestreoPage() {
                         <LinkedMuestreoHeader
                           form={form as any}
                           onDateChange={(date?: Date) => {
-                            const previousBase = form.getValues('fecha_muestreo') as Date;
+                            const previousBase = (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})();
                             form.setValue('fecha_muestreo', date as any);
                             if (date) {
                               setPlannedSamples((prev) => prev.map((s) => {
@@ -667,7 +676,10 @@ export default function NuevoMuestreoPage() {
                             }
                           }}
                           onTimeChange={(hhmm: string) => {
-                            const base = form.getValues('fecha_muestreo') as Date;
+                            const base = (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})();
                             const [h,m] = hhmm.split(':').map(n => parseInt(n,10));
                             if (base && !isNaN(h) && !isNaN(m)) {
                               const newBase = new Date(base);
@@ -890,51 +902,60 @@ export default function NuevoMuestreoPage() {
                             )}
                           />
 
-                          <FormItem className="md:col-span-4">
-                            <FormLabel>Hora de Muestreo</FormLabel>
-                            <Input
-                              type="time"
-                              value={(function(){
-                                const ts = (form.getValues('fecha_muestreo') as Date) || new Date();
-                                const hh = String(ts.getHours()).padStart(2, '0');
-                                const mm = String(ts.getMinutes()).padStart(2, '0');
-                                return `${hh}:${mm}`;
-                              })()}
-                              onChange={(e) => {
-                                const base = form.getValues('fecha_muestreo') as Date;
-                                const [h,m] = e.target.value.split(':').map(n => parseInt(n,10));
-                                if (base && !isNaN(h) && !isNaN(m)) {
-                                  const newBase = new Date(base);
-                                  newBase.setHours(h, m, 0, 0);
-                                  form.setValue('fecha_muestreo', newBase);
-                                  
-                                  // Update planned samples with the new time, preserving age calculations
-                                  setPlannedSamples(prev => prev.map(s => {
-                                    if (typeof s.age_hours === 'number' && isFinite(s.age_hours)) {
-                                      // For hour-based samples, add hours to the new base time
-                                      const d = new Date(newBase);
-                                      d.setHours(d.getHours() + s.age_hours);
-                                      return { ...s, fecha_programada_ensayo: d };
-                                    } else if (typeof s.age_days === 'number' && isFinite(s.age_days)) {
-                                      // For day-based samples, add days to the new base time
-                                      const d = new Date(newBase);
-                                      d.setDate(d.getDate() + s.age_days);
-                                      return { ...s, fecha_programada_ensayo: d };
-                                    }
-                                    // If no age specified, keep the existing date but update the time
-                                    const existingDate = s.fecha_programada_ensayo;
-                                    if (existingDate instanceof Date) {
-                                      const updatedDate = new Date(existingDate);
-                                      updatedDate.setHours(h, m, 0, 0);
-                                      return { ...s, fecha_programada_ensayo: updatedDate };
-                                    }
-                                    return s;
-                                  }));
-                                }
-                              }}
-                            />
-                            <FormDescription>Define la hora exacta del muestreo para planear ensayos por horas y alertas.</FormDescription>
-                          </FormItem>
+                          <FormField
+                            control={form.control}
+                            name="fecha_muestreo"
+                            render={({ field }) => (
+                              <FormItem className="md:col-span-4">
+                                <FormLabel>Hora de Muestreo</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    type="time"
+                                    value={(function(){
+                                      const ts = field.value instanceof Date && !isNaN(field.value.getTime()) ? field.value : new Date();
+                                      const hh = String(ts.getHours()).padStart(2, '0');
+                                      const mm = String(ts.getMinutes()).padStart(2, '0');
+                                      return `${hh}:${mm}`;
+                                    })()}
+                                    onChange={(e) => {
+                                      const base = field.value instanceof Date && !isNaN(field.value.getTime()) ? field.value : new Date();
+                                      const [h,m] = e.target.value.split(':').map(n => parseInt(n,10));
+                                      if (base && !isNaN(h) && !isNaN(m)) {
+                                        const newBase = new Date(base);
+                                        newBase.setHours(h, m, 0, 0);
+                                        field.onChange(newBase);
+
+                                        // Update planned samples with the new time, preserving age calculations
+                                        setPlannedSamples(prev => prev.map(s => {
+                                          if (typeof s.age_hours === 'number' && isFinite(s.age_hours)) {
+                                            // For hour-based samples, add hours to the new base time
+                                            const d = new Date(newBase);
+                                            d.setHours(d.getHours() + s.age_hours);
+                                            return { ...s, fecha_programada_ensayo: d };
+                                          } else if (typeof s.age_days === 'number' && isFinite(s.age_days)) {
+                                            // For day-based samples, add days to the new base time
+                                            const d = new Date(newBase);
+                                            d.setDate(d.getDate() + s.age_days);
+                                            return { ...s, fecha_programada_ensayo: d };
+                                          }
+                                          // If no age specified, keep the existing date but update the time
+                                          const existingDate = s.fecha_programada_ensayo;
+                                          if (existingDate instanceof Date) {
+                                            const updatedDate = new Date(existingDate);
+                                            updatedDate.setHours(h, m, 0, 0);
+                                            return { ...s, fecha_programada_ensayo: updatedDate };
+                                          }
+                                          return s;
+                                        }));
+                                      }
+                                    }}
+                                  />
+                                </FormControl>
+                                <FormDescription>Define la hora exacta del muestreo para planear ensayos por horas y alertas.</FormDescription>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
 
                           <FormField
                             control={form.control}
@@ -1043,7 +1064,10 @@ export default function NuevoMuestreoPage() {
                             <h3 className="text-sm font-semibold">Plan de Muestras</h3>
                             <div className="grid grid-cols-2 sm:flex sm:flex-row gap-2 w-full sm:w-auto">
                               <Button type="button" variant="outline" size="sm" onClick={() => {
-                                const base = form.getValues('fecha_muestreo') as Date;
+                                const base = (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})();
                                 const baseStr = base ? formatDate(base, 'yyyy-MM-dd') : formatDate(new Date(), 'yyyy-MM-dd');
                                 const days = ((): number[] => {
                                   if (clasificacion === 'FC') {
@@ -1076,7 +1100,10 @@ export default function NuevoMuestreoPage() {
                                 <Plus className="h-4 w-4 mr-1" /> Agregar conjunto sugerido
                               </Button>
                               <Button type="button" size="sm" onClick={() => {
-                                const base = form.getValues('fecha_muestreo') as Date;
+                                const base = (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})();
                                 const date = base ? new Date(base) : new Date();
                                 date.setDate(date.getDate() + 1);
                                 setPlannedSamples((prev) => [...prev, { id: uuidv4(), tipo_muestra: 'CILINDRO', fecha_programada_ensayo: date, diameter_cm: 15, age_days: 1 }]);
@@ -1150,12 +1177,18 @@ export default function NuevoMuestreoPage() {
                                       type="number"
                                       min={0}
                                       value={(function() {
-                                        const base = form.getValues('fecha_muestreo') as Date;
+                                        const base = (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})();
                                         const age = typeof s.age_days === 'number' && isFinite(s.age_days) ? s.age_days : (base ? computeAgeDays(base, s.fecha_programada_ensayo) : 0);
                                         return String(age);
                                       })()}
                                       onChange={(e) => {
-                                        const base = form.getValues('fecha_muestreo') as Date;
+                                        const base = (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})();
                                         const val = parseInt(e.target.value || '0', 10);
                                         const ageDays = isNaN(val) ? 0 : val;
                                         setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
@@ -1174,14 +1207,17 @@ export default function NuevoMuestreoPage() {
                                       min={0}
                                       value={typeof s.age_hours === 'number' && isFinite(s.age_hours) ? String(s.age_hours) : ''}
                                       onChange={(e) => {
-                                        const base = form.getValues('fecha_muestreo') as Date;
+                                        const base = (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})();
                                         const val = parseInt(e.target.value || '0', 10);
                                         const ageHours = isNaN(val) ? 0 : val;
                                         setPlannedSamples(prev => prev.map(p => p.id === s.id ? {
                                           ...p,
                                           age_hours: ageHours,
                                           age_days: undefined,
-                                          fecha_programada_ensayo: (() => { const d = new Date(base); d.setHours(d.getHours() + ageHours); return d; })(),
+                                          fecha_programada_ensayo: (() => { const d = new Date(base || new Date()); d.setHours(d.getHours() + ageHours); return d; })(),
                                         } : p));
                                       }}
                                     />
@@ -1192,9 +1228,12 @@ export default function NuevoMuestreoPage() {
                                       const val = e.target.value;
                                       const [y, m, d] = val.split('-').map((n) => parseInt(n, 10));
                                       const newDate = new Date(y, (m || 1) - 1, d || 1, 12, 0, 0);
-                                      const base = form.getValues('fecha_muestreo') as Date;
-                                      setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? { 
-                                        ...p, 
+                                      const base = (() => {
+                                        const val = form.getValues('fecha_muestreo');
+                                        return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+                                      })();
+                                      setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
+                                        ...p,
                                         fecha_programada_ensayo: newDate,
                                         age_days: base ? computeAgeDays(base, newDate) : p.age_days,
                                       } : p)));
@@ -1231,8 +1270,17 @@ export default function NuevoMuestreoPage() {
                                 </div>
                               ))}
                               <div className="text-xs text-gray-500">
-                                Se crearán {plannedSamples.length} muestras{formatAgeSummary(plannedSamples, form.getValues('fecha_muestreo') as Date ? form.getValues('fecha_muestreo') as Date : undefined) ? 
-                                  ` · Distribución de edades: ${formatAgeSummary(plannedSamples, form.getValues('fecha_muestreo') as Date)}` : ''}
+                                Se crearán {plannedSamples.length} muestras{formatAgeSummary(plannedSamples, (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})() ? (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})() : undefined) ? 
+                                  ` · Distribución de edades: ${formatAgeSummary(plannedSamples, (() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})())}` : ''}
                               </div>
                             </div>
                           )}
@@ -1314,7 +1362,10 @@ export default function NuevoMuestreoPage() {
                                   <h4 className="font-medium mb-2">Resumen del muestreo:</h4>
                                   <ul className="space-y-1 text-gray-600">
                                     <li>• Planta: {form.getValues('planta')}</li>
-                                    <li>• Fecha: {form.getValues('fecha_muestreo') ? format(form.getValues('fecha_muestreo') as Date, 'PPP', { locale: es }) : 'No definida'}</li>
+                                    <li>• Fecha: {form.getValues('fecha_muestreo') ? format((() => {
+  const val = form.getValues('fecha_muestreo');
+  return val instanceof Date && !isNaN(val.getTime()) ? val : new Date();
+})(), 'PPP', { locale: es }) : 'No definida'}</li>
                                     <li>• Número de muestreo: {form.getValues('numero_muestreo')}</li>
                                     <li>• Muestras a crear: {plannedSamples.length}</li>
                                     {form.getValues('manual_reference') && (

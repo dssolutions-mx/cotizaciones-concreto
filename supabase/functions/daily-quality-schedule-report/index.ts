@@ -47,7 +47,7 @@ async function getQualityTeamByPlant(supabaseClient: any, plantId: string): Prom
     .from('user_profiles')
     .select('email')
     .eq('plant_id', plantId)
-    .in('role', ['QUALITY_TEAM', 'DOSIFICADOR']) // REMOVED: PLANT_MANAGER, only quality-specific roles
+    .in('role', ['QUALITY_TEAM']) // REMOVED: PLANT_MANAGER, only quality-specific roles
     .eq('is_active', true);
 
   if (error) {
@@ -139,7 +139,9 @@ serve(async (req) => {
         muestreo:muestreo_id (
           id,
           fecha_muestreo,
+          hora_muestreo,
           planta,
+          manual_reference,
           remision:remision_id (
             id,
             remision_number,
@@ -239,17 +241,43 @@ serve(async (req) => {
           hour: '2-digit',
           minute: '2-digit'
         });
-        
+
+        // Determine if we have a valid remision or should use manual_reference
+        const hasRemision = sample.muestreo?.remision && sample.muestreo.remision.id !== null;
+        const displayClient = hasRemision
+          ? sample.muestreo.remision.orders?.clients?.business_name || 'N/D'
+          : 'Manual';
+        const displayFormula = hasRemision
+          ? sample.muestreo.remision.recipe?.recipe_code || 'N/D'
+          : 'Manual';
+        const displayStrength = hasRemision
+          ? sample.muestreo.remision.recipe?.strength_fc || 'N/D'
+          : 'N/D';
+        const displayAge = hasRemision
+          ? sample.muestreo.remision.recipe?.age_days || 'N/D'
+          : 'N/D';
+        const displayReference = hasRemision
+          ? sample.muestreo.remision.remision_number || 'N/D'
+          : sample.muestreo?.manual_reference || 'N/D';
+
+        // Format sampling date and time
+        const displaySamplingDateTime = sample.muestreo?.fecha_muestreo && sample.muestreo?.hora_muestreo
+          ? `${new Date(sample.muestreo.fecha_muestreo).toLocaleDateString('es-MX')} ${sample.muestreo.hora_muestreo}`
+          : sample.muestreo?.fecha_muestreo
+            ? `${new Date(sample.muestreo.fecha_muestreo).toLocaleDateString('es-MX')} (hora no especificada)`
+            : 'Fecha de muestreo no disponible';
+
         return `
           <tr>
             <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 500;">${sample.identificacion}</td>
             <td style="padding: 12px; border-bottom: 1px solid #E2E8F0;">${sample.tipo_muestra}</td>
             <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; font-weight: 500; color: #0369A1;">${timeLocal}</td>
-            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0;">${sample.muestreo?.remision?.orders?.clients?.business_name || 'N/D'}</td>
-            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0;">${sample.muestreo?.remision?.recipe?.recipe_code || 'N/D'}</td>
-            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: center;">${sample.muestreo?.remision?.recipe?.strength_fc || 'N/D'}</td>
-            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: center;">${sample.muestreo?.remision?.recipe?.age_days || 'N/D'}</td>
-            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0;">${sample.muestreo?.remision?.remision_number || 'N/D'}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0;">${displaySamplingDateTime}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0;">${displayClient}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0;">${displayFormula}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: center;">${displayStrength}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0; text-align: center;">${displayAge}</td>
+            <td style="padding: 12px; border-bottom: 1px solid #E2E8F0;">${displayReference}</td>
           </tr>
         `;
       }).join('');
@@ -273,11 +301,12 @@ serve(async (req) => {
                   <th style="text-align: left; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">Identificación</th>
                   <th style="text-align: left; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">Tipo</th>
                   <th style="text-align: left; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">Hora</th>
+                  <th style="text-align: left; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">Fecha/Hora Muestreo</th>
                   <th style="text-align: left; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">Cliente</th>
                   <th style="text-align: left; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">Fórmula</th>
                   <th style="text-align: center; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">f'c (kg/cm²)</th>
                   <th style="text-align: center; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">Edad (días)</th>
-                  <th style="text-align: left; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">Remisión</th>
+                  <th style="text-align: left; padding: 12px; color: #64748B; font-weight: 500; border-bottom: 2px solid #E2E8F0;">Referencia</th>
                 </tr>
               </thead>
               <tbody>

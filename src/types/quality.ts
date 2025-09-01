@@ -5,6 +5,7 @@ export interface Muestreo {
   id: string;
   remision_id: string;
   fecha_muestreo: string;
+  hora_muestreo?: string; // HH:MM:SS format
   numero_muestreo: number;
   planta: 'P001' | 'P002' | 'P003' | 'P004' | 'P005';
   plant_id?: string; // prefer server-side filtering by plant_id
