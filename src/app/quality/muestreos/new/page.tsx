@@ -453,15 +453,51 @@ export default function NuevoMuestreoPage() {
       setIsSubmitting(true);
       setSubmitError(null);
       
-      // Ensure we're using the remision date if available
+      // DEBUG: Log the original form data
+      console.log('🔍 onSubmit - Original form data:', {
+        fecha_muestreo: data.fecha_muestreo,
+        fecha_muestreo_type: typeof data.fecha_muestreo,
+        fecha_muestreo_hours: data.fecha_muestreo instanceof Date ? data.fecha_muestreo.getHours() : 'N/A',
+        fecha_muestreo_minutes: data.fecha_muestreo instanceof Date ? data.fecha_muestreo.getMinutes() : 'N/A',
+        plannedSamples: plannedSamples.map(s => ({
+          age_hours: s.age_hours,
+          age_days: s.age_days,
+          fecha_programada_ensayo: s.fecha_programada_ensayo,
+          fecha_programada_ensayo_hours: s.fecha_programada_ensayo instanceof Date ? s.fecha_programada_ensayo.getHours() : 'N/A',
+          fecha_programada_ensayo_minutes: s.fecha_programada_ensayo instanceof Date ? s.fecha_programada_ensayo.getMinutes() : 'N/A'
+        }))
+      });
+      
+      // Ensure we're using the remision date if available, but preserve user's time selection
       let finalData = { ...data };
       if (selectedRemision?.fecha) {
-        // Try to ensure date format consistency by creating a new Date from the fecha string
-        // Use explicit year/month/day creation to avoid timezone issues
-        const [year, month, day] = selectedRemision.fecha.split('-').map((num: string) => parseInt(num, 10));
-        // Create date with local timezone (month is 0-indexed in JS Date)
-        const remisionDate = new Date(year, month - 1, day, 12, 0, 0);
-        finalData.fecha_muestreo = remisionDate;
+        // Get the user's selected time from the form
+        const userSelectedTime = data.fecha_muestreo;
+        let finalDateTime: Date;
+        
+        if (userSelectedTime instanceof Date) {
+          // User selected a specific time, preserve it but use remision date
+          const [year, month, day] = selectedRemision.fecha.split('-').map((num: string) => parseInt(num, 10));
+          finalDateTime = new Date(year, month - 1, day, 
+            userSelectedTime.getHours(), 
+            userSelectedTime.getMinutes(), 
+            userSelectedTime.getSeconds(), 
+            userSelectedTime.getMilliseconds()
+          );
+        } else {
+          // No time selected, default to 12:00 PM to avoid timezone edge cases
+          const [year, month, day] = selectedRemision.fecha.split('-').map((num: string) => parseInt(num, 10));
+          finalDateTime = new Date(year, month - 1, day, 12, 0, 0);
+        }
+        
+        finalData.fecha_muestreo = finalDateTime;
+        
+        // DEBUG: Log the final data after remision processing
+        console.log('🔍 onSubmit - After remision processing:', {
+          final_fecha_muestreo: finalData.fecha_muestreo,
+          final_fecha_muestreo_hours: finalData.fecha_muestreo instanceof Date ? finalData.fecha_muestreo.getHours() : 'N/A',
+          final_fecha_muestreo_minutes: finalData.fecha_muestreo instanceof Date ? finalData.fecha_muestreo.getMinutes() : 'N/A'
+        });
       }
       
       // Create muestreo and associated samples
@@ -637,14 +673,28 @@ export default function NuevoMuestreoPage() {
                               const newBase = new Date(base);
                               newBase.setHours(h, m, 0, 0);
                               form.setValue('fecha_muestreo', newBase);
+                              
+                              // Update planned samples with the new time, preserving age calculations
                               setPlannedSamples(prev => prev.map(s => {
                                 if (typeof s.age_hours === 'number' && isFinite(s.age_hours)) {
+                                  // For hour-based samples, add hours to the new base time
                                   const d = new Date(newBase);
                                   d.setHours(d.getHours() + s.age_hours);
                                   return { ...s, fecha_programada_ensayo: d };
+                                } else if (typeof s.age_days === 'number' && isFinite(s.age_days)) {
+                                  // For day-based samples, add days to the new base time
+                                  const d = new Date(newBase);
+                                  d.setDate(d.getDate() + s.age_days);
+                                  return { ...s, fecha_programada_ensayo: d };
                                 }
-                                const days = typeof s.age_days === 'number' ? s.age_days : computeAgeDays(base, s.fecha_programada_ensayo);
-                                return { ...s, fecha_programada_ensayo: addDaysSafe(newBase, days), age_days: days };
+                                // If no age specified, keep the existing date but update the time
+                                const existingDate = s.fecha_programada_ensayo;
+                                if (existingDate instanceof Date) {
+                                  const updatedDate = new Date(existingDate);
+                                  updatedDate.setHours(h, m, 0, 0);
+                                  return { ...s, fecha_programada_ensayo: updatedDate };
+                                }
+                                return s;
                               }));
                             }
                           }}
@@ -857,14 +907,28 @@ export default function NuevoMuestreoPage() {
                                   const newBase = new Date(base);
                                   newBase.setHours(h, m, 0, 0);
                                   form.setValue('fecha_muestreo', newBase);
+                                  
+                                  // Update planned samples with the new time, preserving age calculations
                                   setPlannedSamples(prev => prev.map(s => {
                                     if (typeof s.age_hours === 'number' && isFinite(s.age_hours)) {
+                                      // For hour-based samples, add hours to the new base time
                                       const d = new Date(newBase);
                                       d.setHours(d.getHours() + s.age_hours);
                                       return { ...s, fecha_programada_ensayo: d };
+                                    } else if (typeof s.age_days === 'number' && isFinite(s.age_days)) {
+                                      // For day-based samples, add days to the new base time
+                                      const d = new Date(newBase);
+                                      d.setDate(d.getDate() + s.age_days);
+                                      return { ...s, fecha_programada_ensayo: d };
                                     }
-                                    const days = typeof s.age_days === 'number' ? s.age_days : computeAgeDays(base, s.fecha_programada_ensayo);
-                                    return { ...s, fecha_programada_ensayo: addDaysSafe(newBase, days), age_days: days };
+                                    // If no age specified, keep the existing date but update the time
+                                    const existingDate = s.fecha_programada_ensayo;
+                                    if (existingDate instanceof Date) {
+                                      const updatedDate = new Date(existingDate);
+                                      updatedDate.setHours(h, m, 0, 0);
+                                      return { ...s, fecha_programada_ensayo: updatedDate };
+                                    }
+                                    return s;
                                   }));
                                 }
                               }}

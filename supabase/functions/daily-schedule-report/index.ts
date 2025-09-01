@@ -93,9 +93,9 @@ serve(async (req)=>{
     console.log(`Fetching orders for date: ${targetDateString}`);
     // Create a Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-    // Get ALL orders for target date with creator information (excluding cancelled orders)
+    // Get Plant 1 orders for target date with creator information (excluding cancelled orders)
     const { data: orders, error: ordersError } = await supabase.from('orders').select(`
-        id, 
+        id,
         order_number,
         requires_invoice,
         delivery_time,
@@ -118,7 +118,10 @@ serve(async (req)=>{
           empty_truck_volume,
           empty_truck_price
         )
-      `).eq('delivery_date', targetDateString).neq('order_status', 'cancelled'); // Exclude cancelled orders
+      `)
+      .eq('delivery_date', targetDateString)
+      .neq('order_status', 'cancelled') // Exclude cancelled orders
+      .eq('plant_id', '4cc02bc8-990a-4bde-96f2-7a1f5af4d4ad'); // Filter by Plant 1
     if (ordersError) {
       console.error('Error fetching orders:', ordersError);
       return new Response(JSON.stringify({
@@ -127,7 +130,7 @@ serve(async (req)=>{
         status: 400
       });
     }
-    console.log(`Found ${orders.length} orders for ${targetDateString} (excluding cancelled orders)`);
+    console.log(`Found ${orders.length} Plant 1 orders for ${targetDateString} (excluding cancelled orders)`);
     // Calculate totals for summary
     let totalConcreteVolume = 0;
     let totalPumpingVolume = 0;
@@ -357,7 +360,7 @@ serve(async (req)=>{
     // Create summary table HTML
     const summaryTableHtml = `
       <div style="margin: 40px 0; padding: 25px; border-radius: 8px; background-color: #F0F9FF; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
-        <h2 style="color: #0C4A6E; font-size: 20px; margin: 0 0 20px 0; text-align: center;">Resumen de Pedidos para ${formattedDate}</h2>
+        <h2 style="color: #0C4A6E; font-size: 20px; margin: 0 0 20px 0; text-align: center;">Resumen de Pedidos para ${formattedDate} - Planta 1</h2>
         <table style="width: 100%; border-collapse: collapse; font-size: 16px;">
           <thead>
             <tr>
@@ -385,12 +388,13 @@ serve(async (req)=>{
         </div>
       </div>
     `;
-    // Get email recipients (PLANT_MANAGER, EXECUTIVE, and creators)
-    const { data: managerRecipients, error: recipientsError } = await supabase.from('user_profiles').select('email, first_name, last_name, role').in('role', [
-      'EXECUTIVE',
-      'PLANT_MANAGER',
-      'DOSIFICADOR'
-    ]);
+    // Get email recipients for Plant 1 (PLANT_MANAGER, EXECUTIVE, and creators)
+    // Only include users that belong to Plant 1 or users with no plant/business unit assigned
+    const { data: managerRecipients, error: recipientsError } = await supabase
+      .from('user_profiles')
+      .select('email, first_name, last_name, role, plant_id, business_unit_id')
+      .in('role', ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'SALES_AGENT'])
+      .or(`plant_id.eq.4cc02bc8-990a-4bde-96f2-7a1f5af4d4ad,and(plant_id.is.null,business_unit_id.is.null)`); // Plant 1 users or users with no plant/business unit
     if (recipientsError) {
       console.error('Error fetching manager recipients:', recipientsError);
       return new Response(JSON.stringify({
@@ -433,7 +437,7 @@ serve(async (req)=>{
         <div style="max-width: 800px; margin: 0 auto; background-color: #FFFFFF; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
           <!-- Header -->
           <div style="background-color: #0C4A6E; padding: 30px; text-align: center; border-bottom: 5px solid #0369A1;">
-            <h1 style="color: #FFFFFF; margin: 0; font-size: 28px; font-weight: 600;">Programación de Entregas</h1>
+            <h1 style="color: #FFFFFF; margin: 0; font-size: 28px; font-weight: 600;">Programación de Entregas - Planta 1</h1>
             <p style="color: #BAE6FD; margin: 10px 0 0 0; font-size: 18px;">${formattedDate}</p>
           </div>
           
@@ -521,13 +525,13 @@ serve(async (req)=>{
               email
             }
           ],
-          subject: `Programación de Entregas - ${formattedDate}`
+          subject: `Programación de Entregas - Planta 1 - ${formattedDate}`
         })),
       from: {
         email: FROM_EMAIL,
         name: FROM_NAME
       },
-      subject: `Programación de Entregas - ${formattedDate}`,
+      subject: `Programación de Entregas - Planta 1 - ${formattedDate}`,
       content: [
         {
           type: "text/html",
@@ -570,7 +574,7 @@ serve(async (req)=>{
     }
     return new Response(JSON.stringify({
       success: true,
-      message: `Email sent to ${allEmails.length} recipients for ${orders.length} orders on ${targetDateString}`,
+      message: `Email sent to ${allEmails.length} recipients for ${orders.length} Plant 1 orders on ${targetDateString}`,
       date: targetDateString,
       totalOrders: orders.length,
       totalRecipients: allEmails.length

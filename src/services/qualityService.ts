@@ -224,18 +224,50 @@ export async function createMuestreoWithSamples(
       }
     }
 
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const baseDateVal = typeof muestreoData.fecha_muestreo === 'string'
-      ? new Date(`${muestreoData.fecha_muestreo}T00:00:00`)
-      : muestreoData.fecha_muestreo;
+    // Get user's timezone - this should be the timezone where the operation is happening
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    
+    // DEBUG: Log the incoming data
+    console.log('🔍 createMuestreoWithSamples - Incoming data:', {
+      fecha_muestreo: muestreoData.fecha_muestreo,
+      fecha_muestreo_type: typeof muestreoData.fecha_muestreo,
+      fecha_muestreo_hours: muestreoData.fecha_muestreo instanceof Date ? muestreoData.fecha_muestreo.getHours() : 'N/A',
+      fecha_muestreo_minutes: muestreoData.fecha_muestreo instanceof Date ? muestreoData.fecha_muestreo.getMinutes() : 'N/A',
+      userTimezone
+    });
+    
+    // Create the base sampling timestamp preserving the exact time the user selected
+    let baseSamplingTimestamp: Date;
+    if (typeof muestreoData.fecha_muestreo === 'string') {
+      // If it's a string, parse it and assume local time
+      baseSamplingTimestamp = new Date(muestreoData.fecha_muestreo);
+    } else {
+      // If it's a Date object, use it directly
+      baseSamplingTimestamp = new Date(muestreoData.fecha_muestreo);
+    }
+
+    // Ensure we preserve the time components (hours, minutes, seconds)
+    // If no specific time was set, default to 12:00 PM local time to avoid timezone edge cases
+    if (baseSamplingTimestamp.getHours() === 0 && 
+        baseSamplingTimestamp.getMinutes() === 0 && 
+        baseSamplingTimestamp.getSeconds() === 0) {
+      baseSamplingTimestamp.setHours(12, 0, 0, 0);
+    }
+    
+    // DEBUG: Log the processed timestamp
+    console.log('🔍 createMuestreoWithSamples - Processed timestamp:', {
+      baseSamplingTimestamp: baseSamplingTimestamp.toISOString(),
+      baseSamplingTimestamp_hours: baseSamplingTimestamp.getHours(),
+      baseSamplingTimestamp_minutes: baseSamplingTimestamp.getMinutes(),
+      baseSamplingTimestamp_utc: baseSamplingTimestamp.toISOString()
+    });
+
     const muestreoToCreate = {
       ...muestreoData,
-      plant_id: plantId, // Add the mapped plant_id
-      fecha_muestreo: typeof muestreoData.fecha_muestreo === 'string' 
-        ? muestreoData.fecha_muestreo 
-        : formatDate(muestreoData.fecha_muestreo, 'yyyy-MM-dd'),
-      fecha_muestreo_ts: baseDateVal ? new Date(baseDateVal).toISOString() : new Date().toISOString(),
-      event_timezone: tz
+      plant_id: plantId,
+      fecha_muestreo: formatDate(baseSamplingTimestamp, 'yyyy-MM-dd'),
+      fecha_muestreo_ts: baseSamplingTimestamp.toISOString(),
+      event_timezone: userTimezone
     } as any;
 
     const { data: muestreo, error } = await supabase
@@ -248,41 +280,53 @@ export async function createMuestreoWithSamples(
     if (plannedSamples && plannedSamples.length > 0) {
       let counter = 1;
       const samplesToInsert = plannedSamples.map((s) => {
-        const baseDateStr = typeof muestreoToCreate.fecha_muestreo === 'string'
-          ? muestreoToCreate.fecha_muestreo
-          : formatDate(muestreoToCreate.fecha_muestreo, 'yyyy-MM-dd');
+        const baseDateStr = formatDate(baseSamplingTimestamp, 'yyyy-MM-dd');
 
-        // Use the precise sampling timestamp (including hour/minute) as the base for age calculations
-        const baseTs = muestreoToCreate.fecha_muestreo_ts
-          ? new Date(muestreoToCreate.fecha_muestreo_ts)
-          : createSafeDate(baseDateStr)!;
+        // Use the precise sampling timestamp as the base for age calculations
+        // This preserves the exact time of day when calculating test dates
+        const baseTs = new Date(baseSamplingTimestamp);
 
         const idClas = s.tipo_muestra === 'VIGA' ? 'MR' : 'FC';
         const diameterSuffix = s.tipo_muestra === 'CILINDRO' && s.diameter_cm ? `-D${s.diameter_cm}` : '';
         const cubeSuffix = s.tipo_muestra === 'CUBO' && s.cube_side_cm ? `-S${s.cube_side_cm}` : '';
         const identification = `${idClas}-${baseDateStr.replace(/-/g, '')}-${String(counter++).padStart(3, '0')}${diameterSuffix}${cubeSuffix}`;
 
-        // Programmed date derived from age_hours > age_days > given, preserving the sampling time of day
-        let programmedDate = s.fecha_programada_ensayo;
+        // Calculate programmed test date preserving the sampling time of day
+        let programmedDate: Date;
         if (typeof s.age_hours === 'number' && isFinite(s.age_hours)) {
-          const byHours = new Date(baseTs);
-          byHours.setHours(byHours.getHours() + s.age_hours);
-          programmedDate = byHours;
+          // Add hours while preserving time of day
+          programmedDate = new Date(baseTs.getTime() + (s.age_hours * 60 * 60 * 1000));
         } else if (typeof s.age_days === 'number' && isFinite(s.age_days)) {
-          const byDays = new Date(baseTs);
-          byDays.setDate(byDays.getDate() + s.age_days);
-          programmedDate = byDays;
+          // Add days while preserving time of day
+          programmedDate = new Date(baseTs.getTime() + (s.age_days * 24 * 60 * 60 * 1000));
+        } else {
+          // Use the provided date if no age calculation needed
+          programmedDate = s.fecha_programada_ensayo instanceof Date 
+            ? s.fecha_programada_ensayo 
+            : new Date(s.fecha_programada_ensayo);
         }
+        
+        // DEBUG: Log sample calculation
+        console.log('🔍 Sample calculation for sample:', {
+          tipo_muestra: s.tipo_muestra,
+          age_hours: s.age_hours,
+          age_days: s.age_days,
+          baseTs_hours: baseTs.getHours(),
+          baseTs_minutes: baseTs.getMinutes(),
+          programmedDate_hours: programmedDate.getHours(),
+          programmedDate_minutes: programmedDate.getMinutes(),
+          programmedDate_utc: programmedDate.toISOString()
+        });
 
         return {
           id: uuidv4(),
           muestreo_id: muestreo.id,
-          plant_id: plantId, // Add plant_id to samples as well
+          plant_id: plantId,
           tipo_muestra: s.tipo_muestra,
           identificacion: identification,
           fecha_programada_ensayo: formatDate(programmedDate, 'yyyy-MM-dd'),
           fecha_programada_ensayo_ts: programmedDate.toISOString(),
-          event_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          event_timezone: userTimezone,
           estado: 'PENDIENTE',
           created_at: new Date().toISOString(),
           diameter_cm: s.tipo_muestra === 'CILINDRO' ? (s.diameter_cm ?? null) : null,
@@ -298,16 +342,20 @@ export async function createMuestreoWithSamples(
 
       if (inserted && inserted.length > 0) {
         const alertsToCreate = samplesToInsert.map((sample: any) => {
-          const tz2 = Intl.DateTimeFormat().resolvedOptions().timeZone;
-          const testTs = sample.fecha_programada_ensayo_ts ? new Date(sample.fecha_programada_ensayo_ts) : createSafeDate(sample.fecha_programada_ensayo)!;
-          const alertTs = new Date(testTs.getTime() - 24 * 3600 * 1000);
+          // Calculate alert time: 24 hours before the test, at 9:00 AM in the user's local timezone
+          const testTs = new Date(sample.fecha_programada_ensayo_ts);
+          const alertTs = new Date(testTs.getTime() - 24 * 60 * 60 * 1000); // 24 hours before
+          
+          // Set alert time to 9:00 AM in the user's local timezone
+          // This ensures the alert is sent at a reasonable local time, not hardcoded UTC
           const alertLocal = new Date(alertTs);
-          alertLocal.setUTCHours(9, 0, 0, 0);
+          alertLocal.setHours(9, 0, 0, 0);
+          
           return {
             muestra_id: sample.id,
             fecha_alerta: formatDate(alertLocal, 'yyyy-MM-dd'),
             fecha_alerta_ts: alertLocal.toISOString(),
-            event_timezone: tz2,
+            event_timezone: userTimezone,
             estado: 'PENDIENTE',
             created_at: new Date().toISOString(),
           };
@@ -1660,15 +1708,30 @@ export async function addSampleToMuestreo(
     const identification = `${idClas}-${baseDateStr.replace(/-/g, '')}-${String(counter).padStart(3, '0')}${diameterSuffix}${cubeSuffix}`;
 
     // Calculate programmed date if age is provided
-    let programmedDate = sampleData.fecha_programada_ensayo;
+    // Get the base sampling timestamp for age calculations
+    let baseSamplingTimestamp: Date;
+    if (muestreo.fecha_muestreo_ts) {
+      // Use the precise timestamp if available
+      baseSamplingTimestamp = new Date(muestreo.fecha_muestreo_ts);
+    } else {
+      // Fallback to the date field, defaulting to 12:00 PM local time
+      baseSamplingTimestamp = new Date(muestreo.fecha_muestreo);
+      baseSamplingTimestamp.setHours(12, 0, 0, 0);
+    }
+
+    // Calculate programmed test date preserving the sampling time of day
+    let programmedDate: Date;
     if (typeof sampleData.age_hours === 'number' && isFinite(sampleData.age_hours)) {
-      const baseDate = new Date(muestreo.fecha_muestreo);
-      baseDate.setHours(baseDate.getHours() + sampleData.age_hours);
-      programmedDate = baseDate;
+      // Add hours while preserving time of day
+      programmedDate = new Date(baseSamplingTimestamp.getTime() + (sampleData.age_hours * 60 * 60 * 1000));
     } else if (typeof sampleData.age_days === 'number' && isFinite(sampleData.age_days)) {
-      const baseDate = new Date(muestreo.fecha_muestreo);
-      baseDate.setDate(baseDate.getDate() + sampleData.age_days);
-      programmedDate = baseDate;
+      // Add days while preserving time of day
+      programmedDate = new Date(baseSamplingTimestamp.getTime() + (sampleData.age_days * 24 * 60 * 60 * 1000));
+    } else {
+      // Use the provided date if no age calculation needed
+      programmedDate = sampleData.fecha_programada_ensayo instanceof Date 
+        ? sampleData.fecha_programada_ensayo 
+        : new Date(sampleData.fecha_programada_ensayo);
     }
 
     const sampleToInsert = {
@@ -1698,15 +1761,19 @@ export async function addSampleToMuestreo(
     // Create alert for the test
     if (insertedSample) {
       const testDate = typeof programmedDate === 'string' ? new Date(programmedDate) : programmedDate;
-      const alertDate = new Date(testDate.getTime() - 24 * 3600 * 1000); // 24 hours before
+      const alertDate = new Date(testDate.getTime() - 24 * 60 * 60 * 1000); // 24 hours before
+      
+      // Set alert time to 9:00 AM in the user's local timezone
+      const alertLocal = new Date(alertDate);
+      alertLocal.setHours(9, 0, 0, 0);
       
       const { error: alertError } = await supabase
         .from('alertas_ensayos')
         .insert({
           muestra_id: insertedSample.id,
-          fecha_alerta: formatDate(alertDate, 'yyyy-MM-dd'),
-          fecha_alerta_ts: alertDate.toISOString(),
-          event_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          fecha_alerta: formatDate(alertLocal, 'yyyy-MM-dd'),
+          fecha_alerta_ts: alertLocal.toISOString(),
+          event_timezone: muestreo.event_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
           estado: 'PENDIENTE',
           tipo: 'ENSAYO_PROGRAMADO'
         });
