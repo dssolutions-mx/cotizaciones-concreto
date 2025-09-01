@@ -185,15 +185,17 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
       console.log('Submitting with remision date:', remisionDate);
       
       // Create muestreo record
-      const muestreoData: Partial<Muestreo> = {
+      const currentDate = new Date();
+      const muestreoData = {
         remision_id: remisionId,
         planta: formData.planta,
         revenimiento_sitio: parseFloat(formData.revenimientoSitio) || 0,
         masa_unitaria: parseFloat(formData.masaUnitaria) || 0,
         temperatura_ambiente: parseFloat(formData.temperaturaAmbiente) || 0,
         temperatura_concreto: parseFloat(formData.temperaturaConcreto) || 0,
-        fecha_muestreo: remisionDate || new Date().toISOString().split('T')[0],
-      };
+        fecha_muestreo: remisionDate || currentDate.toISOString().split('T')[0],
+        hora_muestreo: currentDate.toTimeString().split(' ')[0], // HH:MM:SS format
+      } as Partial<Muestreo>;
       
       console.log('Final muestreo data being sent:', muestreoData);
       

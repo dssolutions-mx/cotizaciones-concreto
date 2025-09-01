@@ -14,9 +14,8 @@ async function getPlantSpecificRecipients(supabaseClient: any, plantId: string):
     .select('email')
     .eq('plant_id', plantId)
     .in('role', [
-      'QUALITY_TEAM',
-      'PLANT_MANAGER',
-      'DOSIFICADOR'
+      'QUALITY_TEAM'
+      
     ])
     .eq('is_active', true);
 
@@ -93,7 +92,9 @@ serve(async (req) => {
         muestreo:muestreo_id (
           id,
           fecha_muestreo,
+          hora_muestreo,
           planta,
+          manual_reference,
           remision:remision_id (
             id,
             remision_number,
@@ -144,6 +145,31 @@ serve(async (req) => {
     const muestra = muestraData;
     const plantId = payload.plant_id || muestra.plant_id;
     const timezone = payload.timezone_local || muestra.event_timezone || 'America/Mexico_City';
+
+    // Determine if we have a valid remision or should use manual_reference
+    const hasRemision = muestra.muestreo?.remision && muestra.muestreo.remision.id !== null;
+    const displayReference = hasRemision
+      ? muestra.muestreo.remision.remision_number || 'N/D'
+      : muestra.muestreo?.manual_reference || 'N/D';
+    const displayClient = hasRemision
+      ? muestra.muestreo.remision.orders?.clients?.business_name || 'N/D'
+      : 'Manual';
+    const displayFormula = hasRemision
+      ? muestra.muestreo.remision.recipe?.recipe_code || 'N/D'
+      : 'Manual';
+    const displayStrength = hasRemision
+      ? muestra.muestreo.remision.recipe?.strength_fc || 'N/D'
+      : 'N/D';
+    const displayAge = hasRemision
+      ? muestra.muestreo.remision.recipe?.age_days || 'N/D'
+      : 'N/D';
+
+    // Format sampling date and time
+    const displaySamplingDateTime = muestra.muestreo?.fecha_muestreo && muestra.muestreo?.hora_muestreo
+      ? `${new Date(muestra.muestreo.fecha_muestreo).toLocaleDateString('es-MX')} ${muestra.muestreo.hora_muestreo}`
+      : muestra.muestreo?.fecha_muestreo
+        ? `${new Date(muestra.muestreo.fecha_muestreo).toLocaleDateString('es-MX')} (hora no especificada)`
+        : 'Fecha de muestreo no disponible';
 
     // Get plant-specific recipients (including Juan)
     const recipientEmails = await getPlantSpecificRecipients(supabaseAdmin, plantId);
@@ -200,10 +226,11 @@ serve(async (req) => {
               <table style="width: 100%; border-collapse: collapse;">
                 <tr><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB; font-weight: bold;">Identificación:</td><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB;">${muestra.identificacion}</td></tr>
                 <tr><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB; font-weight: bold;">Tipo:</td><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB;">${muestra.tipo_muestra}</td></tr>
-                <tr><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB; font-weight: bold;">Cliente:</td><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB;">${muestra.muestreo?.remision?.orders?.clients?.business_name || 'N/D'}</td></tr>
-                <tr><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB; font-weight: bold;">Fórmula:</td><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB;">${muestra.muestreo?.remision?.recipe?.recipe_code || 'N/D'} (f'c ${muestra.muestreo?.remision?.recipe?.strength_fc || 'N/D'} kg/cm²)</td></tr>
-                <tr><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB; font-weight: bold;">Edad:</td><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB;">${muestra.muestreo?.remision?.recipe?.age_days || 'N/D'} días</td></tr>
-                <tr><td style="padding: 8px 0; font-weight: bold;">Remisión:</td><td style="padding: 8px 0;">${muestra.muestreo?.remision?.remision_number || 'N/D'}</td></tr>
+                <tr><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB; font-weight: bold;">Cliente:</td><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB;">${displayClient}</td></tr>
+                <tr><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB; font-weight: bold;">Fórmula:</td><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB;">${displayFormula} (f'c ${displayStrength} kg/cm²)</td></tr>
+                <tr><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB; font-weight: bold;">Edad:</td><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB;">${displayAge} días</td></tr>
+                <tr><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB; font-weight: bold;">Fecha/Hora Muestreo:</td><td style="padding: 8px 0; border-bottom: 1px solid #E5E7EB;">${displaySamplingDateTime}</td></tr>
+                <tr><td style="padding: 8px 0; font-weight: bold;">Remisión:</td><td style="padding: 8px 0;">${displayReference}</td></tr>
               </table>
               
               <div style="background-color: #DBEAFE; padding: 15px; border-radius: 6px; margin-top: 20px;">

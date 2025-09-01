@@ -42,7 +42,10 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
   const getBaseDate = (): Date | null => {
     try {
       const value = form.getValues('fecha_muestreo' as Path<T>);
-      return value instanceof Date ? value : null;
+      if (value && typeof value === 'object' && (value as any) instanceof Date && !isNaN((value as Date).getTime())) {
+        return value as Date;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -138,8 +141,21 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
         <div className="space-y-2 border rounded-md p-3">
           {plannedSamples.map((s) => {
             const useHours = typeof s.age_hours === 'number' && isFinite(s.age_hours);
-            const ensayoLocal = s.fecha_programada_ensayo;
-            const ensayoDisplay = `${format(ensayoLocal, 'dd/MM/yyyy', { locale: es })} ${String(ensayoLocal.getHours()).padStart(2,'0')}:${String(ensayoLocal.getMinutes()).padStart(2,'0')}`;
+
+            // Safe date validation and formatting
+            const ensayoLocal = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
+              ? s.fecha_programada_ensayo
+              : new Date();
+
+            const ensayoDisplay = (() => {
+              try {
+                return `${format(ensayoLocal, 'dd/MM/yyyy', { locale: es })} ${String(ensayoLocal.getHours()).padStart(2,'0')}:${String(ensayoLocal.getMinutes()).padStart(2,'0')}`;
+              } catch (error) {
+                console.error('Error formatting ensayo date:', error);
+                return 'Fecha inválida';
+              }
+            })();
+
             return (
               <div key={s.id} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-2 items-center">
                 <div className="md:col-span-3">
@@ -203,7 +219,10 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                       const base = getBaseDate();
                       if (!base) return;
                       if (val === 'hours') {
-                        const diffMs = (s.fecha_programada_ensayo as Date).getTime() - base.getTime();
+                        const currentDate = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
+                          ? s.fecha_programada_ensayo
+                          : new Date();
+                        const diffMs = currentDate.getTime() - base.getTime();
                         const hours = Math.max(1, Math.round(diffMs / 3600000));
                         setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
                           ...p,
@@ -212,7 +231,10 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                           fecha_programada_ensayo: (() => { const d = new Date(base); d.setHours(d.getHours() + hours); return d; })(),
                         } : p)));
                       } else {
-                        const days = computeAgeDays(base, s.fecha_programada_ensayo);
+                        const currentDate = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
+                          ? s.fecha_programada_ensayo
+                          : new Date();
+                        const days = computeAgeDays(base, currentDate);
                         setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
                           ...p,
                           age_days: days,
@@ -247,7 +269,7 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                           ...p,
                           age_hours: ageHours,
                           age_days: undefined,
-                          fecha_programada_ensayo: (() => { const d = new Date(base); d.setHours(d.getHours() + ageHours); return d; })(),
+                          fecha_programada_ensayo: (() => { const d = new Date(base || new Date()); d.setHours(d.getHours() + ageHours); return d; })(),
                         } : p)));
                       }}
                     />
@@ -260,9 +282,12 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                       min={0}
                       value={(function() {
                         const base = getBaseDate();
+                        const currentDate = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
+                          ? s.fecha_programada_ensayo
+                          : new Date();
                         const age = typeof s.age_days === 'number' && isFinite(s.age_days)
                           ? s.age_days
-                          : (base ? computeAgeDays(base, s.fecha_programada_ensayo) : 0);
+                          : (base ? computeAgeDays(base, currentDate) : 0);
                         return String(age);
                       })()}
                       onChange={(e) => {
@@ -284,12 +309,19 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                   <FormLabel className="text-xs">Fecha programada de ensayo</FormLabel>
                   <Input
                     type="date"
-                    value={`${s.fecha_programada_ensayo.getFullYear()}-${String(s.fecha_programada_ensayo.getMonth() + 1).padStart(2, '0')}-${String(s.fecha_programada_ensayo.getDate()).padStart(2, '0')}`}
+                    value={(() => {
+                      const date = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
+                        ? s.fecha_programada_ensayo
+                        : new Date();
+                      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+                    })()}
                     onChange={(e) => {
                                               const val = e.target.value;
                         const [y, m, d] = val.split('-').map((n) => parseInt(n, 10));
                         // FIXED: Preserve the existing time instead of hardcoding 12:00 PM
-                        const existingTime = s.fecha_programada_ensayo;
+                        const existingTime = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
+                          ? s.fecha_programada_ensayo
+                          : new Date();
                         const newDate = new Date(y, (m || 1) - 1, d || 1,
                           existingTime.getHours(),
                           existingTime.getMinutes(),
@@ -313,13 +345,18 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                   <Input
                     type="time"
                     value={(function() {
-                      const ts = s.fecha_programada_ensayo as Date;
+                      const ts = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
+                        ? s.fecha_programada_ensayo
+                        : new Date();
                       return `${String(ts.getHours()).padStart(2,'0')}:${String(ts.getMinutes()).padStart(2,'0')}`;
                     })()}
                     onChange={(e) => {
                       const timeVal = e.target.value;
                       const [h, m] = timeVal.split(':').map((n) => parseInt(n, 10) || 0);
-                      const newDate = new Date(s.fecha_programada_ensayo);
+                      const currentDate = s.fecha_programada_ensayo instanceof Date && !isNaN(s.fecha_programada_ensayo.getTime())
+                        ? s.fecha_programada_ensayo
+                        : new Date();
+                      const newDate = new Date(currentDate);
                       newDate.setHours(h, m, 0, 0);
 
                       // FIXED: When user manually sets time, clear age to preserve exact time
