@@ -22,6 +22,9 @@ export interface Muestreo {
   } | null;
 
   manual_reference?: string;
+  // Timestamp fields
+  fecha_muestreo_ts?: string; // Precise timestamp of sampling
+  event_timezone?: string; // Timezone information
   created_by?: string;
   created_at?: string;
   updated_at?: string;
@@ -41,6 +44,11 @@ export interface Muestra {
   beam_width_cm?: number | null; // for beams (optional future use)
   beam_height_cm?: number | null; // for beams (optional future use)
   beam_span_cm?: number | null; // for beams (optional future use)
+  // Timestamp fields
+  fecha_programada_ensayo_ts?: string; // Precise timestamp of scheduled test
+  event_timezone?: string; // Timezone information
+  // Guarantee age metrics
+  is_edad_garantia?: boolean; // Indicates if the sample was scheduled for testing at guarantee age
   created_at?: string;
   updated_at?: string;
 }
@@ -56,6 +64,12 @@ export interface Ensayo {
   porcentaje_cumplimiento: number;
   tiempo_desde_carga?: string; // Calculated time since load (when remision data is available)
   observaciones?: string;
+  // Timestamp fields
+  fecha_ensayo_ts?: string; // Precise timestamp of the test
+  event_timezone?: string; // Timezone information
+  // Guarantee age metrics
+  is_edad_garantia?: boolean; // Indicates if the test was performed at guarantee age
+  is_ensayo_fuera_tiempo?: boolean; // Indicates if the test was performed outside the guarantee age window
   created_by?: string;
   created_at?: string;
   updated_at?: string;
@@ -90,9 +104,11 @@ export interface MuestreoWithRelations extends Muestreo {
     id: string;
     remision_number: string;
     fecha: string;
+    fecha_remision?: string; // Alternative field name
     hora_carga: string;
     volumen_fabricado: number;
     recipe_id: string;
+    created_at?: string; // For fallback date
     recipe?: {
       id: string;
       recipe_code: string;
@@ -107,6 +123,17 @@ export interface MuestreoWithRelations extends Muestreo {
       }[];
     };
     order?: {
+      id: string;
+      order_number: string;
+      construction_site: string;
+      delivery_date: string;
+      delivery_time: string;
+      clients?: {
+        id: string;
+        business_name: string;
+      };
+    };
+    orders?: { // Alternative field name
       id: string;
       order_number: string;
       construction_site: string;

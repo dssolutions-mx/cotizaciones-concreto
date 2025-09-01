@@ -37,7 +37,10 @@ import {
   FileImage,
   Download,
   Calculator,
-  Clock
+  Clock,
+  Shield,
+  Clock3,
+  AlertCircle
 } from 'lucide-react';
 import { fetchEnsayoById } from '@/services/qualityService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -192,54 +195,90 @@ export default function EnsayoDetailPage() {
     ? differenceInDays(fechaEnsayo, fechaMuestreo)
     : null;
 
-  // Calcular la diferencia entre hora de carga y hora de ensayo
+  // Calcular la diferencia entre hora de carga y hora de ensayo (matching database logic)
   const calculateTimeDifference = () => {
-    const ensayoDate = ensayo.fecha_ensayo_ts
-      ? new Date(ensayo.fecha_ensayo_ts)
-      : ensayo.fecha_ensayo
-        ? createSafeDate(ensayo.fecha_ensayo)
-        : null;
+    // Get ensayo timestamp (prefer fecha_ensayo_ts, fallback to fecha_ensayo + hora_ensayo)
+    let ensayoDate: Date | null = null;
+    
+    if ((ensayo as any).fecha_ensayo_ts) {
+      ensayoDate = new Date((ensayo as any).fecha_ensayo_ts);
+    } else if (ensayo.fecha_ensayo && ensayo.hora_ensayo) {
+      // Combine fecha_ensayo and hora_ensayo like the database does
+      ensayoDate = new Date(`${ensayo.fecha_ensayo}T${ensayo.hora_ensayo}`);
+    } else if (ensayo.fecha_ensayo) {
+      // Use fecha_ensayo with default time (matching database behavior)
+      ensayoDate = new Date(`${ensayo.fecha_ensayo}T12:00:00`);
+    }
 
-    const cargaTime = ensayo.muestra?.muestreo?.remision?.hora_carga;
-    const remisionDate = ensayo.muestra?.muestreo?.remision?.fecha_remision ||
-                        ensayo.muestra?.muestreo?.remision?.created_at ||
-                        ensayo.muestra?.muestreo?.fecha_muestreo;
+    // Get carga time - prefer muestreo date over remision date
+    const remision = ensayo.muestra?.muestreo?.remision;
+    const cargaTime = remision?.hora_carga;
+    
+    // Prefer fecha_muestreo_ts, then fecha_muestreo, then remision.fecha
+    const muestreo = ensayo.muestra?.muestreo;
+    let cargaFecha: string | null = null;
+    
+    if ((muestreo as any)?.fecha_muestreo_ts) {
+      // Use muestreo timestamp directly
+      const muestreoDate = new Date((muestreo as any).fecha_muestreo_ts);
+      cargaFecha = muestreoDate.toISOString().split('T')[0]; // Extract date part
+    } else if (muestreo?.fecha_muestreo) {
+      cargaFecha = muestreo.fecha_muestreo;
+    } else if (remision?.fecha) {
+      cargaFecha = remision.fecha;
+    }
 
-    if (!ensayoDate || !cargaTime || !remisionDate) return null;
+    if (!ensayoDate || !cargaTime || !cargaFecha) return null;
 
-    // Parse hora_carga (assuming format like "14:30" or "14:30:00")
-    const [hours, minutes, seconds] = cargaTime.split(':').map(Number);
+    // Parse hora_carga (format: "HH:MM:SS" or "HH:MM")
+    const timeParts = cargaTime.split(':');
+    const hours = parseInt(timeParts[0]) || 0;
+    const minutes = parseInt(timeParts[1]) || 0;
+    const seconds = parseInt(timeParts[2]) || 0;
 
-    // Create date for carga time using the remision date as base
-    const cargaDate = new Date(remisionDate);
-    cargaDate.setHours(hours || 0, minutes || 0, seconds || 0, 0);
+    // Create carga date using muestreo date + hora_carga (preferred logic)
+    const cargaDate = new Date(`${cargaFecha}T${cargaTime}`);
+    
+    // Ensure cargaDate is valid
+    if (isNaN(cargaDate.getTime())) {
+      console.warn('Invalid carga date:', cargaFecha, cargaTime);
+      return null;
+    }
 
     // Calculate difference in milliseconds
     const diffMs = ensayoDate.getTime() - cargaDate.getTime();
     const isNegative = diffMs < 0;
     const absDiffMs = Math.abs(diffMs);
 
-    // Calculate days, hours, minutes
+    // Calculate days, hours, minutes (matching database format)
     const diffDays = Math.floor(absDiffMs / (1000 * 60 * 60 * 24));
     const diffHours = Math.floor((absDiffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
     const diffMinutes = Math.floor((absDiffMs % (1000 * 60 * 60)) / (1000 * 60));
+    const diffSeconds = Math.floor((absDiffMs % (1000 * 60)) / 1000);
 
-    // Format the difference string
+    // Format the difference string (matching database format)
     const formatDifference = () => {
-      const parts = [];
+      if (diffDays > 0) {
+        return `${diffDays} día${diffDays !== 1 ? 's' : ''}`;
+      } else if (diffHours > 0) {
+        return `${diffHours} hora${diffHours !== 1 ? 's' : ''}`;
+      } else if (diffMinutes > 0) {
+        return `${diffMinutes} minuto${diffMinutes !== 1 ? 's' : ''}`;
+      } else {
+        return `${diffSeconds} segundo${diffSeconds !== 1 ? 's' : ''}`;
+      }
+    };
 
+    // Format for detailed display (matching database format like "21 days 03:35:51.753")
+    const formatDetailed = () => {
+      const parts = [];
       if (diffDays > 0) {
         parts.push(`${diffDays} día${diffDays !== 1 ? 's' : ''}`);
       }
-
-      if (diffHours > 0) {
-        parts.push(`${diffHours} hora${diffHours !== 1 ? 's' : ''}`);
+      if (diffHours > 0 || diffMinutes > 0 || diffSeconds > 0) {
+        const timeStr = `${diffHours.toString().padStart(2, '0')}:${diffMinutes.toString().padStart(2, '0')}:${diffSeconds.toString().padStart(2, '0')}`;
+        parts.push(timeStr);
       }
-
-      if (diffMinutes > 0 || (diffDays === 0 && diffHours === 0)) {
-        parts.push(`${diffMinutes} minuto${diffMinutes !== 1 ? 's' : ''}`);
-      }
-
       return parts.join(' ');
     };
 
@@ -247,14 +286,144 @@ export default function EnsayoDetailPage() {
       days: diffDays,
       hours: diffHours,
       minutes: diffMinutes,
+      seconds: diffSeconds,
       isNegative,
       totalHours: (absDiffMs / (1000 * 60 * 60)),
       formatted: formatDifference(),
-      rawMs: diffMs
+      detailed: formatDetailed(),
+      rawMs: diffMs,
+      cargaDate,
+      ensayoDate
     };
   };
 
   const timeDifference = calculateTimeDifference();
+
+  // Function to format database time to human readable format
+  const formatDatabaseTime = (dbTime: string): string => {
+    if (!dbTime) return '';
+    
+    // Parse database format like "7 days 04:55:14.546" or "27 days"
+    const parts = dbTime.split(' ');
+    const result = [];
+    
+    // Extract days
+    const dayMatch = dbTime.match(/(\d+)\s*days?/i);
+    if (dayMatch) {
+      const days = parseInt(dayMatch[1]);
+      result.push(`${days} día${days !== 1 ? 's' : ''}`);
+    }
+    
+    // Extract time part (HH:MM:SS)
+    const timeMatch = dbTime.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+    if (timeMatch) {
+      const hours = parseInt(timeMatch[1]);
+      const minutes = parseInt(timeMatch[2]);
+      const seconds = parseInt(timeMatch[3]);
+      
+      if (hours > 0) {
+        result.push(`${hours} hora${hours !== 1 ? 's' : ''}`);
+      }
+      if (minutes > 0) {
+        result.push(`${minutes} minuto${minutes !== 1 ? 's' : ''}`);
+      }
+      if (seconds > 0 && hours === 0 && minutes === 0) {
+        result.push(`${seconds} segundo${seconds !== 1 ? 's' : ''}`);
+      }
+    }
+    
+    return result.join(' ') || dbTime;
+  };
+
+  // Calculate guarantee age metrics using the same logic as database functions
+  const calculateGuaranteeAgeMetrics = () => {
+    if (!ensayo.muestra?.muestreo?.concrete_specs) return null;
+
+    const concreteSpecs = ensayo.muestra.muestreo.concrete_specs as any;
+    const valorEdad = concreteSpecs?.valor_edad;
+    const unidadEdad = concreteSpecs?.unidad_edad;
+    const clasificacion = concreteSpecs?.clasificacion;
+    
+    if (!valorEdad || !unidadEdad) return null;
+
+    // Calculate guarantee age in hours (matching database function)
+    let edadGarantiaHoras: number;
+    if (unidadEdad === 'HORA') {
+      edadGarantiaHoras = valorEdad;
+    } else if (unidadEdad === 'DÍA') {
+      edadGarantiaHoras = valorEdad * 24;
+    } else {
+      edadGarantiaHoras = valorEdad * 24; // Default to days
+    }
+
+    // Get timestamps
+    const fechaMuestreo = (ensayo.muestra.muestreo as any).fecha_muestreo_ts 
+      ? new Date((ensayo.muestra.muestreo as any).fecha_muestreo_ts)
+      : createSafeDate(ensayo.muestra.muestreo.fecha_muestreo);
+    const fechaEnsayo = (ensayo as any).fecha_ensayo_ts
+      ? new Date((ensayo as any).fecha_ensayo_ts)
+      : createSafeDate(ensayo.fecha_ensayo);
+    
+    if (!fechaMuestreo || !fechaEnsayo) return null;
+
+    // Calculate guarantee age end (matching database function)
+    const fechaEdadGarantia = new Date(fechaMuestreo.getTime() + (edadGarantiaHoras * 60 * 60 * 1000));
+
+    // Calculate tolerance (matching database function)
+    let toleranceMinutes: number;
+    if (edadGarantiaHoras <= 24) {
+      toleranceMinutes = 30; // ±30 minutes
+    } else if (edadGarantiaHoras <= 72) {
+      toleranceMinutes = 120; // ±2 hours
+    } else if (edadGarantiaHoras <= 168) {
+      toleranceMinutes = 360; // ±6 hours
+    } else if (edadGarantiaHoras <= 336) {
+      toleranceMinutes = 720; // ±12 hours
+    } else if (edadGarantiaHoras <= 672) {
+      toleranceMinutes = 1200; // ±20 hours
+    } else {
+      toleranceMinutes = 2880; // ±48 hours
+    }
+    
+    const toleranceHours = toleranceMinutes / 60;
+    
+    // Calculate guarantee age window (matching database logic)
+    const guaranteeAgeStart = new Date(fechaEdadGarantia.getTime() - (toleranceMinutes * 60 * 1000));
+    const guaranteeAgeEnd = new Date(fechaEdadGarantia.getTime() + (toleranceMinutes * 60 * 1000));
+    
+    // Calculate differences
+    const diffFromStart = (fechaEnsayo.getTime() - guaranteeAgeStart.getTime()) / (1000 * 60 * 60);
+    const diffFromEnd = (fechaEnsayo.getTime() - fechaEdadGarantia.getTime()) / (1000 * 60 * 60);
+    const diffFromGuarantee = Math.abs(diffFromEnd);
+    
+    // Determine status (matching database logic)
+    const isAtGuaranteeAge = fechaEnsayo >= guaranteeAgeStart; // Any time after (guarantee_age_end - tolerance)
+    const isOutOfTime = isAtGuaranteeAge && fechaEnsayo > guaranteeAgeEnd; // After (guarantee_age_end + tolerance)
+    const isTooEarly = fechaEnsayo < guaranteeAgeStart; // Before (guarantee_age_end - tolerance)
+    
+    return {
+      valorEdad,
+      unidadEdad,
+      clasificacion,
+      edadGarantiaHoras,
+      fechaMuestreo,
+      fechaEnsayo,
+      fechaEdadGarantia,
+      guaranteeAgeStart,
+      guaranteeAgeEnd,
+      diffFromStart,
+      diffFromEnd,
+      diffFromGuarantee,
+      toleranceHours,
+      toleranceMinutes,
+      isAtGuaranteeAge,
+      isOutOfTime,
+      isTooEarly,
+      isEdadGarantia: ensayo.is_edad_garantia || false
+    };
+  };
+
+  const guaranteeAgeMetrics = calculateGuaranteeAgeMetrics();
 
   return (
     <div className="container mx-auto p-4 md:p-6">
@@ -323,10 +492,15 @@ export default function EnsayoDetailPage() {
                 <div>
                   <p className="text-sm font-medium text-gray-500">Fecha de Ensayo</p>
                   <p className="font-medium">
-                    {ensayo.fecha_ensayo_ts 
-                      ? format(new Date(ensayo.fecha_ensayo_ts), 'PPP \u00e1 HH:mm', { locale: es })
+                    {(ensayo as any).fecha_ensayo_ts 
+                      ? format(new Date((ensayo as any).fecha_ensayo_ts), 'PPP \u00e1 HH:mm', { locale: es })
                       : formatDate(ensayo.fecha_ensayo, 'PPP')}
                   </p>
+                  {guaranteeAgeMetrics && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Muestreo: {format(guaranteeAgeMetrics.fechaMuestreo, 'PPP \u00e1 HH:mm', { locale: es })}
+                    </p>
+                  )}
                 </div>
               </div>
               
@@ -359,24 +533,26 @@ export default function EnsayoDetailPage() {
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-gray-400" />
                     <span>
-                      {ensayo.muestra?.muestreo?.remision?.orders &&
-                       ensayo.muestra?.muestreo?.remision?.orders.clients?.business_name || 'No disponible'}
+                      {(ensayo.muestra?.muestreo?.remision as any)?.orders &&
+                       (ensayo.muestra?.muestreo?.remision as any)?.orders.clients?.business_name || 'No disponible'}
                     </span>
                   </div>
                 </div>
 
                 {timeDifference && (
                   <div>
-                    <p className="text-sm font-medium text-gray-500">Tiempo desde Carga</p>
+                    <p className="text-sm font-medium text-gray-500">Tiempo desde Muestreo</p>
                     <div className="flex items-center gap-2">
                       <Clock className="h-4 w-4 text-gray-400" />
                       <span className={`font-medium ${
                         timeDifference.isNegative ? 'text-amber-600' : 'text-gray-900'
                       }`}>
-                        {timeDifference.isNegative ? '-' : ''}
-                        {timeDifference.formatted}
+                        {ensayo.tiempo_desde_carga ? formatDatabaseTime(ensayo.tiempo_desde_carga) : timeDifference.formatted}
                       </span>
                     </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Muestreo: {guaranteeAgeMetrics?.fechaMuestreo ? format(guaranteeAgeMetrics.fechaMuestreo, 'PPP \u00e1 HH:mm', { locale: es }) : 'No disponible'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -434,6 +610,157 @@ export default function EnsayoDetailPage() {
           </CardContent>
         </Card>
       </div>
+      
+      {/* Guarantee Age and Tolerance Metrics */}
+      {guaranteeAgeMetrics && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-primary" />
+              Métricas de Edad Garantía
+            </CardTitle>
+            <CardDescription>
+              Información sobre el cumplimiento de la edad garantía y tolerancias
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* Edad Garantía Status */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-500">Estado Edad Garantía</p>
+                <div className="flex items-center gap-2">
+                  {guaranteeAgeMetrics.isEdadGarantia ? (
+                    <>
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      <Badge variant="default" className="bg-green-100 text-green-800">
+                        Edad Garantía
+                      </Badge>
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-5 w-5 text-gray-400" />
+                      <Badge variant="secondary">
+                        No Garantía
+                      </Badge>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Tolerance Status */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-500">Estado Tolerancia</p>
+                <div className="flex items-center gap-2">
+                  {guaranteeAgeMetrics.isTooEarly ? (
+                    <>
+                      <Clock3 className="h-5 w-5 text-blue-600" />
+                      <Badge variant="outline" className="border-blue-300 text-blue-700">
+                        Muy Temprano
+                      </Badge>
+                    </>
+                  ) : guaranteeAgeMetrics.isAtGuaranteeAge && !guaranteeAgeMetrics.isOutOfTime ? (
+                    <>
+                      <CheckCircle2 className="h-5 w-5 text-green-600" />
+                      <Badge variant="default" className="bg-green-100 text-green-800">
+                        Dentro Tolerancia
+                      </Badge>
+                    </>
+                  ) : guaranteeAgeMetrics.isOutOfTime ? (
+                    <>
+                      <AlertCircle className="h-5 w-5 text-red-600" />
+                      <Badge variant="destructive">
+                        Fuera Tolerancia
+                      </Badge>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="h-5 w-5 text-amber-600" />
+                      <Badge variant="outline" className="border-amber-300 text-amber-700">
+                        Fuera Tolerancia
+                      </Badge>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Out of Time Status */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-500">Estado Tiempo</p>
+                <div className="flex items-center gap-2">
+                  {guaranteeAgeMetrics.isOutOfTime ? (
+                    <>
+                      <Clock3 className="h-5 w-5 text-red-600" />
+                      <Badge variant="destructive">
+                        Fuera de Tiempo
+                      </Badge>
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="h-5 w-5 text-green-600" />
+                      <Badge variant="default" className="bg-green-100 text-green-800">
+                        A Tiempo
+                      </Badge>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Age Difference */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-gray-500">Diferencia de Edad</p>
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-gray-400" />
+                  <span className={`font-medium ${
+                    guaranteeAgeMetrics.isTooEarly ? 'text-blue-600' :
+                    guaranteeAgeMetrics.isAtGuaranteeAge && !guaranteeAgeMetrics.isOutOfTime ? 'text-green-600' :
+                    guaranteeAgeMetrics.isOutOfTime ? 'text-red-600' : 'text-amber-600'
+                  }`}>
+                    {guaranteeAgeMetrics.diffFromEnd < 0 ? '-' : '+'}
+                    {Math.abs(guaranteeAgeMetrics.diffFromEnd) < 1 
+                      ? `${Math.round(Math.abs(guaranteeAgeMetrics.diffFromEnd) * 60)} min`
+                      : Math.abs(guaranteeAgeMetrics.diffFromEnd) < 24
+                        ? `${Math.abs(guaranteeAgeMetrics.diffFromEnd).toFixed(1)} hrs`
+                        : `${(Math.abs(guaranteeAgeMetrics.diffFromEnd) / 24).toFixed(1)} días`
+                    }
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Tolerancia: {guaranteeAgeMetrics.toleranceHours < 24 ? `±${guaranteeAgeMetrics.toleranceHours} hrs` : `±${guaranteeAgeMetrics.toleranceHours / 24} días`}
+                </p>
+              </div>
+            </div>
+
+            {/* Additional Details */}
+            <Separator className="my-4" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="font-medium text-gray-700">Edad Garantía del Diseño</p>
+                <p className="text-gray-600">
+                  {guaranteeAgeMetrics.valorEdad} {guaranteeAgeMetrics.unidadEdad === 'HORA' ? 'horas' : 'días'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  ({guaranteeAgeMetrics.edadGarantiaHoras} horas)
+                </p>
+              </div>
+              <div>
+                <p className="font-medium text-gray-700">Fecha Garantía Exacta</p>
+                <p className="text-gray-600">
+                  {format(guaranteeAgeMetrics.fechaEdadGarantia, 'PPP \u00e1 HH:mm', { locale: es })}
+                </p>
+              </div>
+              <div>
+                <p className="font-medium text-gray-700">Ventana de Tolerancia</p>
+                <p className="text-gray-600">
+                  {format(guaranteeAgeMetrics.guaranteeAgeStart, 'PPP \u00e1 HH:mm', { locale: es })}
+                </p>
+                <p className="text-xs text-gray-500">
+                  hasta {format(guaranteeAgeMetrics.guaranteeAgeEnd, 'PPP \u00e1 HH:mm', { locale: es })}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
       
       {/* Evidencias */}
       <Card className="mb-6">
