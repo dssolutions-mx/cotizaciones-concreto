@@ -18,7 +18,7 @@ export interface Muestreo {
     clasificacion?: 'FC' | 'MR';
     unidad_edad?: 'DÍA' | 'HORA' | 'D' | 'H' | string;
     valor_edad?: number;
-    fc?: number;
+    // Note: fc/resistance field removed to standardize to age and unit only
   } | null;
 
   manual_reference?: string;
