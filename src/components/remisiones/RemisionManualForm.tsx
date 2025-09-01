@@ -56,6 +56,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
   const [formData, setFormData] = useState({
     remisionNumber: '',
     fecha: new Date().toISOString().split('T')[0],
+    horaCarga: new Date().toTimeString().split(' ')[0].substring(0, 5), // HH:MM format
     volumen: '',
     conductor: '',
     unidad: '',
@@ -210,8 +211,8 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.remisionNumber || !formData.fecha || !formData.volumen) {
-      showError('Por favor, completa los campos obligatorios (Nº Remisión, Fecha, Volumen)');
+    if (!formData.remisionNumber || !formData.fecha || !formData.horaCarga || !formData.volumen) {
+      showError('Por favor, completa los campos obligatorios (Nº Remisión, Fecha, Hora de Carga, Volumen)');
       return;
     }
     if (tipoRemision === 'CONCRETO' && !formData.recipeId) {
@@ -229,7 +230,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         order_id: orderId,
         remision_number: formData.remisionNumber,
         fecha: formData.fecha,
-        hora_carga: new Date().toISOString().split('T')[1].split('.')[0],
+        hora_carga: formData.horaCarga + ':00', // Add seconds to match database format
         volumen_fabricado: volumen,
         conductor: formData.conductor || null,
         unidad: formData.unidad || null,
@@ -285,6 +286,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       setFormData({
         remisionNumber: '',
         fecha: new Date().toISOString().split('T')[0],
+        horaCarga: new Date().toTimeString().split(' ')[0].substring(0, 5), // Reset to current time
         volumen: '',
         conductor: '',
         unidad: '',
@@ -393,6 +395,20 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
             name="fecha"
             type="date"
             value={formData.fecha}
+            onChange={handleInputChange}
+            required
+            className="mt-1"
+          />
+        </div>
+        
+        {/* Hora de Carga */}
+        <div>
+          <Label htmlFor="horaCarga">Hora de Carga *</Label>
+          <Input
+            id="horaCarga"
+            name="horaCarga"
+            type="time"
+            value={formData.horaCarga}
             onChange={handleInputChange}
             required
             className="mt-1"
