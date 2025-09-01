@@ -514,12 +514,12 @@ export default function NuevoMuestreoPage() {
           // Set sampling type based on mode and presence of manual_reference
           sampling_type: mode === 'linked' ? 'REMISION_LINKED' :
                         (finalData.manual_reference ? 'STANDALONE' : 'PROVISIONAL'),
-          // Include concrete specifications with guarantee age
+          // Include concrete specifications with guarantee age only (standardized)
           concrete_specs: {
             clasificacion: clasificacion,
             unidad_edad: agePlanUnit === 'days' ? 'DÍA' : 'HORA',
             valor_edad: edadGarantia,
-            fc: selectedRemision?.recipe?.strength_fc || undefined, // Include FC if available from recipe
+            // Removed fc/resistance to standardize field to only contain age and unit
           },
         },
         plannedSamples
