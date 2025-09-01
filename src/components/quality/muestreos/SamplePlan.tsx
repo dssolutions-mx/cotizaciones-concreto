@@ -4,7 +4,7 @@ import React from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { v4 as uuidv4 } from 'uuid';
-import { UseFormReturn } from 'react-hook-form';
+import { UseFormReturn, FieldValues, Path } from 'react-hook-form';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,10 +23,10 @@ export type PlannedSample = {
   age_hours?: number;
 };
 
-type SamplePlanProps<FormValues> = {
+type SamplePlanProps<T extends FieldValues> = {
   plannedSamples: PlannedSample[];
   setPlannedSamples: React.Dispatch<React.SetStateAction<PlannedSample[]>>;
-  form: UseFormReturn<FormValues>;
+  form: UseFormReturn<T>;
   clasificacion: 'FC' | 'MR';
   edadGarantia: number;
   agePlanUnit?: 'days' | 'hours';
@@ -35,11 +35,21 @@ type SamplePlanProps<FormValues> = {
   formatAgeSummary?: (samples: PlannedSample[], baseDate?: Date | null) => string;
 };
 
-export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues>) {
+export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps<T>) {
   const { plannedSamples, setPlannedSamples, form, clasificacion, edadGarantia, agePlanUnit = 'days', computeAgeDays, addDaysSafe, formatAgeSummary } = props;
 
+  // Helper function to get the base date safely
+  const getBaseDate = (): Date | null => {
+    try {
+      const value = form.getValues('fecha_muestreo' as Path<T>);
+      return value instanceof Date ? value : null;
+    } catch {
+      return null;
+    }
+  };
+
   const handleAddSuggested = () => {
-    const base = form.getValues('fecha_muestreo') as unknown as Date;
+    const base = getBaseDate();
     if (!base) return;
 
     if (agePlanUnit === 'hours') {
@@ -95,16 +105,15 @@ export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues
   };
 
   const handleAddSingle = () => {
-    const base = form.getValues('fecha_muestreo') as unknown as Date;
-    const date = base ? new Date(base) : new Date();
-    date.setDate(date.getDate() + 1);
+    const base = getBaseDate();
+    const date = base ? addDaysSafe(base, 1) : new Date();
     setPlannedSamples((prev) => [
       ...prev,
       { id: uuidv4(), tipo_muestra: 'CILINDRO', fecha_programada_ensayo: date, diameter_cm: 15, age_days: 1 },
     ]);
   };
 
-  const baseDate = form.getValues('fecha_muestreo') as unknown as Date | undefined;
+  const baseDate = getBaseDate();
 
   return (
     <div className="space-y-3">
@@ -191,7 +200,7 @@ export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues
                   <Select
                     value={useHours ? 'hours' : 'days'}
                     onValueChange={(val) => {
-                      const base = form.getValues('fecha_muestreo') as unknown as Date;
+                      const base = getBaseDate();
                       if (!base) return;
                       if (val === 'hours') {
                         const diffMs = (s.fecha_programada_ensayo as Date).getTime() - base.getTime();
@@ -231,7 +240,7 @@ export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues
                       min={1}
                       value={String(s.age_hours ?? '')}
                       onChange={(e) => {
-                        const base = form.getValues('fecha_muestreo') as unknown as Date;
+                        const base = getBaseDate();
                         const val = parseInt(e.target.value || '0', 10);
                         const ageHours = isNaN(val) ? 0 : val;
                         setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
@@ -250,14 +259,14 @@ export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues
                       type="number"
                       min={0}
                       value={(function() {
-                        const base = form.getValues('fecha_muestreo') as unknown as Date;
+                        const base = getBaseDate();
                         const age = typeof s.age_days === 'number' && isFinite(s.age_days)
                           ? s.age_days
                           : (base ? computeAgeDays(base, s.fecha_programada_ensayo) : 0);
                         return String(age);
                       })()}
                       onChange={(e) => {
-                        const base = form.getValues('fecha_muestreo') as unknown as Date;
+                        const base = getBaseDate();
                         const val = parseInt(e.target.value || '0', 10);
                         const ageDays = isNaN(val) ? 0 : val;
                         setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
@@ -277,15 +286,24 @@ export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues
                     type="date"
                     value={`${s.fecha_programada_ensayo.getFullYear()}-${String(s.fecha_programada_ensayo.getMonth() + 1).padStart(2, '0')}-${String(s.fecha_programada_ensayo.getDate()).padStart(2, '0')}`}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      const [y, m, d] = val.split('-').map((n) => parseInt(n, 10));
-                      const newDate = new Date(y, (m || 1) - 1, d || 1, 12, 0, 0);
-                      const base = form.getValues('fecha_muestreo') as unknown as Date;
-                      setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
-                        ...p,
-                        fecha_programada_ensayo: newDate,
-                        age_days: base ? computeAgeDays(base, newDate) : p.age_days,
-                      } : p)));
+                                              const val = e.target.value;
+                        const [y, m, d] = val.split('-').map((n) => parseInt(n, 10));
+                        // FIXED: Preserve the existing time instead of hardcoding 12:00 PM
+                        const existingTime = s.fecha_programada_ensayo;
+                        const newDate = new Date(y, (m || 1) - 1, d || 1,
+                          existingTime.getHours(),
+                          existingTime.getMinutes(),
+                          existingTime.getSeconds(),
+                          existingTime.getMilliseconds()
+                        );
+                        const base = getBaseDate();
+                        // When user changes date, recalculate age to maintain relationship
+                        setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
+                          ...p,
+                          fecha_programada_ensayo: newDate,
+                          age_days: base ? computeAgeDays(base, newDate) : p.age_days,
+                          age_hours: base ? Math.round((newDate.getTime() - base.getTime()) / (1000 * 60 * 60)) : p.age_hours,
+                        } : p)));
                     }}
                   />
                 </div>
@@ -303,13 +321,23 @@ export default function SamplePlan<FormValues>(props: SamplePlanProps<FormValues
                       const [h, m] = timeVal.split(':').map((n) => parseInt(n, 10) || 0);
                       const newDate = new Date(s.fecha_programada_ensayo);
                       newDate.setHours(h, m, 0, 0);
+
+                      // FIXED: When user manually sets time, clear age to preserve exact time
                       setPlannedSamples((prev) => prev.map((p) => (p.id === s.id ? {
                         ...p,
                         fecha_programada_ensayo: newDate,
+                        // Clear age when user manually sets time - this tells backend to use exact fecha_programada_ensayo
+                        age_days: undefined,
+                        age_hours: undefined,
                       } : p)));
                     }}
                   />
-                  <div className="text-[11px] text-gray-500 mt-1">Ensayo programado: {ensayoDisplay}</div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    Ensayo programado: {ensayoDisplay}
+                    {(s.age_days === undefined && s.age_hours === undefined) && (
+                      <span className="ml-2 text-blue-600 font-medium">(tiempo manual)</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="md:col-span-1 flex justify-end">
