@@ -190,6 +190,8 @@ export type DatoGraficoResistencia = {
   fecha_ensayo: string;
   resistencia_calculada?: number;
   muestra?: any;
+  isAggregated?: boolean;
+  aggregatedCount?: number;
 };
 
 // Filters for quality data
