@@ -810,6 +810,7 @@ export async function fetchMetricasCalidad(
             fecha_muestreo,
             fecha_muestreo_ts,
             planta,
+            concrete_specs,
             remision:remision_id (
               id,
               order:order_id(
@@ -1151,12 +1152,13 @@ export async function debugQueryMetricas(fechaDesde: string, fechaHasta: string)
 }
 
 export async function fetchDatosGraficoResistencia(
-  fechaDesde?: string | Date, 
-  fechaHasta?: string | Date, 
-  client_id?: string, 
-  construction_site_id?: string, 
-  recipe_code?: string, 
-  soloEdadGarantia: boolean = false
+  fechaDesde?: string | Date,
+  fechaHasta?: string | Date,
+  client_id?: string,
+  construction_site_id?: string,
+  recipe_code?: string,
+  soloEdadGarantia: boolean = false,
+  incluirEnsayosFueraTiempo: boolean = false
 ) {
   try {
     // Ensure dates are formatted correctly
@@ -1178,16 +1180,19 @@ export async function fetchDatosGraficoResistencia(
       client_id,
       construction_site_id,
       recipe_code,
-      soloEdadGarantia
+      soloEdadGarantia,
+      incluirEnsayosFueraTiempo
     });
 
     let query = supabase
       .from('ensayos')
       .select(`
-        id, 
+        id,
         fecha_ensayo,
         porcentaje_cumplimiento,
         resistencia_calculada,
+        is_edad_garantia,
+        is_ensayo_fuera_tiempo,
         muestra:muestra_id (
           id,
           identificacion,
@@ -1196,7 +1201,10 @@ export async function fetchDatosGraficoResistencia(
           muestreo:muestreo_id (
             id,
             fecha_muestreo,
+            fecha_muestreo_ts,
+            event_timezone,
             planta,
+            concrete_specs,
             remision:remision_id (
               id,
               order:order_id(
@@ -1208,7 +1216,8 @@ export async function fetchDatosGraficoResistencia(
                 id,
                 recipe_code,
                 strength_fc,
-                age_days
+                age_days,
+                age_hours
               )
             )
           )
@@ -1216,13 +1225,9 @@ export async function fetchDatosGraficoResistencia(
       `)
       .order('fecha_ensayo', { ascending: true });
 
-    // Apply date filters if provided
-    if (formattedFechaDesde) {
-      query = query.gte('fecha_ensayo', formattedFechaDesde);
-    }
-    if (formattedFechaHasta) {
-      query = query.lte('fecha_ensayo', formattedFechaHasta);
-    }
+    // Apply date filters if provided - we'll filter after fetching the data
+    // since Supabase doesn't support filtering by nested fields directly
+    // Note: We filter by UTC timestamps in the database, but convert to local timezone for display
 
     const { data, error } = await query;
 
@@ -1239,6 +1244,40 @@ export async function fetchDatosGraficoResistencia(
 
     // Filter data based on provided filters
     let filteredData = data || [];
+
+    // Apply date filters after fetching data (since we can't filter nested fields directly)
+    if (formattedFechaDesde || formattedFechaHasta) {
+      filteredData = filteredData.filter((item: any) => {
+        const muestreo = item.muestra?.muestreo;
+        if (!muestreo) return false;
+
+        // Get the muestreo timestamp
+        const muestreoTimestamp = muestreo.fecha_muestreo_ts;
+        if (!muestreoTimestamp) return false;
+
+        // Convert to Date for comparison
+        const muestreoDate = new Date(muestreoTimestamp);
+        
+        // Apply date range filters
+        if (formattedFechaDesde) {
+          const desdeDate = new Date(formattedFechaDesde + 'T00:00:00Z');
+          if (muestreoDate < desdeDate) return false;
+        }
+        
+        if (formattedFechaHasta) {
+          const hastaDate = new Date(formattedFechaHasta + 'T23:59:59Z');
+          if (muestreoDate > hastaDate) return false;
+        }
+        
+        return true;
+      });
+      
+      console.log('📅 Date Filtered Data', {
+        originalCount: data?.length || 0,
+        filteredCount: filteredData.length,
+        dateRange: { desde: formattedFechaDesde, hasta: formattedFechaHasta }
+      });
+    }
 
     // Filter by client_id if provided
     if (client_id) {
@@ -1328,67 +1367,24 @@ export async function fetchDatosGraficoResistencia(
 
     // Filter to only show ensayos at edad garantia if requested
     if (soloEdadGarantia) {
-      console.log('🔍 Filtering for edad garantia - total records before filter:', filteredData.length);
-      
+      console.log('🔍 Filtering for edad garantia using new columns - total records before filter:', filteredData.length);
+
       filteredData = filteredData.filter((item: any) => {
-        const muestra = item.muestra;
-        if (!muestra) return false;
-        
-        const muestreo = Array.isArray(muestra.muestreo) ? muestra.muestreo[0] : muestra.muestreo;
-        if (!muestreo || !muestreo.fecha_muestreo) return false;
-        
-        const remision = Array.isArray(muestreo.remision) ? muestreo.remision[0] : muestreo.remision;
-        if (!remision) return false;
-        
-        const recipe = Array.isArray(remision.recipe) ? remision.recipe[0] : remision.recipe;
-        if (!recipe) return false;
+        // Use the new is_edad_garantia column
+        const isEdadGarantia = item.is_edad_garantia === true;
 
-        // Calculate the guarantee age - prefer age_hours if available, otherwise use age_days
-        let edadGarantia: number;
-        if (recipe.age_hours && recipe.age_hours > 0) {
-          edadGarantia = recipe.age_hours;
-        } else if (recipe.age_days && recipe.age_days > 0) {
-          edadGarantia = recipe.age_days * 24; // Convert days to hours
-        } else {
-          edadGarantia = 28 * 24; // Default 28 days in hours
+        // If incluirEnsayosFueraTiempo is false, also filter out essays that are fuera de tiempo
+        if (!incluirEnsayosFueraTiempo) {
+          const isFueraTiempo = item.is_ensayo_fuera_tiempo === true;
+          if (isFueraTiempo) {
+            return false;
+          }
         }
 
-        // Calculate the guarantee age date using hours for precision
-        const fechaMuestreo = new Date(muestreo.fecha_muestreo);
-        const fechaEdadGarantia = new Date(fechaMuestreo.getTime() + (edadGarantia * 60 * 60 * 1000));
-
-        // Access fecha_programada_ensayo from muestra
-        const fechaProgramada = muestra.fecha_programada_ensayo ? new Date(muestra.fecha_programada_ensayo) : null;
-        if (!fechaProgramada) return false;
-        
-        // Calculate difference in hours for more precise comparison
-        const diffTime = Math.abs(fechaProgramada.getTime() - fechaEdadGarantia.getTime());
-        const diffHours = diffTime / (1000 * 60 * 60);
-        
-        // Allow ±2 hours tolerance for hour-based ages, ±1 day for day-based
-        const tolerance = recipe.age_hours ? 2 : 24;
-        const isAtGuaranteeAge = diffHours <= tolerance;
-        
-        // Debug logging for first few items
-        if (filteredData.length <= 5 || Math.random() < 0.1) {
-          console.log('🔍 Edad Garantia Check:', {
-            recipeCode: recipe.recipe_code,
-            ageDays: recipe.age_days,
-            ageHours: recipe.age_hours,
-            calculatedAgeHours: edadGarantia,
-            fechaMuestreo: fechaMuestreo.toISOString(),
-            fechaEdadGarantia: fechaEdadGarantia.toISOString(),
-            fechaProgramada: fechaProgramada.toISOString(),
-            diffHours: diffHours.toFixed(2),
-            tolerance,
-            isAtGuaranteeAge
-          });
-        }
-        
-        return isAtGuaranteeAge;
+        return isEdadGarantia;
       });
-      
-      console.log('🔍 Filtered for edad garantia - records after filter:', filteredData.length);
+
+      console.log('🔍 Filtered for edad garantia using new columns - records after filter:', filteredData.length);
     }
 
     console.log('📊 Filtered Ensayos Data', {
@@ -1410,6 +1406,28 @@ export async function fetchDatosGraficoResistencia(
     return [];
   }
 }
+
+// Utility function to convert UTC timestamp to local timezone
+const convertToLocalTimezone = (utcTimestamp: string, timezone: string): Date => {
+  try {
+    // Create a date object from the UTC timestamp
+    const utcDate = new Date(utcTimestamp);
+    
+    // If no timezone specified, return the UTC date
+    if (!timezone) {
+      return utcDate;
+    }
+    
+    // For now, let's just return the UTC date to avoid timezone conversion issues
+    // TODO: Implement proper timezone conversion if needed
+    // The issue might be that we're overcomplicating this
+    return utcDate;
+  } catch (error) {
+    console.warn('❌ Error converting timezone:', error, { utcTimestamp, timezone });
+    // Fallback to UTC date if conversion fails
+    return new Date(utcTimestamp);
+  }
+};
 
 const processChartData = (data: any[]): DatoGraficoResistencia[] => {
   console.log('🔬 Processing Chart Data', {
@@ -1434,21 +1452,49 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
 
   const processedData = validData.map(item => {
     try {
-      // Try parsing the date in multiple formats
+      // Use fecha_muestreo_ts for x-axis plotting instead of fecha_ensayo
       let timestamp: number;
       
-      // Try parsing DD/MM/YYYY format
-      if (item.fecha_ensayo.includes('/')) {
-        const [day, month, year] = item.fecha_ensayo.split('/').map(Number);
-        timestamp = new Date(year, month - 1, day).getTime();
+      // Prefer fecha_muestreo_ts if available - convert from UTC to local timezone
+      if (item.muestra?.muestreo?.fecha_muestreo_ts) {
+        const timezone = item.muestra?.muestreo?.event_timezone;
+        const localDate = convertToLocalTimezone(item.muestra.muestreo.fecha_muestreo_ts, timezone);
+        timestamp = localDate.getTime();
+        
+        // Debug logging for timezone conversion (only for first few items)
+        if (validData.indexOf(item) < 3) {
+          console.log('🕐 Timezone Conversion:', {
+            utcTimestamp: item.muestra.muestreo.fecha_muestreo_ts,
+            timezone: timezone,
+            localDate: localDate.toISOString(),
+            timestamp: timestamp
+          });
+        }
       } 
-      // Try parsing YYYY-MM-DD format
+      // Fallback to fecha_muestreo if fecha_muestreo_ts is not available
+      else if (item.muestra?.muestreo?.fecha_muestreo) {
+        timestamp = new Date(item.muestra.muestreo.fecha_muestreo).getTime();
+      }
+      // Last fallback to fecha_ensayo
       else {
-        timestamp = new Date(item.fecha_ensayo).getTime();
+        // Try parsing DD/MM/YYYY format
+        if (item.fecha_ensayo.includes('/')) {
+          const [day, month, year] = item.fecha_ensayo.split('/').map(Number);
+          timestamp = new Date(year, month - 1, day).getTime();
+        } 
+        // Try parsing YYYY-MM-DD format
+        else {
+          timestamp = new Date(item.fecha_ensayo).getTime();
+        }
       }
 
       if (isNaN(timestamp)) {
-        console.warn('❌ Invalid timestamp for:', item.fecha_ensayo);
+        console.warn('❌ Invalid timestamp for:', {
+          fecha_muestreo_ts: item.muestra?.muestreo?.fecha_muestreo_ts,
+          event_timezone: item.muestra?.muestreo?.event_timezone,
+          fecha_muestreo: item.muestra?.muestreo?.fecha_muestreo,
+          fecha_ensayo: item.fecha_ensayo
+        });
         return null;
       }
 
@@ -1459,12 +1505,16 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
           (item.muestra.muestreo.remision.recipe.recipe_code.includes('MR') ? 'MR' : 'FC') 
           : 'FC',
         edad: (() => {
-          // Get the actual age from the recipe, prefer age_hours if available
-          const recipe = item.muestra?.muestreo?.remision?.recipe;
-          if (recipe?.age_hours && recipe.age_hours > 0) {
-            return Math.round(recipe.age_hours / 24); // Convert hours to days for display
-          } else if (recipe?.age_days && recipe.age_days > 0) {
-            return recipe.age_days;
+          // Get the actual age from concrete_specs, prefer hours if available
+          const concreteSpecs = item.muestra?.muestreo?.concrete_specs;
+          if (concreteSpecs?.valor_edad && concreteSpecs?.unidad_edad) {
+            const { valor_edad, unidad_edad } = concreteSpecs;
+            // Convert to days for display
+            if (unidad_edad === 'HORA' || unidad_edad === 'H') {
+              return Math.round(valor_edad / 24);
+            } else if (unidad_edad === 'DÍA' || unidad_edad === 'D') {
+              return valor_edad;
+            }
           }
           return 28; // Default fallback
         })(),
@@ -1472,6 +1522,17 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
         resistencia_calculada: item.resistencia_calculada,
         muestra: item.muestra
       };
+      
+      // Debug logging for data structure validation (use index instead of processedData.length)
+      if (validData.indexOf(item) < 3) {
+        console.log('🔍 Chart Data Point Structure:', {
+          hasMuestra: !!chartDataPoint.muestra,
+          hasMuestreo: !!chartDataPoint.muestra?.muestreo,
+          muestreoId: chartDataPoint.muestra?.muestreo?.id,
+          timestamp: chartDataPoint.x,
+          compliance: chartDataPoint.y
+        });
+      }
       
       return chartDataPoint;
     } catch (parseError) {

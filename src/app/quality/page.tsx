@@ -77,6 +77,23 @@ export default function QualityDashboardPage() {
   });
   const [datosGrafico, setDatosGrafico] = useState<DatoGraficoResistencia[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Helper function to retry RPC calls with exponential backoff
+  const retryRpcCall = async (rpcCall: () => Promise<any>, maxRetries = 3): Promise<any> => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await rpcCall();
+        return result;
+      } catch (error) {
+        console.warn(`RPC attempt ${attempt} failed:`, error);
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        // Exponential backoff: 100ms, 200ms, 400ms
+        await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, attempt - 1)));
+      }
+    }
+  };
   const [error, setError] = useState<string | null>(null);
   // Add state for selected point
   const [selectedPoint, setSelectedPoint] = useState<DatoGraficoResistencia | null>(null);
@@ -89,6 +106,7 @@ export default function QualityDashboardPage() {
   const [selectedConstructionSite, setSelectedConstructionSite] = useState<string>('all');
   const [selectedRecipe, setSelectedRecipe] = useState<string>('all');
   const [soloEdadGarantia, setSoloEdadGarantia] = useState<boolean>(true);
+  const [incluirEnsayosFueraTiempo, setIncluirEnsayosFueraTiempo] = useState<boolean>(false);
   // Inline filter popovers
   const [openClient, setOpenClient] = useState(false);
   const [openSite, setOpenSite] = useState(false);
@@ -140,12 +158,25 @@ export default function QualityDashboardPage() {
 
         // Use Array.from to avoid TypeScript iteration issues
         const muestreosArray = Array.from(uniqueMuestreos.entries());
-        for (const [muestreoId, muestreo] of muestreosArray) {
+        
+        // Process muestreos in batches to avoid overwhelming the server
+        const batchSize = 5;
+        for (let i = 0; i < muestreosArray.length; i += batchSize) {
+          const batch = muestreosArray.slice(i, i + batchSize);
+          
+          for (const [muestreoId, muestreo] of batch) {
           try {
-            const { data: metricasRPC } = await supabase
-              .rpc('calcular_metricas_muestreo', {
-                p_muestreo_id: muestreoId
-              });
+            const { data: metricasRPC, error } = await retryRpcCall(async () => {
+              return await supabase
+                .rpc('calcular_metricas_muestreo', {
+                  p_muestreo_id: muestreoId
+                });
+            });
+            
+            if (error) {
+              console.warn(`RPC error for muestreo ${muestreoId}:`, error);
+              continue;
+            }
             
             if (metricasRPC && metricasRPC.length > 0) {
               const metricas = metricasRPC[0];
@@ -161,8 +192,16 @@ export default function QualityDashboardPage() {
               }
             }
           } catch (err) {
-            // Silently continue if RPC fails for this muestreo
-            console.debug(`Failed to get metrics for muestreo ${muestreoId}:`, err);
+            // Log connection errors more prominently
+            console.error(`Connection error for muestreo ${muestreoId}:`, err);
+            // Add a small delay to avoid overwhelming the server
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          }
+          
+          // Add a delay between batches
+          if (i + batchSize < muestreosArray.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
           }
         }
 
@@ -637,13 +676,14 @@ export default function QualityDashboardPage() {
       const ageSet = new Set<number>();
       
       filteredData.forEach((item: any) => {
-        const recipe = item.muestra?.muestreo?.remision?.recipe;
-        if (recipe) {
+        const concreteSpecs = item.muestra?.muestreo?.concrete_specs;
+        if (concreteSpecs?.valor_edad && concreteSpecs?.unidad_edad) {
           let ageInDays: number;
-          if (recipe.age_hours && recipe.age_hours > 0) {
-            ageInDays = Math.round(recipe.age_hours / 24);
-          } else if (recipe.age_days && recipe.age_days > 0) {
-            ageInDays = recipe.age_days;
+          const { valor_edad, unidad_edad } = concreteSpecs;
+          if (unidad_edad === 'HORA' || unidad_edad === 'H') {
+            ageInDays = Math.round(valor_edad / 24);
+          } else if (unidad_edad === 'DÍA' || unidad_edad === 'D') {
+            ageInDays = valor_edad;
           } else {
             ageInDays = item.edad || 28; // Fallback to existing edad or default
           }
@@ -765,19 +805,20 @@ export default function QualityDashboardPage() {
     // Age filter
     if (selectedAge && selectedAge !== 'all') {
       filtered = filtered.filter((d) => {
-        const recipe = d?.muestra?.muestreo?.remision?.recipe;
-        if (!recipe) return false;
-        
+        const concreteSpecs = d?.muestra?.muestreo?.concrete_specs;
+        if (!concreteSpecs?.valor_edad || !concreteSpecs?.unidad_edad) return false;
+
         // Calculate age in days for comparison
         let ageInDays: number;
-        if (recipe.age_hours && recipe.age_hours > 0) {
-          ageInDays = Math.round(recipe.age_hours / 24);
-        } else if (recipe.age_days && recipe.age_days > 0) {
-          ageInDays = recipe.age_days;
+        const { valor_edad, unidad_edad } = concreteSpecs;
+        if (unidad_edad === 'HORA' || unidad_edad === 'H') {
+          ageInDays = Math.round(valor_edad / 24);
+        } else if (unidad_edad === 'DÍA' || unidad_edad === 'D') {
+          ageInDays = valor_edad;
         } else {
           ageInDays = d.edad || 28; // Fallback to existing edad or default
         }
-        
+
         return ageInDays.toString() === selectedAge;
       });
     }
@@ -822,13 +863,17 @@ export default function QualityDashboardPage() {
         const xs = items.map((i) => i.x).sort((a, b) => a - b);
         const xAvg = Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
 
-        // Calculate the actual age from recipe data
+        // Calculate the actual age from concrete_specs data
         const calculatedAge = (() => {
-          const recipe = items[0]?.muestra?.muestreo?.remision?.recipe;
-          if (recipe?.age_hours && recipe.age_hours > 0) {
-            return Math.round(recipe.age_hours / 24); // Convert hours to days for display
-          } else if (recipe?.age_days && recipe.age_days > 0) {
-            return recipe.age_days;
+          const concreteSpecs = items[0]?.muestra?.muestreo?.concrete_specs;
+          if (concreteSpecs?.valor_edad && concreteSpecs?.unidad_edad) {
+            const { valor_edad, unidad_edad } = concreteSpecs;
+            // Convert to days for display
+            if (unidad_edad === 'HORA' || unidad_edad === 'H') {
+              return Math.round(valor_edad / 24);
+            } else if (unidad_edad === 'DÍA' || unidad_edad === 'D') {
+              return valor_edad;
+            }
           }
           return items[0].edad || 28; // Use existing age or default
         })();
@@ -840,9 +885,11 @@ export default function QualityDashboardPage() {
             originalCount: items.length,
             originalAges: items.map(i => i.edad),
             calculatedAge,
+            concreteSpecs: items[0]?.muestra?.muestreo?.concrete_specs,
             recipeCode: items[0]?.muestra?.muestreo?.remision?.recipe?.recipe_code,
-            ageHours: items[0]?.muestra?.muestreo?.remision?.recipe?.age_hours,
-            ageDays: items[0]?.muestra?.muestreo?.remision?.recipe?.age_days
+            // Add logging for new columns
+            isEdadGarantiaValues: items.map(i => (i as any)?.muestra?.is_edad_garantia),
+            isEnsayoFueraTiempoValues: items.map(i => (i as any)?.muestra?.is_ensayo_fuera_tiempo)
           });
         }
 
@@ -903,12 +950,24 @@ export default function QualityDashboardPage() {
               if (muestreosData && muestreosData.length > 0) {
                 // Get metrics for each muestreo
                 const metricsPromises = muestreosData.map(async (muestreo) => {
-                  const { data: metricasRPC } = await supabase
-                    .rpc('calcular_metricas_muestreo', {
-                      p_muestreo_id: muestreo.id
+                  try {
+                    const { data: metricasRPC, error } = await retryRpcCall(async () => {
+                      return await supabase
+                        .rpc('calcular_metricas_muestreo', {
+                          p_muestreo_id: muestreo.id
+                        });
                     });
-                  
-                  return metricasRPC && metricasRPC.length > 0 ? metricasRPC[0] : null;
+                    
+                    if (error) {
+                      console.warn(`RPC error for muestreo ${muestreo.id}:`, error);
+                      return null;
+                    }
+                    
+                    return metricasRPC && metricasRPC.length > 0 ? metricasRPC[0] : null;
+                  } catch (err) {
+                    console.error(`Connection error for muestreo ${muestreo.id}:`, err);
+                    return null;
+                  }
                 });
                 
                 const results = (await Promise.all(metricsPromises)).filter(Boolean);
@@ -1032,12 +1091,13 @@ export default function QualityDashboardPage() {
         
         // Get graph data with filters
         const graficosDataRaw = await fetchDatosGraficoResistencia(
-          fromDate, 
-          toDate, 
-          selectedClient === 'all' ? undefined : selectedClient, 
-          selectedConstructionSite === 'all' ? undefined : selectedConstructionSite, 
-          selectedRecipe === 'all' ? undefined : selectedRecipe, 
-          soloEdadGarantia
+          fromDate,
+          toDate,
+          selectedClient === 'all' ? undefined : selectedClient,
+          selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
+          selectedRecipe === 'all' ? undefined : selectedRecipe,
+          soloEdadGarantia,
+          incluirEnsayosFueraTiempo
         );
         
         console.log('🌟 Received Graph Data Raw:', {
@@ -1067,7 +1127,7 @@ export default function QualityDashboardPage() {
     };
     
     loadDashboardData();
-  }, [dateRange, selectedClient, selectedConstructionSite, selectedRecipe, soloEdadGarantia]);
+  }, [dateRange, selectedClient, selectedConstructionSite, selectedRecipe, soloEdadGarantia, incluirEnsayosFueraTiempo]);
 
   const handleDateRangeChange = (range: DateRange | undefined) => {
     if (range?.from && range?.to) {
@@ -1217,6 +1277,7 @@ export default function QualityDashboardPage() {
       x: item.x,
       y: item.y,
       fecha_muestreo: formattedDate,
+      fecha_ensayo: item.fecha_ensayo,
       cumplimiento: `${item.y.toFixed(2)}%`,
       resistencia_real: resistencia,
       resistencia_esperada: strengthFc,
@@ -1273,11 +1334,13 @@ export default function QualityDashboardPage() {
   const formatTooltipContent = (params: any) => {
     if (!params || !params.datum) return '';
     
-    const date = params.datum.fecha_muestreo || format(new Date(params.datum.x), 'dd/MM/yyyy');
+    const muestreoDate = params.datum.fecha_muestreo || format(new Date(params.datum.x), 'dd/MM/yyyy');
+    const ensayoDate = params.datum.fecha_ensayo || 'N/A';
     const compliance = params.datum.cumplimiento || `${params.datum.y.toFixed(2)}%`;
     
     return `<div style="padding: 2px">
-      <div><b>Fecha:</b> ${date}</div>
+      <div><b>Fecha Muestreo:</b> ${muestreoDate}</div>
+      <div><b>Fecha Ensayo:</b> ${ensayoDate}</div>
       <div><b>Cumplimiento:</b> ${compliance}</div>
     </div>`;
   };
@@ -1322,7 +1385,7 @@ export default function QualityDashboardPage() {
         
         {/* Date Range Picker */}
         <div className="flex items-center gap-3 mb-4">
-          <span className="text-sm font-medium text-gray-700">Período:</span>
+          <span className="text-sm font-medium text-gray-700">Período (Fecha de Muestreo):</span>
           <DatePickerWithRange
             value={dateRange}
             onChange={handleDateRangeChange}
@@ -1618,6 +1681,21 @@ export default function QualityDashboardPage() {
               </div>
             </div>
 
+            {/* Outside Time Essays Toggle */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-gray-700">Incluir Ensayos Fuera de Tiempo</Label>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="outside-time-essays"
+                  checked={incluirEnsayosFueraTiempo}
+                  onCheckedChange={setIncluirEnsayosFueraTiempo}
+                />
+                <Label htmlFor="outside-time-essays" className="text-sm">
+                  {incluirEnsayosFueraTiempo ? 'Incluidos' : 'Excluidos'}
+                </Label>
+              </div>
+            </div>
+
             {/* Reset Button */}
             <div className="space-y-2">
               <Label className="text-sm font-medium text-gray-700">&nbsp;</Label>
@@ -1633,7 +1711,8 @@ export default function QualityDashboardPage() {
                   setSelectedSpecimenType('all');
                   setSelectedStrengthRange('all');
                   setSelectedAge('all');
-                  setSoloEdadGarantia(false);
+                  setSoloEdadGarantia(true); // Default to true for guarantee age
+                  setIncluirEnsayosFueraTiempo(false); // Default to false for outside time
                 }}
                 className="w-full"
               >
@@ -1645,9 +1724,9 @@ export default function QualityDashboardPage() {
       </Card>
 
       {/* Active Filters Display */}
-      {(selectedClient !== 'all' || selectedConstructionSite !== 'all' || selectedRecipe !== 'all' || 
-        selectedPlant !== 'all' || selectedClasificacion !== 'all' || selectedSpecimenType !== 'all' || 
-        selectedStrengthRange !== 'all' || selectedAge !== 'all' || soloEdadGarantia) && (
+      {(selectedClient !== 'all' || selectedConstructionSite !== 'all' || selectedRecipe !== 'all' ||
+        selectedPlant !== 'all' || selectedClasificacion !== 'all' || selectedSpecimenType !== 'all' ||
+        selectedStrengthRange !== 'all' || selectedAge !== 'all' || soloEdadGarantia || incluirEnsayosFueraTiempo) && (
         <div className="mb-6 flex flex-wrap gap-2">
           {selectedClient !== 'all' && (
             <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
@@ -1723,9 +1802,21 @@ export default function QualityDashboardPage() {
           {soloEdadGarantia && (
             <div className="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
               <span>Solo edad garantía</span>
-              <button 
+              <button
                 className="hover:bg-amber-100 rounded-full p-1"
                 onClick={() => setSoloEdadGarantia(false)}
+              >
+                ×
+              </button>
+            </div>
+          )}
+
+          {incluirEnsayosFueraTiempo && (
+            <div className="bg-orange-50 text-orange-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+              <span>Incluye ensayos fuera de tiempo</span>
+              <button
+                className="hover:bg-orange-100 rounded-full p-1"
+                onClick={() => setIncluirEnsayosFueraTiempo(false)}
               >
                 ×
               </button>
@@ -1938,7 +2029,7 @@ export default function QualityDashboardPage() {
               <Card className="bg-white/70 backdrop-blur-xl border border-slate-200/60 shadow-[0_8px_24px_rgba(2,6,23,0.06)] rounded-2xl">
                 <CardHeader className="pb-1">
                   <div className="flex items-end justify-between">
-                    <CardTitle className="text-base md:text-lg font-medium text-slate-800">Cumplimiento de Resistencia</CardTitle>
+                    <CardTitle className="text-base md:text-lg font-medium text-slate-800">Cumplimiento de Resistencia por Fecha de Muestreo</CardTitle>
                     <div className="text-xs text-slate-500">Puntos: {preparedData.length}</div>
                   </div>
                   
@@ -1946,7 +2037,7 @@ export default function QualityDashboardPage() {
                   {soloEdadGarantia && preparedData.length > 0 && (
                     <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
                       <div className="text-xs text-blue-700">
-                        <strong>Edad Garantía:</strong> Mostrando solo ensayos realizados en la edad de garantía especificada en la receta.
+                        <strong>Edad Garantía:</strong> Mostrando solo ensayos realizados en la edad de garantía especificada en la receta. Los puntos se grafican por fecha de muestreo.
                         {(() => {
                           const ages = Array.from(new Set(preparedData.map(d => d.edad))).sort((a, b) => a - b);
                           if (ages.length > 0) {
@@ -1998,6 +2089,13 @@ export default function QualityDashboardPage() {
                               const series = chartSeries.find(s => s.id === itemData.seriesId);
                               if (series && series.data[itemData.dataIndex]) {
                                 const datum = series.data[itemData.dataIndex];
+                                console.log('🔍 Point clicked:', {
+                                  datum: datum,
+                                  original_data: datum?.original_data,
+                                  hasMuestra: !!datum?.original_data?.muestra,
+                                  hasMuestreo: !!datum?.original_data?.muestra?.muestreo,
+                                  muestreoId: datum?.original_data?.muestra?.muestreo?.id
+                                });
                                 setSelectedPoint(datum?.original_data || null);
                               }
                             }
