@@ -505,7 +505,7 @@ export class ArkikOrderMatcher {
   private calculateAveragePrice(remisiones: StagingRemision[]): number {
     const validPrices = remisiones
       .map(r => r.unit_price)
-      .filter((price): price is number => price != null && price > 0);
+      .filter((price): price is number => price != null && (price > 0 || remisiones.find(r => r.unit_price === price)?.quote_detail_id));
 
     if (validPrices.length === 0) return 0;
 

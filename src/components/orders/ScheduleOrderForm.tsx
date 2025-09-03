@@ -7,6 +7,7 @@ import { clientService } from '@/lib/supabase/clients';
 import { supabase } from '@/lib/supabase';
 import orderService from '@/services/orderService';
 import { EmptyTruckDetails, PumpServiceDetails } from '@/types/orders';
+import { usePlantContext } from '@/contexts/PlantContext';
 
 interface Client {
   id: string;
@@ -56,6 +57,7 @@ export default function ScheduleOrderForm({
   onOrderCreated 
 }: ScheduleOrderFormProps) {
   const router = useRouter();
+  const { currentPlant } = usePlantContext();
   const tomorrow = addDays(new Date(), 1);
   
   // Step tracking
@@ -105,6 +107,12 @@ export default function ScheduleOrderForm({
   const [hasPumpService, setHasPumpService] = useState<boolean>(false);
   const [pumpVolume, setPumpVolume] = useState<number>(0);
   const [pumpPrice, setPumpPrice] = useState<number | null>(null);
+  
+  // Service type detection
+  const [hasConcreteProducts, setHasConcreteProducts] = useState<boolean>(false);
+  const [hasStandalonePumping, setHasStandalonePumping] = useState<boolean>(false);
+  const [standalonePumpingProducts, setStandalonePumpingProducts] = useState<Product[]>([]);
+  const [orderType, setOrderType] = useState<'concrete' | 'pumping' | 'both'>('concrete');
   
   // Empty truck details
   const [hasEmptyTruckCharge, setHasEmptyTruckCharge] = useState<boolean>(false);
@@ -201,7 +209,7 @@ export default function ScheduleOrderForm({
           console.log('Detected problematic client ID - applying special handling');
         }
         
-        // 1. Find the active product price for this client and site
+        // 1. Find the active product prices for this client and site (recipe-based only)
         const { data: activePrices, error: activePriceError } = await supabase
           .from('product_prices')
           .select('quote_id, id, is_active, updated_at, recipe_id')
@@ -238,9 +246,57 @@ export default function ScheduleOrderForm({
           return;
         }
         
-        // Get unique quote IDs from truly active prices
-        const uniqueQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
-        console.log('Unique quote IDs from active prices:', uniqueQuoteIds);
+        // 1.5. Also fetch standalone pumping service quotes directly from quote_details
+        const { data: standalonePumpingQuotes, error: standalonePumpingError } = await supabase
+          .from('quote_details')
+          .select(`
+            id,
+            quote_id,
+            product_id,
+            volume,
+            final_price,
+            pump_service,
+            quotes!inner(
+              id,
+              quote_number,
+              client_id,
+              construction_site,
+              status
+            ),
+            product_prices:product_id(
+              id,
+              code,
+              description,
+              type
+            )
+          `)
+          .eq('quotes.client_id', selectedClientId)
+          .eq('quotes.construction_site', selectedConstructionSite.name)
+          .eq('quotes.status', 'APPROVED')
+          .eq('pump_service', true)
+          .not('product_id', 'is', null)
+          .is('recipe_id', null);
+          
+        if (standalonePumpingError) {
+          console.error("Error fetching standalone pumping quotes:", standalonePumpingError);
+          throw standalonePumpingError;
+        }
+        
+        console.log('Standalone pumping service quotes:', standalonePumpingQuotes);
+        
+        // Create a set of standalone pumping service quote IDs
+        const standalonePumpingQuoteIds = new Set(
+          standalonePumpingQuotes?.map(quote => quote.quote_id) || []
+        );
+        console.log('Standalone pumping quote IDs:', Array.from(standalonePumpingQuoteIds));
+        
+        // Get unique quote IDs from both active prices and standalone pumping quotes
+        const recipeBasedQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
+        const standalonePumpingQuoteIdsArray = Array.from(standalonePumpingQuoteIds);
+        const uniqueQuoteIds = Array.from(new Set([...recipeBasedQuoteIds, ...standalonePumpingQuoteIdsArray]));
+        console.log('Unique quote IDs from active prices:', recipeBasedQuoteIds);
+        console.log('Standalone pumping quote IDs:', standalonePumpingQuoteIdsArray);
+        console.log('All unique quote IDs:', uniqueQuoteIds);
         
         // Create a set of active quote-recipe combinations
         // This ensures we only display recipes that are active for a specific quote
@@ -264,6 +320,7 @@ export default function ScheduleOrderForm({
               pump_service,
               pump_price,
               recipe_id,
+              product_id,
               recipes:recipe_id(
                 recipe_code,
                 strength_fc,
@@ -271,6 +328,12 @@ export default function ScheduleOrderForm({
                 max_aggregate_size,
                 age_days,
                 slump
+              ),
+              product_prices:product_id(
+                id,
+                code,
+                description,
+                type
               )
             )
           `)
@@ -294,11 +357,14 @@ export default function ScheduleOrderForm({
         
         // 3. Format the quotes for the form, filtering out quote details that don't have active prices
         const formattedQuotes: Quote[] = quotesData.map(quoteData => {
-          // Filter quote details to only include those with active quote-recipe combinations
-          const activeDetails = quoteData.quote_details.filter((detail: any) => 
+          // Filter quote details to include both active recipe-based and standalone pumping service combinations
+          const activeDetails = quoteData.quote_details.filter((detail: any) => {
             // Check if this specific quote-recipe combination is in our active set
-            activeQuoteRecipeCombos.has(`${quoteData.id}:${detail.recipe_id}`)
-          );
+            const hasActiveRecipe = detail.recipe_id && activeQuoteRecipeCombos.has(`${quoteData.id}:${detail.recipe_id}`);
+            // Check if this is a standalone pumping service quote
+            const isStandalonePumping = standalonePumpingQuoteIds.has(quoteData.id) && detail.product_id && !detail.recipe_id && detail.pump_service;
+            return hasActiveRecipe || isStandalonePumping;
+          });
           
           console.log(`Quote ${quoteData.quote_number}: filtered ${quoteData.quote_details.length} details to ${activeDetails.length} active details`);
           
@@ -307,29 +373,75 @@ export default function ScheduleOrderForm({
             quoteNumber: quoteData.quote_number,
             totalAmount: 0, // Will be calculated below
             products: activeDetails.map((detail: any) => {
-              const recipeData = detail.recipes as {
-                recipe_code?: string;
-                strength_fc?: number;
-                placement_type?: string;
-                max_aggregate_size?: number;
-                age_days?: number;
-                slump?: number;
-              };
+              // Handle recipe-based quote details (concrete products)
+              if (detail.recipe_id && detail.recipes) {
+                const recipeData = detail.recipes as {
+                  recipe_code?: string;
+                  strength_fc?: number;
+                  placement_type?: string;
+                  max_aggregate_size?: number;
+                  age_days?: number;
+                  slump?: number;
+                };
+                return {
+                  id: recipeData?.recipe_code || 'Unknown',
+                  quoteDetailId: detail.id,
+                  recipeCode: recipeData?.recipe_code || 'Unknown',
+                  strength: recipeData?.strength_fc || 0,
+                  placementType: recipeData?.placement_type || '',
+                  maxAggregateSize: recipeData?.max_aggregate_size || 0,
+                  volume: detail.volume,
+                  unitPrice: detail.final_price,
+                  pumpService: detail.pump_service,
+                  pumpPrice: detail.pump_price,
+                  scheduledVolume: 0, // Initialize scheduled volume
+                  pumpVolume: 0,      // Initialize pump volume
+                  ageDays: recipeData?.age_days || 0,
+                  slump: recipeData?.slump || 0
+                };
+              }
+              
+              // Handle product-based quote details (standalone pumping services)
+              else if (detail.product_id && detail.product_prices) {
+                const productData = detail.product_prices as {
+                  code?: string;
+                  description?: string;
+                  type?: string;
+                };
+                return {
+                  id: productData?.code || 'PUMP-SERVICE',
+                  quoteDetailId: detail.id,
+                  recipeCode: productData?.code || 'PUMP-SERVICE',
+                  strength: 0, // No strength for pumping services
+                  placementType: 'BOMBEO',
+                  maxAggregateSize: 0, // No aggregate for pumping services
+                  volume: detail.volume,
+                  unitPrice: detail.final_price,
+                  pumpService: true, // This is a pumping service
+                  pumpPrice: detail.final_price, // Use final_price as pump price
+                  scheduledVolume: 0, // Initialize scheduled volume
+                  pumpVolume: detail.volume, // Initialize pump volume with full volume
+                  ageDays: 0, // No age for pumping services
+                  slump: 0 // No slump for pumping services
+                };
+              }
+              
+              // Fallback for unexpected data
               return {
-                id: recipeData?.recipe_code || 'Unknown',
+                id: 'Unknown',
                 quoteDetailId: detail.id,
-                recipeCode: recipeData?.recipe_code || 'Unknown',
-                strength: recipeData?.strength_fc || 0,
-                placementType: recipeData?.placement_type || '',
-                maxAggregateSize: recipeData?.max_aggregate_size || 0,
+                recipeCode: 'Unknown',
+                strength: 0,
+                placementType: '',
+                maxAggregateSize: 0,
                 volume: detail.volume,
                 unitPrice: detail.final_price,
-                pumpService: detail.pump_service,
+                pumpService: detail.pump_service || false,
                 pumpPrice: detail.pump_price,
-                scheduledVolume: 0, // Initialize scheduled volume
-                pumpVolume: 0,      // Initialize pump volume
-                ageDays: recipeData?.age_days || 0,
-                slump: recipeData?.slump || 0
+                scheduledVolume: 0,
+                pumpVolume: 0,
+                ageDays: 0,
+                slump: 0
               };
             })
           };
@@ -350,16 +462,49 @@ export default function ScheduleOrderForm({
         setAvailableQuotes(nonEmptyQuotes);
         console.log('Set available quotes:', nonEmptyQuotes);
         
-        // If preSelectedQuoteId matches any of the quotes, auto-select products
+        // Detect service types available
+        const allProducts = nonEmptyQuotes.flatMap(quote => quote.products);
+        const concreteProducts = allProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0);
+        const pumpingProducts = allProducts.filter(p => p.placementType === 'BOMBEO' && p.pumpService);
+        
+        // Remove pumping services from the main product list - they should never appear as individual products
+        const filteredProducts = allProducts.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
+        
+        setHasConcreteProducts(concreteProducts.length > 0);
+        setHasStandalonePumping(pumpingProducts.length > 0);
+        setStandalonePumpingProducts(pumpingProducts);
+        
+        // Determine order type based on available services
+        if (concreteProducts.length > 0 && pumpingProducts.length > 0) {
+          setOrderType('both');
+        } else if (pumpingProducts.length > 0) {
+          setOrderType('pumping');
+        } else {
+          setOrderType('concrete');
+        }
+        
+        console.log('Service type detection:', {
+          hasConcreteProducts: concreteProducts.length > 0,
+          hasStandalonePumping: pumpingProducts.length > 0,
+          orderType: concreteProducts.length > 0 && pumpingProducts.length > 0 ? 'both' : pumpingProducts.length > 0 ? 'pumping' : 'concrete',
+          concreteCount: concreteProducts.length,
+          pumpingCount: pumpingProducts.length,
+          allProducts: allProducts.map(p => ({ code: p.recipeCode, type: p.placementType, pumpService: p.pumpService }))
+        });
+        
+        // If preSelectedQuoteId matches any of the quotes, auto-select products (excluding pumping services)
         if (preSelectedQuoteId) {
           const selectedQuote = nonEmptyQuotes.find(quote => quote.id === preSelectedQuoteId);
           if (selectedQuote) {
-            setSelectedProducts(selectedQuote.products.map(p => ({
+            // Only auto-select concrete products, never pumping services
+            const concreteProductsFromQuote = selectedQuote.products.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
+            const autoSelectedProducts = concreteProductsFromQuote.map(p => ({
               ...p,
               scheduledVolume: p.volume,
               pumpVolume: p.pumpService ? p.volume : 0
-            })));
-            console.log('Auto-selected products for preSelectedQuoteId:', preSelectedQuoteId);
+            }));
+            setSelectedProducts(autoSelectedProducts);
+            console.log('Auto-selected concrete products for preSelectedQuoteId:', preSelectedQuoteId, autoSelectedProducts);
           }
         }
       } catch (err) {
@@ -438,6 +583,22 @@ export default function ScheduleOrderForm({
     loadPumpServicePricing();
   }, [selectedClientId, selectedConstructionSite?.name]);
   
+  // Auto-activate pump service when in pumping-only mode
+  useEffect(() => {
+    if (orderType === 'pumping' && pumpPrice !== null) {
+      setHasPumpService(true);
+      // Set default pump volume if not set
+      if (pumpVolume === 0 && standalonePumpingProducts.length > 0) {
+        const defaultVolume = standalonePumpingProducts[0].volume;
+        setPumpVolume(defaultVolume);
+      }
+    } else if (orderType === 'concrete') {
+      // Reset pump service when switching back to concrete mode
+      setHasPumpService(false);
+      setPumpVolume(0);
+    }
+  }, [orderType, pumpPrice, pumpVolume, standalonePumpingProducts]);
+  
   // Filter clients based on search query (null-safe)
   const filteredClients = clients.filter(client => {
     const name = (client.business_name || '').toLowerCase();
@@ -472,6 +633,12 @@ export default function ScheduleOrderForm({
   
   // Handle product selection
   const handleProductSelect = (product: Product, checked: boolean) => {
+    // Never allow selection of pumping services - they are handled as global services
+    if (product.placementType === 'BOMBEO' && product.pumpService) {
+      console.warn('Pumping services cannot be selected as individual products');
+      return;
+    }
+    
     if (checked) {
       setSelectedProducts(prev => [
         ...prev, 
@@ -531,6 +698,9 @@ export default function ScheduleOrderForm({
       }))
     );
     
+    // Always exclude pumping services from the product list - they are handled separately as global services
+    allProducts = allProducts.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
+    
     // Apply strength filter if selected
     if (strengthFilter !== '') {
       allProducts = allProducts.filter(p => p.strength === strengthFilter);
@@ -563,8 +733,15 @@ export default function ScheduleOrderForm({
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (selectedProducts.length === 0) {
+    // Only require selected products when NOT in pumping-only mode
+    if (selectedProducts.length === 0 && orderType !== 'pumping') {
       setError('Debe seleccionar al menos un producto para crear la orden');
+      return;
+    }
+    
+    // For pumping-only mode, require pump service to be active
+    if (orderType === 'pumping' && !hasPumpService) {
+      setError('El servicio de bombeo debe estar activo para crear una orden de solo bombeo');
       return;
     }
 
@@ -573,14 +750,29 @@ export default function ScheduleOrderForm({
       return;
     }
     
+    if (!currentPlant?.id) {
+      setError('No se pudo determinar la planta. Por favor, asegúrese de estar en el contexto correcto.');
+      return;
+    }
+    
     try {
       setIsSubmitting(true);
       setError(null);
       
-      // Get the quote ID (assuming all products come from the same quote)
-      const quoteId = availableQuotes.find(q => 
-        q.products.some(p => p.quoteDetailId === selectedProducts[0].quoteDetailId)
-      )?.id;
+      // Get the quote ID
+      let quoteId: string | undefined;
+      
+      if (orderType === 'pumping') {
+        // For pumping-only mode, get quote from standalone pumping products
+        quoteId = availableQuotes.find(q => 
+          q.products.some(p => p.placementType === 'BOMBEO' && p.pumpService)
+        )?.id;
+      } else {
+        // For normal mode, get quote from selected products
+        quoteId = availableQuotes.find(q => 
+          q.products.some(p => p.quoteDetailId === selectedProducts[0].quoteDetailId)
+        )?.id;
+      }
       
       if (!quoteId) {
         throw new Error('No se pudo determinar la cotización');
@@ -592,12 +784,16 @@ export default function ScheduleOrderForm({
         throw new Error('No se pudo determinar el sitio de construcción');
       }
       
+      // Check if this is a standalone pumping service order
+      const isStandalonePumpingOrder = orderType === 'pumping';
+      
       // Prepare order data
       const orderData = {
         quote_id: quoteId,
         client_id: selectedClientId,
         construction_site: selectedSite.name,
         construction_site_id: selectedConstructionSiteId,
+        plant_id: currentPlant?.id,
         delivery_date: deliveryDate,
         delivery_time: deliveryTime,
         requires_invoice: requiresInvoice,
@@ -605,16 +801,21 @@ export default function ScheduleOrderForm({
         total_amount: calculateTotalAmount(),
         order_status: 'created',
         credit_status: 'pending',
-        // Add selected products with volumes (no more pump_volume on individual items)
-        order_items: selectedProducts.map(p => ({
-          quote_detail_id: p.quoteDetailId,
-          volume: p.scheduledVolume
-        }))
+        // Add selected products with volumes
+        order_items: orderType === 'pumping' 
+          ? standalonePumpingProducts.map(p => ({
+              quote_detail_id: p.quoteDetailId,
+              volume: pumpVolume // Use the pump volume from the form
+            }))
+          : selectedProducts.map(p => ({
+              quote_detail_id: p.quoteDetailId,
+              volume: p.scheduledVolume
+            }))
       };
       
-      // Prepare pump service data separately (new approach)
+      // Prepare pump service data separately (only for traditional concrete orders with pump service)
       let pumpServiceData: PumpServiceDetails | null = null;
-      if (hasPumpService && pumpVolume > 0 && pumpPrice !== null) {
+      if (hasPumpService && pumpVolume > 0 && pumpPrice !== null && orderType !== 'pumping') {
         pumpServiceData = {
           volume: pumpVolume,
           unit_price: pumpPrice,
@@ -831,8 +1032,41 @@ export default function ScheduleOrderForm({
             </p>
           </div>
 
+          {/* Pumping-Only Toggle - Show when client has both concrete and pumping services */}
+          {hasConcreteProducts && hasStandalonePumping && (
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-base font-bold text-gray-800">Solo Bombeo</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Crear una orden únicamente de servicio de bombeo
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={orderType === 'pumping'}
+                    onChange={(e) => {
+                      setOrderType(e.target.checked ? 'pumping' : 'concrete');
+                      setSelectedProducts([]); // Clear selection when switching
+                      // Reset pump service when switching back to concrete mode
+                      if (!e.target.checked) {
+                        setHasPumpService(false);
+                        setPumpVolume(0);
+                      }
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                </label>
+              </div>
+            </div>
+          )}
+
+
+
           {/* Product filtering options */}
-          {availableQuotes.length > 0 && (
+          {availableQuotes.length > 0 && orderType !== 'pumping' && (
             <div className="space-y-3 mb-4">
               <h4 className="font-medium text-gray-700">Filtrar productos</h4>
               
@@ -925,8 +1159,11 @@ export default function ScheduleOrderForm({
           )}
 
           {/* Product selection table - redesigned for better readability and mobile responsiveness */}
-          {/* Desktop Table */}
-          <div className="hidden sm:block overflow-x-auto">
+          {/* Only show when not in pumping-only mode */}
+          {orderType !== 'pumping' && (
+            <>
+              {/* Desktop Table */}
+              <div className="hidden sm:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -1103,21 +1340,27 @@ export default function ScheduleOrderForm({
               })
             )}
           </div>
+            </>
+          )}
 
           {/* Pumping Service - available globally for client + construction site */}
-          {selectedProducts.length > 0 && pumpPrice !== null && (
+          {/* Show this section when: 1) Normal mode with selected products, OR 2) Pumping-only mode */}
+          {((selectedProducts.length > 0 && pumpPrice !== null && orderType !== 'pumping') || (orderType === 'pumping' && pumpPrice !== null)) && (
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mt-4">
               <div className="flex items-center mb-3">
                 <input 
                   id="hasPumpService"
                   type="checkbox"
-                  checked={hasPumpService}
+                  checked={orderType === 'pumping' ? true : hasPumpService}
+                  disabled={orderType === 'pumping'}
                   onChange={(e) => {
-                    setHasPumpService(e.target.checked);
-                    if (e.target.checked && pumpVolume === 0) {
-                      // Set default pump volume to total concrete volume
-                      const totalVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
-                      setPumpVolume(totalVolume);
+                    if (orderType !== 'pumping') {
+                      setHasPumpService(e.target.checked);
+                      if (e.target.checked && pumpVolume === 0) {
+                        // Set default pump volume to total concrete volume
+                        const totalVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
+                        setPumpVolume(totalVolume);
+                      }
                     }
                   }}
                   className="h-5 w-5 text-blue-600 rounded border-gray-300"
@@ -1317,7 +1560,7 @@ export default function ScheduleOrderForm({
             
             <button
               type="submit"
-              disabled={isSubmitting || selectedProducts.length === 0 || invoiceSelection === null}
+              disabled={isSubmitting || (selectedProducts.length === 0 && orderType !== 'pumping') || invoiceSelection === null}
               className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? 'Creando orden...' : 'Crear Orden'}

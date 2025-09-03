@@ -584,8 +584,8 @@ Fin del reporte
         // Must have valid validation status (not error)
         const hasValidStatus = remision.validation_status !== 'error';
         
-        // Must have pricing information
-        const hasPricing = remision.unit_price != null && remision.unit_price > 0;
+        // Must have pricing information (allow zero price if quote_detail_id exists)
+        const hasPricing = remision.unit_price != null && (remision.unit_price > 0 || remision.quote_detail_id);
         
         // All modes require the same basic data - validation should have resolved missing IDs
         const hasRequiredIds = hasClientId && hasConstructionSiteId && hasRecipeId;
@@ -635,7 +635,7 @@ Fin del reporte
         if (remision.is_excluded_from_import) return true; // Include status processing exclusions
         const hasRequiredIds = remision.client_id && remision.construction_site_id && remision.recipe_id;
         const hasValidStatus = remision.validation_status !== 'error';
-        const hasPricing = remision.unit_price != null && remision.unit_price > 0;
+        const hasPricing = remision.unit_price != null && (remision.unit_price > 0 || remision.quote_detail_id);
         return !(hasRequiredIds && hasValidStatus && hasPricing);
       });
 
@@ -645,7 +645,7 @@ Fin del reporte
         const missingConstructionSite = filteredOut.filter(r => !r.is_excluded_from_import && !r.construction_site_id).length;
         const missingClient = filteredOut.filter(r => !r.is_excluded_from_import && !r.client_id).length;
         const missingRecipe = filteredOut.filter(r => !r.is_excluded_from_import && !r.recipe_id).length;
-        const missingPrice = filteredOut.filter(r => !r.is_excluded_from_import && (!r.unit_price || r.unit_price <= 0)).length;
+        const missingPrice = filteredOut.filter(r => !r.is_excluded_from_import && (!r.unit_price || (r.unit_price <= 0 && !r.quote_detail_id))).length;
         const hasErrors = filteredOut.filter(r => !r.is_excluded_from_import && r.validation_status === 'error').length;
 
         if (excludedByStatus > 0) reasons.push(`${excludedByStatus} excluidas por procesamiento de estado`);
@@ -683,7 +683,7 @@ Fin del reporte
           missing_construction_site_id: !r.construction_site_id,
           missing_client_id: !r.client_id,
           missing_recipe_id: !r.recipe_id,
-          missing_pricing: !r.unit_price || r.unit_price <= 0,
+          missing_pricing: !r.unit_price || (r.unit_price <= 0 && !r.quote_detail_id),
           validation_status: r.validation_status,
           obra_name: r.obra_name
         })));
@@ -776,7 +776,7 @@ Fin del reporte
         if (remision.is_excluded_from_import) return false;
         const hasRequiredIds = remision.client_id && remision.construction_site_id && remision.recipe_id;
         const hasValidStatus = remision.validation_status !== 'error';
-        const hasPricing = remision.unit_price != null && remision.unit_price > 0;
+        const hasPricing = remision.unit_price != null && (remision.unit_price > 0 || remision.quote_detail_id);
         return hasRequiredIds && hasValidStatus && hasPricing;
       });
 

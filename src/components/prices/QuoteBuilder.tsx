@@ -65,6 +65,13 @@ interface QuoteProduct {
   // Pump service is now handled at the quote level, not per product
 }
 
+interface PumpServiceProduct {
+  product_type: 'SERVICIO_DE_BOMBEO';
+  volume: number;
+  price: number;
+  description: string;
+}
+
 // Define a storage key
 const DRAFT_QUOTE_STORAGE_KEY = 'draftQuoteData';
 
@@ -78,8 +85,8 @@ interface DraftQuoteData {
   validityDate: string;
   selectedDate?: string; // Store ISO string
   includePumpService: boolean;
-  pumpServicePrice: number;
   includesVAT: boolean;
+  pumpServiceProduct?: PumpServiceProduct;
 }
 
 export default function QuoteBuilder() {
@@ -105,7 +112,6 @@ export default function QuoteBuilder() {
   const [expandedStrengths, setExpandedStrengths] = useState<number[]>([]);
   const [expandedTypes, setExpandedTypes] = useState<string[]>([]);
   const [includePumpService, setIncludePumpService] = useState<boolean>(false);
-  const [pumpServicePrice, setPumpServicePrice] = useState<number>(0);
   const [includesVAT, setIncludesVAT] = useState<boolean>(false);
   const [recipeSearch, setRecipeSearch] = useState<string>('');
   const [clientSearch, setClientSearch] = useState<string>('');
@@ -118,6 +124,14 @@ export default function QuoteBuilder() {
   const [siteCoordinates, setSiteCoordinates] = useState<{lat: number | null, lng: number | null}>({
     lat: null,
     lng: null
+  });
+
+  // State for pumping service configuration
+  const [pumpServiceProduct, setPumpServiceProduct] = useState<PumpServiceProduct>({
+    product_type: 'SERVICIO_DE_BOMBEO',
+    volume: 1,
+    price: 0,
+    description: 'Servicio de Bombeo'
   });
 
   // Load initial data - clients
@@ -193,8 +207,13 @@ export default function QuoteBuilder() {
         setValidityDate(draftData.validityDate || format(new Date(2025, 7, 31), 'yyyy-MM-dd'));
         setSelectedDate(draftData.selectedDate ? new Date(draftData.selectedDate) : new Date(2025, 7, 31));
         setIncludePumpService(draftData.includePumpService || false);
-        setPumpServicePrice(draftData.pumpServicePrice || 0);
         setIncludesVAT(draftData.includesVAT || false);
+        setPumpServiceProduct({
+          product_type: 'SERVICIO_DE_BOMBEO',
+          volume: draftData.pumpServiceProduct?.volume || 1,
+          price: draftData.pumpServiceProduct?.price || 0,
+          description: draftData.pumpServiceProduct?.description || 'Servicio de Bombeo'
+        });
         console.log('Draft quote loaded from sessionStorage.');
       } catch (error) {
         console.error('Error parsing draft quote from sessionStorage:', error);
@@ -214,8 +233,8 @@ export default function QuoteBuilder() {
       validityDate,
       selectedDate: selectedDate?.toISOString(), // Store as ISO string
       includePumpService,
-      pumpServicePrice,
       includesVAT,
+      pumpServiceProduct,
     };
     sessionStorage.setItem(DRAFT_QUOTE_STORAGE_KEY, JSON.stringify(draftData));
     console.log('Draft quote saved to sessionStorage.');
@@ -236,16 +255,16 @@ export default function QuoteBuilder() {
     return () => clearTimeout(timeoutId); // Cleanup timeout
 
   }, [
-    selectedClient, 
-    quoteProducts, 
-    selectedSite, 
-    constructionSite, 
-    location, 
-    validityDate, 
-    selectedDate, 
-    includePumpService, 
-    pumpServicePrice, 
+    selectedClient,
+    quoteProducts,
+    selectedSite,
+    constructionSite,
+    location,
+    validityDate,
+    selectedDate,
+    includePumpService,
     includesVAT,
+    pumpServiceProduct,
     debouncedSaveDraft // Include debounced function in dependency array
   ]);
 
@@ -360,14 +379,23 @@ export default function QuoteBuilder() {
     setQuoteProducts(quoteProducts.filter((_, i) => i !== index));
   };
 
+  // Simple function to update pumping service details
+  const updatePumpServiceDetails = (updates: Partial<PumpServiceProduct>) => {
+    setPumpServiceProduct(prev => ({ ...prev, ...updates }));
+  };
+
   const validateQuote = () => {
     if (!selectedClient) {
       alert('Por favor, seleccione un cliente');
       return false;
     }
 
-    if (quoteProducts.length === 0) {
-      alert('Por favor, agregue al menos un producto a la cotización');
+    // Allow quotes with either concrete products or pumping service
+    const hasConcreteProducts = quoteProducts.length > 0;
+    const hasPumpingService = includePumpService && pumpServiceProduct.price > 0;
+
+    if (!hasConcreteProducts && !hasPumpingService) {
+      alert('Por favor, agregue al menos un producto de concreto o configure un servicio de bombeo');
       return false;
     }
 
@@ -386,9 +414,18 @@ export default function QuoteBuilder() {
       return false;
     }
 
-    if (includePumpService && (!pumpServicePrice || pumpServicePrice <= 0)) {
-      alert('Por favor, ingrese un precio válido para el servicio de bombeo');
-      return false;
+
+
+    // Validate pumping service when included
+    if (includePumpService) {
+      if (pumpServiceProduct.price <= 0) {
+        alert('Por favor, ingrese un precio válido para el servicio de bombeo');
+        return false;
+      }
+      if (pumpServiceProduct.volume <= 0) {
+        alert('Por favor, ingrese un volumen válido para el servicio de bombeo');
+        return false;
+      }
     }
 
     return true;
@@ -400,7 +437,7 @@ export default function QuoteBuilder() {
     try {
       setIsLoading(true);
       
-      // Determine plant_id from the first recipe in the quote
+      // Determine plant_id from the first recipe in the quote, or from current plant context for pumping-only quotes
       let quotePlantId: string | undefined;
       if (quoteProducts.length > 0) {
         quotePlantId = quoteProducts[0].recipe.plant_id;
@@ -411,6 +448,19 @@ export default function QuoteBuilder() {
           setPlantValidationError('Todas las recetas en una cotización deben pertenecer a la misma planta');
           return;
         }
+      } else if (includePumpService && pumpServiceProduct.price > 0) {
+        // For pumping-only quotes, use current plant context
+        quotePlantId = currentPlant?.id;
+        if (!quotePlantId) {
+          setPlantValidationError('No se pudo determinar la planta para la cotización de bombeo');
+          return;
+        }
+      }
+      
+      // Ensure we have a plant_id
+      if (!quotePlantId) {
+        setPlantValidationError('No se pudo determinar la planta para la cotización');
+        return;
       }
       
       // Generate quote number (simple implementation, you might want a more robust method)
@@ -433,24 +483,47 @@ export default function QuoteBuilder() {
 
       // Preparar detalles de la cotización de forma más eficiente, sin múltiples llamadas anidadas a la API
       // Mapear todos los productos a detalles para una sola operación de inserción
-      const quoteDetailsData = quoteProducts.map(product => {
-        // Use the current final price from the product (which may have been manually edited)
-        const finalPrice = product.finalPrice;
-        const totalAmount = finalPrice * product.volume;
+      let quoteDetailsData: any[] = [];
 
-        return {
+      // Handle concrete products
+      if (quoteProducts.length > 0) {
+        quoteDetailsData = quoteProducts.map(product => {
+          // Use the current final price from the product (which may have been manually edited)
+          const finalPrice = product.finalPrice;
+          const totalAmount = finalPrice * product.volume;
+
+          return {
+            quote_id: createdQuote.id,
+            recipe_id: product.recipe.id,
+            volume: product.volume,
+            base_price: product.basePrice,
+            profit_margin: product.profitMargin * 100, // Convertir a porcentaje para almacenamiento
+            final_price: finalPrice,
+            total_amount: totalAmount,
+            pump_service: includePumpService,
+            pump_price: includePumpService ? pumpServiceProduct.price : null,
+            includes_vat: includesVAT
+          };
+        });
+      }
+
+      // Handle standalone pumping service (when no concrete products but pumping service is included)
+      if (quoteProducts.length === 0 && includePumpService && pumpServiceProduct.price > 0) {
+        const pumpDetail = {
           quote_id: createdQuote.id,
-          recipe_id: product.recipe.id,
-          volume: product.volume,
-          base_price: product.basePrice,
-          profit_margin: product.profitMargin * 100, // Convertir a porcentaje para almacenamiento
-          final_price: finalPrice,
-          total_amount: totalAmount,
-          pump_service: includePumpService,
-          pump_price: includePumpService ? pumpServicePrice : null,
+          product_id: '6bd1949f-50c8-4505-a9aa-c113627bcb40', // Special pumping service product
+          recipe_id: null, // No recipe needed
+          volume: pumpServiceProduct.volume,
+          base_price: pumpServiceProduct.price, // Use price as base_price
+          profit_margin: 0, // No margin calculation needed
+          final_price: pumpServiceProduct.price,
+          total_amount: pumpServiceProduct.price * pumpServiceProduct.volume,
+          pump_service: true, // This IS a pump service
+          pump_price: pumpServiceProduct.price,
           includes_vat: includesVAT
         };
-      });
+        quoteDetailsData.push(pumpDetail);
+      }
 
       // Insertar todos los detalles en una sola operación para mayor eficiencia
       const { data: insertedDetails, error: detailsError } = await supabase
@@ -473,7 +546,6 @@ export default function QuoteBuilder() {
       setValidityDate('');
       setClientHistory([]);
       setIncludePumpService(false);
-      setPumpServicePrice(0);
       setIncludesVAT(false);
 
       // Clear draft from sessionStorage after successful save
@@ -549,9 +621,14 @@ export default function QuoteBuilder() {
     setSelectedDate(undefined);
     setClientHistory([]);
     setIncludePumpService(false);
-    setPumpServicePrice(0);
     setIncludesVAT(false);
     setSelectedSite(''); // Also reset selected site ID
+    setPumpServiceProduct({
+      product_type: 'SERVICIO_DE_BOMBEO',
+      volume: 1,
+      price: 0,
+      description: 'Servicio de Bombeo'
+    });
     sessionStorage.removeItem(DRAFT_QUOTE_STORAGE_KEY);
     alert('Borrador de cotización limpiado.');
     console.log('Draft quote cleared from state and sessionStorage.');
@@ -1039,25 +1116,7 @@ export default function QuoteBuilder() {
               </label>
             </div>
             
-            {includePumpService && (
-              <div className="mt-2">
-                <label htmlFor="pumpPrice" className="block mb-1 text-sm font-medium text-gray-700">Precio del Servicio de Bombeo</label>
-                <div className="flex items-center">
-                  <span className="text-gray-500 pe-2">$</span>
-                  <input
-                    id="pumpPrice"
-                    type="number"
-                    value={pumpServicePrice}
-                    onChange={(e) => setPumpServicePrice(Number(e.target.value))}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-                    placeholder="Precio del servicio"
-                    min="0"
-                    disabled={isLoading}
-                  />
-                  <span className="text-gray-500 ps-2">MXN</span>
-                </div>
-              </div>
-            )}
+
           </div>
 
           <div className="p-4 bg-gray-50 rounded-lg">
@@ -1079,6 +1138,83 @@ export default function QuoteBuilder() {
               </label>
             </div>
           </div>
+
+          {/* Pumping Service Configuration */}
+          {includePumpService && (
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <h3 className="font-semibold mb-4 text-gray-800 flex items-center gap-2">
+                <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                Configuración del Servicio de Bombeo
+              </h3>
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="pumpServiceDescription" className="block text-sm font-medium text-gray-700 mb-1">Descripción del Servicio</label>
+                  <input
+                    id="pumpServiceDescription"
+                    type="text"
+                    value={pumpServiceProduct.description || ''}
+                    onChange={(e) => updatePumpServiceDetails({ description: e.target.value })}
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                    placeholder="Ej: Servicio de Bombeo Estándar"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="pumpVolume" className="block text-sm font-medium text-gray-700 mb-1">Volumen (m³)</label>
+                    <input
+                      id="pumpVolume"
+                      type="number"
+                      value={pumpServiceProduct.volume || 1}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value);
+                        updatePumpServiceDetails({
+                          volume: isNaN(value) ? 1 : value
+                        });
+                      }}
+                      className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                      min="0"
+                      step="0.1"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="pumpPrice" className="block text-sm font-medium text-gray-700 mb-1">Precio por m³ (MXN)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
+                      <input
+                        id="pumpPrice"
+                        type="number"
+                        value={pumpServiceProduct.price || 0}
+                        onChange={(e) => {
+                          const value = parseFloat(e.target.value);
+                          updatePumpServiceDetails({
+                            price: isNaN(value) ? 0 : value
+                          });
+                        }}
+                        className="w-full p-2.5 pl-8 pr-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                        min="0"
+                        step="0.01"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-100 p-3 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium text-gray-700">Total del Servicio:</span>
+                    <span className="font-bold text-blue-600">
+                      ${((pumpServiceProduct.price || 0) * (pumpServiceProduct.volume || 1)).toLocaleString('es-MX', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                      })} MXN
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div>
             <label htmlFor="validityDate" className="block text-sm font-medium text-gray-700 mb-1">Fecha de Validez</label>
@@ -1206,13 +1342,24 @@ export default function QuoteBuilder() {
       </div>
 
       {/* Bottom Panel: Quote Products */}
-      {quoteProducts.length > 0 && (
+      {(quoteProducts.length > 0 || (includePumpService && pumpServiceProduct.price > 0)) && (
         <div className="lg:col-span-3 bg-white rounded-lg shadow-sm p-6 border border-gray-100">
           <h2 className="text-xl font-bold mb-6 text-gray-800 flex items-center gap-2">
-            <svg className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
-            </svg>
-            Productos de la Cotización
+            {(quoteProducts.length === 0 && includePumpService && pumpServiceProduct.price > 0) ? (
+              <>
+                <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                Servicio de Bombeo
+              </>
+            ) : (
+              <>
+                <svg className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                </svg>
+                Productos de la Cotización
+              </>
+            )}
           </h2>
           <div className="divide-y divide-gray-200">
             {quoteProducts.map((product, index) => (
@@ -1346,6 +1493,50 @@ export default function QuoteBuilder() {
                 </div>
               </div>
             ))}
+
+            {/* Pumping Service Display for standalone pumping service */}
+            {quoteProducts.length === 0 && includePumpService && pumpServiceProduct.price > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-4 py-5 @container bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="md:col-span-1">
+                  <p className="font-semibold text-blue-800 mb-1 flex items-center gap-2">
+                    <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                    SERVICIO DE BOMBEO
+                  </p>
+                  <p className="text-xs text-blue-600">{pumpServiceProduct.description || 'Servicio de Bombeo'}</p>
+                </div>
+                <div className="@md:col-span-5 grid grid-cols-1 @md:grid-cols-2 @lg:grid-cols-5 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-blue-700 mb-1">Volumen (m³)</label>
+                    <div className="bg-white p-2 rounded border border-blue-300">
+                      <span className="font-medium">{pumpServiceProduct.volume || 1}</span>
+                    </div>
+                  </div>
+
+
+                  <div>
+                    <label className="block text-xs font-medium text-blue-700 mb-1">Precio por m³</label>
+                    <div className="bg-white p-2 rounded border border-blue-300">
+                      <span className="font-medium">${(pumpServiceProduct.price || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-end">
+                    <div className="bg-blue-100 p-3 rounded border border-blue-300 w-full">
+                      <div className="text-center">
+                        <p className="text-xs font-medium text-blue-700 mb-1">Total</p>
+                        <p className="font-bold text-blue-800">
+                          ${((pumpServiceProduct.price || 0) * (pumpServiceProduct.volume || 1)).toLocaleString('es-MX', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                          })}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

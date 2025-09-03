@@ -442,18 +442,18 @@ serve(async (req)=>{
         ...creatorEmails
       ])
     );
-    
+
     console.log(`Recipients: ${allEmails.join(', ')}`);
     console.log(`Orders count: ${orders.length}`);
-    
+
     // Get force flag - if present, will send email even if no orders
     const url = new URL(req.url);
     const forceSend = url.searchParams.get('force') === 'true';
-    
+
     // Check if we should send the email (has orders, or force flag is set)
     const shouldSendEmail = (orders.length > 0 && allEmails.length > 0) || (forceSend && allEmails.length > 0);
     console.log(`Should send email? ${shouldSendEmail} (forceSend: ${forceSend})`);
-    
+
     // Prepare email content with improved styling
     const emailContent = `
       <!DOCTYPE html>
@@ -470,7 +470,7 @@ serve(async (req)=>{
             <h1 style="color: #FFFFFF; margin: 0; font-size: 28px; font-weight: 600;">Programación de Entregas para HOY - Planta 1</h1>
             <p style="color: #BAE6FD; margin: 10px 0 0 0; font-size: 18px;">${formattedDate}</p>
           </div>
-          
+
           <!-- Content -->
           <div style="padding: 30px;">
             ${orders.length > 0 ? `
@@ -482,14 +482,14 @@ serve(async (req)=>{
                   (${orders.filter((o: any) => o.credit_status === 'approved' && (o.order_status === 'validated' || o.order_status === 'created')).length} con crédito aprobado y orden validada)
                 </p>
               </div>
-              
+
               <div style="margin-bottom: 30px;">
                 <div style="display: flex; align-items: center; margin-bottom: 15px;">
                   <div style="flex-grow: 1; height: 1px; background-color: #E2E8F0;"></div>
                   <div style="margin: 0 15px; font-size: 16px; color: #64748B; font-weight: 500;">Leyenda de Estados</div>
                   <div style="flex-grow: 1; height: 1px; background-color: #E2E8F0;"></div>
                 </div>
-                
+
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                   <div style="display: flex; gap: 8px; align-items: center;">
                     <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; background-color: #ECFDF5; color: #059669; font-weight: 500;">Aprobado</span>
@@ -509,7 +509,7 @@ serve(async (req)=>{
                   </div>
                 </div>
               </div>
-              
+
               ${ordersHtml}
               ${summaryTableHtml}
             ` : `
@@ -518,7 +518,7 @@ serve(async (req)=>{
               </div>
             `}
           </div>
-          
+
           <!-- Footer -->
           <div style="background-color: #F1F5F9; padding: 20px; text-align: center; border-top: 1px solid #E2E8F0;">
             <p style="margin: 0; font-size: 14px; color: #64748B;">
@@ -532,7 +532,7 @@ serve(async (req)=>{
       </body>
       </html>
     `;
-    
+
     // Skip sending if no orders or recipients
     if (!shouldSendEmail) {
       console.log('Not sending email - no orders or no recipients');
@@ -545,14 +545,17 @@ serve(async (req)=>{
         }
       });
     }
-    
+
     console.log('Attempting to send email via SendGrid');
-    
+
+    // Filter out FROM_EMAIL from BCC list to prevent duplicate email addresses
+    const bccEmails = allEmails.filter(email => email !== FROM_EMAIL);
+
     // Prepare email data with BCC to prevent recipients from seeing each other's emails
     const emailData = {
       personalizations: [{
         to: [{ email: FROM_EMAIL }],
-        bcc: allEmails.map(email => ({ email })),
+        bcc: bccEmails.map(email => ({ email })),
         subject: `Programación de Entregas para HOY - Planta 1 - ${formattedDate}`
       }],
       from: {

@@ -16,6 +16,7 @@ export interface OrderCreationParams {
   client_id: string;
   construction_site: string;
   construction_site_id?: string;
+  plant_id?: string;
   delivery_date: string;
   delivery_time: string;
   requires_invoice: boolean;
@@ -61,18 +62,30 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       throw new Error('Usuario no autenticado. Debe iniciar sesión para crear órdenes.');
     }
 
-    // Get plant_id from the associated quote for inheritance
+    // Get plant_id from the associated quote (primary source)
     let plantId = null;
     if (orderData.quote_id) {
+      console.log('Fetching plant_id for quote:', orderData.quote_id);
       const { data: quote, error: quoteError } = await supabase
         .from('quotes')
         .select('plant_id')
         .eq('id', orderData.quote_id)
         .single();
         
-      if (!quoteError && quote) {
+      if (quoteError) {
+        console.error('Error fetching quote plant_id:', quoteError);
+      } else if (quote) {
         plantId = quote.plant_id;
+        console.log('Found plant_id from quote:', plantId);
+      } else {
+        console.log('No quote found for ID:', orderData.quote_id);
       }
+    }
+    
+    // Fallback to orderData plant_id if quote doesn't have one
+    if (!plantId && orderData.plant_id) {
+      plantId = orderData.plant_id;
+      console.log('Using plant_id from orderData as fallback:', plantId);
     }
 
     // Start a transaction
@@ -95,6 +108,9 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
     // Add plant_id if inherited from quote
     if (plantId) {
       orderInsertData.plant_id = plantId;
+      console.log('Adding plant_id to orderInsertData:', plantId);
+    } else {
+      console.log('No plant_id found - this will cause issues for executives');
     }
     
     const { data: order, error: orderError } = await supabase
@@ -115,6 +131,8 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           final_price, 
           pump_service, 
           pump_price,
+          product_id,
+          recipe_id,
           recipes:recipe_id (
             recipe_code
           )
@@ -126,22 +144,41 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       // Insert order items
       const orderItems = orderData.order_items.map((item: any) => {
         const quoteDetail = quoteDetails.find(qd => qd.id === item.quote_detail_id);
-        // Use optional chaining and provide a fallback for recipe_code
-        const recipeCode = quoteDetail?.recipes ? 
-          (typeof quoteDetail.recipes === 'object' ? 
-            (quoteDetail.recipes as any).recipe_code : 'Unknown') 
-          : 'Unknown';
+        
+        console.log('Processing order item:', {
+          quoteDetailId: item.quote_detail_id,
+          quoteDetail: quoteDetail,
+          pumpService: quoteDetail?.pump_service,
+          productId: quoteDetail?.product_id,
+          recipeId: quoteDetail?.recipe_id,
+          recipes: quoteDetail?.recipes
+        });
+        
+        // Determine product type based on quote detail type
+        let productType = 'Unknown';
+        if (quoteDetail?.pump_service && quoteDetail?.product_id) {
+          // This is a standalone pumping service
+          productType = 'SERVICIO DE BOMBEO';
+          console.log('Identified as standalone pumping service');
+        } else if (quoteDetail?.recipes) {
+          // This is a concrete product
+          productType = typeof quoteDetail.recipes === 'object' ? 
+            (quoteDetail.recipes as any).recipe_code : 'Unknown';
+          console.log('Identified as concrete product:', productType);
+        } else {
+          console.log('Could not determine product type, using Unknown');
+        }
         
         // No longer include pump_volume field for individual items (legacy approach removed)
         return {
           order_id: order.id,
           quote_detail_id: item.quote_detail_id,
-          product_type: recipeCode,
+          product_type: productType,
           volume: item.volume,
           unit_price: quoteDetail?.final_price || 0,
           total_price: (quoteDetail?.final_price || 0) * item.volume,
-          has_pump_service: false, // Individual items don't have pump service anymore
-          pump_price: null,
+          has_pump_service: quoteDetail?.pump_service || false,
+          pump_price: quoteDetail?.pump_service ? quoteDetail?.final_price : null,
           pump_volume: null // Always null for individual items in new approach
         };
       });
