@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import RemisionesPicker from '@/components/quality/RemisionesPicker';
-import { createMuestreo, crearMuestrasPorEdad } from '@/services/qualityService';
+import { createMuestreo } from '@/services/qualityMuestreoService';
+import { crearMuestrasPorEdad } from '@/services/qualityMuestraService';
 import { Muestreo } from '@/types/quality';
 import { supabase } from '@/lib/supabase';
 

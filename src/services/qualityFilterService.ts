@@ -350,18 +350,34 @@ export function validateFilterSelection(
 }
 
 /**
- * Gets filtered muestreos based on cascading filter logic
- * Each filter progressively narrows down the muestreos dataset
+ * Gets filtered muestreos that have valid ensayos meeting regulatory conditions
+ * This ensures we only show options that actually have valid data
  */
 export async function getFilteredMuestreos(
   dateRange: DateRange | undefined,
-  currentSelections: Partial<FilterSelections> = {}
+  currentSelections: Partial<FilterSelections> = {},
+  soloEdadGarantia: boolean = false,
+  incluirEnsayosFueraTiempo: boolean = true
 ): Promise<any[]> {
   try {
-    console.log('🔍 Getting filtered muestreos with cascading logic:', currentSelections);
-    
-    // Step 1: Start with all muestreos in date range
-    let query = supabase
+    console.log('🔍 Getting muestreos with valid ensayos:', {
+      currentSelections,
+      soloEdadGarantia,
+      incluirEnsayosFueraTiempo
+    });
+
+    if (!dateRange?.from || !dateRange?.to) {
+      console.log('❌ No date range provided for filtering');
+      return [];
+    }
+
+    const fechaDesde = format(dateRange.from, 'yyyy-MM-dd');
+    const fechaHasta = format(dateRange.to, 'yyyy-MM-dd');
+
+    console.log('📅 Date range for filtering muestreos:', { fechaDesde, fechaHasta });
+
+    // Step 1: Get muestreos in date range with their ensayos
+    const { data: muestreosWithEnsayos, error: muestreosError } = await supabase
       .from('muestreos')
       .select(`
         id,
@@ -378,33 +394,71 @@ export async function getFilteredMuestreos(
             recipe_code,
             strength_fc
           )
+        ),
+        muestras (
+          id,
+          tipo_muestra,
+          ensayos (
+            id,
+            fecha_ensayo,
+            is_edad_garantia,
+            is_ensayo_fuera_tiempo,
+            resistencia_calculada
+          )
         )
       `)
+      .gte('fecha_muestreo', fechaDesde)
+      .lte('fecha_muestreo', fechaHasta)
       .order('fecha_muestreo', { ascending: false });
 
-    // Apply date range filter
-    if (dateRange?.from && dateRange?.to) {
-      const fromDate = format(dateRange.from, 'yyyy-MM-dd');
-      const toDate = format(dateRange.to, 'yyyy-MM-dd');
-      query = query.gte('fecha_muestreo', fromDate).lte('fecha_muestreo', toDate);
-    }
-
-    const { data: initialMuestreos, error } = await query;
-    
-    if (error) {
-      console.error('❌ Error fetching initial muestreos:', error);
+    if (muestreosError) {
+      console.error('❌ Error fetching muestreos with ensayos:', muestreosError);
       return [];
     }
 
-    if (!initialMuestreos || initialMuestreos.length === 0) {
-      console.log('📊 No muestreos found in date range');
+    if (!muestreosWithEnsayos || muestreosWithEnsayos.length === 0) {
+      console.log('❌ No muestreos found in date range');
       return [];
     }
 
-    console.log(`📊 Initial muestreos: ${initialMuestreos.length}`);
+    console.log('📊 Muestreos found in date range:', muestreosWithEnsayos.length);
 
-    // Step 2: Apply cascading filters progressively
-    let filteredMuestreos = initialMuestreos;
+    // Step 2: Filter muestreos that have valid ensayos meeting regulatory conditions
+    const validMuestreos = muestreosWithEnsayos.filter(muestreo => {
+      // Check if this muestreo has any valid ensayos
+      const hasValidEnsayos = muestreo.muestras?.some((muestra: any) => 
+        muestra.ensayos?.some((ensayo: any) => {
+          // Must have valid resistencia_calculada
+          if (!ensayo.resistencia_calculada || ensayo.resistencia_calculada <= 0) {
+            return false;
+          }
+
+          // Check edad garantia condition
+          if (soloEdadGarantia && !ensayo.is_edad_garantia) {
+            return false;
+          }
+
+          // Check ensayos fuera de tiempo condition
+          if (!incluirEnsayosFueraTiempo && ensayo.is_ensayo_fuera_tiempo) {
+            return false;
+          }
+
+          return true;
+        })
+      );
+
+      return hasValidEnsayos;
+    });
+
+    console.log('📊 Muestreos with valid ensayos:', validMuestreos.length);
+
+    if (validMuestreos.length === 0) {
+      console.log('❌ No muestreos found with valid ensayos meeting regulatory conditions');
+      return [];
+    }
+
+    // Step 3: Apply cascading filters to the valid muestreos
+    let filteredMuestreos = validMuestreos;
 
     // Filter by plant first (direct muestreo property)
     if (currentSelections.selectedPlant && currentSelections.selectedPlant !== 'all') {

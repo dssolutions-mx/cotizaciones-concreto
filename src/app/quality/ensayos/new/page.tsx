@@ -30,9 +30,11 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { 
-  fetchMuestraById, 
+  fetchMuestraById 
+} from '@/services/qualityMuestraService';
+import { 
   createEnsayo 
-} from '@/services/qualityService';
+} from '@/services/qualityEnsayoService';
 import type { MuestraWithRelations } from '@/types/quality';
 import { FileUploader } from '@/components/ui/file-uploader';
 import {

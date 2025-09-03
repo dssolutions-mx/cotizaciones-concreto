@@ -24,7 +24,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { Loader2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { addSampleToMuestreo } from '@/services/qualityService';
+import { addSampleToMuestreo } from '@/services/qualityMuestraService';
 import { useToast } from '@/components/ui/use-toast';
 import { createSafeDate } from '@/lib/utils';
 
