@@ -39,6 +39,9 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
 
+    // Validate query parameters
+    const validatedQuery = GetDailyLogQuerySchema.parse(queryParams);
+
     // For users without plant_id (like EXECUTIVE), return empty data
     if (!profile.plant_id) {
       return NextResponse.json({
@@ -46,7 +49,7 @@ export async function GET(request: NextRequest) {
         data: {
           id: null,
           plant_id: null,
-          log_date: validatedQuery.date,
+          log_date: validatedQuery.date || new Date().toISOString().split('T')[0],
           total_entries: 0,
           total_adjustments: 0,
           total_consumption: 0,
@@ -58,15 +61,15 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Validate query parameters
-    const validatedQuery = GetDailyLogQuerySchema.parse(queryParams);
+    // If no date provided, use today's date
+    const logDate = validatedQuery.date || new Date().toISOString().split('T')[0];
 
     // Get daily log
     const { data: dailyLog, error: dailyLogError } = await supabase
       .from('daily_inventory_log')
       .select('*')
       .eq('plant_id', profile.plant_id)
-      .eq('log_date', validatedQuery.date)
+      .eq('log_date', logDate)
       .single();
 
     if (dailyLogError && dailyLogError.code !== 'PGRST116') { // PGRST116 is "not found"

@@ -10,7 +10,8 @@ import {
   TrendingDown, 
   Upload,
   FileText,
-  BarChart3
+  BarChart3,
+  TrendingUp
 } from 'lucide-react'
 
 const navigation = [
@@ -19,6 +20,18 @@ const navigation = [
     href: '/inventory',
     icon: Home,
     description: 'Vista general del inventario'
+  },
+  {
+    name: 'Dashboard Avanzado',
+    href: '/inventory/advanced-dashboard',
+    icon: TrendingUp,
+    description: 'Análisis integral de inventario'
+  },
+  {
+    name: 'Prueba Dashboard',
+    href: '/inventory/advanced-dashboard/test',
+    icon: TrendingUp,
+    description: 'Página de prueba del dashboard'
   },
   {
     name: 'Entradas de Material',

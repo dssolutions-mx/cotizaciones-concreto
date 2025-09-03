@@ -26,10 +26,37 @@ export default function DailyInventoryLogPage() {
   const [isEditing, setIsEditing] = useState(false)
   const [notes, setNotes] = useState('')
   const [saving, setSaving] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     fetchDailyLog()
   }, [selectedDate])
+
+  // Refresh data when page becomes visible (e.g., when user navigates back from adjustments page)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshData()
+      }
+    }
+
+    const handleFocus = () => {
+      refreshData()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [])
+
+  const refreshData = () => {
+    setRefreshKey(prev => prev + 1)
+    fetchDailyLog()
+  }
 
   const fetchDailyLog = async () => {
     setLoading(true)
@@ -337,14 +364,16 @@ export default function DailyInventoryLogPage() {
             <TabsContent value="entries" className="mt-6">
               <MaterialEntriesList 
                 date={selectedDate} 
-                isEditing={!dailyLog?.is_closed && canEdit} 
+                isEditing={!dailyLog?.is_closed && canEdit}
+                key={refreshKey}
               />
             </TabsContent>
             
             <TabsContent value="adjustments" className="mt-6">
               <MaterialAdjustmentsList 
                 date={selectedDate} 
-                isEditing={!dailyLog?.is_closed && canEdit} 
+                isEditing={!dailyLog?.is_closed && canEdit}
+                refreshKey={refreshKey}
               />
             </TabsContent>
           </Tabs>

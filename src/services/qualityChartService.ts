@@ -255,6 +255,10 @@ export async function fetchDatosGraficoResistencia(
   construction_site_id?: string,
   recipe_code?: string,
   plant_code?: string,
+  clasificacion?: string,
+  specimen_type?: string,
+  fc_value?: string,
+  age_guarantee?: string,
   soloEdadGarantia: boolean = false,
   incluirEnsayosFueraTiempo: boolean = false
 ) {
@@ -290,10 +294,10 @@ export async function fetchDatosGraficoResistencia(
       selectedConstructionSite: construction_site_id || 'all',
       selectedRecipe: recipe_code || 'all',
       selectedPlant: plant_code || 'all',
-      selectedClasificacion: 'all' as const,
-      selectedSpecimenType: 'all' as const,
-      selectedStrengthRange: 'all' as const,
-      selectedAge: 'all'
+      selectedClasificacion: (clasificacion as 'all' | 'FC' | 'MR') || 'all',
+      selectedSpecimenType: specimen_type || 'all',
+      selectedFcValue: fc_value || 'all',
+      selectedAge: age_guarantee || 'all'
     };
 
     // Get filtered muestreos using cascading filtering

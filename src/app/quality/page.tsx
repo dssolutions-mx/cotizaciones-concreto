@@ -51,21 +51,22 @@ export default function QualityDashboardPage() {
     constructionSites,
     recipes,
     plants,
-    plantNameToIdMap,
     availableAges,
+    fcValues,
+    specimenTypes,
     selectedClient,
     selectedConstructionSite,
     selectedRecipe,
     selectedPlant,
     selectedClasificacion,
     selectedSpecimenType,
-    selectedStrengthRange,
+    selectedFcValue,
     selectedAge,
     openClient,
     openSite,
     openRecipe,
     openPlant,
-    openStrengthRange,
+    openFcValue,
     openAge,
     setSelectedClient,
     setSelectedConstructionSite,
@@ -73,13 +74,13 @@ export default function QualityDashboardPage() {
     setSelectedPlant,
     setSelectedClasificacion,
     setSelectedSpecimenType,
-    setSelectedStrengthRange,
+    setSelectedFcValue,
     setSelectedAge,
     setOpenClient,
     setOpenSite,
     setOpenRecipe,
     setOpenPlant,
-    setOpenStrengthRange,
+    setOpenFcValue,
     setOpenAge,
     getFilteredConstructionSites,
     resetAllFilters
@@ -101,6 +102,10 @@ export default function QualityDashboardPage() {
     selectedConstructionSite,
     selectedRecipe,
     selectedPlant,
+    selectedClasificacion,
+    selectedSpecimenType,
+    selectedFcValue,
+    selectedAge,
     soloEdadGarantia,
     incluirEnsayosFueraTiempo
   });
@@ -180,13 +185,15 @@ export default function QualityDashboardPage() {
         recipes={recipes}
         plants={plants}
         availableAges={availableAges}
+        fcValues={fcValues}
+        specimenTypes={specimenTypes}
         selectedClient={selectedClient}
         selectedConstructionSite={selectedConstructionSite}
         selectedRecipe={selectedRecipe}
         selectedPlant={selectedPlant}
         selectedClasificacion={selectedClasificacion}
         selectedSpecimenType={selectedSpecimenType}
-        selectedStrengthRange={selectedStrengthRange}
+        selectedFcValue={selectedFcValue}
         selectedAge={selectedAge}
         soloEdadGarantia={soloEdadGarantia}
         incluirEnsayosFueraTiempo={incluirEnsayosFueraTiempo}
@@ -194,7 +201,7 @@ export default function QualityDashboardPage() {
         openSite={openSite}
         openRecipe={openRecipe}
         openPlant={openPlant}
-        openStrengthRange={openStrengthRange}
+        openFcValue={openFcValue}
         openAge={openAge}
         setSelectedClient={setSelectedClient}
         setSelectedConstructionSite={setSelectedConstructionSite}
@@ -202,7 +209,7 @@ export default function QualityDashboardPage() {
         setSelectedPlant={setSelectedPlant}
         setSelectedClasificacion={setSelectedClasificacion}
         setSelectedSpecimenType={setSelectedSpecimenType}
-        setSelectedStrengthRange={setSelectedStrengthRange}
+        setSelectedFcValue={setSelectedFcValue}
         setSelectedAge={setSelectedAge}
         setSoloEdadGarantia={setSoloEdadGarantia}
         setIncluirEnsayosFueraTiempo={setIncluirEnsayosFueraTiempo}
@@ -210,7 +217,7 @@ export default function QualityDashboardPage() {
         setOpenSite={setOpenSite}
         setOpenRecipe={setOpenRecipe}
         setOpenPlant={setOpenPlant}
-        setOpenStrengthRange={setOpenStrengthRange}
+        setOpenFcValue={setOpenFcValue}
         setOpenAge={setOpenAge}
         getFilteredConstructionSites={getFilteredConstructionSites}
         resetAllFilters={resetAllFilters}

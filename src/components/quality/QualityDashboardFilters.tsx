@@ -15,6 +15,8 @@ interface QualityDashboardFiltersProps {
   recipes: any[];
   plants: string[];
   availableAges: Array<{value: string, label: string}>;
+  fcValues: Array<{value: string, label: string}>;
+  specimenTypes: Array<{value: string, label: string}>;
 
   // Selection states
   selectedClient: string;
@@ -22,8 +24,8 @@ interface QualityDashboardFiltersProps {
   selectedRecipe: string;
   selectedPlant: string;
   selectedClasificacion: 'all' | 'FC' | 'MR';
-  selectedSpecimenType: 'all' | 'CILINDRO' | 'VIGA' | 'CUBO';
-  selectedStrengthRange: 'all' | 'lt-200' | '200-250' | '250-300' | '300-350' | '350-400' | 'gt-400';
+  selectedSpecimenType: string;
+  selectedFcValue: string;
   selectedAge: string;
   soloEdadGarantia: boolean;
   incluirEnsayosFueraTiempo: boolean;
@@ -33,7 +35,7 @@ interface QualityDashboardFiltersProps {
   openSite: boolean;
   openRecipe: boolean;
   openPlant: boolean;
-  openStrengthRange: boolean;
+  openFcValue: boolean;
   openAge: boolean;
 
   // Setters
@@ -42,8 +44,8 @@ interface QualityDashboardFiltersProps {
   setSelectedRecipe: (value: string) => void;
   setSelectedPlant: (value: string) => void;
   setSelectedClasificacion: (value: 'all' | 'FC' | 'MR') => void;
-  setSelectedSpecimenType: (value: 'all' | 'CILINDRO' | 'VIGA' | 'CUBO') => void;
-  setSelectedStrengthRange: (value: 'all' | 'lt-200' | '200-250' | '250-300' | '300-350' | '350-400' | 'gt-400') => void;
+  setSelectedSpecimenType: (value: string) => void;
+  setSelectedFcValue: (value: string) => void;
   setSelectedAge: (value: string) => void;
   setSoloEdadGarantia: (value: boolean) => void;
   setIncluirEnsayosFueraTiempo: (value: boolean) => void;
@@ -53,7 +55,7 @@ interface QualityDashboardFiltersProps {
   setOpenSite: (value: boolean) => void;
   setOpenRecipe: (value: boolean) => void;
   setOpenPlant: (value: boolean) => void;
-  setOpenStrengthRange: (value: boolean) => void;
+  setOpenFcValue: (value: boolean) => void;
   setOpenAge: (value: boolean) => void;
 
   // Utility functions
@@ -67,13 +69,15 @@ export function QualityDashboardFilters({
   recipes,
   plants,
   availableAges,
+  fcValues,
+  specimenTypes,
   selectedClient,
   selectedConstructionSite,
   selectedRecipe,
   selectedPlant,
   selectedClasificacion,
   selectedSpecimenType,
-  selectedStrengthRange,
+  selectedFcValue,
   selectedAge,
   soloEdadGarantia,
   incluirEnsayosFueraTiempo,
@@ -81,7 +85,7 @@ export function QualityDashboardFilters({
   openSite,
   openRecipe,
   openPlant,
-  openStrengthRange,
+  openFcValue,
   openAge,
   setSelectedClient,
   setSelectedConstructionSite,
@@ -89,7 +93,7 @@ export function QualityDashboardFilters({
   setSelectedPlant,
   setSelectedClasificacion,
   setSelectedSpecimenType,
-  setSelectedStrengthRange,
+  setSelectedFcValue,
   setSelectedAge,
   setSoloEdadGarantia,
   setIncluirEnsayosFueraTiempo,
@@ -97,7 +101,7 @@ export function QualityDashboardFilters({
   setOpenSite,
   setOpenRecipe,
   setOpenPlant,
-  setOpenStrengthRange,
+  setOpenFcValue,
   setOpenAge,
   getFilteredConstructionSites,
   resetAllFilters
@@ -109,7 +113,7 @@ export function QualityDashboardFilters({
     selectedPlant !== 'all' ||
     selectedClasificacion !== 'all' ||
     selectedSpecimenType !== 'all' ||
-    selectedStrengthRange !== 'all' ||
+    selectedFcValue !== 'all' ||
     selectedAge !== 'all' ||
     soloEdadGarantia ||
     incluirEnsayosFueraTiempo;
@@ -242,36 +246,33 @@ export function QualityDashboardFilters({
 
           {/* Second Row of Filters */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
-            {/* Strength Range Filter */}
+            {/* Strength Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Rango fc</Label>
-              <Popover open={openStrengthRange} onOpenChange={setOpenStrengthRange}>
+              <Label className="text-sm font-medium text-gray-700">Resistencia</Label>
+              <Popover open={openFcValue} onOpenChange={setOpenFcValue}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="justify-between w-full">
-                    {selectedStrengthRange === 'all' ? 'Todos fc' :
-                      selectedStrengthRange === 'lt-200' ? '&lt; 200' :
-                      selectedStrengthRange === '200-250' ? '200-250' :
-                      selectedStrengthRange === '250-300' ? '250-300' :
-                      selectedStrengthRange === '300-350' ? '300-350' :
-                      selectedStrengthRange === '350-400' ? '350-400' :
-                      selectedStrengthRange === 'gt-400' ? '&gt; 400' : 'Todos fc'
-                    }
+                    {selectedFcValue === 'all'
+                      ? 'Todas las resistencias'
+                      : (fcValues.find(f => f.value === selectedFcValue)?.label || `${selectedFcValue} kg/cm2`)}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="p-0 w-[200px]">
                   <Command>
-                    <CommandInput placeholder="Buscar rango fc..." />
+                    <CommandInput placeholder="Buscar resistencia..." />
                     <CommandEmpty>Sin resultados</CommandEmpty>
                     <CommandList>
                       <CommandGroup>
-                        <CommandItem onSelect={() => { setSelectedStrengthRange('all'); setOpenStrengthRange(false); }}>Todos fc</CommandItem>
-                        <CommandItem onSelect={() => { setSelectedStrengthRange('lt-200'); setOpenStrengthRange(false); }}>&lt; 200 kg/cm²</CommandItem>
-                        <CommandItem onSelect={() => { setSelectedStrengthRange('200-250'); setOpenStrengthRange(false); }}>200-250 kg/cm²</CommandItem>
-                        <CommandItem onSelect={() => { setSelectedStrengthRange('250-300'); setOpenStrengthRange(false); }}>250-300 kg/cm²</CommandItem>
-                        <CommandItem onSelect={() => { setSelectedStrengthRange('300-350'); setOpenStrengthRange(false); }}>300-350 kg/cm²</CommandItem>
-                        <CommandItem onSelect={() => { setSelectedStrengthRange('350-400'); setOpenStrengthRange(false); }}>350-400 kg/cm²</CommandItem>
-                        <CommandItem onSelect={() => { setSelectedStrengthRange('gt-400'); setOpenStrengthRange(false); }}>&gt; 400 kg/cm²</CommandItem>
+                        <CommandItem onSelect={() => { setSelectedFcValue('all'); setOpenFcValue(false); }}>Todas</CommandItem>
+                        {fcValues.map((fc) => (
+                          <CommandItem 
+                            key={fc.value} 
+                            onSelect={() => { setSelectedFcValue(fc.value); setOpenFcValue(false); }}
+                          >
+                            {fc.label}
+                          </CommandItem>
+                        ))}
                       </CommandGroup>
                     </CommandList>
                   </Command>
@@ -311,16 +312,18 @@ export function QualityDashboardFilters({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas</SelectItem>
-                  <SelectItem value="CILINDRO">Cilindro</SelectItem>
-                  <SelectItem value="VIGA">Viga</SelectItem>
-                  <SelectItem value="CUBO">Cubo</SelectItem>
+                  {specimenTypes.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      {type.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
             {/* Age Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Edad de Ensayo</Label>
+              <Label className="text-sm font-medium text-gray-700">Edad Garantía</Label>
               <Popover open={openAge} onOpenChange={setOpenAge}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="justify-between w-full">
@@ -473,10 +476,10 @@ export function QualityDashboardFilters({
             </div>
           )}
 
-          {selectedStrengthRange !== 'all' && (
+          {selectedFcValue !== 'all' && (
             <div className="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
-              <span>fc: {selectedStrengthRange}</span>
-              <button className="hover:bg-amber-100 rounded-full p-1" onClick={() => setSelectedStrengthRange('all')}>×</button>
+              <span>Resistencia: {fcValues.find(f => f.value === selectedFcValue)?.label || `${selectedFcValue} kg/cm2`}</span>
+              <button className="hover:bg-amber-100 rounded-full p-1" onClick={() => setSelectedFcValue('all')}>×</button>
             </div>
           )}
 

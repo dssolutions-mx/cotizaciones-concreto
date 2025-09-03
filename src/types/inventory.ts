@@ -25,13 +25,12 @@ export interface MaterialAdjustment {
   material_id: string;
   adjustment_date: string;
   adjustment_time: string;
-  adjustment_type: 'manual_out' | 'manual_in' | 'correction' | 'waste' | 'transfer' | 'return';
+  adjustment_type: 'consumption' | 'waste' | 'correction' | 'transfer' | 'loss';
   quantity_adjusted: number;
   inventory_before: number;
   inventory_after: number;
-  reason: string;
-  reference_number?: string;
-  transfer_destination?: string;
+  reference_type?: string;
+  reference_notes: string;
   document_urls?: string[];
   notes?: string;
   adjusted_by: string;
@@ -264,4 +263,91 @@ export interface PendingFile {
   error?: string;
   url?: string;
   isCameraCapture?: boolean;
+}
+
+// New types for the inventory dashboard
+export interface InventoryDashboardFilters {
+  plant_id?: string;
+  start_date: string;
+  end_date: string;
+  material_ids?: string[];
+}
+
+export interface MaterialFlowSummary {
+  material_id: string;
+  material_name: string;
+  unit: string;
+  
+  // Inputs
+  initial_stock: number;
+  total_entries: number;
+  total_manual_additions: number;
+  
+  // Outputs  
+  total_remisiones_consumption: number;
+  total_manual_withdrawals: number;
+  total_adjustments: number;
+  total_waste: number;
+  
+  // Final calculation
+  theoretical_final_stock: number;
+  actual_current_stock: number;
+  variance: number;
+  variance_percentage: number;
+}
+
+export interface InventoryDashboardSummary {
+  date_range: {
+    start_date: string;
+    end_date: string;
+  };
+  plant_info: {
+    id: string;
+    name: string;
+    code: string;
+  };
+  
+  // Aggregated totals
+  total_materials_tracked: number;
+  total_remisiones: number;
+  total_entries: number;
+  total_adjustments: number;
+  materials_with_variance: number;
+  
+  // Material-level details
+  material_flows: MaterialFlowSummary[];
+}
+
+export interface RemisionMaterialConsumption {
+  remision_number: string;
+  remision_date: string;
+  material_id: string;
+  material_name: string;
+  cantidad_teorica: number;
+  cantidad_real: number;
+  variance: number;
+}
+
+export interface InventoryMovement {
+  movement_type: 'ENTRY' | 'ADJUSTMENT' | 'REMISION' | 'WASTE';
+  movement_date: string;
+  material_id: string;
+  material_name: string;
+  quantity: number;
+  unit: string;
+  reference: string;
+  notes?: string;
+}
+
+export interface InventoryDashboardData {
+  summary: InventoryDashboardSummary;
+  movements: InventoryMovement[];
+  consumption_details: RemisionMaterialConsumption[];
+}
+
+// API Response types for dashboard
+export interface InventoryDashboardResponse {
+  success: boolean;
+  data: InventoryDashboardData;
+  error?: string;
 }

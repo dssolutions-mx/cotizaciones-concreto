@@ -25,6 +25,10 @@ export interface UseQualityDashboardProps {
   selectedConstructionSite: string;
   selectedRecipe: string;
   selectedPlant: string;
+  selectedClasificacion: 'all' | 'FC' | 'MR';
+  selectedSpecimenType: string;
+  selectedFcValue: string;
+  selectedAge: string;
   soloEdadGarantia: boolean;
   incluirEnsayosFueraTiempo: boolean;
 }
@@ -35,6 +39,10 @@ export function useQualityDashboard({
   selectedConstructionSite,
   selectedRecipe,
   selectedPlant,
+  selectedClasificacion,
+  selectedSpecimenType,
+  selectedFcValue,
+  selectedAge,
   soloEdadGarantia,
   incluirEnsayosFueraTiempo
 }: UseQualityDashboardProps) {
@@ -121,6 +129,10 @@ export function useQualityDashboard({
           selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
           selectedRecipe === 'all' ? undefined : selectedRecipe,
           plantCodeForAPI,
+          selectedClasificacion === 'all' ? undefined : selectedClasificacion,
+          selectedSpecimenType === 'all' ? undefined : selectedSpecimenType,
+          selectedFcValue === 'all' ? undefined : selectedFcValue,
+          selectedAge === 'all' ? undefined : selectedAge,
           soloEdadGarantia,
           incluirEnsayosFueraTiempo
         );
@@ -315,6 +327,10 @@ export function useQualityDashboard({
           selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
           selectedRecipe === 'all' ? undefined : selectedRecipe,
           selectedPlant === 'all' ? undefined : selectedPlant,
+          selectedClasificacion === 'all' ? undefined : selectedClasificacion,
+          selectedSpecimenType === 'all' ? undefined : selectedSpecimenType,
+          selectedFcValue === 'all' ? undefined : selectedFcValue,
+          selectedAge === 'all' ? undefined : selectedAge,
           soloEdadGarantia,
           incluirEnsayosFueraTiempo
         );
@@ -344,6 +360,10 @@ export function useQualityDashboard({
         selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
         selectedRecipe === 'all' ? undefined : selectedRecipe,
         plantCodeForAPI,
+        selectedClasificacion === 'all' ? undefined : selectedClasificacion,
+        selectedSpecimenType === 'all' ? undefined : selectedSpecimenType,
+        selectedFcValue === 'all' ? undefined : selectedFcValue,
+        selectedAge === 'all' ? undefined : selectedAge,
         soloEdadGarantia,
         incluirEnsayosFueraTiempo
       );
@@ -373,7 +393,7 @@ export function useQualityDashboard({
     } finally {
       setLoading(false);
     }
-  }, [dateRange, selectedClient, selectedConstructionSite, selectedRecipe, selectedPlant, soloEdadGarantia, incluirEnsayosFueraTiempo]);
+  }, [dateRange, selectedClient, selectedConstructionSite, selectedRecipe, selectedPlant, selectedClasificacion, selectedSpecimenType, selectedFcValue, selectedAge, soloEdadGarantia, incluirEnsayosFueraTiempo]);
 
   // Load data when dependencies change
   useEffect(() => {
@@ -429,8 +449,8 @@ export function useQualityDashboard({
 
       // Use Promise.all to load data concurrently
       const [metricsData, chartDataRaw] = await Promise.all([
-        fetchMetricasCalidad(fromDate, toDate, selectedClient === 'all' ? undefined : selectedClient, selectedConstructionSite === 'all' ? undefined : selectedConstructionSite, selectedRecipe === 'all' ? undefined : selectedRecipe, retryPlantCode, soloEdadGarantia, incluirEnsayosFueraTiempo),
-        fetchDatosGraficoResistencia(fromDate, toDate, selectedClient === 'all' ? undefined : selectedClient, selectedConstructionSite === 'all' ? undefined : selectedConstructionSite, selectedRecipe === 'all' ? undefined : selectedRecipe, retryPlantCode, soloEdadGarantia, incluirEnsayosFueraTiempo)
+        fetchMetricasCalidad(fromDate, toDate, selectedClient === 'all' ? undefined : selectedClient, selectedConstructionSite === 'all' ? undefined : selectedConstructionSite, selectedRecipe === 'all' ? undefined : selectedRecipe, retryPlantCode, selectedClasificacion === 'all' ? undefined : selectedClasificacion, selectedSpecimenType === 'all' ? undefined : selectedSpecimenType, selectedFcValue === 'all' ? undefined : selectedFcValue, selectedAge === 'all' ? undefined : selectedAge, soloEdadGarantia, incluirEnsayosFueraTiempo),
+        fetchDatosGraficoResistencia(fromDate, toDate, selectedClient === 'all' ? undefined : selectedClient, selectedConstructionSite === 'all' ? undefined : selectedConstructionSite, selectedRecipe === 'all' ? undefined : selectedRecipe, retryPlantCode, selectedClasificacion === 'all' ? undefined : selectedClasificacion, selectedSpecimenType === 'all' ? undefined : selectedSpecimenType, selectedFcValue === 'all' ? undefined : selectedFcValue, selectedAge === 'all' ? undefined : selectedAge, soloEdadGarantia, incluirEnsayosFueraTiempo)
       ]);
 
       setMetricas(metricsData);
