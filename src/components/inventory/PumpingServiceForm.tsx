@@ -33,9 +33,10 @@ import { Search, Calendar, Truck, User, Package, MapPin, Check, Info, FileText, 
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { RemisionPendingFile, RemisionDocument } from '@/types/remisiones';
-import FileUpload from '@/components/inventory/FileUpload';
+import SimpleFileUpload from '@/components/inventory/SimpleFileUpload';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { useSignedUrls } from '@/hooks/useSignedUrls';
 
 // Plant interface for the form
 interface Plant {
@@ -114,6 +115,9 @@ export default function PumpingServiceForm() {
   const [uploading, setUploading] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<RemisionPendingFile[]>([]);
   const [existingDocuments, setExistingDocuments] = useState<RemisionDocument[]>([]);
+  
+  // Signed URL management (Supabase best practice)
+  const { getSignedUrl, isLoading: urlLoading, getCachedUrl } = useSignedUrls('remision-documents', 3600);
 
   // Set up plants from PlantContext and auto-select plant
   useEffect(() => {
@@ -381,7 +385,12 @@ export default function PumpingServiceForm() {
       const response = await fetch(`/api/remisiones/documents?remision_id=${remisionId}&document_category=pumping_remision`);
       if (response.ok) {
         const data = await response.json();
-        setExistingDocuments(data.data || []);
+        // Store documents without URLs - we'll generate signed URLs on-demand
+        const documents = (data.data || []).map((doc: RemisionDocument) => ({
+          ...doc,
+          url: null // We'll generate these on-demand for security
+        }));
+        setExistingDocuments(documents);
       }
     } catch (error) {
       console.error('Error fetching documents:', error);
@@ -405,6 +414,29 @@ export default function PumpingServiceForm() {
     } catch (error) {
       console.error('Error deleting document:', error);
       toast.error('Error al eliminar documento');
+    }
+  };
+
+  // Handle document viewing with on-demand signed URL generation (Supabase best practice)
+  const handleViewDocument = async (doc: RemisionDocument) => {
+    try {
+      // Check if we have a cached URL first
+      const cachedUrl = getCachedUrl(doc.file_path);
+      if (cachedUrl) {
+        window.open(cachedUrl, '_blank', 'noopener,noreferrer');
+        return;
+      }
+
+      // Generate fresh signed URL
+      const signedUrl = await getSignedUrl(doc.file_path);
+      if (signedUrl) {
+        window.open(signedUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        toast.error('No se pudo generar enlace para ver el documento');
+      }
+    } catch (error) {
+      console.error('Error viewing document:', error);
+      toast.error('Error al abrir el documento');
     }
   };
 
@@ -944,11 +976,10 @@ export default function PumpingServiceForm() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="text-xs text-gray-600 mb-3">
-                    <p>• Use la cámara para capturar documentos y convertirlos automáticamente a PDF</p>
-                    <p>• O suba archivos existentes (imágenes, PDFs)</p>
+                    <p>• Suba archivos existentes (imágenes, PDFs)</p>
                   </div>
                   
-                  <FileUpload
+                  <SimpleFileUpload
                     onFileSelect={handleFileUpload}
                     acceptedTypes={['image/*', 'application/pdf']}
                     multiple
@@ -973,11 +1004,7 @@ export default function PumpingServiceForm() {
                             }`}>
                               {fileInfo.status}
                             </span>
-                            {fileInfo.isCameraCapture && (
-                              <span className="text-xs px-2 py-1 rounded bg-blue-100 text-blue-700">
-                                Cámara
-                              </span>
-                            )}
+
                             {fileInfo.error && (
                               <span className="text-xs px-2 py-1 rounded bg-red-100 text-red-700">
                                 Error: {fileInfo.error}
@@ -1015,17 +1042,15 @@ export default function PumpingServiceForm() {
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
-                            {doc.url && (
-                              <a
-                                href={doc.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-800 text-xs"
-                                title="Ver documento (enlace permanente)"
-                              >
-                                Ver
-                              </a>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleViewDocument(doc)}
+                              disabled={urlLoading(doc.file_path)}
+                              className="text-blue-600 hover:text-blue-800 text-xs disabled:opacity-50"
+                              title="Ver documento (genera enlace seguro)"
+                            >
+                              {urlLoading(doc.file_path) ? 'Cargando...' : 'Ver'}
+                            </button>
                             <button
                               type="button"
                               onClick={() => deleteDocument(doc.id)}
