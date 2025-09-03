@@ -104,6 +104,7 @@ export async function createEnsayo(data: {
     // Prepare ensayo data
     const ensayoData = {
       muestra_id: data.muestra_id,
+      plant_id: muestra.plant_id, // Required for RLS policy
       fecha_ensayo: typeof data.fecha_ensayo === 'string' ? data.fecha_ensayo : data.fecha_ensayo.toISOString().split('T')[0],
       hora_ensayo: data.hora_ensayo || new Date().toTimeString().split(' ')[0],
       carga_kg: data.carga_kg,

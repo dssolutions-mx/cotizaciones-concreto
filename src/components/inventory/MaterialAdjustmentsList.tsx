@@ -24,6 +24,7 @@ import { toast } from 'sonner'
 interface MaterialAdjustmentsListProps {
   date: Date
   isEditing: boolean
+  refreshKey?: number
 }
 
 const adjustmentTypeLabels = {
@@ -50,23 +51,36 @@ const adjustmentTypeIcons = {
   loss: AlertTriangle
 }
 
-export default function MaterialAdjustmentsList({ date, isEditing }: MaterialAdjustmentsListProps) {
+export default function MaterialAdjustmentsList({ date, isEditing, refreshKey }: MaterialAdjustmentsListProps) {
   const [adjustments, setAdjustments] = useState<MaterialAdjustment[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchAdjustments()
-  }, [date])
+  }, [date, refreshKey])
 
   const fetchAdjustments = async () => {
     setLoading(true)
     try {
       const dateStr = format(date, 'yyyy-MM-dd')
+      console.log('=== FRONTEND: Fetching adjustments ===')
+      console.log('Date object:', date)
+      console.log('Formatted date string:', dateStr)
+      console.log('Fetch URL:', `/api/inventory/adjustments?date=${dateStr}`)
       const response = await fetch(`/api/inventory/adjustments?date=${dateStr}`)
       
       if (response.ok) {
         const data = await response.json()
+        console.log('=== FRONTEND: Adjustments API response ===')
+        console.log('Response status:', response.status)
+        console.log('Response data:', data)
+        console.log('Adjustments array:', data.adjustments)
+        console.log('Adjustments count:', data.adjustments?.length || 0)
         setAdjustments(data.adjustments || [])
+      } else {
+        console.error('Adjustments API error:', response.status, response.statusText)
+        const errorData = await response.json()
+        console.error('Error details:', errorData)
       }
     } catch (error) {
       console.error('Error fetching adjustments:', error)

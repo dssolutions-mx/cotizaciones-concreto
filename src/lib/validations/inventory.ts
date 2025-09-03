@@ -19,8 +19,9 @@ export const MaterialAdjustmentInputSchema = z.object({
   }),
   quantity_adjusted: z.number().positive('La cantidad ajustada debe ser positiva'),
   reference_type: z.string().max(50, 'Tipo de referencia no puede exceder 50 caracteres').optional(),
-  reference_notes: z.string().max(1000, 'Notas de referencia no pueden exceder 1000 caracteres').optional(),
+  reference_notes: z.string().min(1, 'Las notas de referencia son requeridas').max(1000, 'Notas de referencia no pueden exceder 1000 caracteres'),
   adjustment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
+  plant_id: z.string().uuid('ID de planta debe ser un UUID válido').optional(),
 });
 
 export const InventorySearchParamsSchema = z.object({
@@ -58,7 +59,7 @@ export const GetInventoryQuerySchema = z.object({
 });
 
 export const GetDailyLogQuerySchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD'),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
   plant_id: z.string().uuid('ID de planta debe ser un UUID válido').optional(),
 });
 

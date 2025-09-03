@@ -11,9 +11,10 @@ export async function GET(request: NextRequest) {
     const supabase = await createServerSupabaseClient();
 
     const { searchParams } = new URL(request.url);
+    const date = searchParams.get('date');
     const queryParams = {
-      date_from: searchParams.get('date_from') || undefined,
-      date_to: searchParams.get('date_to') || undefined,
+      date_from: searchParams.get('date_from') || (date ? date : undefined),
+      date_to: searchParams.get('date_to') || (date ? date : undefined),
       material_id: searchParams.get('material_id') || undefined,
       limit: searchParams.get('limit') || '20',
       offset: searchParams.get('offset') || '0',
@@ -46,17 +47,54 @@ export async function GET(request: NextRequest) {
     const validatedQuery = GetActivitiesQuerySchema.parse(queryParams);
 
     // Build query for material adjustments
+    // For EXECUTIVE users, allow filtering by plant_id, otherwise use user's plant_id
     let query = supabase
       .from('material_adjustments')
-      .select('*')
-      .eq('plant_id', profile.plant_id);
+      .select(`
+        *,
+        materials:material_id (
+          material_name,
+          category,
+          unit
+        )
+      `);
+    
+    // Apply plant filter based on user role
+    if (profile.role === 'EXECUTIVE') {
+      // Executives can see all plants, but if plant_id is provided in query, filter by it
+      const queryPlantId = searchParams.get('plant_id');
+      if (queryPlantId) {
+        console.log('EXECUTIVE: Filtering by query plant_id:', queryPlantId);
+        query = query.eq('plant_id', queryPlantId);
+      } else {
+        console.log('EXECUTIVE: No plant filter applied - seeing all plants');
+      }
+    } else {
+      // Other users can only see their assigned plant
+      console.log('NON-EXECUTIVE: Filtering by user plant_id:', profile.plant_id);
+      if (!profile.plant_id) {
+        console.log('WARNING: User has no plant_id assigned!');
+      }
+      query = query.eq('plant_id', profile.plant_id);
+    }
 
     if (validatedQuery.date_from) {
+      console.log('Applying date_from filter:', validatedQuery.date_from);
       query = query.gte('adjustment_date', validatedQuery.date_from);
     }
 
     if (validatedQuery.date_to) {
+      console.log('Applying date_to filter:', validatedQuery.date_to);
       query = query.lte('adjustment_date', validatedQuery.date_to);
+    }
+
+    // If neither date_from nor date_to is provided, use the date parameter as both
+    if (!validatedQuery.date_from && !validatedQuery.date_to) {
+      const dateParam = searchParams.get('date');
+      if (dateParam) {
+        console.log('Applying single date filter:', dateParam);
+        query = query.eq('adjustment_date', dateParam);
+      }
     }
 
     if (validatedQuery.material_id) {
@@ -70,12 +108,45 @@ export async function GET(request: NextRequest) {
       .range(validatedQuery.offset, validatedQuery.offset + validatedQuery.limit - 1);
 
     if (adjustmentsError) {
+      console.error('Adjustments query error:', adjustmentsError);
       throw new Error(`Error al obtener ajustes de material: ${adjustmentsError.message}`);
     }
 
+    console.log('=== ADJUSTMENTS API DEBUG ===');
+    console.log('User profile:', {
+      id: profile.id,
+      role: profile.role,
+      plant_id: profile.plant_id,
+      business_unit_id: profile.business_unit_id
+    });
+    console.log('Query parameters:', {
+      date_from: validatedQuery.date_from,
+      date_to: validatedQuery.date_to,
+      material_id: validatedQuery.material_id
+    });
+    console.log('Search params:', Object.fromEntries(searchParams.entries()));
+
+    // Try to get a count first to see if table exists
+    const { count, error: countError } = await supabase
+      .from('material_adjustments')
+      .select('*', { count: 'exact', head: true });
+
+    console.log('Table count result:', { count, countError });
+
+    console.log('Adjustments query result:', {
+      adjustmentsCount: adjustments?.length || 0,
+      adjustments: adjustments?.slice(0, 3).map(adj => ({
+        id: adj.id,
+        adjustment_date: adj.adjustment_date,
+        plant_id: adj.plant_id,
+        adjustment_type: adj.adjustment_type,
+        quantity_adjusted: adj.quantity_adjusted
+      }))
+    });
+
     return NextResponse.json({
       success: true,
-      data: adjustments,
+      adjustments: adjustments, // Return as 'adjustments' to match frontend expectation
       pagination: {
         limit: validatedQuery.limit,
         offset: validatedQuery.offset,
@@ -148,6 +219,13 @@ export async function POST(request: NextRequest) {
     // Validate material adjustment data
     const validatedData = MaterialAdjustmentInputSchema.parse(body);
 
+    // Use plant_id from request body or fallback to profile's plant_id
+    const plantId = validatedData.plant_id || profile.plant_id;
+    
+    if (!plantId) {
+      return NextResponse.json({ error: 'No se pudo determinar la planta' }, { status: 400 });
+    }
+
     // Generate adjustment number
     const adjustmentDate = validatedData.adjustment_date || new Date().toISOString().split('T')[0];
     const dateStr = adjustmentDate.replace(/-/g, '');
@@ -156,7 +234,7 @@ export async function POST(request: NextRequest) {
     const { data: lastAdjustment } = await supabase
       .from('material_adjustments')
       .select('adjustment_number')
-      .eq('plant_id', profile.plant_id)
+      .eq('plant_id', plantId)
       .ilike('adjustment_number', `ADJ-${dateStr}-%`)
       .order('adjustment_number', { ascending: false })
       .limit(1)
@@ -169,7 +247,7 @@ export async function POST(request: NextRequest) {
     const { data: currentInventory } = await supabase
       .from('material_inventory')
       .select('current_stock')
-      .eq('plant_id', profile.plant_id)
+      .eq('plant_id', plantId)
       .eq('material_id', validatedData.material_id)
       .single();
 
@@ -181,7 +259,7 @@ export async function POST(request: NextRequest) {
       .from('material_adjustments')
       .insert({
         adjustment_number: adjustmentNumber,
-        plant_id: profile.plant_id,
+        plant_id: plantId,
         material_id: validatedData.material_id,
         adjustment_date: adjustmentDate,
         adjustment_time: new Date().toTimeString().split(' ')[0],
@@ -197,8 +275,29 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (adjustmentError) {
+      console.error('Error creating adjustment:', adjustmentError);
       throw new Error(`Error al crear ajuste: ${adjustmentError.message}`);
     }
+
+    console.log('=== ADJUSTMENT CREATED SUCCESSFULLY ===');
+    console.log('Created adjustment:', {
+      id: result.id,
+      adjustment_number: result.adjustment_number,
+      plant_id: result.plant_id,
+      adjustment_date: result.adjustment_date,
+      adjustment_type: result.adjustment_type,
+      quantity_adjusted: result.quantity_adjusted,
+      reference_notes: result.reference_notes
+    });
+
+    // Verify the adjustment was saved by querying it back
+    const { data: verifyAdjustment, error: verifyError } = await supabase
+      .from('material_adjustments')
+      .select('*')
+      .eq('id', result.id)
+      .single();
+
+    console.log('Verification query result:', { verifyAdjustment, verifyError });
 
     return NextResponse.json({
       success: true,
