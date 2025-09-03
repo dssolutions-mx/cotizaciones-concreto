@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Perfil de usuario no encontrado' }, { status: 403 });
     }
 
-    // Verify the remision exists (RLS policies will handle access control)
+    // Verify the remision exists and get its plant_id (RLS policies will handle access control)
     const { data: remision, error: remisionError } = await supabase
       .from('remisiones')
       .select('id, plant_id')
@@ -85,11 +85,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Remisión no encontrada' }, { status: 404 });
     }
 
-    // Generate unique filename
+    // Generate unique filename using the remision's plant_id
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 15);
     const fileExtension = file.name.split('.').pop();
-    const fileName = `${profile.plant_id}/${documentCategory}/${remisionId}_${timestamp}_${randomString}.${fileExtension}`;
+    
+    // Use the plant where the remision belongs (not the user's plant)
+    const plantPath = remision.plant_id ? remision.plant_id.toString() : 'general';
+    const fileName = `${plantPath}/${documentCategory}/${remisionId}_${timestamp}_${randomString}.${fileExtension}`;
 
     // Upload document to storage
     const { data: uploadData, error: uploadError } = await supabase.storage
@@ -133,14 +136,23 @@ export async function POST(request: NextRequest) {
       throw new Error(`Error al guardar información del documento: ${insertError.message}`);
     }
 
-    // Generate permanent URL for the uploaded document
-    const permanentUrl = `/api/remisiones/documents/${documentRecord.id}/view`;
+    // Generate signed URL for the uploaded document (Supabase best practice)
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+      .from('remision-documents')
+      .createSignedUrl(fileName, 3600); // 1 hour expiry
+
+    let documentUrl: string | null = null;
+    if (signedUrlError || !signedUrlData.signedUrl) {
+      console.warn('Failed to create signed URL for uploaded document:', signedUrlError);
+    } else {
+      documentUrl = signedUrlData.signedUrl;
+    }
 
     return NextResponse.json({
       success: true,
       data: {
         ...documentRecord,
-        url: permanentUrl
+        url: documentUrl
       },
       message: 'Documento subido exitosamente',
     });
@@ -194,16 +206,35 @@ export async function GET(request: NextRequest) {
       throw new Error(`Error al obtener documentos: ${documentsError.message}`);
     }
 
-    // Generate permanent document URLs that never expire
-    const documentsWithUrls = documents.map((doc) => {
-      // Use permanent viewing endpoint instead of expiring signed URLs
-      const permanentUrl = `/api/remisiones/documents/${doc.id}/view`;
-      
-      return {
-        ...doc,
-        url: permanentUrl
-      };
-    });
+    // Generate fresh signed URLs for each document (Supabase best practice)
+    const documentsWithUrls = await Promise.all(
+      documents.map(async (doc) => {
+        try {
+          const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+            .from('remision-documents')
+            .createSignedUrl(doc.file_path, 3600); // 1 hour expiry for viewing
+          
+          if (signedUrlError || !signedUrlData.signedUrl) {
+            console.warn(`Failed to generate signed URL for ${doc.file_name}:`, signedUrlError);
+            return {
+              ...doc,
+              url: null
+            };
+          }
+
+          return {
+            ...doc,
+            url: signedUrlData.signedUrl
+          };
+        } catch (error) {
+          console.warn(`Error generating signed URL for ${doc.file_name}:`, error);
+          return {
+            ...doc,
+            url: null
+          };
+        }
+      })
+    );
 
     return NextResponse.json({
       success: true,
