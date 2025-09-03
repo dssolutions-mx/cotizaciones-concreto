@@ -86,10 +86,6 @@ export default function QualityDashboardPage() {
   } = useQualityFilters(dateRange);
 
   // Use custom hooks for data management
-  console.log('🌱 Plant selection debug:', {
-    selectedPlant,
-    availablePlants: plants
-  });
 
   const {
     metricas,

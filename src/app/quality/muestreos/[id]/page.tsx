@@ -40,7 +40,7 @@ import {
   ArrowUpRight,
   Thermometer
 } from 'lucide-react';
-import { fetchMuestreoById } from '@/services/qualityService';
+import { fetchMuestreoById } from '@/services/qualityMuestreoService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { MuestreoWithRelations } from '@/types/quality';
 import Link from 'next/link';

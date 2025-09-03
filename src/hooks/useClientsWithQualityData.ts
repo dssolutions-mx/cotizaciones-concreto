@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { fetchClientsWithQualityData } from '@/services/qualityService';
+import { fetchClientsWithQualityData } from '@/services/qualityDataService';
 import type { DateRange } from "react-day-picker";
 
 export function useClientsWithQualityData(dateRange?: DateRange) {

@@ -297,7 +297,7 @@ export async function fetchDatosGraficoResistencia(
     };
 
     // Get filtered muestreos using cascading filtering
-    const filteredMuestreos = await getFilteredMuestreos(dateRange, filterSelections);
+    const filteredMuestreos = await getFilteredMuestreos(dateRange, filterSelections, soloEdadGarantia, incluirEnsayosFueraTiempo);
 
     if (!filteredMuestreos || filteredMuestreos.length === 0) {
       console.log('📊 No muestreos found after cascading filtering for chart');

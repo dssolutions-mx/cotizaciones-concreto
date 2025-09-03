@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { fetchRecipesWithQualityData } from '@/services/qualityService';
+import { fetchRecipesWithQualityData } from '@/services/qualityDataService';
 import type { DateRange } from "react-day-picker";
 
 export function useRecipesWithQualityData(

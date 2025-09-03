@@ -42,7 +42,7 @@ import {
   Clock3,
   AlertCircle
 } from 'lucide-react';
-import { fetchEnsayoById } from '@/services/qualityService';
+import { fetchEnsayoById } from '@/services/qualityEnsayoService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { EnsayoWithRelations } from '@/types/quality';
 import Link from 'next/link';

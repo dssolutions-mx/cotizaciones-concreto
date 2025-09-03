@@ -4,16 +4,17 @@ import React from 'react'
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { 
-  Package, 
-  TrendingDown, 
-  FileText, 
-  Upload, 
-  BarChart3, 
+import {
+  Package,
+  TrendingDown,
+  FileText,
+  Upload,
+  BarChart3,
   Calendar,
   ArrowUpDown,
   Inbox,
-  Settings
+  Settings,
+  Truck
 } from 'lucide-react'
 import Link from 'next/link'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
@@ -74,7 +75,23 @@ export default function DosificadorDashboard() {
               </CardContent>
             </Card>
           </Link>
-          
+
+          <Link href="/inventory/pumping-service">
+            <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-cyan-500">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Servicio de Bombeo</CardTitle>
+                  <Truck className="h-5 w-5 text-cyan-500" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-muted-foreground">
+                  Registrar remisiones de bombeo independientes
+                </p>
+              </CardContent>
+            </Card>
+          </Link>
+
           <Link href="/arkik">
             <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-purple-500">
               <CardHeader className="pb-2">

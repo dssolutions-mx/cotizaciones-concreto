@@ -1,5 +1,47 @@
 // Types for the Quality Control Module
 
+// Basic data types for raw data processing
+export interface EnsayosData {
+  id: string;
+  muestra_id: string;
+  fecha_ensayo: string; // ISO date string
+  resistencia_calculada: number | null;
+  porcentaje_cumplimiento: number | null;
+}
+
+export interface MuestrasData {
+  id: string;
+  muestreo_id: string;
+  fecha_programada_ensayo: string; // ISO date string
+  estado: string;
+}
+
+export interface MuestreosData {
+  id: string;
+  remision_id: string;
+  fecha_muestreo: string; // ISO date string
+  masa_unitaria: number | null;
+}
+
+export interface RemisionesData {
+  id: string;
+  recipe_id: string;
+  volumen_fabricado: number | null;
+}
+
+export interface RecipeVersionsData {
+  recipe_id: string;
+  is_current: boolean;
+  notes: string | null;
+  age_days: number | null; // Needed to calculate warranty date
+}
+
+export interface RemisionMaterialesData {
+  remision_id: string;
+  material_type: string | null;
+  cantidad_real: number | null;
+}
+
 // Muestreo type
 export interface Muestreo {
   id: string;
