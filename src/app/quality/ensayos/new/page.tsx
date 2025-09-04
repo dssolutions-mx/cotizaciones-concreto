@@ -57,11 +57,14 @@ const ensayoFormSchema = z.object({
     required_error: 'La fecha del ensayo es requerida',
   }),
   hora_ensayo: z.string().min(1, 'La hora del ensayo es requerida'),
-  carga_kg: z.number()
-    .min(0, 'La carga debe ser un número positivo')
+  carga_kg: z.number({
+    required_error: 'La carga de ruptura es requerida',
+    invalid_type_error: 'La carga debe ser un número válido'
+  })
+    .min(0.01, 'La carga debe ser mayor a 0')
     .max(500000, 'La carga parece demasiado alta'),
   resistencia_calculada: z.number()
-    .min(0, 'La resistencia debe ser un número positivo'),
+    .min(0.01, 'La resistencia debe ser mayor a 0'),
   porcentaje_cumplimiento: z.number()
     .min(0, 'El porcentaje debe ser un número positivo')
     .max(9999.99, 'El porcentaje no puede exceder 9999.99%'),
@@ -93,9 +96,9 @@ function NuevoEnsayoContent() {
       muestra_id: muestraId || '',
       fecha_ensayo: new Date(),
       hora_ensayo: new Date().toTimeString().slice(0, 5), // HH:MM format
-      carga_kg: 0,
-      resistencia_calculada: 0,
-      porcentaje_cumplimiento: 0,
+      carga_kg: undefined as any, // Start empty for better UX
+      resistencia_calculada: 0, // Will be calculated automatically
+      porcentaje_cumplimiento: 0, // Will be calculated automatically
       tiene_evidencias: false,
       observaciones: '',
     },
@@ -187,10 +190,13 @@ function NuevoEnsayoContent() {
       
       // Calculate porcentaje_cumplimiento if we have recipe strength info
       const targetStrength = muestra.muestreo?.remision?.recipe?.strength_fc || 0;
-      if (targetStrength > 0) {
-        const porcentaje = (resistencia / targetStrength) * 100;
-        form.setValue('porcentaje_cumplimiento', parseFloat(porcentaje.toFixed(2)));
+      let porcentaje = 0;
+      if (targetStrength > 0 && resistencia > 0) {
+        porcentaje = parseFloat(((resistencia / targetStrength) * 100).toFixed(2));
       }
+      
+      // Always set the value, even if it's 0
+      form.setValue('porcentaje_cumplimiento', porcentaje, { shouldValidate: true });
     }
   };
 
@@ -438,6 +444,7 @@ function NuevoEnsayoContent() {
         setSubmitError('No se pudo obtener la información completa del muestreo.');
         return;
       }
+      
       
       // Remove profile.id since it will be fetched from the session in the service
       await createEnsayo({
@@ -739,10 +746,21 @@ function NuevoEnsayoContent() {
                                 <Input 
                                   type="number" 
                                   step="0.01"
-                                  min="0"
-                                  {...field}
-                                  value={field.value === 0 ? '' : field.value}
-                                  onChange={(e) => handleCargaChange(parseFloat(e.target.value) || 0)}
+                                  min="0.01"
+                                  placeholder="Ingrese la carga de ruptura"
+                                  value={field.value || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value === '') {
+                                      field.onChange(undefined);
+                                    } else {
+                                      const numValue = parseFloat(value);
+                                      if (!isNaN(numValue)) {
+                                        field.onChange(numValue);
+                                        handleCargaChange(numValue);
+                                      }
+                                    }
+                                  }}
                                 />
                               </FormControl>
                               <FormDescription>
@@ -765,15 +783,15 @@ function NuevoEnsayoContent() {
                                 <Input 
                                   type="number" 
                                   step="0.01"
-                                  min="0"
+                                  min="0.01"
                                   {...field}
-                                  value={field.value === 0 ? '' : field.value}
+                                  value={field.value}
                                   readOnly 
                                   className="bg-gray-50"
                                 />
                               </FormControl>
                               <FormDescription>
-                                
+                                Calculada automáticamente por el sistema al guardar
                               </FormDescription>
                               <FormMessage />
                             </FormItem>
@@ -795,7 +813,7 @@ function NuevoEnsayoContent() {
                                       ? "bg-yellow-100 text-yellow-800"
                                       : "bg-red-100 text-red-800"
                                 )}>
-                                  {field.value === 0 ? '-' : `${field.value}%`}
+                                  {field.value === 0 ? '-' : `${field.value.toFixed(2)}%`}
                                 </span>
                               </FormLabel>
                               <FormControl>
@@ -803,14 +821,16 @@ function NuevoEnsayoContent() {
                                   type="number" 
                                   step="0.01"
                                   min="0"
-                                  {...field}
-                                  value={field.value === 0 ? '' : field.value}
+                                  name={field.name}
+                                  value={field.value ? field.value.toFixed(2) : '0.00'}
+                                  onChange={field.onChange}
+                                  onBlur={field.onBlur}
                                   readOnly 
                                   className="bg-gray-50"
                                 />
                               </FormControl>
                               <FormDescription>
-                                Porcentaje con respecto al f'c de diseño
+                                Calculado automáticamente por el sistema al guardar
                               </FormDescription>
                               <FormMessage />
                             </FormItem>
