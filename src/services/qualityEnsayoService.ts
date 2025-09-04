@@ -93,25 +93,31 @@ export async function createEnsayo(data: {
       throw new Error('Muestra no encontrada');
     }
 
-    // Calculate tiempo_desde_carga if we have remision data
-    let tiempo_desde_carga: number | null = null;
+    // Calculate tiempo_desde_carga (interval) if we have remision data
+    let tiempoDesdeCargaHours: number | null = null;
     if (muestra.muestreos?.remision?.fecha_entrega) {
       const fechaEntrega = new Date(muestra.muestreos.remision.fecha_entrega);
       const fechaEnsayo = typeof data.fecha_ensayo === 'string' ? new Date(data.fecha_ensayo) : data.fecha_ensayo;
-      tiempo_desde_carga = Math.round((fechaEnsayo.getTime() - fechaEntrega.getTime()) / (1000 * 60 * 60)); // hours
+      tiempoDesdeCargaHours = Math.round((fechaEnsayo.getTime() - fechaEntrega.getTime()) / (1000 * 60 * 60)); // hours
     }
+    const tiempoDesdeCargaInterval =
+      typeof tiempoDesdeCargaHours === 'number' ? `${tiempoDesdeCargaHours} hours` : null;
+
+    // Derive plant_id for ensayos: prefer the remision's plant, fallback to muestra's plant_id if present
+    const ensayoPlantId =
+      (muestra as any)?.muestreos?.remision?.plant_id || (muestra as any)?.plant_id || null;
 
     // Prepare ensayo data
     const ensayoData = {
       muestra_id: data.muestra_id,
-      plant_id: muestra.plant_id, // Required for RLS policy
+      plant_id: ensayoPlantId, // Required for RLS policy
       fecha_ensayo: typeof data.fecha_ensayo === 'string' ? data.fecha_ensayo : data.fecha_ensayo.toISOString().split('T')[0],
       hora_ensayo: data.hora_ensayo || new Date().toTimeString().split(' ')[0],
       carga_kg: data.carga_kg,
       resistencia_calculada: data.resistencia_calculada,
       porcentaje_cumplimiento: data.porcentaje_cumplimiento,
       observaciones: data.observaciones || null,
-      tiempo_desde_carga,
+      tiempo_desde_carga: tiempoDesdeCargaInterval,
       created_by: userId,
       created_at: new Date().toISOString(),
     };
