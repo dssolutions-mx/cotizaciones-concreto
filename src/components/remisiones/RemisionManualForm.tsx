@@ -19,7 +19,7 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { getRecipeMaterials } from '@/utils/recipeMaterialsCache';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { FileText } from 'lucide-react';
-import FileUpload from '@/components/inventory/FileUpload';
+import SimpleFileUpload from '@/components/inventory/SimpleFileUpload';
 import { useSignedUrls } from '@/hooks/useSignedUrls';
 import { RemisionDocument, RemisionPendingFile } from '@/types/remisiones';
 
@@ -653,11 +653,13 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <FileUpload
+            <SimpleFileUpload
               onFileSelect={handleFileUpload}
-              acceptedTypes={['image/*', '.pdf', '.csv']}
+              acceptedTypes={['image/*', 'application/pdf']}
               multiple
               maxSize={10} // 10MB
+              uploading={loading}
+              disabled={loading}
             />
 
             {pendingFiles.length > 0 && (
