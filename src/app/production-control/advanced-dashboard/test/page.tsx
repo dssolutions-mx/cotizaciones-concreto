@@ -138,12 +138,12 @@ export default function AdvancedDashboardTestPage() {
       </Card>
 
       <div className="flex justify-center gap-4">
-        <Link href="/inventory/advanced-dashboard">
+        <Link href="/production-control/advanced-dashboard">
           <Button>
             Ir al Dashboard Avanzado
           </Button>
         </Link>
-        <Link href="/inventory">
+        <Link href="/production-control">
           <Button variant="outline">
             Volver al Dashboard Principal
           </Button>

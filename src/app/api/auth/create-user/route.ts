@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Check if user has EXECUTIVE role
-    if (!callerProfile || callerProfile.role !== 'EXECUTIVE') {
+    if (!callerProfile || (callerProfile.role !== 'EXECUTIVE' && callerProfile.role !== 'ADMIN_OPERATIONS')) {
       console.error('User is not an executive:', callerProfile?.role);
       return NextResponse.json(
         { error: 'Forbidden - Insufficient permissions' },

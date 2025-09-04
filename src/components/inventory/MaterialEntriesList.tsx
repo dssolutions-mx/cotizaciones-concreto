@@ -180,7 +180,7 @@ export default function MaterialEntriesList({ date, isEditing }: MaterialEntries
             No se han registrado entradas de materiales para este día
           </p>
           {isEditing && (
-            <Link href="/inventory/entries">
+            <Link href="/production-control/entries">
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
                 Registrar Nueva Entrada
@@ -197,7 +197,7 @@ export default function MaterialEntriesList({ date, isEditing }: MaterialEntries
       {/* Action Button */}
       {isEditing && (
         <div className="flex justify-end">
-          <Link href="/inventory/entries">
+          <Link href="/production-control/entries">
             <Button>
               <Plus className="h-4 w-4 mr-2" />
               Nueva Entrada

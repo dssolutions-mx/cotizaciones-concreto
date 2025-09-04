@@ -34,7 +34,9 @@ import {
   Settings,
   FileUp,
   Calendar,
-  BarChart3
+  BarChart3,
+  Truck,
+  Clock
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
@@ -100,20 +102,36 @@ const finanzasSubMenuItems = [
   },
 ];
 
+function getFinanzasSubMenuItemsForRole(userRole?: string) {
+  if (userRole === 'ADMIN_OPERATIONS') {
+    // Restrict to: Reporte de Ventas, Datos Históricos, Reporte Diario, Remisiones por Cliente, Reportes Dinámicos
+    return [
+      { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
+      { title: "Datos Históricos", href: "/finanzas/historical-data", IconComponent: TrendingUp },
+      { title: "Reporte Diario", href: "/finanzas/ventas-diarias", IconComponent: BarChart },
+      { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
+      { title: "Reportes Dinámicos", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
+    ];
+  }
+  return finanzasSubMenuItems;
+}
+
 // Define inventory submenu items
 type InventoryNavItem = 
   | { title: string; href: string; IconComponent: React.ElementType }
   | { type: 'group'; title: string };
 
 const inventorySubMenuItems: InventoryNavItem[] = [
-  { title: "Dashboard Dosificador", href: "/inventory", IconComponent: Warehouse },
-  { type: 'group', title: "Gestión Diaria" },
-  { title: "Entradas de Material", href: "/inventory/entries", IconComponent: Inbox },
-  { title: "Ajustes de Inventario", href: "/inventory/adjustments", IconComponent: Settings },
-  { title: "Bitácora Diaria", href: "/inventory/daily-log", IconComponent: Calendar },
-  { type: 'group', title: "Integración" },
-  { title: "Carga Arkik", href: "/inventory/arkik-upload", IconComponent: FileUp },
-  { title: "Reportes", href: "/inventory/reports", IconComponent: BarChart3 },
+  { title: "Inicio", href: "/production-control", IconComponent: Home },
+  { type: 'group', title: "Materiales" },
+  { title: "Entradas de Material", href: "/production-control/entries", IconComponent: Inbox },
+  { title: "Ajustes de Inventario", href: "/production-control/adjustments", IconComponent: Settings },
+  { title: "Reportes de Materiales", href: "/production-control/advanced-dashboard", IconComponent: BarChart3 },
+  { type: 'group', title: "Producción" },
+  { title: "Bitácora Diaria", href: "/production-control/daily-log", IconComponent: Calendar },
+  { title: "Reloj Checador", href: "/production-control/reloj-checador", IconComponent: Clock },
+  { title: "Servicio de Bombeo", href: "/production-control/pumping-service", IconComponent: Truck },
+  { title: "Procesador Arkik", href: "/production-control/arkik-upload", IconComponent: FileUp },
 ];
 
 // Define quality submenu items (grouped for better UX)
@@ -196,7 +214,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const isFinanzasRoute = pathname?.startsWith('/finanzas');
   const isQualityRoute = pathname?.startsWith('/quality');
   const isAdminRoute = pathname?.startsWith('/admin');
-  const isInventoryRoute = pathname?.startsWith('/inventory');
+  const isInventoryRoute = pathname?.startsWith('/production-control');
 
   // Persist collapsed state (default collapsed)
   useEffect(() => {
@@ -254,8 +272,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
     switch (role) {
       case 'DOSIFICADOR':
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        navItems.push({ href: '/arkik', label: 'Arkik', IconComponent: FileSpreadsheet });
-        navItems.push({ href: '/inventory', label: 'Inventario', IconComponent: Warehouse });
+        navItems.push({ href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse });
         addQualityLink = true;
         break;
         
@@ -285,8 +302,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
         navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        navItems.push({ href: '/arkik', label: 'Arkik', IconComponent: FileSpreadsheet });
-        navItems.push({ href: '/inventory', label: 'Inventario', IconComponent: Warehouse });
+        navItems.push({ href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse });
         addFinanzasLink = true;
         addQualityLink = true;
         break;
@@ -297,11 +313,16 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
         navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
-        navItems.push({ href: '/arkik', label: 'Arkik', IconComponent: FileSpreadsheet });
-        navItems.push({ href: '/inventory', label: 'Inventario', IconComponent: Warehouse });
+        navItems.push({ href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse });
         addAdminLink = true;
         addFinanzasLink = true;
         addQualityLink = true;
+        break;
+
+      case 'ADMIN_OPERATIONS':
+        // New administrative role with access to Production Control and Finanzas
+        navItems.push({ href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse });
+        addFinanzasLink = true;
         break;
         
       case 'QUALITY_TEAM':
@@ -409,7 +430,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
 
                   {isFinanzasMainLink && isFinanzasRoute && (
                     <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
-                      {finanzasSubMenuItems.map((subItem, subIndex) => {
+                      {getFinanzasSubMenuItemsForRole(profile?.role).map((subItem, subIndex) => {
                         const SubIcon = subItem.IconComponent;
                         return (
                           <Link
@@ -463,7 +484,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
                     </div>
                   )}
 
-                  {item.href === '/inventory' && isInventoryRoute && (
+                  {item.href === '/production-control' && isInventoryRoute && (
                     <div className="pl-6 mt-1 space-y-1 border-l border-gray-200 ml-3">
                       {inventorySubMenuItems.map((subItem, subIndex) => {
                         if (!('href' in subItem)) {
@@ -562,7 +583,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
                       <TooltipContent sideOffset={8} side="right" className="p-0">
                         <div className="min-w-48 bg-white text-gray-700 rounded-md shadow-md p-1">
                           <div className="px-3 py-2 text-xs font-semibold text-gray-500">Finanzas</div>
-                          {finanzasSubMenuItems.map((subItem, subIndex) => (
+                          {getFinanzasSubMenuItemsForRole(profile?.role).map((subItem, subIndex) => (
                             <Link
                               key={`fin-sub-${subIndex}`}
                               href={subItem.href}
@@ -619,13 +640,13 @@ function Navigation({ children }: { children: React.ReactNode }) {
                   );
                 }
 
-                if (item.href === '/inventory') {
+                if (item.href === '/production-control') {
                   return (
                     <Tooltip key={`nav-col-${index}`}>
                       <TooltipTrigger asChild>{renderCollapsedItem(<></>)}</TooltipTrigger>
                       <TooltipContent sideOffset={8} side="right" className="p-0">
                         <div className="min-w-56 bg-white text-gray-700 rounded-md shadow-md p-1">
-                          <div className="px-3 py-2 text-xs font-semibold text-gray-500">Inventario</div>
+                          <div className="px-3 py-2 text-xs font-semibold text-gray-500">Control de Producción</div>
                           {inventorySubMenuItems.map((subItem, subIndex) => {
                             if (!('href' in subItem)) {
                               return (
@@ -796,7 +817,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
 
                     {item.href === '/finanzas' && isFinanzasRoute && (
                       <div className="pl-6 mb-2 space-y-1">
-                        {finanzasSubMenuItems.map((subItem, subIndex) => {
+                        {getFinanzasSubMenuItemsForRole(profile?.role).map((subItem, subIndex) => {
                           const SubIcon = subItem.IconComponent;
                           const isSubItemActive = pathname === subItem.href;
                           return (
@@ -850,7 +871,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
                       </div>
                     )}
 
-                    {item.href === '/inventory' && isInventoryRoute && (
+                    {item.href === '/production-control' && isInventoryRoute && (
                       <div className="pl-6 mb-2 space-y-1">
                         {inventorySubMenuItems.map((subItem, subIndex) => {
                           if (!('href' in subItem)) {

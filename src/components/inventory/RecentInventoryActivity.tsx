@@ -142,7 +142,7 @@ export default function RecentInventoryActivity() {
               <RefreshCw className={`h-4 w-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
               Actualizar
             </Button>
-            <Link href="/inventory/daily-log">
+            <Link href="/production-control/daily-log">
               <Button variant="outline" size="sm">
                 Ver Todo
                 <ArrowRight className="h-4 w-4 ml-2" />

@@ -15,6 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn } from '@/lib/utils'
 import MaterialEntriesList from './MaterialEntriesList'
 import MaterialAdjustmentsList from './MaterialAdjustmentsList'
+import InventoryBreadcrumb from './InventoryBreadcrumb'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 
@@ -160,6 +161,7 @@ export default function DailyInventoryLogPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      <InventoryBreadcrumb />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

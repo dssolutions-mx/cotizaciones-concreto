@@ -33,6 +33,7 @@ export default function EnhancedPlantSelector({
     userAccess, 
     isGlobalAdmin, 
     switchPlant,
+    switchBusinessUnit,
     isLoading 
   } = usePlantContext();
   
@@ -82,12 +83,17 @@ export default function EnhancedPlantSelector({
   const selectedBusinessUnit = businessUnits.find(bu => bu.id === activeBusinessUnitId);
   const selectedPlant = availablePlants.find(p => p.id === activePlantId);
 
+
   const handleBusinessUnitSelect = (businessUnitId: string) => {
     if (mode === 'VIEW') {
-      // For view mode, we need to switch to a plant in this business unit
-      const plantsInBU = availablePlants.filter(p => p.business_unit_id === businessUnitId);
-      if (plantsInBU.length > 0) {
-        switchPlant(plantsInBU[0].id);
+      // For view mode, switch business unit via context helper (also sets a plant)
+      if (switchBusinessUnit) {
+        switchBusinessUnit(businessUnitId);
+      } else {
+        const plantsInBU = availablePlants.filter(p => p.business_unit_id === businessUnitId);
+        if (plantsInBU.length > 0) {
+          switchPlant(plantsInBU[0].id);
+        }
       }
     } else {
       // For create mode, call the callback

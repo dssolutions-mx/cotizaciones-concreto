@@ -3,6 +3,6 @@
 import React from 'react'
 import DosificadorDashboard from '@/components/inventory/DosificadorDashboard'
 
-export default function InventoryPage() {
+export default function ProductionControlPage() {
   return <DosificadorDashboard />
 }
