@@ -180,6 +180,25 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
           {order.construction_site && (
             <p className="text-sm text-gray-700">
               <span className="font-medium">Obra:</span> {order.construction_site}
+              {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
+                <>
+                  <a
+                    className="ml-2 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                    href={(order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Abrir ubicación en Google Maps"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                    </svg>
+                    Ver mapa
+                  </a>
+                  <span className="ml-2 text-xs text-gray-500">
+                    {(order as any).delivery_latitude}, {(order as any).delivery_longitude}
+                  </span>
+                </>
+              )}
             </p>
           )}
           <p className="text-sm text-gray-700">
@@ -271,6 +290,9 @@ export default function OrdersList({
             delivery_date,
             delivery_time,
             construction_site,
+            delivery_latitude,
+            delivery_longitude,
+            delivery_google_maps_url,
             special_requirements,
             preliminary_amount,
             final_amount,

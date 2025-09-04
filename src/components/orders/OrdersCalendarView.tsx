@@ -92,6 +92,9 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
             delivery_date,
             delivery_time,
             construction_site,
+            delivery_latitude,
+            delivery_longitude,
+            delivery_google_maps_url,
             special_requirements,
             preliminary_amount,
             final_amount,
@@ -488,6 +491,20 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                             <span className="text-gray-500"> - {(order as any).siteLocation}</span>
                           )}
                         </span>
+                        {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
+                          <a
+                            className="ml-2 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 shrink-0 whitespace-nowrap"
+                            href={(order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Abrir ubicación en Google Maps"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                            </svg>
+                            Ver mapa
+                          </a>
+                        )}
                       </div>
                       <div className="flex items-center mt-1 text-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
@@ -583,6 +600,22 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           )}
                         </span>
                       </div>
+                      {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
+                        <div className="mt-1">
+                          <a
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                            href={(order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Abrir ubicación en Google Maps"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                            </svg>
+                            Mapa
+                          </a>
+                        </div>
+                      )}
                       <div className="flex items-center mt-1 text-xs">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
