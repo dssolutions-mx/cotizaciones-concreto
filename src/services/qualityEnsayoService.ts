@@ -126,14 +126,6 @@ export async function createEnsayo(data: {
       const localDate = new Date(year, month - 1, day, hour, minute, 0, 0);
       fecha_ensayo_ts = localDate.toISOString();
       
-      console.log('🔍 Timezone handling:', {
-        fechaStr,
-        hora_ensayo: data.hora_ensayo,
-        year, month, day, hour, minute,
-        localDate: localDate.toString(),
-        fecha_ensayo_ts,
-        userTimezone
-      });
     }
 
     // Prepare ensayo data - let the database trigger calculate resistance and percentage
@@ -154,7 +146,6 @@ export async function createEnsayo(data: {
       created_at: new Date().toISOString(),
     };
 
-    console.log('🔍 Final ensayoData being sent:', JSON.stringify(ensayoData, null, 2));
 
     // Insert ensayo
     const { data: ensayo, error: ensayoError } = await supabase
