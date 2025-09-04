@@ -115,7 +115,10 @@ export async function createEnsayo(data: {
       hora_ensayo: data.hora_ensayo || new Date().toTimeString().split(' ')[0],
       carga_kg: data.carga_kg,
       resistencia_calculada: data.resistencia_calculada,
-      porcentaje_cumplimiento: data.porcentaje_cumplimiento,
+      // porcentaje_cumplimiento is NOT NULL in DB; default to 0 if not provided
+      porcentaje_cumplimiento: typeof data.porcentaje_cumplimiento === 'number'
+        ? data.porcentaje_cumplimiento
+        : 0,
       observaciones: data.observaciones || null,
       tiempo_desde_carga: tiempoDesdeCargaInterval,
       created_by: userId,
