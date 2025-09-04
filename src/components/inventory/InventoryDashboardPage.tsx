@@ -25,7 +25,7 @@ import { es } from 'date-fns/locale'
 import { useInventoryDashboard } from '@/hooks/useInventoryDashboard'
 import { useAuthSelectors } from '@/hooks/use-auth-zustand'
 import { usePlantContext } from '@/contexts/PlantContext'
-import MaterialFlowSummaryTable from './MaterialFlowSummaryTable'
+import TheoreticalInventoryTable from './TheoreticalInventoryTable'
 import InventoryMovementsTable from './InventoryMovementsTable'
 import RemisionConsumptionTable from './RemisionConsumptionTable'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -327,7 +327,10 @@ function InventoryDashboardPage() {
                 
                 <div className="p-6">
                   <TabsContent value="summary" className="mt-0">
-                    <MaterialFlowSummaryTable materialFlows={data.summary.material_flows} />
+                    <TheoreticalInventoryTable 
+                      materialFlows={data.summary.material_flows} 
+                      dateRange={data.summary.date_range}
+                    />
                   </TabsContent>
                   
                   <TabsContent value="movements" className="mt-0">

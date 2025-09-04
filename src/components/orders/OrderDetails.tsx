@@ -1370,6 +1370,44 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       </dd>
                     </div>
                   </dl>
+
+                  {/* Delivery location map (if coordinates exist) */}
+                  {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
+                    <div className="mt-6">
+                      <h4 className="text-md font-medium text-gray-900 mb-2">Ubicación de Entrega</h4>
+                      <div className="text-sm text-gray-700 mb-3">
+                        <span className="font-medium">Coordenadas:</span>
+                        <span className="ml-2">
+                          {(order as any).delivery_latitude}, {(order as any).delivery_longitude}
+                        </span>
+                        {(() => {
+                          const url = (order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`;
+                          return (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-3 text-blue-600 hover:text-blue-800 underline"
+                            >
+                              Abrir en Google Maps
+                            </a>
+                          );
+                        })()}
+                      </div>
+                      <div className="rounded-md overflow-hidden bg-gray-100">
+                        <iframe
+                          src={`https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}&z=15&hl=es&output=embed`}
+                          width="100%"
+                          height="320"
+                          style={{ border: 0 }}
+                          allowFullScreen
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          title="Ubicación de entrega"
+                        ></iframe>
+                      </div>
+                    </div>
+                  )}
                   {/* Order actions buttons */}
                   <div className="px-4 py-5 sm:px-6 bg-gray-50 border-t flex flex-wrap gap-2">
                     {/* Buttons removed to avoid duplication - actions are available in the bottom actions section */}

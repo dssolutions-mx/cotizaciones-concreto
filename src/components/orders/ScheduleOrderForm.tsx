@@ -8,6 +8,7 @@ import { supabase } from '@/lib/supabase';
 import orderService from '@/services/orderService';
 import { EmptyTruckDetails, PumpServiceDetails } from '@/types/orders';
 import { usePlantContext } from '@/contexts/PlantContext';
+// Map preview uses a simple Google Maps embed with marker; no JS API needed
 
 interface Client {
   id: string;
@@ -51,10 +52,43 @@ interface ScheduleOrderFormProps {
   onOrderCreated?: () => void;
 }
 
-export default function ScheduleOrderForm({ 
-  preSelectedQuoteId, 
+// Utility functions for coordinates and Google Maps
+export const validateCoordinates = (lat: string, lng: string): { isValid: boolean; error: string } => {
+  const latNum = parseFloat(lat);
+  const lngNum = parseFloat(lng);
+
+  if (!lat.trim() || !lng.trim()) {
+    return { isValid: false, error: 'Ambas coordenadas son requeridas' };
+  }
+
+  if (isNaN(latNum) || isNaN(lngNum)) {
+    return { isValid: false, error: 'Las coordenadas deben ser números válidos' };
+  }
+
+  if (latNum < -90 || latNum > 90) {
+    return { isValid: false, error: 'La latitud debe estar entre -90 y 90 grados' };
+  }
+
+  if (lngNum < -180 || lngNum > 180) {
+    return { isValid: false, error: 'La longitud debe estar entre -180 y 180 grados' };
+  }
+
+  return { isValid: true, error: '' };
+};
+
+export const generateGoogleMapsUrl = (lat: string, lng: string): string => {
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+};
+
+const generateGoogleMapsEmbedUrl = (lat: string, lng: string): string => {
+  // Note: This requires a Google Maps API key for production use
+  return `https://www.google.com/maps/embed/v1/view?key=YOUR_API_KEY&center=${lat},${lng}&zoom=15`;
+};
+
+export default function ScheduleOrderForm({
+  preSelectedQuoteId,
   preSelectedClientId,
-  onOrderCreated 
+  onOrderCreated
 }: ScheduleOrderFormProps) {
   const router = useRouter();
   const { currentPlant } = usePlantContext();
@@ -102,6 +136,11 @@ export default function ScheduleOrderForm({
   const [deliveryTime, setDeliveryTime] = useState<string>('10:00');
   const [requiresInvoice, setRequiresInvoice] = useState<boolean>(false);
   const [specialRequirements, setSpecialRequirements] = useState<string>('');
+
+  // Coordinates for delivery location
+  const [latitude, setLatitude] = useState<string>('');
+  const [longitude, setLongitude] = useState<string>('');
+  const [coordinatesError, setCoordinatesError] = useState<string>('');
   
   // Order-wide pumping service (instead of per product)
   const [hasPumpService, setHasPumpService] = useState<boolean>(false);
@@ -465,7 +504,11 @@ export default function ScheduleOrderForm({
         // Detect service types available
         const allProducts = nonEmptyQuotes.flatMap(quote => quote.products);
         const concreteProducts = allProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0);
-        const pumpingProducts = allProducts.filter(p => p.placementType === 'BOMBEO' && p.pumpService);
+        const standalonePumpingProducts = allProducts.filter(p => p.placementType === 'BOMBEO' && p.pumpService);
+        const concreteWithPumpService = allProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0 && p.pumpService);
+        
+        // Combined pumping products (both standalone and concrete with pump service)
+        const pumpingProducts = [...standalonePumpingProducts, ...concreteWithPumpService];
         
         // Remove pumping services from the main product list - they should never appear as individual products
         const filteredProducts = allProducts.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
@@ -488,7 +531,9 @@ export default function ScheduleOrderForm({
           hasStandalonePumping: pumpingProducts.length > 0,
           orderType: concreteProducts.length > 0 && pumpingProducts.length > 0 ? 'both' : pumpingProducts.length > 0 ? 'pumping' : 'concrete',
           concreteCount: concreteProducts.length,
-          pumpingCount: pumpingProducts.length,
+          standalonePumpingCount: standalonePumpingProducts.length,
+          concreteWithPumpCount: concreteWithPumpService.length,
+          totalPumpingCount: pumpingProducts.length,
           allProducts: allProducts.map(p => ({ code: p.recipeCode, type: p.placementType, pumpService: p.pumpService }))
         });
         
@@ -532,20 +577,25 @@ export default function ScheduleOrderForm({
       try {
         console.log(`Fetching pump service pricing for Client: ${selectedClientId}, Site: ${selectedConstructionSite.name}`);
         
-        // Look for pump service pricing in quote_details that are approved for this client + site combination
+        // Look for pump service pricing directly on quote_details, inner-joining quotes for filters
         const { data: pumpServiceData, error: pumpServiceError } = await supabase
-          .from('quotes')
+          .from('quote_details')
           .select(`
-            quote_details(
-              pump_service,
-              pump_price
+            pump_price,
+            pump_service,
+            quotes!inner(
+              id,
+              client_id,
+              construction_site,
+              status,
+              created_at
             )
           `)
-          .eq('status', 'APPROVED')
-          .eq('client_id', selectedClientId)
-          .eq('construction_site', selectedConstructionSite.name)
-          .not('quote_details.pump_price', 'is', null)
-          .order('created_at', { ascending: false })
+          .eq('pump_service', true)
+          .eq('quotes.client_id', selectedClientId)
+          .eq('quotes.construction_site', selectedConstructionSite.name)
+          .eq('quotes.status', 'APPROVED')
+          .order('created_at', { ascending: false, foreignTable: 'quotes' })
           .limit(1);
           
         if (pumpServiceError) {
@@ -553,21 +603,18 @@ export default function ScheduleOrderForm({
           return;
         }
         
-        // Find the first quote with pump service pricing
+        console.log('Pump service data fetched:', pumpServiceData);
+
+        // Use the most recent quote_detail with pump_service=true
         if (pumpServiceData && pumpServiceData.length > 0) {
-          const quoteWithPumpService = pumpServiceData.find(quote => 
-            quote.quote_details.some((detail: any) => detail.pump_service && detail.pump_price)
-          );
-          
-          if (quoteWithPumpService) {
-            const pumpDetail = quoteWithPumpService.quote_details.find((detail: any) => 
-              detail.pump_service && detail.pump_price
-            );
-            
-            if (pumpDetail && pumpDetail.pump_price) {
-              setPumpPrice(pumpDetail.pump_price);
-              console.log(`Found pump service price: $${pumpDetail.pump_price} for client + site combination`);
-            }
+          const firstDetailWithPrice = pumpServiceData.find((d: any) => d && d.pump_price !== null);
+          if (firstDetailWithPrice) {
+            const priceNumber = Number(firstDetailWithPrice.pump_price);
+            setPumpPrice(priceNumber);
+            console.log(`Found pump service price: $${priceNumber} for client + site combination`);
+          } else {
+            console.log('Pump service details found but without price. Allowing manual entry.');
+            setPumpPrice(0);
           }
         } else {
           // Fallback: Allow manual entry for cases where no pump pricing is found
@@ -598,6 +645,16 @@ export default function ScheduleOrderForm({
       setPumpVolume(0);
     }
   }, [orderType, pumpPrice, pumpVolume, standalonePumpingProducts]);
+
+  // Validate coordinates whenever they change
+  useEffect(() => {
+    if (latitude || longitude) {
+      const validation = validateCoordinates(latitude, longitude);
+      setCoordinatesError(validation.error);
+    } else {
+      setCoordinatesError('');
+    }
+  }, [latitude, longitude]);
   
   // Filter clients based on search query (null-safe)
   const filteredClients = clients.filter(client => {
@@ -738,7 +795,7 @@ export default function ScheduleOrderForm({
       setError('Debe seleccionar al menos un producto para crear la orden');
       return;
     }
-    
+
     // For pumping-only mode, require pump service to be active
     if (orderType === 'pumping' && !hasPumpService) {
       setError('El servicio de bombeo debe estar activo para crear una orden de solo bombeo');
@@ -747,6 +804,13 @@ export default function ScheduleOrderForm({
 
     if (invoiceSelection === null) {
       setError('Debe seleccionar si la orden requiere factura o no');
+      return;
+    }
+
+    // Validate coordinates are required and valid
+    const coordinateValidation = validateCoordinates(latitude, longitude);
+    if (!coordinateValidation.isValid) {
+      setError(coordinateValidation.error);
       return;
     }
     
@@ -801,8 +865,13 @@ export default function ScheduleOrderForm({
         total_amount: calculateTotalAmount(),
         order_status: 'created',
         credit_status: 'pending',
+        // Add delivery coordinates
+        delivery_latitude: parseFloat(latitude),
+        delivery_longitude: parseFloat(longitude),
+        // Add Google Maps URL for convenience
+        delivery_google_maps_url: generateGoogleMapsUrl(latitude, longitude),
         // Add selected products with volumes
-        order_items: orderType === 'pumping' 
+        order_items: orderType === 'pumping'
           ? standalonePumpingProducts.map(p => ({
               quote_detail_id: p.quoteDetailId,
               volume: pumpVolume // Use the pump volume from the form
@@ -1475,10 +1544,10 @@ export default function ScheduleOrderForm({
           )}
 
           {/* Delivery information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div>
               <h3 className="font-medium mb-3">Información de Entrega</h3>
-              
+
               <div className="space-y-4">
                 <div>
                   <label htmlFor="deliveryDate" className="block text-sm font-medium mb-1">
@@ -1494,7 +1563,7 @@ export default function ScheduleOrderForm({
                     className="w-full rounded-md border border-gray-300 px-3 py-2"
                   />
                 </div>
-                
+
                 <div>
                   <label htmlFor="deliveryTime" className="block text-sm font-medium mb-1">
                     Hora de Entrega
@@ -1507,6 +1576,107 @@ export default function ScheduleOrderForm({
                     required
                     className="w-full rounded-md border border-gray-300 px-3 py-2"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Coordinates section */}
+            <div>
+              <h3 className="font-medium mb-3">Ubicación de Entrega</h3>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="latitude" className="block text-sm font-medium mb-1">
+                      Latitud *
+                    </label>
+                    <input
+                      id="latitude"
+                      type="number"
+                      step="any"
+                      value={latitude}
+                      onChange={(e) => setLatitude(e.target.value)}
+                      placeholder="-12.0464"
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="longitude" className="block text-sm font-medium mb-1">
+                      Longitud *
+                    </label>
+                    <input
+                      id="longitude"
+                      type="number"
+                      step="any"
+                      value={longitude}
+                      onChange={(e) => setLongitude(e.target.value)}
+                      placeholder="-77.0428"
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+                </div>
+
+                {coordinatesError && (
+                  <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-md text-sm">
+                    {coordinatesError}
+                  </div>
+                )}
+
+                {latitude && longitude && !coordinatesError && (
+                  <div className="space-y-3">
+                    <div className="bg-green-50 border border-green-200 p-3 rounded-md">
+                      <p className="text-sm text-green-700 font-medium">✓ Coordenadas válidas</p>
+                      <p className="text-xs text-green-600 mt-1">
+                        Lat: {latitude}, Lng: {longitude}
+                      </p>
+                    </div>
+
+                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-md">
+                      <p className="text-sm font-medium text-blue-700 mb-2">Vista Previa del Mapa</p>
+                      <div className="rounded-md overflow-hidden">
+                        {/* Static Google Maps embed with pin marker at the coordinates */}
+                        <iframe
+                          src={`https://www.google.com/maps?q=${latitude},${longitude}&z=15&hl=es&output=embed`}
+                          width="100%"
+                          height="320"
+                          style={{ border: 0 }}
+                          allowFullScreen
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          title="Ubicación de entrega"
+                        ></iframe>
+                      </div>
+
+                      <div className="mt-3 flex gap-2">
+                        <a
+                          href={generateGoogleMapsUrl(latitude, longitude)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center px-3 py-2 text-sm font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-md transition-colors"
+                        >
+                          <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" />
+                          </svg>
+                          Abrir en Google Maps
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-md">
+                  <p className="text-sm text-yellow-700">
+                    <span className="font-medium">💡 Consejos para coordenadas:</span>
+                  </p>
+                  <ul className="text-xs text-yellow-600 mt-1 space-y-1">
+                    <li>• Abre Google Maps en tu dispositivo</li>
+                    <li>• Mantén presionado el punto exacto de entrega</li>
+                    <li>• Las coordenadas aparecerán en la barra de búsqueda</li>
+                    <li>• Copia y pega los valores aquí</li>
+                  </ul>
                 </div>
               </div>
             </div>
@@ -1538,13 +1708,28 @@ export default function ScheduleOrderForm({
                 Total: ${calculateTotalAmount().toFixed(2)}
               </p>
             </div>
-            <div className="mt-2">
+            <div className="mt-2 space-y-2">
               <p className="text-sm text-gray-600">
                 {selectedProducts.length} producto(s) seleccionado(s) •
                 {invoiceSelection === true ? ' Con factura' : invoiceSelection === false ? ' Sin factura' : ' Factura pendiente'} •
                 {hasPumpService ? ` Bombeo: ${pumpVolume} m³ ($${pumpPrice?.toFixed(2) || '0.00'}/m³) • ` : ''}
                 Entrega: {deliveryDate.split('-').reverse().join('/')} a las {deliveryTime}
               </p>
+
+              {/* Coordinates summary */}
+              <div className="flex items-center justify-between bg-white/50 p-2 rounded-md">
+                <div className="text-sm text-gray-700">
+                  <span className="font-medium">📍 Ubicación:</span> {latitude}, {longitude}
+                </div>
+                <a
+                  href={generateGoogleMapsUrl(latitude, longitude)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:text-blue-800 underline"
+                >
+                  Ver en Maps
+                </a>
+              </div>
             </div>
           </div>
           
@@ -1560,7 +1745,14 @@ export default function ScheduleOrderForm({
             
             <button
               type="submit"
-              disabled={isSubmitting || (selectedProducts.length === 0 && orderType !== 'pumping') || invoiceSelection === null}
+              disabled={
+                isSubmitting ||
+                (selectedProducts.length === 0 && orderType !== 'pumping') ||
+                invoiceSelection === null ||
+                !latitude ||
+                !longitude ||
+                !!coordinatesError
+              }
               className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? 'Creando orden...' : 'Crear Orden'}

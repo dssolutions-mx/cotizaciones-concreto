@@ -24,6 +24,10 @@ export interface OrderCreationParams {
   total_amount: number;
   order_status: string;
   credit_status: string;
+  // New optional delivery coordinates and maps URL
+  delivery_latitude?: number | null;
+  delivery_longitude?: number | null;
+  delivery_google_maps_url?: string | null;
   order_items?: Array<{
     quote_detail_id: string;
     volume: number;
@@ -111,6 +115,17 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       console.log('Adding plant_id to orderInsertData:', plantId);
     } else {
       console.log('No plant_id found - this will cause issues for executives');
+    }
+
+    // Include optional delivery coordinates and URL if provided
+    if (typeof orderData.delivery_latitude === 'number') {
+      orderInsertData.delivery_latitude = orderData.delivery_latitude;
+    }
+    if (typeof orderData.delivery_longitude === 'number') {
+      orderInsertData.delivery_longitude = orderData.delivery_longitude;
+    }
+    if (orderData.delivery_google_maps_url) {
+      orderInsertData.delivery_google_maps_url = orderData.delivery_google_maps_url;
     }
     
     const { data: order, error: orderError } = await supabase

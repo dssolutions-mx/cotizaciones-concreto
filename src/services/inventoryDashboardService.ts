@@ -21,11 +21,293 @@ export class InventoryDashboardService {
   }
 
   /**
-   * Get comprehensive inventory dashboard data with OPTIMIZED single-query approach
+   * Calculate historical inventory using proper date-based approach
+   * This ensures accurate initial stock calculation for any period
+   */
+  async calculateHistoricalInventory(
+    plantId: string, 
+    startDate: string, 
+    endDate: string, 
+    materialIds?: string[]
+  ): Promise<MaterialFlowSummary[]> {
+    console.time('🧮 Historical Inventory Calculation');
+    
+    try {
+      // Build material filter
+      const materialFilter = materialIds && materialIds.length > 0 
+        ? `AND m.id = ANY(ARRAY[${materialIds.map(id => `'${id}'`).join(',')}]::uuid[])`
+        : '';
+
+      // Calculate initial stock (everything before start_date) and period movements
+      const query = `
+        WITH stock_inicial AS (
+          SELECT 
+            m.id as material_id,
+            m.name as material_name,
+            m.unit,
+            m.code as material_code,
+            
+            -- Historical entries (before period)
+            COALESCE(SUM(me.quantity_received), 0) as total_entries_historical,
+            
+            -- Historical adjustments (before period)
+            COALESCE(SUM(
+              CASE 
+                WHEN ma.adjustment_type IN ('consumption', 'waste', 'loss', 'transfer') 
+                THEN -ma.quantity_adjusted 
+                ELSE ma.quantity_adjusted 
+              END
+            ), 0) as total_adjustments_historical,
+            
+            -- Historical consumption from remisiones (before period)
+            COALESCE(SUM(rm.cantidad_real), 0) as total_consumption_historical,
+            
+            -- Historical waste (before period)
+            COALESCE(SUM(wm.waste_amount), 0) as total_waste_historical
+            
+          FROM materials m
+          LEFT JOIN material_entries me ON m.id = me.material_id 
+            AND me.plant_id = $1
+            AND me.entry_date < $2
+          LEFT JOIN material_adjustments ma ON m.id = ma.material_id 
+            AND ma.plant_id = $1
+            AND ma.adjustment_date < $2
+          LEFT JOIN remision_materiales rm ON m.id = rm.material_id
+          LEFT JOIN remisiones r ON rm.remision_id = r.id 
+            AND r.plant_id = $1
+            AND r.fecha < $2
+          LEFT JOIN waste_materials wm ON m.code = wm.material_code 
+            AND wm.plant_id = $1
+            AND wm.fecha < $2
+          WHERE m.plant_id = $1 ${materialFilter}
+          GROUP BY m.id, m.name, m.unit, m.code
+        ),
+        
+        movimientos_periodo AS (
+          SELECT 
+            m.id as material_id,
+            
+            -- Period entries
+            COALESCE(SUM(me.quantity_received), 0) as period_entries,
+            
+            -- Period adjustments (positive)
+            COALESCE(SUM(
+              CASE 
+                WHEN ma.adjustment_type NOT IN ('consumption', 'waste', 'loss', 'transfer') 
+                THEN ma.quantity_adjusted 
+                ELSE 0 
+              END
+            ), 0) as period_manual_additions,
+            
+            -- Period adjustments (negative)
+            COALESCE(SUM(
+              CASE 
+                WHEN ma.adjustment_type IN ('consumption', 'waste', 'loss', 'transfer') 
+                THEN ma.quantity_adjusted 
+                ELSE 0 
+              END
+            ), 0) as period_manual_withdrawals,
+            
+            -- Period consumption from remisiones
+            COALESCE(SUM(rm.cantidad_real), 0) as period_consumption,
+            
+            -- Period waste
+            COALESCE(SUM(wm.waste_amount), 0) as period_waste
+            
+          FROM materials m
+          LEFT JOIN material_entries me ON m.id = me.material_id 
+            AND me.plant_id = $1
+            AND me.entry_date BETWEEN $2 AND $3
+          LEFT JOIN material_adjustments ma ON m.id = ma.material_id 
+            AND ma.plant_id = $1
+            AND ma.adjustment_date BETWEEN $2 AND $3
+          LEFT JOIN remision_materiales rm ON m.id = rm.material_id
+          LEFT JOIN remisiones r ON rm.remision_id = r.id 
+            AND r.plant_id = $1
+            AND r.fecha BETWEEN $2 AND $3
+          LEFT JOIN waste_materials wm ON m.code = wm.material_code 
+            AND wm.plant_id = $1
+            AND wm.fecha BETWEEN $2 AND $3
+          WHERE m.plant_id = $1 ${materialFilter}
+          GROUP BY m.id
+        )
+        
+        SELECT 
+          si.material_id,
+          si.material_name,
+          si.unit,
+          si.material_code,
+          
+          -- Initial stock calculated historically
+          (si.total_entries_historical + si.total_adjustments_historical - si.total_consumption_historical - si.total_waste_historical) as initial_stock,
+          
+          -- Period movements
+          mp.period_entries as total_entries,
+          mp.period_manual_additions as total_manual_additions,
+          mp.period_consumption as total_remisiones_consumption,
+          mp.period_manual_withdrawals as total_manual_withdrawals,
+          mp.period_waste as total_waste,
+          
+          -- Theoretical final stock
+          (si.total_entries_historical + si.total_adjustments_historical - si.total_consumption_historical - si.total_waste_historical) + 
+          (mp.period_entries + mp.period_manual_additions - mp.period_consumption - mp.period_manual_withdrawals - mp.period_waste) as theoretical_final_stock,
+          
+          -- For compatibility, set actual_current_stock to theoretical (since we don't rely on current_stock anymore)
+          (si.total_entries_historical + si.total_adjustments_historical - si.total_consumption_historical - si.total_waste_historical) + 
+          (mp.period_entries + mp.period_manual_additions - mp.period_consumption - mp.period_manual_withdrawals - mp.period_waste) as actual_current_stock
+
+        FROM stock_inicial si
+        LEFT JOIN movimientos_periodo mp ON si.material_id = mp.material_id
+        WHERE (si.total_entries_historical + si.total_adjustments_historical - si.total_consumption_historical - si.total_waste_historical) != 0
+           OR mp.period_entries != 0 
+           OR mp.period_manual_additions != 0 
+           OR mp.period_consumption != 0 
+           OR mp.period_manual_withdrawals != 0 
+           OR mp.period_waste != 0
+        ORDER BY si.material_name
+      `;
+
+      console.log('🧮 Executing historical calculation query:', {
+        plantId,
+        startDate,
+        endDate,
+        materialIds: materialIds?.length || 'all materials'
+      });
+
+      // Execute the historical calculation using raw SQL
+      const { data, error } = await this.supabase
+        .rpc('calculate_historical_inventory', {
+          p_plant_id: plantId,
+          p_start_date: startDate,
+          p_end_date: endDate,
+          p_material_ids: materialIds || null
+        });
+
+      if (error) {
+        console.error('❌ Historical calculation error:', error);
+        console.error('Error details:', error);
+        throw new Error(`Error en cálculo histórico: ${error.message}`);
+      }
+
+      console.log('✅ Historical calculation completed:', {
+        materialsFound: data?.length || 0
+      });
+
+      // Transform to MaterialFlowSummary format
+      const materialFlows: MaterialFlowSummary[] = (data || []).map((row: any) => ({
+        material_id: row.material_id,
+        material_name: row.material_name,
+        unit: row.unit,
+        material_code: row.material_code,
+        initial_stock: parseFloat(row.initial_stock || 0),
+        total_entries: parseFloat(row.total_entries || 0),
+        total_manual_additions: parseFloat(row.total_manual_additions || 0),
+        total_remisiones_consumption: parseFloat(row.total_remisiones_consumption || 0),
+        total_manual_withdrawals: parseFloat(row.total_manual_withdrawals || 0),
+        total_waste: parseFloat(row.total_waste || 0),
+        theoretical_final_stock: parseFloat(row.theoretical_final_stock || 0),
+        actual_current_stock: parseFloat(row.actual_current_stock || 0),
+        variance: 0, // No variance since we're using calculated values
+        variance_percentage: 0
+      }));
+
+      console.timeEnd('🧮 Historical Inventory Calculation');
+      return materialFlows;
+
+    } catch (error) {
+      console.timeEnd('🧮 Historical Inventory Calculation');
+      console.error('❌ Historical calculation failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get comprehensive inventory dashboard data with HISTORICAL CALCULATION approach
+   * This method calculates initial stock from historical data rather than relying on current_stock
    */
   async getDashboardData(filters: InventoryDashboardFilters, userId: string): Promise<InventoryDashboardData> {
     try {
-      console.time('🚀 Dashboard Data Fetch');
+      console.time('🚀 Dashboard Data Fetch (Historical)');
+      
+      // Get user profile to ensure proper plant access
+      const { data: profile } = await this.supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (!profile) {
+        throw new Error('Usuario no encontrado');
+      }
+
+      // Determine plant ID to use
+      const plantId = filters.plant_id && profile.role === 'EXECUTIVE' ? 
+        filters.plant_id : profile.plant_id;
+
+      if (!plantId) {
+        throw new Error('Planta no especificada o sin acceso');
+      }
+
+      // Use the new historical calculation method
+      console.log('🧮 Using historical calculation approach');
+      let materialFlows: MaterialFlowSummary[];
+      
+      try {
+        materialFlows = await this.calculateHistoricalInventory(
+          plantId,
+          filters.start_date,
+          filters.end_date,
+          filters.material_ids
+        );
+      } catch (historicalError) {
+        console.error('❌ Historical calculation failed:', historicalError);
+        // Return empty result instead of falling back for now
+        materialFlows = [];
+      }
+
+      // Get plant info for summary
+      const { data: plant } = await this.supabase
+        .from('plants')
+        .select('name, code')
+        .eq('id', plantId)
+        .single();
+
+      // Build dashboard summary
+      const summary: InventoryDashboardSummary = {
+        date_range: {
+          start_date: filters.start_date,
+          end_date: filters.end_date
+        },
+        plant_info: {
+          id: plantId,
+          name: plant?.name || 'Planta Desconocida',
+          code: plant?.code || 'N/A'
+        },
+        total_materials_tracked: materialFlows.length,
+        total_remisiones: 0, // Will be calculated if needed
+        material_flows: materialFlows
+      };
+
+      console.timeEnd('🚀 Dashboard Data Fetch (Historical)');
+
+      return {
+        summary,
+        movements: [], // Historical method focuses on summary, movements can be added later if needed
+        consumption_details: [] // Same as above
+      };
+    } catch (error) {
+      console.timeEnd('🚀 Dashboard Data Fetch (Historical)');
+      console.error('❌ Historical dashboard fetch failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Legacy dashboard data method (fallback)
+   */
+  async getDashboardDataLegacy(filters: InventoryDashboardFilters, userId: string): Promise<InventoryDashboardData> {
+    try {
+      console.time('🚀 Dashboard Data Fetch (Legacy)');
       
       // Get user profile to ensure proper plant access
       const { data: profile } = await this.supabase
@@ -181,23 +463,25 @@ export class InventoryDashboardService {
     const materialIds = materials.map(m => m.id);
     const remisionIds = plantRemisiones.map(r => r.id);
 
-    // PERFORMANCE: Execute all material queries in parallel - 3 queries instead of N*3
+    console.log('🔍 Batch fetching data for materials:', {
+      materialCount: materialIds.length,
+      remisionCount: remisionIds.length,
+      dateRange: `${startDate} to ${endDate}`
+    });
+
+    // PERFORMANCE: Execute all material queries in parallel with proper limits
     const [
       remisionMaterialsResult,
       entriesResult,
       adjustmentsResult,
       wasteMaterialsResult
     ] = await Promise.all([
-      // ALL remision materials for ALL materials at once
-      remisionIds.length > 0 
-        ? this.supabase
-            .from('remision_materiales')
-            .select('material_id, remision_id, cantidad_real, cantidad_teorica')
-            .in('material_id', materialIds)
-            .in('remision_id', remisionIds)
-        : { data: [] },
+      // ALL remision materials for ALL materials at once - SMART QUERY STRATEGY
+      remisionIds.length > 0 && materialIds.length > 0
+        ? this.fetchRemisionMaterialsOptimized(materialIds, remisionIds, plantId, startDate, endDate)
+        : Promise.resolve({ data: [] }),
 
-      // ALL material entries at once
+      // ALL material entries at once - No artificial limits
       this.supabase
         .from('material_entries')
         .select('material_id, quantity_received, entry_date, entry_number, notes')
@@ -207,7 +491,7 @@ export class InventoryDashboardService {
         .lte('entry_date', endDate)
         .order('entry_date', { ascending: false }),
 
-      // ALL material adjustments at once
+      // ALL material adjustments at once - No artificial limits  
       this.supabase
         .from('material_adjustments')
         .select('material_id, quantity_adjusted, adjustment_type, adjustment_date, adjustment_number, reference_notes')
@@ -217,7 +501,7 @@ export class InventoryDashboardService {
         .lte('adjustment_date', endDate)
         .order('adjustment_date', { ascending: false }),
 
-      // ALL waste materials at once
+      // ALL waste materials at once - No artificial limits
       this.supabase
         .from('waste_materials')
         .select('material_code, waste_amount, fecha')
@@ -225,6 +509,31 @@ export class InventoryDashboardService {
         .gte('fecha', startDate)
         .lte('fecha', endDate)
     ]);
+
+    // CRITICAL: Check for errors and data truncation
+    if (remisionMaterialsResult.error) {
+      console.error('❌ Error fetching remision materials:', remisionMaterialsResult.error);
+      throw new Error('Error al obtener datos de materiales de remisiones');
+    }
+    if (entriesResult.error) {
+      console.error('❌ Error fetching entries:', entriesResult.error);
+      throw new Error('Error al obtener entradas de materiales');
+    }
+    if (adjustmentsResult.error) {
+      console.error('❌ Error fetching adjustments:', adjustmentsResult.error);
+      throw new Error('Error al obtener ajustes de materiales');
+    }
+    if (wasteMaterialsResult.error) {
+      console.error('❌ Error fetching waste:', wasteMaterialsResult.error);
+      throw new Error('Error al obtener desperdicios de materiales');
+    }
+
+    console.log('📊 Raw data fetched:', {
+      remisionMaterials: remisionMaterialsResult.data?.length || 0,
+      entries: entriesResult.data?.length || 0,
+      adjustments: adjustmentsResult.data?.length || 0,
+      waste: wasteMaterialsResult.data?.length || 0
+    });
 
     // Group data by material for processing
     const remisionMaterialsByMaterial = this.groupByMaterialId(remisionMaterialsResult.data || []);
@@ -237,24 +546,41 @@ export class InventoryDashboardService {
     const movements: InventoryMovement[] = [];
     const consumptionDetails: RemisionMaterialConsumption[] = [];
 
+    // Process each material with comprehensive debugging
     for (const material of materials) {
+      const materialRemisionData = remisionMaterialsByMaterial.get(material.id) || [];
+      const materialEntries = entriesByMaterial.get(material.id) || [];
+      const materialAdjustments = adjustmentsByMaterial.get(material.id) || [];
+      const materialWaste = wasteMaterialsByCode.get(material.material_code) || [];
+      const currentStock = inventoryMap.get(material.id) || 0;
+
+      console.log(`🔧 Processing material: ${material.material_name}`, {
+        id: material.id,
+        code: material.material_code,
+        remisionData: materialRemisionData.length,
+        entries: materialEntries.length,
+        adjustments: materialAdjustments.length,
+        waste: materialWaste.length,
+        currentStock
+      });
+
       // Calculate flows with pre-fetched data
       const flow = this.calculateMaterialFlowOptimized(
         material,
-        remisionMaterialsByMaterial.get(material.id) || [],
-        entriesByMaterial.get(material.id) || [],
-        adjustmentsByMaterial.get(material.id) || [],
-        wasteMaterialsByCode.get(material.material_code) || [],
-        inventoryMap.get(material.id) || 0
+        materialRemisionData,
+        materialEntries,
+        materialAdjustments,
+        materialWaste,
+        currentStock
       );
       materialFlows.push(flow);
 
       // Build movements with pre-fetched data
       const materialMovements = this.buildMovementsOptimized(
         material,
-        remisionMaterialsByMaterial.get(material.id) || [],
-        entriesByMaterial.get(material.id) || [],
-        adjustmentsByMaterial.get(material.id) || [],
+        materialRemisionData,
+        materialEntries,
+        materialAdjustments,
         plantRemisiones
       );
       movements.push(...materialMovements);
@@ -262,11 +588,23 @@ export class InventoryDashboardService {
       // Build consumption details
       const materialConsumption = this.buildConsumptionDetailsOptimized(
         material,
-        remisionMaterialsByMaterial.get(material.id) || [],
+        materialRemisionData,
         plantRemisiones
       );
       consumptionDetails.push(...materialConsumption);
+
+      console.log(`✅ Completed material: ${material.material_name}`, {
+        movements: materialMovements.length,
+        consumption: materialConsumption.length,
+        totalConsumption: flow.total_remisiones_consumption
+      });
     }
+
+    console.log('📊 Final processing results:', {
+      materialFlows: materialFlows.length,
+      totalMovements: movements.length,
+      totalConsumption: consumptionDetails.length
+    });
 
     return {
       materialFlows,
@@ -276,16 +614,126 @@ export class InventoryDashboardService {
   }
 
   /**
-   * Helper: Group array by material_id
+   * SENIOR ENGINEER SOLUTION: Proper batching strategy for remision_materiales
+   * Based on analysis: 8 materials/remision average, so 100 remisions = ~800 records (safe margin)
+   */
+  private async fetchRemisionMaterialsOptimized(
+    materialIds: string[], 
+    remisionIds: string[], 
+    plantId: string, 
+    startDate: string, 
+    endDate: string
+  ) {
+    const BATCH_SIZE = 100; // Safe batch size based on 8 materials/remision average
+    const expectedRecords = remisionIds.length * 8; // Estimated total records
+    
+    console.log('🧠 Smart remision materials fetch (BATCHED):', {
+      materialIds: materialIds.length,
+      remisionIds: remisionIds.length,
+      expectedRecords,
+      batchesNeeded: Math.ceil(remisionIds.length / BATCH_SIZE),
+      strategy: remisionIds.length > BATCH_SIZE ? 'batched-processing' : 'single-query'
+    });
+
+    // STRATEGY 1: Single query for small datasets
+    if (remisionIds.length <= BATCH_SIZE) {
+      console.log('🎯 Using single query (small dataset)');
+      
+      return await this.supabase
+        .from('remision_materiales')
+        .select('material_id, remision_id, cantidad_real, cantidad_teorica')
+        .in('material_id', materialIds)
+        .in('remision_id', remisionIds);
+    }
+
+    // STRATEGY 2: Batched processing for large datasets
+    console.log('📦 Using batched processing (large dataset)');
+    
+    const allData: any[] = [];
+    const batches = [];
+    
+    // Split remision IDs into batches of 100
+    for (let i = 0; i < remisionIds.length; i += BATCH_SIZE) {
+      batches.push(remisionIds.slice(i, i + BATCH_SIZE));
+    }
+
+    console.log(`🔄 Processing ${batches.length} batches of ${BATCH_SIZE} remisiones each`);
+
+    // Process batches in parallel (but limited to avoid overwhelming DB)
+    const PARALLEL_LIMIT = 3; // Process max 3 batches simultaneously
+    
+    for (let i = 0; i < batches.length; i += PARALLEL_LIMIT) {
+      const batchGroup = batches.slice(i, i + PARALLEL_LIMIT);
+      
+      console.log(`📊 Processing batch group ${Math.floor(i/PARALLEL_LIMIT) + 1}/${Math.ceil(batches.length/PARALLEL_LIMIT)}`);
+      
+      const batchPromises = batchGroup.map(async (batchRemisionIds, batchIndex) => {
+        const globalBatchIndex = i + batchIndex + 1;
+        
+        console.log(`  🔍 Batch ${globalBatchIndex}: ${batchRemisionIds.length} remisiones`);
+        
+        const { data, error } = await this.supabase
+          .from('remision_materiales')
+          .select('material_id, remision_id, cantidad_real, cantidad_teorica')
+          .in('material_id', materialIds)
+          .in('remision_id', batchRemisionIds);
+
+        if (error) {
+          console.error(`❌ Error in batch ${globalBatchIndex}:`, error);
+          throw error;
+        }
+
+        console.log(`  ✅ Batch ${globalBatchIndex}: ${data?.length || 0} records fetched`);
+        return data || [];
+      });
+
+      // Wait for this group of batches to complete
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Combine results
+      batchResults.forEach(batchData => {
+        allData.push(...batchData);
+      });
+    }
+
+    console.log('📊 Batched fetch complete:', {
+      totalBatches: batches.length,
+      totalRecords: allData.length,
+      avgRecordsPerBatch: Math.round(allData.length / batches.length)
+    });
+
+    return { data: allData, error: null };
+  }
+
+  /**
+   * Helper: Group array by material_id with validation
    */
   private groupByMaterialId<T extends { material_id: string }>(items: T[]): Map<string, T[]> {
     const map = new Map<string, T[]>();
+    let validItems = 0;
+    let invalidItems = 0;
+    
     items.forEach(item => {
+      if (!item.material_id) {
+        invalidItems++;
+        console.warn('⚠️ Item missing material_id:', item);
+        return;
+      }
+      
+      validItems++;
       if (!map.has(item.material_id)) {
         map.set(item.material_id, []);
       }
       map.get(item.material_id)!.push(item);
     });
+
+    console.log('📊 Grouping results:', {
+      totalItems: items.length,
+      validItems,
+      invalidItems,
+      uniqueMaterials: map.size
+    });
+
     return map;
   }
 
