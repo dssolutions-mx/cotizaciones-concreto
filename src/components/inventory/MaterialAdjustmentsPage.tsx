@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import MaterialAdjustmentForm from './MaterialAdjustmentForm'
+import InventoryBreadcrumb from './InventoryBreadcrumb'
 import { Plus, History, TrendingDown, Minus, AlertTriangle, RotateCcw, ArrowUpDown, Clock, RefreshCw } from 'lucide-react'
 import { MaterialAdjustment } from '@/types/inventory'
 import { format } from 'date-fns'
@@ -80,6 +81,7 @@ export default function MaterialAdjustmentsPage({}: MaterialAdjustmentsPageProps
 
   return (
     <div className="space-y-6">
+      <InventoryBreadcrumb />
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Package, Plus, List, Calendar } from 'lucide-react'
 import MaterialEntryForm from './MaterialEntryForm'
 import MaterialEntriesList from './MaterialEntriesList'
+import InventoryBreadcrumb from './InventoryBreadcrumb'
 
 export default function MaterialEntriesPage() {
   const [activeTab, setActiveTab] = useState('new')
@@ -19,6 +20,7 @@ export default function MaterialEntriesPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      <InventoryBreadcrumb />
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

@@ -28,6 +28,7 @@ import { usePlantContext } from '@/contexts/PlantContext'
 import TheoreticalInventoryTable from './TheoreticalInventoryTable'
 import InventoryMovementsTable from './InventoryMovementsTable'
 import RemisionConsumptionTable from './RemisionConsumptionTable'
+import InventoryBreadcrumb from './InventoryBreadcrumb'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useState, useEffect } from 'react'
 
@@ -134,6 +135,7 @@ function InventoryDashboardPage() {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      <InventoryBreadcrumb />
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>

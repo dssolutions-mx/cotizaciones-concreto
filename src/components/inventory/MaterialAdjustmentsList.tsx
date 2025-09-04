@@ -114,7 +114,7 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey }:
             No se han registrado ajustes de inventario para este día
           </p>
           {isEditing && (
-            <Link href="/inventory/adjustments">
+            <Link href="/production-control/adjustments">
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
                 Registrar Nuevo Ajuste
@@ -131,7 +131,7 @@ export default function MaterialAdjustmentsList({ date, isEditing, refreshKey }:
       {/* Action Button */}
       {isEditing && (
         <div className="flex justify-end">
-          <Link href="/inventory/adjustments">
+          <Link href="/production-control/adjustments">
             <Button>
               <Plus className="h-4 w-4 mr-2" />
               Nuevo Ajuste

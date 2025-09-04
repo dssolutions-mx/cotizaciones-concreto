@@ -53,7 +53,7 @@ export default function CreateUserPage() {
   };
 
   return (
-    <RoleGuard allowedRoles="EXECUTIVE" redirectTo="/access-denied">
+    <RoleGuard allowedRoles={["EXECUTIVE", "ADMIN_OPERATIONS"]} redirectTo="/access-denied">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-md mx-auto">
           <div className="flex justify-between items-center mb-6">
@@ -147,9 +147,13 @@ export default function CreateUserPage() {
                 className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-hidden focus:shadow-outline"
               >
                 <option value="SALES_AGENT">Vendedor</option>
+                <option value="EXTERNAL_SALES_AGENT">Vendedor Externo</option>
                 <option value="QUALITY_TEAM">Equipo de Calidad</option>
                 <option value="PLANT_MANAGER">Jefe de Planta</option>
+                <option value="DOSIFICADOR">Dosificador</option>
+                <option value="CREDIT_VALIDATOR">Validador de Crédito</option>
                 <option value="EXECUTIVE">Directivo</option>
+                <option value="ADMIN_OPERATIONS">Administrativo (Operaciones)</option>
               </select>
             </div>
 

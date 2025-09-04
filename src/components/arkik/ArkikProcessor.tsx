@@ -23,6 +23,7 @@ import DuplicateHandlingInterface from './DuplicateHandlingInterface';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb';
 import { supabase } from '@/lib/supabase/client';
 
 // Helper functions for date formatting without timezone conversion
@@ -1558,6 +1559,7 @@ Fin del reporte
 
   return (
     <div className="space-y-6">
+      <InventoryBreadcrumb />
       {/* Step Progress */}
       <div className="bg-white rounded-lg shadow-sm border p-6">
         <div className="flex items-center justify-between mb-6">
