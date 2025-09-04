@@ -120,9 +120,8 @@ export async function createEnsayo(data: {
         ? data.porcentaje_cumplimiento
         : 0,
       observaciones: data.observaciones || null,
-      tiempo_desde_carga: tiempoDesdeCargaInterval,
+      // omit tiempo_desde_carga and created_at; DB default handles created_at, interval via REST can be brittle
       created_by: userId,
-      created_at: new Date().toISOString(),
     };
 
     // Insert ensayo
