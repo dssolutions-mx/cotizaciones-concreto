@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
+// Removed date-fns imports since we're using simple date strings
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -134,12 +133,8 @@ export default function PumpingRemisionesAdmin() {
 
   const formatDateSafely = (dateStr: string) => {
     if (!dateStr) return '-';
-    try {
-      const date = new Date(dateStr);
-      return format(date, 'dd/MM/yyyy HH:mm', { locale: es });
-    } catch {
-      return dateStr;
-    }
+    // Simply return the date string as-is since dates are already in local time
+    return dateStr;
   };
 
   const formatFileSize = (bytes: number) => {

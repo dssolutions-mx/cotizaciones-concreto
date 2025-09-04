@@ -137,16 +137,7 @@ export default function PumpingServiceForm() {
 
       setLoadingRemisions(true);
       try {
-        // Calculate date range: selected date ± 1 day
-        const selectedDate = new Date(formData.filterDate);
-        const startDate = new Date(selectedDate);
-        startDate.setDate(startDate.getDate() - 1); // -1 day
-        const endDate = new Date(selectedDate);
-        endDate.setDate(endDate.getDate() + 1); // +1 day
-
-        const startDateStr = startDate.toISOString().split('T')[0];
-        const endDateStr = endDate.toISOString().split('T')[0];
-
+        // Use exact date match - no need for date range calculation
         const { data, error } = await supabase
           .from('remisiones')
           .select(`
@@ -162,10 +153,9 @@ export default function PumpingServiceForm() {
           `)
           .eq('tipo_remision', 'CONCRETO') // Only show concrete remisions that can have pumping services
           .eq('plant_id', formData.plantId) // Filter by selected plant
-          .gte('fecha', startDateStr) // Date range: selected date - 1 day
-          .lte('fecha', endDateStr) // Date range: selected date + 1 day
+          .eq('fecha', formData.filterDate) // Exact date match
           .order('fecha', { ascending: false })
-          .limit(200); // Allow more results since we're filtering by plant and date
+          .limit(200);
 
         if (error) throw error;
 
@@ -618,7 +608,7 @@ export default function PumpingServiceForm() {
                 disabled={!formData.plantId}
               />
               <p className="text-xs text-gray-500 mt-1">
-                Muestra remisiones del día seleccionado ± 1 día
+                Muestra remisiones del día seleccionado
               </p>
             </div>
 
@@ -675,7 +665,7 @@ export default function PumpingServiceForm() {
                                 Orden: {remision.order_number} • Cliente: {remision.client_name}
                               </div>
                               <div className="text-xs text-gray-400">
-                                {new Date(remision.fecha).toLocaleDateString('es-ES')}
+                                {remision.fecha}
                               </div>
                             </div>
                           </CommandItem>
@@ -697,12 +687,7 @@ export default function PumpingServiceForm() {
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-gray-600" />
                       <span className="text-gray-700">
-                        Remisiones del {new Date(formData.filterDate).toLocaleDateString('es-ES', {
-                          weekday: 'long',
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric'
-                        })}
+                        Remisiones del {formData.filterDate}
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -748,7 +733,7 @@ export default function PumpingServiceForm() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-green-600" />
-                    <span>{new Date(selectedRemision.fecha).toLocaleDateString('es-ES')}</span>
+                    <span>{selectedRemision.fecha}</span>
                   </div>
                 </div>
                 <div className="mt-4">
@@ -768,7 +753,7 @@ export default function PumpingServiceForm() {
                           <strong>Obra:</strong> {selectedOrder.construction_site}
                         </div>
                         <div>
-                          <strong>Fecha de entrega:</strong> {new Date(selectedOrder.delivery_date).toLocaleDateString('es-ES')}
+                          <strong>Fecha de entrega:</strong> {selectedOrder.delivery_date}
                         </div>
                         {selectedOrder.elemento && (
                           <div>
@@ -828,7 +813,7 @@ export default function PumpingServiceForm() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Calendar className="h-4 w-4 text-blue-600" />
-                      <span>{new Date(selectedOrder.delivery_date).toLocaleDateString('es-ES')}</span>
+                      <span>{selectedOrder.delivery_date}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <MapPin className="h-4 w-4 text-blue-600" />
