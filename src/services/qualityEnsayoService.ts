@@ -78,7 +78,8 @@ export async function createEnsayo(data: {
               *,
               recipe_versions(*)
             )
-          )
+          ),
+          plant:plant_id(*)
         )
       `)
       .eq('id', data.muestra_id)
@@ -93,36 +94,67 @@ export async function createEnsayo(data: {
       throw new Error('Muestra no encontrada');
     }
 
-    // Calculate tiempo_desde_carga (interval) if we have remision data
-    let tiempoDesdeCargaHours: number | null = null;
-    if (muestra.muestreos?.remision?.fecha_entrega) {
-      const fechaEntrega = new Date(muestra.muestreos.remision.fecha_entrega);
+    // Calculate tiempo_desde_carga if we have remision data
+    let tiempo_desde_carga: string | null = null;
+    if (muestra.muestreos?.remision?.fecha && muestra.muestreos?.remision?.hora_carga) {
+      // Combine fecha and hora_carga to get the complete loading timestamp
+      const fechaStr = muestra.muestreos.remision.fecha;
+      const horaStr = muestra.muestreos.remision.hora_carga;
+      const fechaCarga = new Date(`${fechaStr}T${horaStr}`);
+      
       const fechaEnsayo = typeof data.fecha_ensayo === 'string' ? new Date(data.fecha_ensayo) : data.fecha_ensayo;
-      tiempoDesdeCargaHours = Math.round((fechaEnsayo.getTime() - fechaEntrega.getTime()) / (1000 * 60 * 60)); // hours
+      const hoursElapsed = Math.round((fechaEnsayo.getTime() - fechaCarga.getTime()) / (1000 * 60 * 60));
+      // Format as PostgreSQL interval: 'X hours'
+      tiempo_desde_carga = `${hoursElapsed} hours`;
     }
-    const tiempoDesdeCargaInterval =
-      typeof tiempoDesdeCargaHours === 'number' ? `${tiempoDesdeCargaHours} hours` : null;
 
-    // Derive plant_id for ensayos: prefer the remision's plant, fallback to muestra's plant_id if present
-    const ensayoPlantId =
-      (muestra as any)?.muestreos?.remision?.plant_id || (muestra as any)?.plant_id || null;
 
-    // Prepare ensayo data
+    // Get user's timezone for proper timestamp handling
+    const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Mexico_City';
+    
+    // Create precise timestamp for the test with proper timezone handling
+    let fecha_ensayo_ts: string | null = null;
+    if (data.hora_ensayo && data.fecha_ensayo) {
+      // Create a proper timestamp in the user's timezone
+      const fechaStr = typeof data.fecha_ensayo === 'string' ? data.fecha_ensayo : data.fecha_ensayo.toISOString().split('T')[0];
+      
+      // Parse the date components to avoid timezone shifts
+      const [year, month, day] = fechaStr.split('-').map(Number);
+      const [hour, minute] = data.hora_ensayo.split(':').map(Number);
+      
+      // Create Date object with explicit components (this treats it as local time)
+      const localDate = new Date(year, month - 1, day, hour, minute, 0, 0);
+      fecha_ensayo_ts = localDate.toISOString();
+      
+      console.log('🔍 Timezone handling:', {
+        fechaStr,
+        hora_ensayo: data.hora_ensayo,
+        year, month, day, hour, minute,
+        localDate: localDate.toString(),
+        fecha_ensayo_ts,
+        userTimezone
+      });
+    }
+
+    // Prepare ensayo data - let the database trigger calculate resistance and percentage
     const ensayoData = {
       muestra_id: data.muestra_id,
-      plant_id: ensayoPlantId, // Required for RLS policy
+      plant_id: muestra.plant_id || muestra.muestreos?.plant_id, // Required for RLS policy
       fecha_ensayo: typeof data.fecha_ensayo === 'string' ? data.fecha_ensayo : data.fecha_ensayo.toISOString().split('T')[0],
+      fecha_ensayo_ts, // Precise timestamp for trigger calculations
       hora_ensayo: data.hora_ensayo || new Date().toTimeString().split(' ')[0],
+      event_timezone: userTimezone, // CRITICAL: Include timezone information
       carga_kg: data.carga_kg,
-      resistencia_calculada: data.resistencia_calculada,
-      // porcentaje_cumplimiento is NOT NULL in DB; default to 0 if not provided
-      porcentaje_cumplimiento: typeof data.porcentaje_cumplimiento === 'number'
-        ? data.porcentaje_cumplimiento
-        : 0,
+      // Don't send pre-calculated values - let the trigger calculate them
+      // resistencia_calculada: data.resistencia_calculada,
+      // porcentaje_cumplimiento: data.porcentaje_cumplimiento ?? 0,
       observaciones: data.observaciones || null,
-      // omit tiempo_desde_carga and created_at; DB default handles created_at, interval via REST can be brittle
+      tiempo_desde_carga,
       created_by: userId,
+      created_at: new Date().toISOString(),
     };
+
+    console.log('🔍 Final ensayoData being sent:', JSON.stringify(ensayoData, null, 2));
 
     // Insert ensayo
     const { data: ensayo, error: ensayoError } = await supabase
