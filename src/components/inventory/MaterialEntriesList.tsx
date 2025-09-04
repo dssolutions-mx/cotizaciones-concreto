@@ -24,7 +24,8 @@ import Link from 'next/link'
 import { toast } from 'sonner'
 
 interface MaterialEntriesListProps {
-  date: Date
+  date?: Date
+  dateRange?: { from: Date | undefined; to: Date | undefined }
   isEditing: boolean
 }
 
@@ -130,19 +131,35 @@ function DocumentsSection({ entryId, isEditing }: { entryId: string; isEditing: 
   )
 }
 
-export default function MaterialEntriesList({ date, isEditing }: MaterialEntriesListProps) {
+export default function MaterialEntriesList({ date, dateRange, isEditing }: MaterialEntriesListProps) {
   const [entries, setEntries] = useState<MaterialEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     fetchEntries()
-  }, [date])
+  }, [date, dateRange])
 
   const fetchEntries = async () => {
     setLoading(true)
     try {
-      const dateStr = format(date, 'yyyy-MM-dd')
-      const response = await fetch(`/api/inventory/entries?date=${dateStr}`)
+      let url = '/api/inventory/entries?'
+      
+      if (dateRange?.from && dateRange?.to) {
+        // Use date range
+        const fromStr = format(dateRange.from, 'yyyy-MM-dd')
+        const toStr = format(dateRange.to, 'yyyy-MM-dd')
+        url += `date_from=${fromStr}&date_to=${toStr}`
+      } else if (date) {
+        // Use single date
+        const dateStr = format(date, 'yyyy-MM-dd')
+        url += `date=${dateStr}`
+      } else {
+        // Default to today
+        const todayStr = format(new Date(), 'yyyy-MM-dd')
+        url += `date=${todayStr}`
+      }
+      
+      const response = await fetch(url)
       
       if (response.ok) {
         const data = await response.json()
