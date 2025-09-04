@@ -119,9 +119,17 @@ export default function ArkikProcessor() {
         return `La receta "${error.field_value || 'sin código'}" no está registrada en el sistema. Contacta al equipo de calidad para que la registre.`;
       
       case 'RECIPE_NO_PRICE':
+        // Check if this is a client-recipe mismatch (strict validation failure)
+        if (error.message?.includes('Se encontró precio para un cliente diferente')) {
+          return `❌ PRECIO NO DISPONIBLE: ${error.message}. ${error.suggestion?.suggestion || 'Contacta al equipo comercial para resolver este problema.'}`;
+        }
         return `La receta "${error.field_value || 'sin código'}" no tiene precio configurado. Contacta al equipo de contabilidad para que configure el precio.`;
       
       case 'CLIENT_NOT_FOUND':
+        // Check if this is a strict validation failure
+        if (error.message?.includes('does not closely match')) {
+          return `❌ VALIDACIÓN ESTRICTA: El cliente "${error.field_value || 'sin nombre'}" no coincide lo suficiente con ningún cliente registrado. ${error.suggestion?.suggestion || 'Verifica el nombre del cliente o contacta al equipo comercial.'}`;
+        }
         return `El cliente "${error.field_value || 'sin nombre'}" no está registrado. Contacta al equipo comercial para que lo registre.`;
       
       case 'CONSTRUCTION_SITE_NOT_FOUND':
