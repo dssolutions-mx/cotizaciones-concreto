@@ -21,7 +21,7 @@ import { toast } from 'sonner'
 import { MaterialEntryInput, PendingFile } from '@/types/inventory'
 import MaterialSelect from '@/components/inventory/MaterialSelect'
 import SupplierSelect from '@/components/inventory/SupplierSelect'
-import FileUpload from '@/components/inventory/FileUpload'
+import SimpleFileUpload from '@/components/inventory/SimpleFileUpload'
 import { format } from 'date-fns'
 
 interface MaterialEntryFormProps {
@@ -478,7 +478,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
               <p>• O suba archivos existentes (imágenes, PDFs)</p>
             </div>
             
-            <FileUpload
+            <SimpleFileUpload
               onFileSelect={handleFileUpload}
               acceptedTypes={['image/*', 'application/pdf']}
               multiple
