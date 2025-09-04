@@ -25,7 +25,7 @@ import { usePlantContext } from '@/contexts/PlantContext'
 import { toast } from 'sonner'
 import { PendingFile } from '@/types/inventory'
 import MaterialSelect from './MaterialSelect'
-import FileUpload from './FileUpload'
+import SimpleFileUpload from './SimpleFileUpload'
 import { format } from 'date-fns'
 
 interface MaterialAdjustmentFormData {
@@ -610,7 +610,7 @@ export default function MaterialAdjustmentForm({
               <p>• O suba archivos existentes (imágenes, PDFs)</p>
             </div>
             
-            <FileUpload
+            <SimpleFileUpload
               onFileSelect={handleFileUpload}
               acceptedTypes={['image/*', 'application/pdf']}
               multiple
