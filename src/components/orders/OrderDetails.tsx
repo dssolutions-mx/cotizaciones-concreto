@@ -970,61 +970,52 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     
     const loadPumpServicePricing = async () => {
       try {
-        // Look for pump service pricing in quote_details that are approved for this client + site combination
-        const { data: pumpServiceData, error: pumpServiceError } = await supabase
-          .from('quotes')
+        console.log(`Fetching pump service pricing for Client: ${order.client_id}, Site: ${order.construction_site}`);
+        
+        const { data: pumpServiceDetails, error: pumpServiceError } = await supabase
+          .from('quote_details')
           .select(`
-            quote_details(
-              pump_service,
-              pump_price
+            pump_price,
+            quotes!inner(
+              client_id,
+              construction_site,
+              status
             )
           `)
-          .eq('status', 'APPROVED')
-          .eq('client_id', order.client_id)
-          .eq('construction_site', order.construction_site)
-          .not('quote_details.pump_price', 'is', null)
-          .order('created_at', { ascending: false })
+          .eq('quotes.client_id', order.client_id)
+          .eq('quotes.construction_site', order.construction_site)
+          .eq('quotes.status', 'APPROVED')
+          .eq('pump_service', true)
+          .not('pump_price', 'is', null) // Ensure pump_price is not null
+          .order('created_at', { ascending: false, foreignTable: 'quotes' })
           .limit(1);
           
         if (pumpServiceError) {
           console.error("Error fetching pump service pricing:", pumpServiceError);
+          setPumpPrice(0); // Set to 0 to allow manual entry
           return;
         }
         
-        // Find the first quote with pump service pricing
-        if (pumpServiceData && pumpServiceData.length > 0) {
-          const quoteWithPumpService = pumpServiceData.find(quote => 
-            quote.quote_details.some((detail: any) => detail.pump_service && detail.pump_price)
-          );
-          
-          if (quoteWithPumpService) {
-            const pumpDetail = quoteWithPumpService.quote_details.find((detail: any) => 
-              detail.pump_service && detail.pump_price
-            );
-            
-            if (pumpDetail && pumpDetail.pump_price) {
-              setPumpPrice(pumpDetail.pump_price);
-            }
-          }
-        }
-        
-        // Fallback: If no pump pricing found, check if this order already has legacy pump service
-        // and allow manual pricing for backward compatibility
-        if (!pumpServiceData || pumpServiceData.length === 0) {
-          // Check if order has any existing pump service pricing we can use as fallback
-          const existingPumpItems = order.products?.filter(p => p.has_pump_service && p.pump_price) || [];
-          if (existingPumpItems.length > 0) {
-            const fallbackPrice = existingPumpItems[0].pump_price || 0; // Ensure it's a number
-            setPumpPrice(fallbackPrice);
-          } else {
-            // Set to 0 to allow manual entry for legacy orders
-            setPumpPrice(0);
-          }
+        if (pumpServiceDetails && pumpServiceDetails.length > 0 && pumpServiceDetails[0].pump_price !== null) {
+          setPumpPrice(pumpServiceDetails[0].pump_price);
+          console.log(`Found pump service price: $${pumpServiceDetails[0].pump_price} for client + site combination`);
+        } else {
+          console.log('No pump service pricing found in approved quotes for this client + site combination');
+          setPumpPrice(0); // Set to 0 to allow manual entry
         }
       } catch (err) {
         console.error('Error loading pump service pricing:', err);
-        // Set to 0 to allow manual entry in case of any errors
-        setPumpPrice(0);
+        
+        // Fallback: Check if this order already has legacy pump service
+        // and allow manual pricing for backward compatibility
+        const existingPumpItems = order.products?.filter(p => p.has_pump_service && p.pump_price) || [];
+        if (existingPumpItems.length > 0) {
+          const fallbackPrice = existingPumpItems[0].pump_price || 0; // Ensure it's a number
+          setPumpPrice(fallbackPrice);
+        } else {
+          // Set to 0 to allow manual entry for legacy orders
+          setPumpPrice(0);
+        }
       }
     };
     

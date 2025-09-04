@@ -13,8 +13,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date');
     const queryParams = {
-      date_from: searchParams.get('date_from') || (date ? date : undefined),
-      date_to: searchParams.get('date_to') || (date ? date : undefined),
+      date_from: searchParams.get('date_from') || (date ? date : new Date().toISOString().split('T')[0]), // Default to today
+      date_to: searchParams.get('date_to') || (date ? date : new Date().toISOString().split('T')[0]), // Default to today
       material_id: searchParams.get('material_id') || undefined,
       limit: searchParams.get('limit') || '20',
       offset: searchParams.get('offset') || '0',
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
@@ -60,14 +60,14 @@ export async function GET(request: NextRequest) {
       `);
     
     // Apply plant filter based on user role
-    if (profile.role === 'EXECUTIVE') {
-      // Executives can see all plants, but if plant_id is provided in query, filter by it
+    if (profile.role === 'EXECUTIVE' || profile.role === 'ADMIN_OPERATIONS') {
+      // Executives and Admin Operations can see all plants, but if plant_id is provided in query, filter by it
       const queryPlantId = searchParams.get('plant_id');
       if (queryPlantId) {
         console.log('EXECUTIVE: Filtering by query plant_id:', queryPlantId);
         query = query.eq('plant_id', queryPlantId);
       } else {
-        console.log('EXECUTIVE: No plant filter applied - seeing all plants');
+        console.log('EXECUTIVE/ADMIN_OPERATIONS: No plant filter applied - seeing all plants');
       }
     } else {
       // Other users can only see their assigned plant
@@ -209,7 +209,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
@@ -384,7 +384,7 @@ export async function PUT(request: NextRequest) {
     }
 
     // Check if user has inventory permissions
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
+    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'ADMIN_OPERATIONS'];
     if (!allowedRoles.includes(profile.role)) {
       return NextResponse.json({ error: 'Sin permisos para gestionar inventario' }, { status: 403 });
     }
