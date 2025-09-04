@@ -117,6 +117,9 @@ serve(async (req)=>{
         created_by,
         credit_status,
         order_status,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_google_maps_url,
         clients (business_name, contact_name, phone),
         order_items (
           id,
@@ -348,6 +351,28 @@ serve(async (req)=>{
               <p style="margin: 0; font-weight: 500; color: #0F172A;">${order.requires_invoice ? 'Sí' : 'No'}</p>
             </div>
           </div>
+          
+          ${(order.delivery_google_maps_url || (order.delivery_latitude && order.delivery_longitude)) ? `
+            <div style="margin-bottom: 20px; padding: 15px; background-color: #F0F9FF; border-radius: 8px; border-left: 4px solid #0369A1;">
+              <h4 style="color: #0369A1; font-size: 14px; margin: 0 0 8px 0; font-weight: 600;">📍 Ubicación de Entrega</h4>
+              ${order.delivery_latitude && order.delivery_longitude ? `
+                <p style="margin: 0; color: #0C4A6E; font-size: 14px; margin-bottom: 8px;">
+                  <strong>Coordenadas:</strong> ${order.delivery_latitude}, ${order.delivery_longitude}
+                </p>
+              ` : ''}
+              ${order.delivery_google_maps_url ? `
+                <a href="${order.delivery_google_maps_url}" 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   style="display: inline-flex; align-items: center; padding: 8px 16px; background-color: #0369A1; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 500; transition: background-color 0.2s;">
+                  <svg xmlns="http://www.w3.org/2000/svg" style="width: 16px; height: 16px; margin-right: 8px;" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
+                  </svg>
+                  Abrir en Google Maps
+                </a>
+              ` : ''}
+            </div>
+          ` : ''}
           
           <h4 style="color: #0C4A6E; font-size: 16px; margin: 0 0 15px 0; border-bottom: 1px solid #E2E8F0; padding-bottom: 10px;">Productos</h4>
           <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
