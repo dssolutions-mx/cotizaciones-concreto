@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import QuotePDF from './QuotePDF';
 import { useRouter } from 'next/navigation';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 
 interface ApprovedQuotesTabProps {
   onDataSaved?: () => void;
@@ -621,6 +622,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                 <tr>
                   <th className="px-4 py-3">Número de Cotización</th>
                   <th className="px-4 py-3">Cliente</th>
+                  <th className="px-4 py-3">Creada por</th>
                   <th className="px-4 py-3">Sitio de Construcción</th>
                   <th className="px-4 py-3">Fecha de Creación</th>
                   <th className="px-4 py-3">Fecha de Aprobación</th>
@@ -634,6 +636,9 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                     <td className="px-4 py-3">{quote.quote_number}</td>
                     <td className="px-4 py-3">
                       {quote.client?.business_name} ({quote.client?.client_code})
+                    </td>
+                    <td className="px-4 py-3">
+                      {quote.creator_initials}
                     </td>
                     <td className="px-4 py-3">{quote.construction_site}</td>
                     <td className="px-4 py-3">
@@ -719,29 +724,62 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">
-                  Detalles de Cotización
-                  {isEditing && <span className="ml-2 text-sm text-orange-500 font-normal">(Editando)</span>}
-                </h2>
+              <div className="flex justify-between items-start gap-3 mb-4">
+                <div className="flex flex-col gap-1">
+                  <h2 className="text-2xl font-bold">
+                    Detalles de Cotización
+                    {isEditing && <span className="ml-2 text-sm text-orange-500 font-normal">(Editando)</span>}
+                  </h2>
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+                    <span className="inline-flex items-center gap-2">
+                      <span className="font-medium">Creada por:</span>
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-100 text-gray-700 text-xs">
+                          {selectedQuote?.creator_initials || 'NA'}
+                        </span>
+                        <span className="sr-only">{selectedQuote?.creator_initials || 'NA'}</span>
+                      </span>
+                    </span>
+                    <span className="hidden sm:inline text-gray-300">•</span>
+                    <span>
+                      <span className="font-medium">Aprobado por:</span> {selectedQuote?.approver_name}
+                    </span>
+                  </div>
+                </div>
                 <button 
                   onClick={closeQuoteDetails}
                   className="text-gray-600 hover:text-gray-900"
+                  aria-label="Cerrar"
                 >
                   ✕
                 </button>
               </div>
 
-              {/* Client Information */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
+              {/* Client & Meta Information */}
+              <div className="grid grid-cols-1 @md:grid-cols-2 gap-6 mb-6 bg-gray-50 p-4 rounded-lg">
                 <div>
-                  <p className="font-semibold">Cliente</p>
-                  <p>{selectedQuote.client?.business_name || 'Sin cliente'}</p>
-                  <p>{selectedQuote.client?.client_code || 'Sin código de cliente'}</p>
+                  <p className="font-medium text-gray-500 text-sm mb-1">Cliente</p>
+                  <p className="font-semibold text-gray-900">{selectedQuote.client?.business_name || 'Sin cliente'}</p>
+                  <p className="text-gray-700">{selectedQuote.client?.client_code || 'Sin código de cliente'}</p>
                 </div>
                 <div>
-                  <p className="font-semibold">Sitio de Construcción</p>
-                  <p>{selectedQuote.construction_site}</p>
+                  <p className="font-medium text-gray-500 text-sm mb-1">Sitio de Construcción</p>
+                  <p className="font-semibold text-gray-900">{selectedQuote.construction_site}</p>
+                </div>
+                <div className="@md:col-span-2 grid grid-cols-1 @sm:grid-cols-2 gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 text-sm">
+                      {selectedQuote?.creator_initials || 'NA'}
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-500 text-xs">Creada por</p>
+                      <p className="text-gray-900 text-sm">{selectedQuote?.creator_initials || 'Sin información'}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-500 text-xs">Fecha de aprobación</p>
+                    <p className="text-gray-900 text-sm">{new Date(selectedQuote?.approval_date || '').toLocaleString()}</p>
+                  </div>
                 </div>
               </div>
 
@@ -917,7 +955,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                         key={`modal-pdf-${selectedQuote.id}-${vatToggles[selectedQuote.id] || false}`}
                         document={<QuotePDF quote={selectedQuote} showVAT={vatToggles[selectedQuote.id] || false} />}
                         fileName={`cotizacion-${selectedQuote.quote_number}.pdf`}
-                        className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                       >
                         {({ blob, url, loading, error }) =>
                           loading ? 'Generando PDF...' : 'Descargar PDF'
@@ -929,13 +967,13 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
               </div>
 
               {/* Modal Actions */}
-              <div className="flex justify-end space-x-4 mt-6">
+              <div className="flex justify-end space-x-2 mt-6">
                 {isEditing && (
                   <>
                     <button 
                       onClick={handleSaveClick}
                       disabled={isDuplicating}
-                      className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50 flex items-center gap-2"
+                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
                     >
                       {isDuplicating ? (
                         <>
@@ -956,7 +994,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                     </button>
                     <button 
                       onClick={cancelEditing}
-                      className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 flex items-center gap-2"
+                      className="px-4 py-2 bg-white border border-gray-300 text-gray-800 rounded-lg hover:bg-gray-50 flex items-center gap-2"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -967,7 +1005,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                 )}
                 <button 
                   onClick={closeQuoteDetails}
-                  className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 flex items-center gap-2"
+                  className="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-2"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />

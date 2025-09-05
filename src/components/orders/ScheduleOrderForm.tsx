@@ -85,6 +85,65 @@ const generateGoogleMapsEmbedUrl = (lat: string, lng: string): string => {
   return `https://www.google.com/maps/embed/v1/view?key=YOUR_API_KEY&center=${lat},${lng}&zoom=15`;
 };
 
+// Attempts to extract coordinates from various Google Maps URL formats or raw "lat,lng"
+const parseGoogleMapsCoordinates = (input: string): { lat: string; lng: string } | null => {
+  if (!input) return null;
+  const trimmed = input.trim();
+
+  // Case 1: Plain "lat,lng"
+  const plainMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (plainMatch) {
+    return { lat: plainMatch[1], lng: plainMatch[2] };
+  }
+
+  // If it's not a URL, stop here
+  let url: URL | null = null;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  const href = url.href;
+
+  // Case 2: Pattern with @lat,lng in the path (e.g., /@19.432608,-99.133209)
+  const atMatch = href.match(/@\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/);
+  if (atMatch) {
+    return { lat: atMatch[1], lng: atMatch[2] };
+  }
+
+  // Case 2b: !3dLAT!4dLNG pattern
+  const bangMatch = href.match(/!3d\s*(-?\d+(?:\.\d+)?)!4d\s*(-?\d+(?:\.\d+)?)/);
+  if (bangMatch) {
+    return { lat: bangMatch[1], lng: bangMatch[2] };
+  }
+
+  // Case 3: Query params that may contain "lat,lng"
+  const paramsToCheck = ['q', 'query', 'll', 'center', 'daddr', 'saddr'];
+  for (const key of paramsToCheck) {
+    const value = url.searchParams.get(key);
+    if (!value) continue;
+    const val = decodeURIComponent(value);
+    const m = val.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+    if (m) {
+      return { lat: m[1], lng: m[2] };
+    }
+  }
+
+  // Case 4: Some URLs put coordinates in the path separated by commas without '@'
+  const loose = href.match(/(-?\d+(?:\.\d+)?)%2C(-?\d+(?:\.\d+)?)/i) || href.match(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  if (loose) {
+    const lat = parseFloat(loose[1]);
+    const lng = parseFloat(loose[2]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { lat: String(lat), lng: String(lng) };
+  }
+
+  // For short links like https://maps.app.goo.gl/ we cannot resolve redirects from the browser due to CORS.
+  return null;
+};
+
 export default function ScheduleOrderForm({
   preSelectedQuoteId,
   preSelectedClientId,
@@ -141,6 +200,8 @@ export default function ScheduleOrderForm({
   const [latitude, setLatitude] = useState<string>('');
   const [longitude, setLongitude] = useState<string>('');
   const [coordinatesError, setCoordinatesError] = useState<string>('');
+  const [mapsPaste, setMapsPaste] = useState<string>('');
+  const [isParsingMapsLink, setIsParsingMapsLink] = useState<boolean>(false);
   
   // Order-wide pumping service (instead of per product)
   const [hasPumpService, setHasPumpService] = useState<boolean>(false);
@@ -1549,6 +1610,77 @@ export default function ScheduleOrderForm({
               <h3 className="font-medium mb-3">Información de Entrega</h3>
 
               <div className="space-y-4">
+                {/* Paste Google Maps link or "lat,lng" */}
+                <div>
+                  <label htmlFor="mapsPaste" className="block text-sm font-medium text-gray-700 mb-1">
+                    Pegar enlace de Google Maps o "lat,lng"
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="mapsPaste"
+                      type="text"
+                      value={mapsPaste}
+                      onChange={(e) => setMapsPaste(e.target.value)}
+                      placeholder="Ej: https://maps.app.goo.gl/jLGe1St2kHpfrGRYA?g_st=ipc o 19.432608,-99.133209"
+                      className="flex-1 rounded-md border border-gray-300 px-3 py-2"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsParsingMapsLink(true);
+                        try {
+                          // Try direct parse first (works for most g.co/maps, www.google.com/maps, maps.app.goo.gl patterns)
+                          const parsed = parseGoogleMapsCoordinates(mapsPaste);
+                          if (parsed) {
+                            setLatitude(parsed.lat);
+                            setLongitude(parsed.lng);
+                            setCoordinatesError('');
+                            return;
+                          }
+
+                          // Server-side expansion via Supabase Edge Function to avoid CORS
+                          if (/^https?:\/\/(maps\.app\.goo\.gl|g\.co|goo\.gl)\//i.test(mapsPaste)) {
+                            try {
+                              const { data, error } = await supabase.functions.invoke('expand-maps-url', {
+                                body: { url: mapsPaste }
+                              });
+                              if (!error && data) {
+                                const { lat, lng, finalUrl } = data as any;
+                                if (lat && lng) {
+                                  setLatitude(String(lat));
+                                  setLongitude(String(lng));
+                                  setCoordinatesError('');
+                                  return;
+                                }
+                                // Try parsing finalUrl if coords not present in payload
+                                const parsed3 = parseGoogleMapsCoordinates(finalUrl);
+                                if (parsed3) {
+                                  setLatitude(parsed3.lat);
+                                  setLongitude(parsed3.lng);
+                                  setCoordinatesError('');
+                                  return;
+                                }
+                              }
+                            } catch (_) {
+                              // ignore and fall through
+                            }
+                          }
+
+                          setCoordinatesError('No se pudieron extraer coordenadas del enlace. Pegue cualquier enlace de Google Maps o "lat,lng" (ej. 19.432608,-99.133209).');
+                        } finally {
+                          setIsParsingMapsLink(false);
+                        }
+                      }}
+                      disabled={isParsingMapsLink || !mapsPaste}
+                      className={`px-3 py-2 rounded-md text-white ${isParsingMapsLink ? 'bg-gray-400 cursor-wait' : 'bg-green-600 hover:bg-green-700'}`}
+                    >
+                      {isParsingMapsLink ? 'Procesando…' : 'Usar'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Pega cualquier enlace de Google Maps (incluye <a href="https://maps.app.goo.gl/jLGe1St2kHpfrGRYA?g_st=ipc" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">maps.app.goo.gl</a>) o lat,lng.
+                  </p>
+                </div>
                 <div>
                   <label htmlFor="deliveryDate" className="block text-sm font-medium mb-1">
                     Fecha de Entrega
