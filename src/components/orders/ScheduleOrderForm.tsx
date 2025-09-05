@@ -1680,6 +1680,17 @@ export default function ScheduleOrderForm({
                   <p className="text-xs text-gray-500 mt-1">
                     Pega cualquier enlace de Google Maps (incluye <a href="https://maps.app.goo.gl/jLGe1St2kHpfrGRYA?g_st=ipc" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">maps.app.goo.gl</a>) o lat,lng.
                   </p>
+                  {/* Fallback guidance when short links cannot be expanded automatically */}
+                  <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-md p-2">
+                    <p className="text-xs text-yellow-800">
+                      Si el enlace corto no se puede procesar automáticamente:
+                    </p>
+                    <ol className="mt-1 list-decimal pl-5 text-xs text-yellow-800 space-y-0.5">
+                      <li>Toca el enlace para abrirlo en el navegador del teléfono.</li>
+                      <li>En la barra de direcciones, copia la URL completa (debe iniciar con www.google.com/maps...)</li>
+                      <li>Pégala aquí y presiona “Usar”.</li>
+                    </ol>
+                  </div>
                 </div>
                 <div>
                   <label htmlFor="deliveryDate" className="block text-sm font-medium mb-1">
