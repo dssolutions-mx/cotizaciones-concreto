@@ -461,6 +461,16 @@ export class ArkikDuplicateHandler {
             // Ensure these remisiones are not considered for order creation later
             is_excluded_from_import: true
           };
+
+          console.log(`[ArkikDuplicateHandler] Materials-only update prepared for ${remision.remision_number}:`, {
+            existing_remision_id: duplicateInfo.existing_remision_id,
+            materials_teorico: Object.keys(remision.materials_teorico || {}),
+            materials_real: Object.keys(remision.materials_real || {}),
+            materials_retrabajo: Object.keys(remision.materials_retrabajo || {}),
+            materials_manual: Object.keys(remision.materials_manual || {}),
+            is_excluded_from_import: materialsUpdateRemision.is_excluded_from_import
+          });
+
           updatedRemisiones.push(materialsUpdateRemision);
           updatedMaterials++;
           break;

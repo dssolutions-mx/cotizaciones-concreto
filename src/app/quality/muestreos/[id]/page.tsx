@@ -40,7 +40,7 @@ import {
   ArrowUpRight,
   Thermometer
 } from 'lucide-react';
-import { fetchMuestreoById } from '@/services/qualityService';
+import { fetchMuestreoById } from '@/services/qualityMuestreoService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { MuestreoWithRelations } from '@/types/quality';
 import Link from 'next/link';
@@ -442,6 +442,16 @@ export default function MuestreoDetailPage() {
                     </Badge>
                   </div>
                 </div>
+
+                {muestreo.remision?.hora_carga && (
+                  <div>
+                    <p className="text-sm font-medium text-gray-500 mb-1">Hora Carga</p>
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4 text-gray-600" />
+                      <p className="font-semibold text-gray-900">{muestreo.remision.hora_carga}</p>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Order link */}
                 {getOrderInfo(muestreo) && (

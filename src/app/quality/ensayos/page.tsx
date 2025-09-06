@@ -31,7 +31,7 @@ import {
   CircleDot
 } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
-import { fetchMuestrasPendientes } from '@/services/qualityService';
+import { fetchMuestrasPendientes } from '@/services/qualityMuestraService';
 import type { MuestraWithRelations } from '@/types/quality';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { DateFilter } from '@/components/ui/DateFilter';

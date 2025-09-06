@@ -25,21 +25,27 @@ export function formatCurrency(amount: number | null | undefined): string {
 // Function to format dates
 export function formatDate(date: string | Date | null | undefined, formatString = 'PP'): string {
   if (!date) return 'N/A';
-  
+
   // If string is a simple YYYY-MM-DD, add T12:00:00 to avoid timezone shifts
-  const dateObj = typeof date === 'string' 
-    ? (date.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(date) 
-        ? parseISO(`${date}T12:00:00`) 
+  const dateObj = typeof date === 'string'
+    ? (date.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(date)
+        ? parseISO(`${date}T12:00:00`)
         : parseISO(date))
     : date;
-  
+
+  // Validate the date object before formatting
+  if (!isValidDate(dateObj)) {
+    console.error("Invalid date object:", dateObj);
+    return 'Fecha inválida';
+  }
+
   try {
     return formatFn(dateObj, formatString, { locale: es });
   } catch (error) {
     console.error("Error formatting date:", error);
     // Attempt fallback formats or return original string representation if possible
-    if (date instanceof Date) {
-      return date.toLocaleDateString('es-MX'); // Fallback to basic locale string
+    if (dateObj instanceof Date) {
+      return dateObj.toLocaleDateString('es-MX'); // Fallback to basic locale string
     }
     return String(date); // Fallback to string conversion
   }
@@ -48,7 +54,7 @@ export function formatDate(date: string | Date | null | undefined, formatString 
 // Helper function to safely create date objects without timezone issues
 export function createSafeDate(dateStr: string | Date | null | undefined): Date | null {
   if (!dateStr) return null;
-  
+
   if (typeof dateStr === 'string') {
     // If the date is just YYYY-MM-DD without time, add noon time to prevent timezone shifts
     if (dateStr.length === 10 && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
@@ -56,6 +62,45 @@ export function createSafeDate(dateStr: string | Date | null | undefined): Date 
     }
     return parseISO(dateStr);
   }
-  
+
   return dateStr;
+}
+
+// Helper function to safely validate if a value is a valid Date object
+export function isValidDate(date: any): date is Date {
+  return date instanceof Date && !isNaN(date.getTime()) && date.getTime() > 0;
+}
+
+// Helper function to safely format dates with fallback
+export function safeFormatDate(date: any, formatString = 'PP'): string {
+  if (isValidDate(date)) {
+    try {
+      return formatFn(date, formatString, { locale: es });
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return date.toLocaleDateString('es-MX');
+    }
+  }
+  return 'N/A';
+}
+
+// Helper function to get a safe Date object, returning current date as fallback
+export function getSafeDate(date: any): Date {
+  return isValidDate(date) ? date : new Date();
+}
+
+// Debug helper to test date validation (can be removed in production)
+export function debugDateValidation(testDates: any[]): void {
+  console.log('=== Date Validation Debug ===');
+  testDates.forEach((date, index) => {
+    console.log(`Date ${index}:`, {
+      value: date,
+      isValid: isValidDate(date),
+      type: typeof date,
+      instanceof: date instanceof Date,
+      getTime: date instanceof Date ? date.getTime() : 'N/A',
+      isNaN: date instanceof Date ? isNaN(date.getTime()) : 'N/A'
+    });
+  });
+  console.log('=== End Debug ===');
 }

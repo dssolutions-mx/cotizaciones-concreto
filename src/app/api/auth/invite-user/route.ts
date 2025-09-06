@@ -17,6 +17,22 @@ export async function POST(req: Request) {
       );
     }
     
+    // Ensure caller has permissions (EXECUTIVE or ADMIN_OPERATIONS)
+    try {
+      const adminClient = createAdminClient();
+      const { data: caller } = await adminClient
+        .from('user_profiles')
+        .select('role')
+        .eq('id', callerId)
+        .single();
+      if (!caller || (caller.role !== 'EXECUTIVE' && caller.role !== 'ADMIN_OPERATIONS')) {
+        return NextResponse.json({ success: false, message: 'Forbidden - Insufficient permissions' }, { status: 403 });
+      }
+    } catch (permErr) {
+      console.error('Error verifying caller permissions for invite:', permErr);
+      return NextResponse.json({ success: false, message: 'Permission check failed' }, { status: 500 });
+    }
+
     console.log(`Processing invite for ${email} with role ${role}`, { callerId, callerEmail });
 
     // Create admin client for user operations

@@ -4,10 +4,10 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isSameMonth, addDays, addWeeks, subDays, subWeeks, startOfDay, endOfDay, eachHourOfInterval, getHours, isToday, isWithinInterval } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import { usePlantAwareOrders } from '@/hooks/usePlantAwareOrders';
 import { OrderWithClient, OrderStatus, CreditStatus, OrderItem } from '@/types/orders';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
+import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase';
 import { CalendarIcon, MixerHorizontalIcon } from '@radix-ui/react-icons';
 import { Button } from '@/components/ui/button';
@@ -57,18 +57,148 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   const calendarRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   
-  // Use plant-aware orders hook
-  const { 
-    orders: allOrders, 
-    isLoading: loading, 
-    error, 
-    refetch: loadOrders 
-  } = usePlantAwareOrders({
-    statusFilter,
-    creditStatusFilter,
-    autoRefresh: true
-  });
+  // Check if user is a dosificador
+  const isDosificador = profile?.role === 'DOSIFICADOR';
+
+  // Simple state for orders
+  const [orders, setOrders] = useState<OrderWithClient[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Simple function to load orders
+  const loadOrders = useCallback(async () => {
+    if (!currentPlant?.id) return;
+    
+    setLoading(true);
+    setError(null);
+
+    try {
+      if (isDosificador) {
+        const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
+        const data = await getOrdersForDosificador();
+        setOrders(data);
+      } else {
+        // Create a plant-aware query directly with volume information
+        const { supabase } = await import('@/lib/supabase/client');
+        let query = supabase
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            quote_id,
+            requires_invoice,
+            delivery_date,
+            delivery_time,
+            construction_site,
+            delivery_latitude,
+            delivery_longitude,
+            delivery_google_maps_url,
+            special_requirements,
+            preliminary_amount,
+            final_amount,
+            credit_status,
+            order_status,
+            created_at,
+            clients (
+              id,
+              business_name,
+              client_code,
+              contact_name,
+              phone
+            ),
+            order_items (
+              id,
+              product_type,
+              volume,
+              has_pump_service,
+              pump_volume,
+              has_empty_truck_charge,
+              empty_truck_volume
+            )
+          `)
+          .eq('plant_id', currentPlant.id);
+
+        // Apply status filters
+        if (statusFilter) {
+          query = query.eq('order_status', statusFilter);
+        }
+        
+        if (creditStatusFilter) {
+          query = query.eq('credit_status', creditStatusFilter);
+        }
+
+        // Sort by created_at in descending order
+        query = query.order('created_at', { ascending: false });
+
+        const { data, error } = await query;
+        
+        if (error) throw error;
+        
+        // Process the data to calculate volumes using the correct logic
+        const processedData = (data || []).map(order => {
+          const orderItems = order.order_items || [];
+          let concreteVolume = 0;
+          let pumpVolume = 0;
+          let hasPumpService = false;
+
+          // Only calculate volumes if there are items
+          if (orderItems.length > 0) {
+            orderItems.forEach((item: any) => {
+              const productType = item.product_type || '';
+              const volume = item.volume || 0;
+              const pumpVolumeItem = item.pump_volume || 0;
+
+              // Determine if this item is an empty truck charge
+              const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                                        productType === 'VACÍO DE OLLA' ||
+                                        productType === 'EMPTY_TRUCK_CHARGE';
+
+              // Determine if this item is a pump service
+              const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                                   productType.toLowerCase().includes('bombeo') ||
+                                   productType.toLowerCase().includes('pump');
+
+              // Calculate concrete volume (exclude empty truck charges and pump services)
+              if (!isEmptyTruckCharge && !isPumpService) {
+                concreteVolume += volume;
+              }
+
+              // Calculate pump volume
+              if (item.has_pump_service || isPumpService) {
+                if (pumpVolumeItem > 0) {
+                  pumpVolume += pumpVolumeItem;
+                } else if (isPumpService && volume > 0) {
+                  pumpVolume += volume;
+                }
+                hasPumpService = true;
+              }
+            });
+          }
+
+          return {
+            ...order,
+            concreteVolume: concreteVolume > 0 ? concreteVolume : undefined,
+            pumpVolume: pumpVolume > 0 ? pumpVolume : undefined,
+            hasPumpService
+          };
+        });
+        
+        setOrders(processedData);
+      }
+    } catch (err) {
+      console.error('Error loading orders:', err);
+      setError('Error al cargar los pedidos. Por favor, intente nuevamente.');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentPlant?.id, isDosificador, statusFilter, creditStatusFilter]);
+
+  // Load orders when component mounts or when dependencies change
+  useEffect(() => {
+    loadOrders();
+  }, [loadOrders]);
   
   useEffect(() => {
     if (preferences.calendarViewType !== viewType) {
@@ -103,10 +233,10 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
 
   // Filter orders based on current calendar view
   const filteredOrders = useMemo(() => {
-    if (!allOrders || allOrders.length === 0) return [];
+    if (!orders || orders.length === 0) return [];
     
     // Filter out cancelled orders
-    const validOrders = allOrders.filter(order => order.order_status?.toLowerCase() !== 'cancelled');
+    const validOrders = orders.filter(order => order.order_status?.toLowerCase() !== 'cancelled');
     
     // Filter by date range based on current view
     let calendarStart: Date;
@@ -133,7 +263,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
       if (!order.delivery_date) return false;
       return order.delivery_date >= startDateStr && order.delivery_date <= endDateStr;
     });
-  }, [allOrders, currentDate, viewType]);
+  }, [orders, currentDate, viewType]);
 
   // Update calendar when filtered orders change
   useEffect(() => {
@@ -181,10 +311,6 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
     
     setCalendarDays(days);
   }, [filteredOrders, currentDate, viewType]);
-
-  useEffect(() => {
-    loadOrders();
-  }, [loadOrders]);
 
   const handleViewTypeChange = useCallback((newViewType: ViewType) => {
     setViewType(newViewType);
@@ -308,7 +434,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
           {error}
-          <button onClick={loadOrders} className="ml-auto bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded-md text-sm">
+          <button onClick={() => loadOrders()} className="ml-auto bg-red-100 hover:bg-red-200 text-red-800 px-3 py-1 rounded-md text-sm">
             Reintentar
           </button>
         </div>
@@ -365,6 +491,20 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                             <span className="text-gray-500"> - {(order as any).siteLocation}</span>
                           )}
                         </span>
+                        {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
+                          <a
+                            className="ml-2 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 shrink-0 whitespace-nowrap"
+                            href={(order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Abrir ubicación en Google Maps"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                            </svg>
+                            Ver mapa
+                          </a>
+                        )}
                       </div>
                       <div className="flex items-center mt-1 text-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
@@ -460,6 +600,22 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           )}
                         </span>
                       </div>
+                      {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
+                        <div className="mt-1">
+                          <a
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                            href={(order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Abrir ubicación en Google Maps"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                              <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                            </svg>
+                            Mapa
+                          </a>
+                        </div>
+                      )}
                       <div className="flex items-center mt-1 text-xs">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />
@@ -579,6 +735,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
           </h2>
           
           <div className="flex flex-wrap gap-3">
+            {/* View type selector */}
             <div className="flex bg-gray-100 rounded-md overflow-hidden shadow-xs">
               <button
                 onClick={() => handleViewTypeChange('day')}
@@ -645,11 +802,22 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
           </div>
         </div>
         
-        {loadingVolumes && (
+        {/* Loading indicator for refresh */}
+        {loading && orders.length > 0 && (
           <div className="bg-blue-50 px-4 py-2 border-t border-blue-100 flex items-center text-sm text-blue-700">
             <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Actualizando órdenes...
+          </div>
+        )}
+        
+        {loadingVolumes && (
+          <div className="bg-blue-50 px-4 py-2 border-t border-blue-100 flex items-center text-sm text-blue-700">
+            <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
             Actualizando volúmenes de concreto y bombeo...
           </div>

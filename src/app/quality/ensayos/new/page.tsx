@@ -30,9 +30,11 @@ import { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { 
-  fetchMuestraById, 
+  fetchMuestraById 
+} from '@/services/qualityMuestraService';
+import { 
   createEnsayo 
-} from '@/services/qualityService';
+} from '@/services/qualityEnsayoService';
 import type { MuestraWithRelations } from '@/types/quality';
 import { FileUploader } from '@/components/ui/file-uploader';
 import {
@@ -54,13 +56,18 @@ const ensayoFormSchema = z.object({
   fecha_ensayo: z.date({
     required_error: 'La fecha del ensayo es requerida',
   }),
-  carga_kg: z.number()
-    .min(0, 'La carga debe ser un número positivo')
+  hora_ensayo: z.string().min(1, 'La hora del ensayo es requerida'),
+  carga_kg: z.number({
+    required_error: 'La carga de ruptura es requerida',
+    invalid_type_error: 'La carga debe ser un número válido'
+  })
+    .min(0.01, 'La carga debe ser mayor a 0')
     .max(500000, 'La carga parece demasiado alta'),
   resistencia_calculada: z.number()
-    .min(0, 'La resistencia debe ser un número positivo'),
+    .min(0.01, 'La resistencia debe ser mayor a 0'),
   porcentaje_cumplimiento: z.number()
-    .min(0, 'El porcentaje debe ser un número positivo'),
+    .min(0, 'El porcentaje debe ser un número positivo')
+    .max(9999.99, 'El porcentaje no puede exceder 9999.99%'),
   tiene_evidencias: z.boolean(),
   observaciones: z.string().optional(),
 });
@@ -88,9 +95,10 @@ function NuevoEnsayoContent() {
     defaultValues: {
       muestra_id: muestraId || '',
       fecha_ensayo: new Date(),
-      carga_kg: 0,
-      resistencia_calculada: 0,
-      porcentaje_cumplimiento: 0,
+      hora_ensayo: new Date().toTimeString().slice(0, 5), // HH:MM format
+      carga_kg: undefined as any, // Start empty for better UX
+      resistencia_calculada: 0, // Will be calculated automatically
+      porcentaje_cumplimiento: 0, // Will be calculated automatically
       tiene_evidencias: false,
       observaciones: '',
     },
@@ -119,8 +127,18 @@ function NuevoEnsayoContent() {
       // Set fecha_ensayo to fecha_programada_ensayo if available
       if (data?.fecha_programada_ensayo) {
         try {
-          const programmedDate = new Date(data.fecha_programada_ensayo);
-          if (!isNaN(programmedDate.getTime())) {
+          // Parse the date string and create a local date to avoid timezone issues
+          const dateStr = data.fecha_programada_ensayo;
+          if (dateStr.includes('T')) {
+            // If it's an ISO string with time, extract just the date part
+            const [datePart] = dateStr.split('T');
+            const [year, month, day] = datePart.split('-').map(Number);
+            const programmedDate = new Date(year, month - 1, day);
+            form.setValue('fecha_ensayo', programmedDate);
+          } else {
+            // If it's just a date string, parse it directly
+            const [year, month, day] = dateStr.split('-').map(Number);
+            const programmedDate = new Date(year, month - 1, day);
             form.setValue('fecha_ensayo', programmedDate);
           }
         } catch (error) {
@@ -172,10 +190,13 @@ function NuevoEnsayoContent() {
       
       // Calculate porcentaje_cumplimiento if we have recipe strength info
       const targetStrength = muestra.muestreo?.remision?.recipe?.strength_fc || 0;
-      if (targetStrength > 0) {
-        const porcentaje = (resistencia / targetStrength) * 100;
-        form.setValue('porcentaje_cumplimiento', parseFloat(porcentaje.toFixed(2)));
+      let porcentaje = 0;
+      if (targetStrength > 0 && resistencia > 0) {
+        porcentaje = parseFloat(((resistencia / targetStrength) * 100).toFixed(2));
       }
+      
+      // Always set the value, even if it's 0
+      form.setValue('porcentaje_cumplimiento', porcentaje, { shouldValidate: true });
     }
   };
 
@@ -424,10 +445,12 @@ function NuevoEnsayoContent() {
         return;
       }
       
+      
       // Remove profile.id since it will be fetched from the session in the service
       await createEnsayo({
         muestra_id: data.muestra_id,
         fecha_ensayo: data.fecha_ensayo,
+        hora_ensayo: data.hora_ensayo,
         carga_kg: data.carga_kg,
         resistencia_calculada: data.resistencia_calculada,
         porcentaje_cumplimiento: data.porcentaje_cumplimiento,
@@ -591,6 +614,21 @@ function NuevoEnsayoContent() {
                       {muestra.muestreo?.remision?.recipe?.strength_fc || 'N/A'} kg/cm²
                     </p>
                   </div>
+
+                  {muestra.muestreo?.remision && (
+                    <div>
+                      <h3 className="text-sm font-medium text-gray-500">Tiempo desde Carga</h3>
+                      <p className="mt-1 text-sm">
+                        {muestra.muestreo.remision.fecha && muestra.muestreo.remision.hora_carga ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded-md bg-blue-100 text-blue-800">
+                            Carga: {formatDate(muestra.muestreo.remision.fecha, 'PPP')} {muestra.muestreo.remision.hora_carga}
+                          </span>
+                        ) : (
+                          'Información no disponible'
+                        )}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -644,20 +682,22 @@ function NuevoEnsayoContent() {
                             <FormItem>
                               <FormLabel>Fecha del Ensayo</FormLabel>
                               <FormControl>
-                                <Input 
-                                  type="date" 
+                                <Input
+                                  type="date"
                                   {...field}
-                                  value={field.value instanceof Date && !isNaN(field.value.getTime()) 
-                                    ? field.value.toISOString().split('T')[0] 
+                                  value={field.value instanceof Date && !isNaN(field.value.getTime())
+                                    ? field.value.toISOString().split('T')[0]
                                     : ''}
                                   onChange={(e) => {
                                     try {
-                                      const date = new Date(e.target.value);
-                                      // Validate the date before setting it
-                                      if (!isNaN(date.getTime())) {
+                                      // Parse the date as local date (YYYY-MM-DD format)
+                                      const dateStr = e.target.value;
+                                      if (dateStr) {
+                                        // Create date at midnight local time to avoid timezone shifts
+                                        const [year, month, day] = dateStr.split('-').map(Number);
+                                        const date = new Date(year, month - 1, day);
                                         field.onChange(date);
                                       } else {
-                                        console.warn("Invalid date entered:", e.target.value);
                                         field.onChange(undefined);
                                       }
                                     } catch (error) {
@@ -667,6 +707,30 @@ function NuevoEnsayoContent() {
                                   }}
                                 />
                               </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="hora_ensayo"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Hora del Ensayo</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="time"
+                                  {...field}
+                                  value={field.value || ''}
+                                  onChange={(e) => {
+                                    field.onChange(e.target.value);
+                                  }}
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                Hora en que se completó el ensayo
+                              </FormDescription>
                               <FormMessage />
                             </FormItem>
                           )}
@@ -682,10 +746,21 @@ function NuevoEnsayoContent() {
                                 <Input 
                                   type="number" 
                                   step="0.01"
-                                  min="0"
-                                  {...field}
-                                  value={field.value === 0 ? '' : field.value}
-                                  onChange={(e) => handleCargaChange(parseFloat(e.target.value) || 0)}
+                                  min="0.01"
+                                  placeholder="Ingrese la carga de ruptura"
+                                  value={field.value || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value === '') {
+                                      field.onChange(undefined);
+                                    } else {
+                                      const numValue = parseFloat(value);
+                                      if (!isNaN(numValue)) {
+                                        field.onChange(numValue);
+                                        handleCargaChange(numValue);
+                                      }
+                                    }
+                                  }}
                                 />
                               </FormControl>
                               <FormDescription>
@@ -708,15 +783,15 @@ function NuevoEnsayoContent() {
                                 <Input 
                                   type="number" 
                                   step="0.01"
-                                  min="0"
+                                  min="0.01"
                                   {...field}
-                                  value={field.value === 0 ? '' : field.value}
+                                  value={field.value}
                                   readOnly 
                                   className="bg-gray-50"
                                 />
                               </FormControl>
                               <FormDescription>
-                                
+                                Calculada automáticamente por el sistema al guardar
                               </FormDescription>
                               <FormMessage />
                             </FormItem>
@@ -738,7 +813,7 @@ function NuevoEnsayoContent() {
                                       ? "bg-yellow-100 text-yellow-800"
                                       : "bg-red-100 text-red-800"
                                 )}>
-                                  {field.value === 0 ? '-' : `${field.value}%`}
+                                  {field.value === 0 ? '-' : `${field.value.toFixed(2)}%`}
                                 </span>
                               </FormLabel>
                               <FormControl>
@@ -746,14 +821,16 @@ function NuevoEnsayoContent() {
                                   type="number" 
                                   step="0.01"
                                   min="0"
-                                  {...field}
-                                  value={field.value === 0 ? '' : field.value}
+                                  name={field.name}
+                                  value={field.value ? field.value.toFixed(2) : '0.00'}
+                                  onChange={field.onChange}
+                                  onBlur={field.onBlur}
                                   readOnly 
                                   className="bg-gray-50"
                                 />
                               </FormControl>
                               <FormDescription>
-                                Porcentaje con respecto al f'c de diseño
+                                Calculado automáticamente por el sistema al guardar
                               </FormDescription>
                               <FormMessage />
                             </FormItem>

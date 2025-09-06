@@ -28,11 +28,24 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
     }
 
-    // Fetch materials
-    const { data: materials, error } = await supabase
+    // Get query parameters
+    const { searchParams } = new URL(request.url);
+    const plantId = searchParams.get('plant_id');
+
+    // Build query for materials
+    let query = supabase
       .from('materials')
       .select('*')
+      .eq('is_active', true)
       .order('material_name');
+
+    // Filter by plant if specified
+    if (plantId) {
+      query = query.eq('plant_id', plantId);
+    }
+
+    // Fetch materials
+    const { data: materials, error } = await query;
 
     if (error) {
       console.error('Error fetching materials:', error);

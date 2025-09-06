@@ -3,6 +3,7 @@
 import React, { useState, Suspense, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { usePlantContext } from '@/contexts/PlantContext';
 import RoleGuard from '@/components/auth/RoleGuard';
 import OrdersList from '@/components/orders/OrdersList';
 import CreditValidationTab from '@/components/orders/CreditValidationTab';
@@ -20,6 +21,7 @@ const ORDERS_PAGE_STATE = 'orders_page_state';
 // Separate component to use searchParams
 function OrdersContent() {
   const { profile } = useAuthBridge();
+  const { currentPlant } = usePlantContext();
   const searchParams = useSearchParams();
   const router = useRouter();
   const { 
@@ -62,6 +64,16 @@ function OrdersContent() {
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(
     savedState.selectedQuoteId || null
   );
+
+  // Refresh key to force child components to reload when plant changes
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // Refresh orders when plant context changes
+  useEffect(() => {
+    if (currentPlant?.id) {
+      setRefreshKey(prev => prev + 1);
+    }
+  }, [currentPlant?.id]);
 
   // Save current tab to preferences when it changes
   useEffect(() => {
@@ -240,61 +252,66 @@ function OrdersContent() {
     router.push(`/orders?${params.toString()}`, { scroll: false });
   }, [searchParams, router]);
 
-  // Memoize the rendered content to avoid unnecessary re-renders
-  const renderContent = useMemo(() => {
-    switch (currentTab) {
-      case 'list':
-        return (
-          <OrdersList 
-            onCreateOrder={handleCreateOrderFromQuote} 
-            statusFilter={statusFilter}
-            creditStatusFilter={creditStatusFilter}
+  // Keep all components mounted to preserve state when switching tabs
+  const renderAllTabs = useMemo(() => (
+    <div className="relative">
+      {/* List Tab - Always mounted */}
+      <div className={currentTab === 'list' ? 'block' : 'hidden'}>
+        <OrdersList
+          key={`list-${refreshKey}`}
+          onCreateOrder={handleCreateOrderFromQuote}
+          statusFilter={statusFilter}
+          creditStatusFilter={creditStatusFilter}
+        />
+      </div>
+
+      {/* Calendar Tab - Always mounted */}
+      <div className={currentTab === 'calendar' ? 'block' : 'hidden'}>
+        <OrdersCalendarView
+          key={`calendar-${refreshKey}`}
+          statusFilter={statusFilter}
+          creditStatusFilter={creditStatusFilter}
+        />
+      </div>
+
+      {/* Create Tab - Only mount when needed to avoid unnecessary state */}
+      {currentTab === 'create' && (
+        <div className="block">
+          <ScheduleOrderForm
+            preSelectedQuoteId={selectedQuoteId || selectedQuoteData.quoteId || undefined}
+            preSelectedClientId={selectedQuoteData.clientId}
+            onOrderCreated={handleOrderCreated}
           />
-        );
-      case 'create':
-        return (
-          <ScheduleOrderForm 
-            preSelectedQuoteId={selectedQuoteId || selectedQuoteData.quoteId || undefined} 
-            preSelectedClientId={selectedQuoteData.clientId} 
-            onOrderCreated={handleOrderCreated} 
-          />
-        );
-      case 'credit':
-        return (
+        </div>
+      )}
+
+      {/* Credit Validation Tab - Only mount when needed */}
+      {currentTab === 'credit' && (
+        <div className="block">
           <RoleGuard allowedRoles={['CREDIT_VALIDATOR', 'EXECUTIVE', 'PLANT_MANAGER']}>
             <CreditValidationTab />
           </RoleGuard>
-        );
-      case 'rejected':
-        return (
+        </div>
+      )}
+
+      {/* Rejected Orders Tab - Only mount when needed */}
+      {currentTab === 'rejected' && (
+        <div className="block">
           <RoleGuard allowedRoles={['EXECUTIVE', 'PLANT_MANAGER']}>
             <RejectedOrdersTab />
           </RoleGuard>
-        );
-      case 'calendar':
-        return (
-          <OrdersCalendarView 
-            statusFilter={statusFilter}
-            creditStatusFilter={creditStatusFilter}
-          />
-        );
-      default:
-        return (
-          <OrdersList 
-            onCreateOrder={handleCreateOrderFromQuote} 
-            statusFilter={statusFilter}
-            creditStatusFilter={creditStatusFilter}
-          />
-        );
-    }
-  }, [
-    currentTab, 
-    statusFilter, 
-    creditStatusFilter, 
-    handleCreateOrderFromQuote, 
-    selectedQuoteId, 
-    selectedQuoteData, 
-    handleOrderCreated
+        </div>
+      )}
+    </div>
+  ), [
+    currentTab,
+    statusFilter,
+    creditStatusFilter,
+    handleCreateOrderFromQuote,
+    selectedQuoteId,
+    selectedQuoteData,
+    handleOrderCreated,
+    refreshKey
   ]);
 
   return (
@@ -315,9 +332,7 @@ function OrdersContent() {
         />
       </div>
 
-      <div className="relative">
-        {renderContent}
-      </div>
+      {renderAllTabs}
     </div>
   );
 }

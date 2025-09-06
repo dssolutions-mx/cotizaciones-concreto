@@ -27,7 +27,7 @@ export default function PlantContextDisplay({ className = '', showLabel = false 
       <EnhancedPlantSelector 
         mode="VIEW" 
         className={className} 
-        showLabel={showLabel} 
+        showLabel={showLabel}
       />
     );
   }
@@ -38,7 +38,7 @@ export default function PlantContextDisplay({ className = '', showLabel = false 
       <EnhancedPlantSelector 
         mode="VIEW" 
         className={className} 
-        showLabel={showLabel} 
+        showLabel={showLabel}
       />
     );
   }

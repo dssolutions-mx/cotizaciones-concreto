@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '../ui/label';
 import { supabase } from '@/lib/supabase';
 import { showSuccess, showError } from '@/lib/utils/toast';
+import { getRecipeMaterials } from '@/utils/recipeMaterialsCache';
 
 // Material type mapping for display
 const MATERIAL_TYPE_MAP: Record<string, string> = {
@@ -336,7 +337,13 @@ export default function VerificationModal({
         // Filter out empty material types 
         const validMateriales = formData.materiales.filter(mat => mat.tipo.trim() !== '');
         
-        // Create materials data using the DB material types, not the display names
+        // Get recipe materials with optimized caching (if recipe_id exists)
+        let materialIdMap = new Map<string, string>();
+        if (remision.recipe_id) {
+          materialIdMap = await getRecipeMaterials(remision.recipe_id);
+        }
+        
+        // Create materials data with material_id from recipe
         const materialesData = validMateriales.map(material => {
           // Try to find the material type code from reverse mapping, or use the display name if not found
           const materialTypeCode = REVERSE_MATERIAL_TYPE_MAP[material.tipo] || material.tipo;
@@ -344,6 +351,7 @@ export default function VerificationModal({
           return {
             remision_id: remision.id,
             material_type: materialTypeCode, // Use the code for DB storage
+            material_id: materialIdMap.get(materialTypeCode) || null, // Get material_id from recipe
             cantidad_real: material.dosificadoReal,
             cantidad_teorica: material.dosificadoTeorico,
             ajuste: 0 // PDF extractions don't have retrabajo/manual adjustments

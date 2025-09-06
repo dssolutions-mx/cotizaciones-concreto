@@ -105,9 +105,9 @@ serve(async (req)=>{
     // Create a Supabase client
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
     
-    // Get ALL orders for target date with creator information (excluding cancelled orders)
+    // Get Plant 1 orders for target date with creator information (excluding cancelled orders)
     const { data: orders, error: ordersError } = await supabase.from('orders').select(`
-        id, 
+        id,
         order_number,
         requires_invoice,
         delivery_time,
@@ -117,6 +117,9 @@ serve(async (req)=>{
         created_by,
         credit_status,
         order_status,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_google_maps_url,
         clients (business_name, contact_name, phone),
         order_items (
           id,
@@ -132,7 +135,8 @@ serve(async (req)=>{
         )
       `)
       .eq('delivery_date', targetDateString)
-      .neq('order_status', 'cancelled');  // Exclude cancelled orders
+      .neq('order_status', 'cancelled')  // Exclude cancelled orders
+      .eq('plant_id', '4cc02bc8-990a-4bde-96f2-7a1f5af4d4ad'); // Filter by Plant 1
         
     if (ordersError) {
       console.error('Error fetching orders:', ordersError);
@@ -143,7 +147,7 @@ serve(async (req)=>{
       });
     }
     
-    console.log(`Found ${orders.length} orders for TODAY ${targetDateString} (excluding cancelled orders)`);
+    console.log(`Found ${orders.length} Plant 1 orders for TODAY ${targetDateString} (excluding cancelled orders)`);
     
     // Calculate totals for summary
     let totalConcreteVolume = 0;
@@ -348,6 +352,28 @@ serve(async (req)=>{
             </div>
           </div>
           
+          ${(order.delivery_google_maps_url || (order.delivery_latitude && order.delivery_longitude)) ? `
+            <div style="margin-bottom: 20px; padding: 15px; background-color: #F0F9FF; border-radius: 8px; border-left: 4px solid #0369A1;">
+              <h4 style="color: #0369A1; font-size: 14px; margin: 0 0 8px 0; font-weight: 600;">📍 Ubicación de Entrega</h4>
+              ${order.delivery_latitude && order.delivery_longitude ? `
+                <p style="margin: 0; color: #0C4A6E; font-size: 14px; margin-bottom: 8px;">
+                  <strong>Coordenadas:</strong> ${order.delivery_latitude}, ${order.delivery_longitude}
+                </p>
+              ` : ''}
+              ${order.delivery_google_maps_url ? `
+                <a href="${order.delivery_google_maps_url}" 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   style="display: inline-flex; align-items: center; padding: 8px 16px; background-color: #0369A1; color: white; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 500; transition: background-color 0.2s;">
+                  <svg xmlns="http://www.w3.org/2000/svg" style="width: 16px; height: 16px; margin-right: 8px;" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
+                  </svg>
+                  Abrir en Google Maps
+                </a>
+              ` : ''}
+            </div>
+          ` : ''}
+          
           <h4 style="color: #0C4A6E; font-size: 16px; margin: 0 0 15px 0; border-bottom: 1px solid #E2E8F0; padding-bottom: 10px;">Productos</h4>
           <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
             <thead>
@@ -382,7 +408,7 @@ serve(async (req)=>{
     // Create summary table HTML
     const summaryTableHtml = `
       <div style="margin: 40px 0; padding: 25px; border-radius: 8px; background-color: #F0F9FF; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);">
-        <h2 style="color: #0C4A6E; font-size: 20px; margin: 0 0 20px 0; text-align: center;">Resumen de Pedidos para HOY ${formattedDate}</h2>
+        <h2 style="color: #0C4A6E; font-size: 20px; margin: 0 0 20px 0; text-align: center;">Resumen de Pedidos para HOY ${formattedDate} - Planta 1</h2>
         <table style="width: 100%; border-collapse: collapse; font-size: 16px;">
           <thead>
             <tr>
@@ -411,12 +437,13 @@ serve(async (req)=>{
       </div>
     `;
     
-    // Get email recipients (PLANT_MANAGER, EXECUTIVE, and creators)
-    const { data: managerRecipients, error: recipientsError } = await supabase.from('user_profiles').select('email, first_name, last_name, role').in('role', [
-      'EXECUTIVE',
-      'PLANT_MANAGER',
-      'DOSIFICADOR'
-    ]);
+    // Get email recipients for Plant 1 (PLANT_MANAGER, EXECUTIVE, and creators)
+    // Only include users that belong to Plant 1 or users with no plant/business unit assigned
+    const { data: managerRecipients, error: recipientsError } = await supabase
+      .from('user_profiles')
+      .select('email, first_name, last_name, role, plant_id, business_unit_id')
+      .in('role', ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR', 'SALES_AGENT'])
+      .or(`plant_id.eq.4cc02bc8-990a-4bde-96f2-7a1f5af4d4ad,and(plant_id.is.null,business_unit_id.is.null)`); // Plant 1 users or users with no plant/business unit
     if (recipientsError) {
       console.error('Error fetching manager recipients:', recipientsError);
       return new Response(JSON.stringify({
@@ -440,18 +467,18 @@ serve(async (req)=>{
         ...creatorEmails
       ])
     );
-    
+
     console.log(`Recipients: ${allEmails.join(', ')}`);
     console.log(`Orders count: ${orders.length}`);
-    
+
     // Get force flag - if present, will send email even if no orders
     const url = new URL(req.url);
     const forceSend = url.searchParams.get('force') === 'true';
-    
+
     // Check if we should send the email (has orders, or force flag is set)
     const shouldSendEmail = (orders.length > 0 && allEmails.length > 0) || (forceSend && allEmails.length > 0);
     console.log(`Should send email? ${shouldSendEmail} (forceSend: ${forceSend})`);
-    
+
     // Prepare email content with improved styling
     const emailContent = `
       <!DOCTYPE html>
@@ -465,10 +492,10 @@ serve(async (req)=>{
         <div style="max-width: 800px; margin: 0 auto; background-color: #FFFFFF; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
           <!-- Header -->
           <div style="background-color: #0C4A6E; padding: 30px; text-align: center; border-bottom: 5px solid #0369A1;">
-            <h1 style="color: #FFFFFF; margin: 0; font-size: 28px; font-weight: 600;">Programación de Entregas para HOY</h1>
+            <h1 style="color: #FFFFFF; margin: 0; font-size: 28px; font-weight: 600;">Programación de Entregas para HOY - Planta 1</h1>
             <p style="color: #BAE6FD; margin: 10px 0 0 0; font-size: 18px;">${formattedDate}</p>
           </div>
-          
+
           <!-- Content -->
           <div style="padding: 30px;">
             ${orders.length > 0 ? `
@@ -480,14 +507,14 @@ serve(async (req)=>{
                   (${orders.filter((o: any) => o.credit_status === 'approved' && (o.order_status === 'validated' || o.order_status === 'created')).length} con crédito aprobado y orden validada)
                 </p>
               </div>
-              
+
               <div style="margin-bottom: 30px;">
                 <div style="display: flex; align-items: center; margin-bottom: 15px;">
                   <div style="flex-grow: 1; height: 1px; background-color: #E2E8F0;"></div>
                   <div style="margin: 0 15px; font-size: 16px; color: #64748B; font-weight: 500;">Leyenda de Estados</div>
                   <div style="flex-grow: 1; height: 1px; background-color: #E2E8F0;"></div>
                 </div>
-                
+
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                   <div style="display: flex; gap: 8px; align-items: center;">
                     <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; background-color: #ECFDF5; color: #059669; font-weight: 500;">Aprobado</span>
@@ -507,7 +534,7 @@ serve(async (req)=>{
                   </div>
                 </div>
               </div>
-              
+
               ${ordersHtml}
               ${summaryTableHtml}
             ` : `
@@ -516,7 +543,7 @@ serve(async (req)=>{
               </div>
             `}
           </div>
-          
+
           <!-- Footer -->
           <div style="background-color: #F1F5F9; padding: 20px; text-align: center; border-top: 1px solid #E2E8F0;">
             <p style="margin: 0; font-size: 14px; color: #64748B;">
@@ -530,7 +557,7 @@ serve(async (req)=>{
       </body>
       </html>
     `;
-    
+
     // Skip sending if no orders or recipients
     if (!shouldSendEmail) {
       console.log('Not sending email - no orders or no recipients');
@@ -543,15 +570,18 @@ serve(async (req)=>{
         }
       });
     }
-    
+
     console.log('Attempting to send email via SendGrid');
-    
+
+    // Filter out FROM_EMAIL from BCC list to prevent duplicate email addresses
+    const bccEmails = allEmails.filter(email => email !== FROM_EMAIL);
+
     // Prepare email data with BCC to prevent recipients from seeing each other's emails
     const emailData = {
       personalizations: [{
         to: [{ email: FROM_EMAIL }],
-        bcc: allEmails.map(email => ({ email })),
-        subject: `Programación de Entregas para HOY - ${formattedDate}`
+        bcc: bccEmails.map(email => ({ email })),
+        subject: `Programación de Entregas para HOY - Planta 1 - ${formattedDate}`
       }],
       from: {
         email: FROM_EMAIL,
@@ -591,7 +621,7 @@ serve(async (req)=>{
     
     return new Response(JSON.stringify({
       success: true,
-      message: `Email sent to ${allEmails.length} recipients for ${orders.length} orders on ${targetDateString}`,
+      message: `Email sent to ${allEmails.length} recipients for ${orders.length} Plant 1 orders on ${targetDateString}`,
       date: targetDateString,
       totalOrders: orders.length,
       totalRecipients: allEmails.length

@@ -7,6 +7,8 @@ import { clientService } from '@/lib/supabase/clients';
 import { supabase } from '@/lib/supabase';
 import orderService from '@/services/orderService';
 import { EmptyTruckDetails, PumpServiceDetails } from '@/types/orders';
+import { usePlantContext } from '@/contexts/PlantContext';
+// Map preview uses a simple Google Maps embed with marker; no JS API needed
 
 interface Client {
   id: string;
@@ -50,12 +52,105 @@ interface ScheduleOrderFormProps {
   onOrderCreated?: () => void;
 }
 
-export default function ScheduleOrderForm({ 
-  preSelectedQuoteId, 
+// Utility functions for coordinates and Google Maps
+export const validateCoordinates = (lat: string, lng: string): { isValid: boolean; error: string } => {
+  const latNum = parseFloat(lat);
+  const lngNum = parseFloat(lng);
+
+  if (!lat.trim() || !lng.trim()) {
+    return { isValid: false, error: 'Ambas coordenadas son requeridas' };
+  }
+
+  if (isNaN(latNum) || isNaN(lngNum)) {
+    return { isValid: false, error: 'Las coordenadas deben ser números válidos' };
+  }
+
+  if (latNum < -90 || latNum > 90) {
+    return { isValid: false, error: 'La latitud debe estar entre -90 y 90 grados' };
+  }
+
+  if (lngNum < -180 || lngNum > 180) {
+    return { isValid: false, error: 'La longitud debe estar entre -180 y 180 grados' };
+  }
+
+  return { isValid: true, error: '' };
+};
+
+export const generateGoogleMapsUrl = (lat: string, lng: string): string => {
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+};
+
+const generateGoogleMapsEmbedUrl = (lat: string, lng: string): string => {
+  // Note: This requires a Google Maps API key for production use
+  return `https://www.google.com/maps/embed/v1/view?key=YOUR_API_KEY&center=${lat},${lng}&zoom=15`;
+};
+
+// Attempts to extract coordinates from various Google Maps URL formats or raw "lat,lng"
+const parseGoogleMapsCoordinates = (input: string): { lat: string; lng: string } | null => {
+  if (!input) return null;
+  const trimmed = input.trim();
+
+  // Case 1: Plain "lat,lng"
+  const plainMatch = trimmed.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (plainMatch) {
+    return { lat: plainMatch[1], lng: plainMatch[2] };
+  }
+
+  // If it's not a URL, stop here
+  let url: URL | null = null;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  const href = url.href;
+
+  // Case 2: Pattern with @lat,lng in the path (e.g., /@19.432608,-99.133209)
+  const atMatch = href.match(/@\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/);
+  if (atMatch) {
+    return { lat: atMatch[1], lng: atMatch[2] };
+  }
+
+  // Case 2b: !3dLAT!4dLNG pattern
+  const bangMatch = href.match(/!3d\s*(-?\d+(?:\.\d+)?)!4d\s*(-?\d+(?:\.\d+)?)/);
+  if (bangMatch) {
+    return { lat: bangMatch[1], lng: bangMatch[2] };
+  }
+
+  // Case 3: Query params that may contain "lat,lng"
+  const paramsToCheck = ['q', 'query', 'll', 'center', 'daddr', 'saddr'];
+  for (const key of paramsToCheck) {
+    const value = url.searchParams.get(key);
+    if (!value) continue;
+    const val = decodeURIComponent(value);
+    const m = val.match(/(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/);
+    if (m) {
+      return { lat: m[1], lng: m[2] };
+    }
+  }
+
+  // Case 4: Some URLs put coordinates in the path separated by commas without '@'
+  const loose = href.match(/(-?\d+(?:\.\d+)?)%2C(-?\d+(?:\.\d+)?)/i) || href.match(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  if (loose) {
+    const lat = parseFloat(loose[1]);
+    const lng = parseFloat(loose[2]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { lat: String(lat), lng: String(lng) };
+  }
+
+  // For short links like https://maps.app.goo.gl/ we cannot resolve redirects from the browser due to CORS.
+  return null;
+};
+
+export default function ScheduleOrderForm({
+  preSelectedQuoteId,
   preSelectedClientId,
-  onOrderCreated 
+  onOrderCreated
 }: ScheduleOrderFormProps) {
   const router = useRouter();
+  const { currentPlant } = usePlantContext();
   const tomorrow = addDays(new Date(), 1);
   
   // Step tracking
@@ -100,11 +195,24 @@ export default function ScheduleOrderForm({
   const [deliveryTime, setDeliveryTime] = useState<string>('10:00');
   const [requiresInvoice, setRequiresInvoice] = useState<boolean>(false);
   const [specialRequirements, setSpecialRequirements] = useState<string>('');
+
+  // Coordinates for delivery location
+  const [latitude, setLatitude] = useState<string>('');
+  const [longitude, setLongitude] = useState<string>('');
+  const [coordinatesError, setCoordinatesError] = useState<string>('');
+  const [mapsPaste, setMapsPaste] = useState<string>('');
+  const [isParsingMapsLink, setIsParsingMapsLink] = useState<boolean>(false);
   
   // Order-wide pumping service (instead of per product)
   const [hasPumpService, setHasPumpService] = useState<boolean>(false);
   const [pumpVolume, setPumpVolume] = useState<number>(0);
   const [pumpPrice, setPumpPrice] = useState<number | null>(null);
+  
+  // Service type detection
+  const [hasConcreteProducts, setHasConcreteProducts] = useState<boolean>(false);
+  const [hasStandalonePumping, setHasStandalonePumping] = useState<boolean>(false);
+  const [standalonePumpingProducts, setStandalonePumpingProducts] = useState<Product[]>([]);
+  const [orderType, setOrderType] = useState<'concrete' | 'pumping' | 'both'>('concrete');
   
   // Empty truck details
   const [hasEmptyTruckCharge, setHasEmptyTruckCharge] = useState<boolean>(false);
@@ -115,6 +223,7 @@ export default function ScheduleOrderForm({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [invoiceSelection, setInvoiceSelection] = useState<boolean | null>(null);
   
   // Load clients on component mount
   useEffect(() => {
@@ -200,7 +309,7 @@ export default function ScheduleOrderForm({
           console.log('Detected problematic client ID - applying special handling');
         }
         
-        // 1. Find the active product price for this client and site
+        // 1. Find the active product prices for this client and site (recipe-based only)
         const { data: activePrices, error: activePriceError } = await supabase
           .from('product_prices')
           .select('quote_id, id, is_active, updated_at, recipe_id')
@@ -237,9 +346,57 @@ export default function ScheduleOrderForm({
           return;
         }
         
-        // Get unique quote IDs from truly active prices
-        const uniqueQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
-        console.log('Unique quote IDs from active prices:', uniqueQuoteIds);
+        // 1.5. Also fetch standalone pumping service quotes directly from quote_details
+        const { data: standalonePumpingQuotes, error: standalonePumpingError } = await supabase
+          .from('quote_details')
+          .select(`
+            id,
+            quote_id,
+            product_id,
+            volume,
+            final_price,
+            pump_service,
+            quotes!inner(
+              id,
+              quote_number,
+              client_id,
+              construction_site,
+              status
+            ),
+            product_prices:product_id(
+              id,
+              code,
+              description,
+              type
+            )
+          `)
+          .eq('quotes.client_id', selectedClientId)
+          .eq('quotes.construction_site', selectedConstructionSite.name)
+          .eq('quotes.status', 'APPROVED')
+          .eq('pump_service', true)
+          .not('product_id', 'is', null)
+          .is('recipe_id', null);
+          
+        if (standalonePumpingError) {
+          console.error("Error fetching standalone pumping quotes:", standalonePumpingError);
+          throw standalonePumpingError;
+        }
+        
+        console.log('Standalone pumping service quotes:', standalonePumpingQuotes);
+        
+        // Create a set of standalone pumping service quote IDs
+        const standalonePumpingQuoteIds = new Set(
+          standalonePumpingQuotes?.map(quote => quote.quote_id) || []
+        );
+        console.log('Standalone pumping quote IDs:', Array.from(standalonePumpingQuoteIds));
+        
+        // Get unique quote IDs from both active prices and standalone pumping quotes
+        const recipeBasedQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
+        const standalonePumpingQuoteIdsArray = Array.from(standalonePumpingQuoteIds);
+        const uniqueQuoteIds = Array.from(new Set([...recipeBasedQuoteIds, ...standalonePumpingQuoteIdsArray]));
+        console.log('Unique quote IDs from active prices:', recipeBasedQuoteIds);
+        console.log('Standalone pumping quote IDs:', standalonePumpingQuoteIdsArray);
+        console.log('All unique quote IDs:', uniqueQuoteIds);
         
         // Create a set of active quote-recipe combinations
         // This ensures we only display recipes that are active for a specific quote
@@ -263,6 +420,7 @@ export default function ScheduleOrderForm({
               pump_service,
               pump_price,
               recipe_id,
+              product_id,
               recipes:recipe_id(
                 recipe_code,
                 strength_fc,
@@ -270,6 +428,12 @@ export default function ScheduleOrderForm({
                 max_aggregate_size,
                 age_days,
                 slump
+              ),
+              product_prices:product_id(
+                id,
+                code,
+                description,
+                type
               )
             )
           `)
@@ -293,11 +457,14 @@ export default function ScheduleOrderForm({
         
         // 3. Format the quotes for the form, filtering out quote details that don't have active prices
         const formattedQuotes: Quote[] = quotesData.map(quoteData => {
-          // Filter quote details to only include those with active quote-recipe combinations
-          const activeDetails = quoteData.quote_details.filter((detail: any) => 
+          // Filter quote details to include both active recipe-based and standalone pumping service combinations
+          const activeDetails = quoteData.quote_details.filter((detail: any) => {
             // Check if this specific quote-recipe combination is in our active set
-            activeQuoteRecipeCombos.has(`${quoteData.id}:${detail.recipe_id}`)
-          );
+            const hasActiveRecipe = detail.recipe_id && activeQuoteRecipeCombos.has(`${quoteData.id}:${detail.recipe_id}`);
+            // Check if this is a standalone pumping service quote
+            const isStandalonePumping = standalonePumpingQuoteIds.has(quoteData.id) && detail.product_id && !detail.recipe_id && detail.pump_service;
+            return hasActiveRecipe || isStandalonePumping;
+          });
           
           console.log(`Quote ${quoteData.quote_number}: filtered ${quoteData.quote_details.length} details to ${activeDetails.length} active details`);
           
@@ -306,29 +473,75 @@ export default function ScheduleOrderForm({
             quoteNumber: quoteData.quote_number,
             totalAmount: 0, // Will be calculated below
             products: activeDetails.map((detail: any) => {
-              const recipeData = detail.recipes as {
-                recipe_code?: string;
-                strength_fc?: number;
-                placement_type?: string;
-                max_aggregate_size?: number;
-                age_days?: number;
-                slump?: number;
-              };
+              // Handle recipe-based quote details (concrete products)
+              if (detail.recipe_id && detail.recipes) {
+                const recipeData = detail.recipes as {
+                  recipe_code?: string;
+                  strength_fc?: number;
+                  placement_type?: string;
+                  max_aggregate_size?: number;
+                  age_days?: number;
+                  slump?: number;
+                };
+                return {
+                  id: recipeData?.recipe_code || 'Unknown',
+                  quoteDetailId: detail.id,
+                  recipeCode: recipeData?.recipe_code || 'Unknown',
+                  strength: recipeData?.strength_fc || 0,
+                  placementType: recipeData?.placement_type || '',
+                  maxAggregateSize: recipeData?.max_aggregate_size || 0,
+                  volume: detail.volume,
+                  unitPrice: detail.final_price,
+                  pumpService: detail.pump_service,
+                  pumpPrice: detail.pump_price,
+                  scheduledVolume: 0, // Initialize scheduled volume
+                  pumpVolume: 0,      // Initialize pump volume
+                  ageDays: recipeData?.age_days || 0,
+                  slump: recipeData?.slump || 0
+                };
+              }
+              
+              // Handle product-based quote details (standalone pumping services)
+              else if (detail.product_id && detail.product_prices) {
+                const productData = detail.product_prices as {
+                  code?: string;
+                  description?: string;
+                  type?: string;
+                };
+                return {
+                  id: productData?.code || 'PUMP-SERVICE',
+                  quoteDetailId: detail.id,
+                  recipeCode: productData?.code || 'PUMP-SERVICE',
+                  strength: 0, // No strength for pumping services
+                  placementType: 'BOMBEO',
+                  maxAggregateSize: 0, // No aggregate for pumping services
+                  volume: detail.volume,
+                  unitPrice: detail.final_price,
+                  pumpService: true, // This is a pumping service
+                  pumpPrice: detail.final_price, // Use final_price as pump price
+                  scheduledVolume: 0, // Initialize scheduled volume
+                  pumpVolume: detail.volume, // Initialize pump volume with full volume
+                  ageDays: 0, // No age for pumping services
+                  slump: 0 // No slump for pumping services
+                };
+              }
+              
+              // Fallback for unexpected data
               return {
-                id: recipeData?.recipe_code || 'Unknown',
+                id: 'Unknown',
                 quoteDetailId: detail.id,
-                recipeCode: recipeData?.recipe_code || 'Unknown',
-                strength: recipeData?.strength_fc || 0,
-                placementType: recipeData?.placement_type || '',
-                maxAggregateSize: recipeData?.max_aggregate_size || 0,
+                recipeCode: 'Unknown',
+                strength: 0,
+                placementType: '',
+                maxAggregateSize: 0,
                 volume: detail.volume,
                 unitPrice: detail.final_price,
-                pumpService: detail.pump_service,
+                pumpService: detail.pump_service || false,
                 pumpPrice: detail.pump_price,
-                scheduledVolume: 0, // Initialize scheduled volume
-                pumpVolume: 0,      // Initialize pump volume
-                ageDays: recipeData?.age_days || 0,
-                slump: recipeData?.slump || 0
+                scheduledVolume: 0,
+                pumpVolume: 0,
+                ageDays: 0,
+                slump: 0
               };
             })
           };
@@ -349,16 +562,55 @@ export default function ScheduleOrderForm({
         setAvailableQuotes(nonEmptyQuotes);
         console.log('Set available quotes:', nonEmptyQuotes);
         
-        // If preSelectedQuoteId matches any of the quotes, auto-select products
+        // Detect service types available
+        const allProducts = nonEmptyQuotes.flatMap(quote => quote.products);
+        const concreteProducts = allProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0);
+        const standalonePumpingProducts = allProducts.filter(p => p.placementType === 'BOMBEO' && p.pumpService);
+        const concreteWithPumpService = allProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0 && p.pumpService);
+        
+        // Combined pumping products (both standalone and concrete with pump service)
+        const pumpingProducts = [...standalonePumpingProducts, ...concreteWithPumpService];
+        
+        // Remove pumping services from the main product list - they should never appear as individual products
+        const filteredProducts = allProducts.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
+        
+        setHasConcreteProducts(concreteProducts.length > 0);
+        setHasStandalonePumping(pumpingProducts.length > 0);
+        setStandalonePumpingProducts(pumpingProducts);
+        
+        // Determine order type based on available services
+        if (concreteProducts.length > 0 && pumpingProducts.length > 0) {
+          setOrderType('both');
+        } else if (pumpingProducts.length > 0) {
+          setOrderType('pumping');
+        } else {
+          setOrderType('concrete');
+        }
+        
+        console.log('Service type detection:', {
+          hasConcreteProducts: concreteProducts.length > 0,
+          hasStandalonePumping: pumpingProducts.length > 0,
+          orderType: concreteProducts.length > 0 && pumpingProducts.length > 0 ? 'both' : pumpingProducts.length > 0 ? 'pumping' : 'concrete',
+          concreteCount: concreteProducts.length,
+          standalonePumpingCount: standalonePumpingProducts.length,
+          concreteWithPumpCount: concreteWithPumpService.length,
+          totalPumpingCount: pumpingProducts.length,
+          allProducts: allProducts.map(p => ({ code: p.recipeCode, type: p.placementType, pumpService: p.pumpService }))
+        });
+        
+        // If preSelectedQuoteId matches any of the quotes, auto-select products (excluding pumping services)
         if (preSelectedQuoteId) {
           const selectedQuote = nonEmptyQuotes.find(quote => quote.id === preSelectedQuoteId);
           if (selectedQuote) {
-            setSelectedProducts(selectedQuote.products.map(p => ({
+            // Only auto-select concrete products, never pumping services
+            const concreteProductsFromQuote = selectedQuote.products.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
+            const autoSelectedProducts = concreteProductsFromQuote.map(p => ({
               ...p,
               scheduledVolume: p.volume,
               pumpVolume: p.pumpService ? p.volume : 0
-            })));
-            console.log('Auto-selected products for preSelectedQuoteId:', preSelectedQuoteId);
+            }));
+            setSelectedProducts(autoSelectedProducts);
+            console.log('Auto-selected concrete products for preSelectedQuoteId:', preSelectedQuoteId, autoSelectedProducts);
           }
         }
       } catch (err) {
@@ -386,20 +638,25 @@ export default function ScheduleOrderForm({
       try {
         console.log(`Fetching pump service pricing for Client: ${selectedClientId}, Site: ${selectedConstructionSite.name}`);
         
-        // Look for pump service pricing in quote_details that are approved for this client + site combination
+        // Look for pump service pricing directly on quote_details, inner-joining quotes for filters
         const { data: pumpServiceData, error: pumpServiceError } = await supabase
-          .from('quotes')
+          .from('quote_details')
           .select(`
-            quote_details(
-              pump_service,
-              pump_price
+            pump_price,
+            pump_service,
+            quotes!inner(
+              id,
+              client_id,
+              construction_site,
+              status,
+              created_at
             )
           `)
-          .eq('status', 'APPROVED')
-          .eq('client_id', selectedClientId)
-          .eq('construction_site', selectedConstructionSite.name)
-          .not('quote_details.pump_price', 'is', null)
-          .order('created_at', { ascending: false })
+          .eq('pump_service', true)
+          .eq('quotes.client_id', selectedClientId)
+          .eq('quotes.construction_site', selectedConstructionSite.name)
+          .eq('quotes.status', 'APPROVED')
+          .order('created_at', { ascending: false, foreignTable: 'quotes' })
           .limit(1);
           
         if (pumpServiceError) {
@@ -407,21 +664,18 @@ export default function ScheduleOrderForm({
           return;
         }
         
-        // Find the first quote with pump service pricing
+        console.log('Pump service data fetched:', pumpServiceData);
+
+        // Use the most recent quote_detail with pump_service=true
         if (pumpServiceData && pumpServiceData.length > 0) {
-          const quoteWithPumpService = pumpServiceData.find(quote => 
-            quote.quote_details.some((detail: any) => detail.pump_service && detail.pump_price)
-          );
-          
-          if (quoteWithPumpService) {
-            const pumpDetail = quoteWithPumpService.quote_details.find((detail: any) => 
-              detail.pump_service && detail.pump_price
-            );
-            
-            if (pumpDetail && pumpDetail.pump_price) {
-              setPumpPrice(pumpDetail.pump_price);
-              console.log(`Found pump service price: $${pumpDetail.pump_price} for client + site combination`);
-            }
+          const firstDetailWithPrice = pumpServiceData.find((d: any) => d && d.pump_price !== null);
+          if (firstDetailWithPrice) {
+            const priceNumber = Number(firstDetailWithPrice.pump_price);
+            setPumpPrice(priceNumber);
+            console.log(`Found pump service price: $${priceNumber} for client + site combination`);
+          } else {
+            console.log('Pump service details found but without price. Allowing manual entry.');
+            setPumpPrice(0);
           }
         } else {
           // Fallback: Allow manual entry for cases where no pump pricing is found
@@ -436,6 +690,32 @@ export default function ScheduleOrderForm({
     
     loadPumpServicePricing();
   }, [selectedClientId, selectedConstructionSite?.name]);
+  
+  // Auto-activate pump service when in pumping-only mode
+  useEffect(() => {
+    if (orderType === 'pumping' && pumpPrice !== null) {
+      setHasPumpService(true);
+      // Set default pump volume if not set
+      if (pumpVolume === 0 && standalonePumpingProducts.length > 0) {
+        const defaultVolume = standalonePumpingProducts[0].volume;
+        setPumpVolume(defaultVolume);
+      }
+    } else if (orderType === 'concrete') {
+      // Reset pump service when switching back to concrete mode
+      setHasPumpService(false);
+      setPumpVolume(0);
+    }
+  }, [orderType, pumpPrice, pumpVolume, standalonePumpingProducts]);
+
+  // Validate coordinates whenever they change
+  useEffect(() => {
+    if (latitude || longitude) {
+      const validation = validateCoordinates(latitude, longitude);
+      setCoordinatesError(validation.error);
+    } else {
+      setCoordinatesError('');
+    }
+  }, [latitude, longitude]);
   
   // Filter clients based on search query (null-safe)
   const filteredClients = clients.filter(client => {
@@ -471,6 +751,12 @@ export default function ScheduleOrderForm({
   
   // Handle product selection
   const handleProductSelect = (product: Product, checked: boolean) => {
+    // Never allow selection of pumping services - they are handled as global services
+    if (product.placementType === 'BOMBEO' && product.pumpService) {
+      console.warn('Pumping services cannot be selected as individual products');
+      return;
+    }
+    
     if (checked) {
       setSelectedProducts(prev => [
         ...prev, 
@@ -530,6 +816,9 @@ export default function ScheduleOrderForm({
       }))
     );
     
+    // Always exclude pumping services from the product list - they are handled separately as global services
+    allProducts = allProducts.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
+    
     // Apply strength filter if selected
     if (strengthFilter !== '') {
       allProducts = allProducts.filter(p => p.strength === strengthFilter);
@@ -561,9 +850,33 @@ export default function ScheduleOrderForm({
   // Handle order creation
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (selectedProducts.length === 0) {
+
+    // Only require selected products when NOT in pumping-only mode
+    if (selectedProducts.length === 0 && orderType !== 'pumping') {
       setError('Debe seleccionar al menos un producto para crear la orden');
+      return;
+    }
+
+    // For pumping-only mode, require pump service to be active
+    if (orderType === 'pumping' && !hasPumpService) {
+      setError('El servicio de bombeo debe estar activo para crear una orden de solo bombeo');
+      return;
+    }
+
+    if (invoiceSelection === null) {
+      setError('Debe seleccionar si la orden requiere factura o no');
+      return;
+    }
+
+    // Validate coordinates are required and valid
+    const coordinateValidation = validateCoordinates(latitude, longitude);
+    if (!coordinateValidation.isValid) {
+      setError(coordinateValidation.error);
+      return;
+    }
+    
+    if (!currentPlant?.id) {
+      setError('No se pudo determinar la planta. Por favor, asegúrese de estar en el contexto correcto.');
       return;
     }
     
@@ -571,10 +884,20 @@ export default function ScheduleOrderForm({
       setIsSubmitting(true);
       setError(null);
       
-      // Get the quote ID (assuming all products come from the same quote)
-      const quoteId = availableQuotes.find(q => 
-        q.products.some(p => p.quoteDetailId === selectedProducts[0].quoteDetailId)
-      )?.id;
+      // Get the quote ID
+      let quoteId: string | undefined;
+      
+      if (orderType === 'pumping') {
+        // For pumping-only mode, get quote from standalone pumping products
+        quoteId = availableQuotes.find(q => 
+          q.products.some(p => p.placementType === 'BOMBEO' && p.pumpService)
+        )?.id;
+      } else {
+        // For normal mode, get quote from selected products
+        quoteId = availableQuotes.find(q => 
+          q.products.some(p => p.quoteDetailId === selectedProducts[0].quoteDetailId)
+        )?.id;
+      }
       
       if (!quoteId) {
         throw new Error('No se pudo determinar la cotización');
@@ -586,12 +909,16 @@ export default function ScheduleOrderForm({
         throw new Error('No se pudo determinar el sitio de construcción');
       }
       
+      // Check if this is a standalone pumping service order
+      const isStandalonePumpingOrder = orderType === 'pumping';
+      
       // Prepare order data
       const orderData = {
         quote_id: quoteId,
         client_id: selectedClientId,
         construction_site: selectedSite.name,
         construction_site_id: selectedConstructionSiteId,
+        plant_id: currentPlant?.id,
         delivery_date: deliveryDate,
         delivery_time: deliveryTime,
         requires_invoice: requiresInvoice,
@@ -599,16 +926,26 @@ export default function ScheduleOrderForm({
         total_amount: calculateTotalAmount(),
         order_status: 'created',
         credit_status: 'pending',
-        // Add selected products with volumes (no more pump_volume on individual items)
-        order_items: selectedProducts.map(p => ({
-          quote_detail_id: p.quoteDetailId,
-          volume: p.scheduledVolume
-        }))
+        // Add delivery coordinates
+        delivery_latitude: parseFloat(latitude),
+        delivery_longitude: parseFloat(longitude),
+        // Add Google Maps URL for convenience
+        delivery_google_maps_url: generateGoogleMapsUrl(latitude, longitude),
+        // Add selected products with volumes
+        order_items: orderType === 'pumping'
+          ? standalonePumpingProducts.map(p => ({
+              quote_detail_id: p.quoteDetailId,
+              volume: pumpVolume // Use the pump volume from the form
+            }))
+          : selectedProducts.map(p => ({
+              quote_detail_id: p.quoteDetailId,
+              volume: p.scheduledVolume
+            }))
       };
       
-      // Prepare pump service data separately (new approach)
+      // Prepare pump service data separately (only for traditional concrete orders with pump service)
       let pumpServiceData: PumpServiceDetails | null = null;
-      if (hasPumpService && pumpVolume > 0 && pumpPrice !== null) {
+      if (hasPumpService && pumpVolume > 0 && pumpPrice !== null && orderType !== 'pumping') {
         pumpServiceData = {
           volume: pumpVolume,
           unit_price: pumpPrice,
@@ -781,27 +1118,85 @@ export default function ScheduleOrderForm({
           </div>
         ) : (
         <form onSubmit={handleCreateOrder} className="space-y-6">
-          {/* Invoice requirement - Moved up and made more prominent */}
+          {/* Invoice requirement - Made mandatory with radio buttons */}
           <div className="bg-yellow-50 border border-yellow-200 p-4 rounded-lg shadow-sm">
-            <div className="flex items-center">
-              <input
-                id="requiresInvoice"
-                type="checkbox"
-                checked={requiresInvoice}
-                onChange={(e) => setRequiresInvoice(e.target.checked)}
-                className="h-5 w-5 text-green-600 rounded border-gray-300"
-              />
-              <label htmlFor="requiresInvoice" className="ml-2 block text-base font-bold text-gray-800">
-                Requiere Factura
-              </label>
+            <h4 className="text-base font-bold text-gray-800 mb-3">¿Requiere Factura?</h4>
+            <div className="flex gap-6">
+              <div className="flex items-center">
+                <input
+                  id="requiresInvoiceYes"
+                  name="requiresInvoice"
+                  type="radio"
+                  value="yes"
+                  checked={invoiceSelection === true}
+                  onChange={(e) => {
+                    setInvoiceSelection(true);
+                    setRequiresInvoice(true);
+                  }}
+                  className="h-5 w-5 text-green-600 border-gray-300 focus:ring-green-500"
+                />
+                <label htmlFor="requiresInvoiceYes" className="ml-2 block text-base font-medium text-gray-800">
+                  Sí
+                </label>
+              </div>
+              <div className="flex items-center">
+                <input
+                  id="requiresInvoiceNo"
+                  name="requiresInvoice"
+                  type="radio"
+                  value="no"
+                  checked={invoiceSelection === false}
+                  onChange={(e) => {
+                    setInvoiceSelection(false);
+                    setRequiresInvoice(false);
+                  }}
+                  className="h-5 w-5 text-green-600 border-gray-300 focus:ring-green-500"
+                />
+                <label htmlFor="requiresInvoiceNo" className="ml-2 block text-base font-medium text-gray-800">
+                  No
+                </label>
+              </div>
             </div>
-            <p className="text-sm text-gray-600 mt-1 pl-7">
-              Importante: Seleccionar esta opción afectará el balance del cliente
+            <p className="text-sm text-gray-600 mt-2">
+              <span className="text-red-600 font-medium">Obligatorio:</span> Esta selección afectará el balance del cliente y es requerida para crear la orden.
             </p>
           </div>
 
+          {/* Pumping-Only Toggle - Show when client has both concrete and pumping services */}
+          {hasConcreteProducts && hasStandalonePumping && (
+            <div className="bg-blue-50 border border-blue-200 p-4 rounded-lg shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-base font-bold text-gray-800">Solo Bombeo</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Crear una orden únicamente de servicio de bombeo
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={orderType === 'pumping'}
+                    onChange={(e) => {
+                      setOrderType(e.target.checked ? 'pumping' : 'concrete');
+                      setSelectedProducts([]); // Clear selection when switching
+                      // Reset pump service when switching back to concrete mode
+                      if (!e.target.checked) {
+                        setHasPumpService(false);
+                        setPumpVolume(0);
+                      }
+                    }}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                </label>
+              </div>
+            </div>
+          )}
+
+
+
           {/* Product filtering options */}
-          {availableQuotes.length > 0 && (
+          {availableQuotes.length > 0 && orderType !== 'pumping' && (
             <div className="space-y-3 mb-4">
               <h4 className="font-medium text-gray-700">Filtrar productos</h4>
               
@@ -894,8 +1289,11 @@ export default function ScheduleOrderForm({
           )}
 
           {/* Product selection table - redesigned for better readability and mobile responsiveness */}
-          {/* Desktop Table */}
-          <div className="hidden sm:block overflow-x-auto">
+          {/* Only show when not in pumping-only mode */}
+          {orderType !== 'pumping' && (
+            <>
+              {/* Desktop Table */}
+              <div className="hidden sm:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -1072,21 +1470,27 @@ export default function ScheduleOrderForm({
               })
             )}
           </div>
+            </>
+          )}
 
           {/* Pumping Service - available globally for client + construction site */}
-          {selectedProducts.length > 0 && pumpPrice !== null && (
+          {/* Show this section when: 1) Normal mode with selected products, OR 2) Pumping-only mode */}
+          {((selectedProducts.length > 0 && pumpPrice !== null && orderType !== 'pumping') || (orderType === 'pumping' && pumpPrice !== null)) && (
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mt-4">
               <div className="flex items-center mb-3">
                 <input 
                   id="hasPumpService"
                   type="checkbox"
-                  checked={hasPumpService}
+                  checked={orderType === 'pumping' ? true : hasPumpService}
+                  disabled={orderType === 'pumping'}
                   onChange={(e) => {
-                    setHasPumpService(e.target.checked);
-                    if (e.target.checked && pumpVolume === 0) {
-                      // Set default pump volume to total concrete volume
-                      const totalVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
-                      setPumpVolume(totalVolume);
+                    if (orderType !== 'pumping') {
+                      setHasPumpService(e.target.checked);
+                      if (e.target.checked && pumpVolume === 0) {
+                        // Set default pump volume to total concrete volume
+                        const totalVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
+                        setPumpVolume(totalVolume);
+                      }
                     }
                   }}
                   className="h-5 w-5 text-blue-600 rounded border-gray-300"
@@ -1201,11 +1605,93 @@ export default function ScheduleOrderForm({
           )}
 
           {/* Delivery information */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div>
               <h3 className="font-medium mb-3">Información de Entrega</h3>
-              
+
               <div className="space-y-4">
+                {/* Paste Google Maps link or "lat,lng" */}
+                <div>
+                  <label htmlFor="mapsPaste" className="block text-sm font-medium text-gray-700 mb-1">
+                    Pegar enlace de Google Maps o "lat,lng"
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="mapsPaste"
+                      type="text"
+                      value={mapsPaste}
+                      onChange={(e) => setMapsPaste(e.target.value)}
+                      placeholder="Ej: https://maps.app.goo.gl/jLGe1St2kHpfrGRYA?g_st=ipc o 19.432608,-99.133209"
+                      className="flex-1 rounded-md border border-gray-300 px-3 py-2"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setIsParsingMapsLink(true);
+                        try {
+                          // Try direct parse first (works for most g.co/maps, www.google.com/maps, maps.app.goo.gl patterns)
+                          const parsed = parseGoogleMapsCoordinates(mapsPaste);
+                          if (parsed) {
+                            setLatitude(parsed.lat);
+                            setLongitude(parsed.lng);
+                            setCoordinatesError('');
+                            return;
+                          }
+
+                          // Server-side expansion via Supabase Edge Function to avoid CORS
+                          if (/^https?:\/\/(maps\.app\.goo\.gl|g\.co|goo\.gl)\//i.test(mapsPaste)) {
+                            try {
+                              const { data, error } = await supabase.functions.invoke('expand-maps-url', {
+                                body: { url: mapsPaste }
+                              });
+                              if (!error && data) {
+                                const { lat, lng, finalUrl } = data as any;
+                                if (lat && lng) {
+                                  setLatitude(String(lat));
+                                  setLongitude(String(lng));
+                                  setCoordinatesError('');
+                                  return;
+                                }
+                                // Try parsing finalUrl if coords not present in payload
+                                const parsed3 = parseGoogleMapsCoordinates(finalUrl);
+                                if (parsed3) {
+                                  setLatitude(parsed3.lat);
+                                  setLongitude(parsed3.lng);
+                                  setCoordinatesError('');
+                                  return;
+                                }
+                              }
+                            } catch (_) {
+                              // ignore and fall through
+                            }
+                          }
+
+                          setCoordinatesError('No se pudieron extraer coordenadas del enlace. Pegue cualquier enlace de Google Maps o "lat,lng" (ej. 19.432608,-99.133209).');
+                        } finally {
+                          setIsParsingMapsLink(false);
+                        }
+                      }}
+                      disabled={isParsingMapsLink || !mapsPaste}
+                      className={`px-3 py-2 rounded-md text-white ${isParsingMapsLink ? 'bg-gray-400 cursor-wait' : 'bg-green-600 hover:bg-green-700'}`}
+                    >
+                      {isParsingMapsLink ? 'Procesando…' : 'Usar'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Pega cualquier enlace de Google Maps (incluye <a href="https://maps.app.goo.gl/jLGe1St2kHpfrGRYA?g_st=ipc" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">maps.app.goo.gl</a>) o lat,lng.
+                  </p>
+                  {/* Fallback guidance when short links cannot be expanded automatically */}
+                  <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-md p-2">
+                    <p className="text-xs text-yellow-800">
+                      Si el enlace corto no se puede procesar automáticamente:
+                    </p>
+                    <ol className="mt-1 list-decimal pl-5 text-xs text-yellow-800 space-y-0.5">
+                      <li>Toca el enlace para abrirlo en el navegador del teléfono.</li>
+                      <li>En la barra de direcciones, copia la URL completa (debe iniciar con www.google.com/maps...)</li>
+                      <li>Pégala aquí y presiona “Usar”.</li>
+                    </ol>
+                  </div>
+                </div>
                 <div>
                   <label htmlFor="deliveryDate" className="block text-sm font-medium mb-1">
                     Fecha de Entrega
@@ -1220,7 +1706,7 @@ export default function ScheduleOrderForm({
                     className="w-full rounded-md border border-gray-300 px-3 py-2"
                   />
                 </div>
-                
+
                 <div>
                   <label htmlFor="deliveryTime" className="block text-sm font-medium mb-1">
                     Hora de Entrega
@@ -1233,6 +1719,107 @@ export default function ScheduleOrderForm({
                     required
                     className="w-full rounded-md border border-gray-300 px-3 py-2"
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Coordinates section */}
+            <div>
+              <h3 className="font-medium mb-3">Ubicación de Entrega</h3>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="latitude" className="block text-sm font-medium mb-1">
+                      Latitud *
+                    </label>
+                    <input
+                      id="latitude"
+                      type="number"
+                      step="any"
+                      value={latitude}
+                      onChange={(e) => setLatitude(e.target.value)}
+                      placeholder="-12.0464"
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="longitude" className="block text-sm font-medium mb-1">
+                      Longitud *
+                    </label>
+                    <input
+                      id="longitude"
+                      type="number"
+                      step="any"
+                      value={longitude}
+                      onChange={(e) => setLongitude(e.target.value)}
+                      placeholder="-77.0428"
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+                </div>
+
+                {coordinatesError && (
+                  <div className="bg-red-50 border border-red-200 text-red-600 px-3 py-2 rounded-md text-sm">
+                    {coordinatesError}
+                  </div>
+                )}
+
+                {latitude && longitude && !coordinatesError && (
+                  <div className="space-y-3">
+                    <div className="bg-green-50 border border-green-200 p-3 rounded-md">
+                      <p className="text-sm text-green-700 font-medium">✓ Coordenadas válidas</p>
+                      <p className="text-xs text-green-600 mt-1">
+                        Lat: {latitude}, Lng: {longitude}
+                      </p>
+                    </div>
+
+                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-md">
+                      <p className="text-sm font-medium text-blue-700 mb-2">Vista Previa del Mapa</p>
+                      <div className="rounded-md overflow-hidden">
+                        {/* Static Google Maps embed with pin marker at the coordinates */}
+                        <iframe
+                          src={`https://www.google.com/maps?q=${latitude},${longitude}&z=15&hl=es&output=embed`}
+                          width="100%"
+                          height="320"
+                          style={{ border: 0 }}
+                          allowFullScreen
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          title="Ubicación de entrega"
+                        ></iframe>
+                      </div>
+
+                      <div className="mt-3 flex gap-2">
+                        <a
+                          href={generateGoogleMapsUrl(latitude, longitude)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center px-3 py-2 text-sm font-medium text-blue-700 bg-blue-100 hover:bg-blue-200 rounded-md transition-colors"
+                        >
+                          <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" />
+                          </svg>
+                          Abrir en Google Maps
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-yellow-50 border border-yellow-200 p-3 rounded-md">
+                  <p className="text-sm text-yellow-700">
+                    <span className="font-medium">💡 Consejos para coordenadas:</span>
+                  </p>
+                  <ul className="text-xs text-yellow-600 mt-1 space-y-1">
+                    <li>• Abre Google Maps en tu dispositivo</li>
+                    <li>• Mantén presionado el punto exacto de entrega</li>
+                    <li>• Las coordenadas aparecerán en la barra de búsqueda</li>
+                    <li>• Copia y pega los valores aquí</li>
+                  </ul>
                 </div>
               </div>
             </div>
@@ -1264,13 +1851,28 @@ export default function ScheduleOrderForm({
                 Total: ${calculateTotalAmount().toFixed(2)}
               </p>
             </div>
-            <div className="mt-2">
+            <div className="mt-2 space-y-2">
               <p className="text-sm text-gray-600">
-                {selectedProducts.length} producto(s) seleccionado(s) • 
-                {requiresInvoice ? ' Con factura' : ' Sin factura'} • 
+                {selectedProducts.length} producto(s) seleccionado(s) •
+                {invoiceSelection === true ? ' Con factura' : invoiceSelection === false ? ' Sin factura' : ' Factura pendiente'} •
                 {hasPumpService ? ` Bombeo: ${pumpVolume} m³ ($${pumpPrice?.toFixed(2) || '0.00'}/m³) • ` : ''}
                 Entrega: {deliveryDate.split('-').reverse().join('/')} a las {deliveryTime}
               </p>
+
+              {/* Coordinates summary */}
+              <div className="flex items-center justify-between bg-white/50 p-2 rounded-md">
+                <div className="text-sm text-gray-700">
+                  <span className="font-medium">📍 Ubicación:</span> {latitude}, {longitude}
+                </div>
+                <a
+                  href={generateGoogleMapsUrl(latitude, longitude)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-blue-600 hover:text-blue-800 underline"
+                >
+                  Ver en Maps
+                </a>
+              </div>
             </div>
           </div>
           
@@ -1286,7 +1888,14 @@ export default function ScheduleOrderForm({
             
             <button
               type="submit"
-              disabled={isSubmitting || selectedProducts.length === 0}
+              disabled={
+                isSubmitting ||
+                (selectedProducts.length === 0 && orderType !== 'pumping') ||
+                invoiceSelection === null ||
+                !latitude ||
+                !longitude ||
+                !!coordinatesError
+              }
               className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? 'Creando orden...' : 'Crear Orden'}

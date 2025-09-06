@@ -455,7 +455,7 @@ export default function MaterialDebugger() {
               <button
                 onClick={() => {
                   // Navigate to main processor
-                  window.location.href = '/arkik';
+                  window.location.href = '/production-control/arkik-upload';
                 }}
                 className="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
               >

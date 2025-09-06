@@ -47,6 +47,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
         setLoading(true);
         const data = await fetchPointAnalysisData(point);
         if (data) {
+
           setAnalysisData(data);
         } else {
           setError('No se pudieron cargar los datos de análisis');
@@ -100,7 +101,27 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
 
   const formatDate = (dateString: string) => {
     try {
-      return format(new Date(dateString), 'dd/MM/yyyy', { locale: es });
+      // For date-only strings (like "2025-07-14"), treat as local date to avoid timezone issues
+      if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        // Parse as local date to avoid UTC conversion
+        const [year, month, day] = dateString.split('-').map(Number);
+        const localDate = new Date(year, month - 1, day);
+        return format(localDate, 'dd/MM/yyyy', { locale: es });
+      } else {
+        // For other date formats, use the original logic
+        return format(new Date(dateString), 'dd/MM/yyyy', { locale: es });
+      }
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatDateTime = (dateString: string, timezone?: string) => {
+    try {
+      // Parse the UTC timestamp and convert to local time
+      const date = new Date(dateString);
+      // Format the converted local time (UTC 08:00 -> Mexico City 02:00)
+      return format(date, 'dd/MM/yyyy HH:mm', { locale: es });
     } catch {
       return dateString;
     }
@@ -310,7 +331,10 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                 <div className="pt-4 border-t border-slate-200">
                   <p className="text-sm text-slate-600 mb-2">Fecha de Muestreo:</p>
                   <p className="font-semibold text-slate-800">
-                    {formatDate(analysisData.muestreo.fecha_muestreo)}
+                    {analysisData.muestreo.fecha_muestreo_ts 
+                      ? formatDateTime(analysisData.muestreo.fecha_muestreo_ts, analysisData.muestreo.event_timezone)
+                      : formatDate(analysisData.muestreo.fecha_muestreo)
+                    }
                   </p>
                 </div>
               </CardContent>
@@ -428,7 +452,10 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                                 <div>
                                   <p className="text-sm text-slate-600">Fecha:</p>
                                   <p className="font-medium text-slate-800">
-                                    {formatDate(ensayo.fecha_ensayo)}
+                                    {ensayo.fecha_ensayo_ts 
+                                      ? formatDateTime(ensayo.fecha_ensayo_ts, ensayo.event_timezone)
+                                      : formatDate(ensayo.fecha_ensayo)
+                                    }
                                   </p>
                                 </div>
                                 <div>
@@ -530,7 +557,10 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                   <div>
                     <p className="text-sm text-slate-600">Fecha de Muestreo:</p>
                     <p className="font-medium text-slate-800">
-                      {formatDate(analysisData.muestreo.fecha_muestreo)}
+                      {analysisData.muestreo.fecha_muestreo_ts 
+                        ? formatDateTime(analysisData.muestreo.fecha_muestreo_ts, analysisData.muestreo.event_timezone)
+                        : formatDate(analysisData.muestreo.fecha_muestreo)
+                      }
                     </p>
                   </div>
                   

@@ -27,8 +27,12 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
   const [userAccess, setUserAccess] = useState<UserPlantAccess | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check if user is global admin (EXECUTIVE or CREDIT_VALIDATOR with no plant/BU assignment)
-  const isGlobalAdmin = (profile?.role === 'EXECUTIVE' || profile?.role === 'CREDIT_VALIDATOR') && !profile.plant_id && !profile.business_unit_id;
+  // Check if user is global admin (EXECUTIVE, CREDIT_VALIDATOR, or ADMIN_OPERATIONS with no plant/BU assignment)
+  const isGlobalAdmin = (
+    profile?.role === 'EXECUTIVE' ||
+    profile?.role === 'CREDIT_VALIDATOR' ||
+    profile?.role === 'ADMIN_OPERATIONS'
+  ) && !profile.plant_id && !profile.business_unit_id;
 
   // Fetch plant and business unit data
   const refreshPlantData = useCallback(async () => {
@@ -78,17 +82,12 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
 
       // Set current plant (without localStorage to prevent hydration mismatch)
       if (isGlobalAdmin) {
-        // Global admin can see all plants, but prioritize plants with data
-        // First try to find a plant with recipes/remisiones, otherwise use first non-DIACE plant
-        let defaultPlant = plantsData?.[0];
-        
-        // Try to find a plant with recipes first
-        const plantsWithData = plantsData?.filter(p => p.code !== 'DIACE');
-        if (plantsWithData && plantsWithData.length > 0) {
-          defaultPlant = plantsWithData[0];
+        // Ensure we always have a default selection for globals (EXECUTIVE, CREDIT_VALIDATOR, ADMIN_OPERATIONS)
+        const nonDiace = (plantsData || []).filter(p => p.code !== 'DIACE');
+        const defaultPlant = nonDiace[0] || plantsData?.[0] || null;
+        if (!currentPlant || !plantsData?.some(p => p.id === currentPlant.id)) {
+          setCurrentPlant(defaultPlant);
         }
-        
-        setCurrentPlant(defaultPlant || null);
       } else if (profile.plant_id) {
         // User assigned to specific plant
         const userPlant = plantsData?.find(p => p.id === profile.plant_id);
@@ -96,7 +95,9 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
       } else if (profile.business_unit_id) {
         // User assigned to business unit, default to first plant in that BU
         const buPlants = plantsData?.filter(p => p.business_unit_id === profile.business_unit_id);
-        setCurrentPlant(buPlants?.[0] || null);
+        if (!currentPlant || !buPlants?.some(p => p.id === currentPlant.id)) {
+          setCurrentPlant(buPlants?.[0] || null);
+        }
       }
 
     } catch (error) {

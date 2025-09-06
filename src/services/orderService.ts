@@ -16,6 +16,7 @@ export interface OrderCreationParams {
   client_id: string;
   construction_site: string;
   construction_site_id?: string;
+  plant_id?: string;
   delivery_date: string;
   delivery_time: string;
   requires_invoice: boolean;
@@ -23,6 +24,10 @@ export interface OrderCreationParams {
   total_amount: number;
   order_status: string;
   credit_status: string;
+  // New optional delivery coordinates and maps URL
+  delivery_latitude?: number | null;
+  delivery_longitude?: number | null;
+  delivery_google_maps_url?: string | null;
   order_items?: Array<{
     quote_detail_id: string;
     volume: number;
@@ -48,14 +53,12 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       
       if (authData && authData.session && authData.session.user) {
         userId = authData.session.user.id;
-        console.log('Using authenticated user:', userId);
       } else {
         // Instead of using 'system' string which is not a valid UUID,
         // set to NULL and let the database handle the constraint
-        console.warn('No active session found, using null for created_by');
       }
     } catch (authError) {
-      console.warn('Could not get auth session, using null for created_by:', authError);
+      // Could not get auth session, using null for created_by
     }
     
         // Check if we have a valid user ID
@@ -63,18 +66,30 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       throw new Error('Usuario no autenticado. Debe iniciar sesión para crear órdenes.');
     }
 
-    // Get plant_id from the associated quote for inheritance
+    // Get plant_id from the associated quote (primary source)
     let plantId = null;
     if (orderData.quote_id) {
+      console.log('Fetching plant_id for quote:', orderData.quote_id);
       const { data: quote, error: quoteError } = await supabase
         .from('quotes')
         .select('plant_id')
         .eq('id', orderData.quote_id)
         .single();
         
-      if (!quoteError && quote) {
+      if (quoteError) {
+        console.error('Error fetching quote plant_id:', quoteError);
+      } else if (quote) {
         plantId = quote.plant_id;
+        console.log('Found plant_id from quote:', plantId);
+      } else {
+        console.log('No quote found for ID:', orderData.quote_id);
       }
+    }
+    
+    // Fallback to orderData plant_id if quote doesn't have one
+    if (!plantId && orderData.plant_id) {
+      plantId = orderData.plant_id;
+      console.log('Using plant_id from orderData as fallback:', plantId);
     }
 
     // Start a transaction
@@ -97,6 +112,20 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
     // Add plant_id if inherited from quote
     if (plantId) {
       orderInsertData.plant_id = plantId;
+      console.log('Adding plant_id to orderInsertData:', plantId);
+    } else {
+      console.log('No plant_id found - this will cause issues for executives');
+    }
+
+    // Include optional delivery coordinates and URL if provided
+    if (typeof orderData.delivery_latitude === 'number') {
+      orderInsertData.delivery_latitude = orderData.delivery_latitude;
+    }
+    if (typeof orderData.delivery_longitude === 'number') {
+      orderInsertData.delivery_longitude = orderData.delivery_longitude;
+    }
+    if (orderData.delivery_google_maps_url) {
+      orderInsertData.delivery_google_maps_url = orderData.delivery_google_maps_url;
     }
     
     const { data: order, error: orderError } = await supabase
@@ -117,6 +146,8 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           final_price, 
           pump_service, 
           pump_price,
+          product_id,
+          recipe_id,
           recipes:recipe_id (
             recipe_code
           )
@@ -128,22 +159,41 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       // Insert order items
       const orderItems = orderData.order_items.map((item: any) => {
         const quoteDetail = quoteDetails.find(qd => qd.id === item.quote_detail_id);
-        // Use optional chaining and provide a fallback for recipe_code
-        const recipeCode = quoteDetail?.recipes ? 
-          (typeof quoteDetail.recipes === 'object' ? 
-            (quoteDetail.recipes as any).recipe_code : 'Unknown') 
-          : 'Unknown';
+        
+        console.log('Processing order item:', {
+          quoteDetailId: item.quote_detail_id,
+          quoteDetail: quoteDetail,
+          pumpService: quoteDetail?.pump_service,
+          productId: quoteDetail?.product_id,
+          recipeId: quoteDetail?.recipe_id,
+          recipes: quoteDetail?.recipes
+        });
+        
+        // Determine product type based on quote detail type
+        let productType = 'Unknown';
+        if (quoteDetail?.pump_service && quoteDetail?.product_id) {
+          // This is a standalone pumping service
+          productType = 'SERVICIO DE BOMBEO';
+          console.log('Identified as standalone pumping service');
+        } else if (quoteDetail?.recipes) {
+          // This is a concrete product
+          productType = typeof quoteDetail.recipes === 'object' ? 
+            (quoteDetail.recipes as any).recipe_code : 'Unknown';
+          console.log('Identified as concrete product:', productType);
+        } else {
+          console.log('Could not determine product type, using Unknown');
+        }
         
         // No longer include pump_volume field for individual items (legacy approach removed)
         return {
           order_id: order.id,
           quote_detail_id: item.quote_detail_id,
-          product_type: recipeCode,
+          product_type: productType,
           volume: item.volume,
           unit_price: quoteDetail?.final_price || 0,
           total_price: (quoteDetail?.final_price || 0) * item.volume,
-          has_pump_service: false, // Individual items don't have pump service anymore
-          pump_price: null,
+          has_pump_service: quoteDetail?.pump_service || false,
+          pump_price: quoteDetail?.pump_service ? quoteDetail?.final_price : null,
           pump_volume: null // Always null for individual items in new approach
         };
       });
@@ -221,7 +271,15 @@ export async function getOrders(
     .from('orders')
     .select(`
       *,
-      clients!inner(business_name, client_code)
+      clients!inner(business_name, client_code),
+      order_items(
+        id,
+        volume,
+        pump_volume,
+        has_pump_service,
+        product_type,
+        has_empty_truck_charge
+      )
     `);
   
   if (filterStatus) {
@@ -268,25 +326,68 @@ export async function getOrders(
   
   // Ensure data is not null and has the expected structure
   if (!data) {
-    console.warn('No orders data returned from query');
     return [];
-  }
-  
-  // Log the first few orders to debug the structure
-  if (data.length > 0) {
-    console.log('First order structure:', JSON.stringify(data[0], null, 2));
   }
   
   // Filtrar manualmente los pedidos rechazados
   let filteredData = data;
   if (!filterStatus) {
-    filteredData = data.filter(order => 
-      order.credit_status !== 'rejected' && 
+    filteredData = data.filter(order =>
+      order.credit_status !== 'rejected' &&
       order.credit_status !== 'rejected_by_validator'
     );
   }
-  
-  return filteredData as unknown as OrderWithClient[];
+
+  // Calculate concrete and pump volumes for each order
+  const enrichedOrders = filteredData?.map(order => {
+    const items = order.order_items || [];
+    let concreteVolume = 0;
+    let pumpVolume = 0;
+    let hasPumpService = false;
+
+    // Only calculate volumes if there are items
+    if (items.length > 0) {
+      items.forEach((item: any) => {
+        const productType = item.product_type || '';
+        const volume = item.volume || 0;
+        const pumpVolumeItem = item.pump_volume || 0;
+
+        // Determine if this item is an empty truck charge
+        const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                                  productType === 'VACÍO DE OLLA' ||
+                                  productType === 'EMPTY_TRUCK_CHARGE';
+
+        // Determine if this item is a pump service
+        const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                             productType.toLowerCase().includes('bombeo') ||
+                             productType.toLowerCase().includes('pump');
+
+        // Calculate concrete volume (exclude empty truck charges and pump services)
+        if (!isEmptyTruckCharge && !isPumpService) {
+          concreteVolume += volume;
+        }
+
+        // Calculate pump volume
+        if (item.has_pump_service || isPumpService) {
+          if (pumpVolumeItem > 0) {
+            pumpVolume += pumpVolumeItem;
+          } else if (isPumpService && volume > 0) {
+            pumpVolume += volume;
+          }
+          hasPumpService = true;
+        }
+      });
+    }
+
+    return {
+      ...order,
+      concreteVolume: concreteVolume > 0 ? concreteVolume : undefined,
+      pumpVolume: pumpVolume > 0 ? pumpVolume : undefined,
+      hasPumpService
+    };
+  });
+
+  return enrichedOrders as unknown as OrderWithClient[];
 }
 
 export async function getOrderById(id: string) {
@@ -351,7 +452,15 @@ export async function getOrdersForCreditValidation(plantIds?: string[] | null) {
     .from('orders')
     .select(`
       *,
-      clients!inner(business_name, client_code)
+      clients!inner(business_name, client_code),
+      order_items(
+        id,
+        volume,
+        pump_volume,
+        has_pump_service,
+        product_type,
+        has_empty_truck_charge
+      )
     `)
     .eq('credit_status', 'pending');
   
@@ -367,9 +476,44 @@ export async function getOrdersForCreditValidation(plantIds?: string[] | null) {
   query = query.order('created_at', { ascending: false });
   
   const { data, error } = await query;
-  
+
   if (error) throw error;
-  return data as unknown as OrderWithClient[];
+
+  // Calculate concrete and pump volumes for each order
+  const enrichedOrders = data?.map(order => {
+    const items = order.order_items || [];
+    let concreteVolume = 0;
+    let pumpVolume = 0;
+    let hasPumpService = false;
+
+    items.forEach((item: any) => {
+      // Skip empty truck charges and pump service items for concrete volume calculation
+      if (item.product_type !== 'VACÍO DE OLLA' &&
+          item.product_type !== 'EMPTY_TRUCK_CHARGE' &&
+          item.product_type !== 'SERVICIO DE BOMBEO' &&
+          !item.has_empty_truck_charge) {
+        concreteVolume += item.volume || 0;
+      }
+
+      // Calculate pump volume
+      if (item.has_pump_service && item.pump_volume) {
+        pumpVolume += item.pump_volume;
+        hasPumpService = true;
+      } else if (item.product_type === 'SERVICIO DE BOMBEO') {
+        pumpVolume += item.volume || 0;
+        hasPumpService = true;
+      }
+    });
+
+    return {
+      ...order,
+      concreteVolume: concreteVolume > 0 ? concreteVolume : undefined,
+      pumpVolume: pumpVolume > 0 ? pumpVolume : undefined,
+      hasPumpService
+    };
+  });
+
+  return enrichedOrders as unknown as OrderWithClient[];
 }
 
 export async function approveCreditForOrder(id: string) {
@@ -487,7 +631,15 @@ export async function getOrdersForManagerValidation(plantIds?: string[] | null) 
       .from('orders')
       .select(`
         *,
-        clients!inner(business_name, client_code)
+        clients!inner(business_name, client_code),
+        order_items(
+          id,
+          volume,
+          pump_volume,
+          has_pump_service,
+          product_type,
+          has_empty_truck_charge
+        )
       `)
       .in('credit_status', ['pending', 'rejected_by_validator']);
     
@@ -499,13 +651,63 @@ export async function getOrdersForManagerValidation(plantIds?: string[] | null) 
       query = query.eq('id', '00000000-0000-0000-0000-000000000000'); // Non-existent UUID
     }
     // If plantIds is null, user can access all plants (global admin), so no filter applied
-    
+
     query = query.order('created_at', { ascending: false });
-    
+
     const { data, error } = await query;
-    
+
     if (error) throw error;
-    return data as unknown as OrderWithClient[];
+
+    // Calculate concrete and pump volumes for each order
+    const enrichedOrders = data?.map(order => {
+      const items = order.order_items || [];
+      let concreteVolume = 0;
+      let pumpVolume = 0;
+      let hasPumpService = false;
+
+      // Only calculate volumes if there are items
+      if (items.length > 0) {
+        items.forEach((item: any) => {
+          const productType = item.product_type || '';
+          const volume = item.volume || 0;
+          const pumpVolumeItem = item.pump_volume || 0;
+
+          // Determine if this item is an empty truck charge
+          const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                                    productType === 'VACÍO DE OLLA' ||
+                                    productType === 'EMPTY_TRUCK_CHARGE';
+
+          // Determine if this item is a pump service
+          const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                               productType.toLowerCase().includes('bombeo') ||
+                               productType.toLowerCase().includes('pump');
+
+          // Calculate concrete volume (exclude empty truck charges and pump services)
+          if (!isEmptyTruckCharge && !isPumpService) {
+            concreteVolume += volume;
+          }
+
+          // Calculate pump volume
+          if (item.has_pump_service || isPumpService) {
+            if (pumpVolumeItem > 0) {
+              pumpVolume += pumpVolumeItem;
+            } else if (isPumpService && volume > 0) {
+              pumpVolume += volume;
+            }
+            hasPumpService = true;
+          }
+        });
+      }
+
+      return {
+        ...order,
+        concreteVolume: concreteVolume > 0 ? concreteVolume : undefined,
+        pumpVolume: pumpVolume > 0 ? pumpVolume : undefined,
+        hasPumpService
+      };
+    });
+
+    return enrichedOrders as unknown as OrderWithClient[];
   } catch (error) {
     console.error('Error fetching orders for manager validation:', error);
     throw error;
@@ -519,7 +721,15 @@ export async function getRejectedOrders(plantIds?: string[] | null) {
       .from('orders')
       .select(`
         *,
-        clients!inner(business_name, client_code)
+        clients!inner(business_name, client_code),
+        order_items(
+          id,
+          volume,
+          pump_volume,
+          has_pump_service,
+          product_type,
+          has_empty_truck_charge
+        )
       `)
       .in('credit_status', ['rejected', 'rejected_by_validator']);
     
@@ -535,9 +745,59 @@ export async function getRejectedOrders(plantIds?: string[] | null) {
     query = query.order('created_at', { ascending: false });
     
     const { data, error } = await query;
-    
+
     if (error) throw error;
-    return data as unknown as OrderWithClient[];
+
+    // Calculate concrete and pump volumes for each order
+    const enrichedOrders = data?.map(order => {
+      const items = order.order_items || [];
+      let concreteVolume = 0;
+      let pumpVolume = 0;
+      let hasPumpService = false;
+
+      // Only calculate volumes if there are items
+      if (items.length > 0) {
+        items.forEach((item: any) => {
+          const productType = item.product_type || '';
+          const volume = item.volume || 0;
+          const pumpVolumeItem = item.pump_volume || 0;
+
+          // Determine if this item is an empty truck charge
+          const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                                    productType === 'VACÍO DE OLLA' ||
+                                    productType === 'EMPTY_TRUCK_CHARGE';
+
+          // Determine if this item is a pump service
+          const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                               productType.toLowerCase().includes('bombeo') ||
+                               productType.toLowerCase().includes('pump');
+
+          // Calculate concrete volume (exclude empty truck charges and pump services)
+          if (!isEmptyTruckCharge && !isPumpService) {
+            concreteVolume += volume;
+          }
+
+          // Calculate pump volume
+          if (item.has_pump_service || isPumpService) {
+            if (pumpVolumeItem > 0) {
+              pumpVolume += pumpVolumeItem;
+            } else if (isPumpService && volume > 0) {
+              pumpVolume += volume;
+            }
+            hasPumpService = true;
+          }
+        });
+      }
+
+      return {
+        ...order,
+        concreteVolume: concreteVolume > 0 ? concreteVolume : undefined,
+        pumpVolume: pumpVolume > 0 ? pumpVolume : undefined,
+        hasPumpService
+      };
+    });
+
+    return enrichedOrders as unknown as OrderWithClient[];
   } catch (error) {
     console.error('Error fetching rejected orders:', error);
     throw error;
@@ -609,7 +869,16 @@ export async function cancelOrder(orderId: string) {
 export async function getOrdersForDosificador() {
   // Fetch orders relevant for DOSIFICADOR role (read-only access)
   try {
-    const { data, error } = await supabase
+    // First, get the current user's profile to check their plant assignment
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('plant_id')
+      .eq('id', (await supabase.auth.getUser()).data.user?.id)
+      .single();
+
+    if (profileError) throw profileError;
+
+    let query = supabase
       .from('orders')
       .select(`
         id, 
@@ -620,16 +889,22 @@ export async function getOrdersForDosificador() {
         total_amount,
         order_status,
         credit_status,
+        plant_id,
         clients!inner(id, business_name, client_code)
       `)
       // Use only active status orders
-      .in('order_status', ['CREATED', 'VALIDATED', 'SCHEDULED']) 
-      .order('delivery_date', { ascending: true });
+      .in('order_status', ['CREATED', 'VALIDATED', 'SCHEDULED']);
+
+    // Filter by the user's assigned plant if they have one
+    if (profile?.plant_id) {
+      query = query.eq('plant_id', profile.plant_id);
+    }
+
+    const { data, error } = await query.order('delivery_date', { ascending: true });
     
     if (error) throw error;
     return data as unknown as OrderWithClient[];
   } catch (err) {
-    console.error('Error fetching orders for dosificador:', err);
     return []; // Return empty array instead of throwing to prevent page crash
   }
 }

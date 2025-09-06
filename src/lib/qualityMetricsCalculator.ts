@@ -5,7 +5,7 @@ import type {
     RemisionesData,
     RecipeVersionsData,
     RemisionMaterialesData
-} from '@/services/qualityServiceBasic';
+} from '@/types/quality';
 import { addDays, isSameDay, parseISO } from 'date-fns'; // Import date-fns functions
 
 export interface CalculatedMetrics {
