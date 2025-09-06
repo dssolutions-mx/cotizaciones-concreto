@@ -538,32 +538,130 @@ export default function ProduccionDashboard() {
     };
   }, [filteredProductionData]);
 
-  // Chart data for cost breakdown as percentage of total grouped by resistance
-  const costBreakdownData = useMemo(() => {
-    // group by strength
-    const byStrength = new Map<number, { total: number; cement: number }>();
-    filteredProductionData.forEach(item => {
-      const entry = byStrength.get(item.strength_fc) || { total: 0, cement: 0 };
-      entry.total += item.total_material_cost || 0;
-      entry.cement += item.cement_cost || 0;
-      byStrength.set(item.strength_fc, entry);
-    });
+  // Chart data for cement consumption trend over the last months
+  const [cementTrendData, setCementTrendData] = useState<{
+    categories: string[];
+    series: { name: string; data: number[] }[];
+  }>({ categories: [], series: [] });
+  const [trendLoading, setTrendLoading] = useState(false);
 
-    const strengths = Array.from(byStrength.keys()).sort((a, b) => a - b);
-    const cementPct = strengths.map(s => {
-      const e = byStrength.get(s)!;
-      return e.total > 0 ? (e.cement / e.total) * 100 : 0;
-    });
-    const othersPct = cementPct.map(p => 100 - p);
+  // Fetch cement consumption trend data
+  const fetchCementTrendData = async () => {
+    if (!currentPlant?.id) return;
+    
+    setTrendLoading(true);
+    try {
+      const monthsToShow = 6; // Show last 6 months including current
+      const trendData: { month: string; consumption: number }[] = [];
+      
+      for (let i = monthsToShow - 1; i >= 0; i--) {
+        const targetDate = subMonths(new Date(), i);
+        const monthStart = startOfMonth(targetDate);
+        const monthEnd = endOfMonth(targetDate);
+        
+        const formattedStartDate = format(monthStart, 'yyyy-MM-dd');
+        const formattedEndDate = format(monthEnd, 'yyyy-MM-dd');
+        
+        // Fetch remisiones for this month
+        const { data: remisiones, error } = await supabase
+          .from('remisiones')
+          .select(`
+            id,
+            volumen_fabricado,
+            recipe_id,
+            recipes!inner(
+              id,
+              strength_fc
+            )
+          `)
+          .eq('tipo_remision', 'CONCRETO')
+          .eq('plant_id', currentPlant.id)
+          .gte('fecha', formattedStartDate)
+          .lte('fecha', formattedEndDate)
+          .not('recipes.strength_fc', 'is', null);
 
-    return {
-      categories: strengths.map(s => `${s} kg/cm²`),
-      series: [
-        { name: 'Cemento', data: cementPct },
-        { name: 'Otros', data: othersPct }
-      ]
-    };
-  }, [filteredProductionData]);
+        if (error) {
+          console.error('Error fetching trend data for month:', targetDate, error);
+          continue;
+        }
+
+        if (!remisiones || remisiones.length === 0) {
+          trendData.push({
+            month: format(targetDate, 'MMM yyyy', { locale: es }),
+            consumption: 0
+          });
+          continue;
+        }
+
+        // Calculate cement consumption for this month
+        const remisionIds = remisiones.map(r => r.id);
+        let totalVolume = remisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
+        let totalCementConsumption = 0;
+
+        if (remisionIds.length > 0 && totalVolume > 0) {
+          // Fetch material consumption in chunks
+          const chunkSize = 50;
+          const materialesResults: any[] = [];
+          
+          for (let j = 0; j < remisionIds.length; j += chunkSize) {
+            const chunk = remisionIds.slice(j, j + chunkSize);
+            const { data: materiales } = await supabase
+              .from('remision_materiales')
+              .select(`
+                material_id,
+                cantidad_real,
+                materials!inner(
+                  material_name,
+                  category
+                )
+              `)
+              .in('remision_id', chunk);
+            
+            if (materiales) materialesResults.push(...materiales);
+          }
+
+          // Calculate cement consumption
+          materialesResults.forEach(material => {
+            if (material.materials) {
+              const typeOrName = String(
+                material.materials.category || material.materials.material_name || ''
+              ).toLowerCase();
+              const isCement = typeOrName.includes('cement') || typeOrName.includes('cemento');
+              
+              if (isCement) {
+                totalCementConsumption += Number(material.cantidad_real) || 0;
+              }
+            }
+          });
+        }
+
+        const cementPerM3 = totalVolume > 0 ? totalCementConsumption / totalVolume : 0;
+        
+        trendData.push({
+          month: format(targetDate, 'MMM yyyy', { locale: es }),
+          consumption: cementPerM3
+        });
+      }
+
+      setCementTrendData({
+        categories: trendData.map(d => d.month),
+        series: [{
+          name: 'Consumo Cemento (kg/m³)',
+          data: trendData.map(d => d.consumption)
+        }]
+      });
+
+    } catch (error) {
+      console.error('Error fetching cement trend data:', error);
+    } finally {
+      setTrendLoading(false);
+    }
+  };
+
+  // Fetch trend data when component mounts or plant changes
+  useEffect(() => {
+    fetchCementTrendData();
+  }, [currentPlant]);
 
   // Chart options for volume chart
   const volumeChartOptions: ApexOptions = {
@@ -647,26 +745,30 @@ export default function ProduccionDashboard() {
     }
   };
 
-  // Chart options for cost breakdown chart
-  const costChartOptions: ApexOptions = {
+  // Chart options for cement consumption trend
+  const cementTrendChartOptions: ApexOptions = {
     chart: {
-      type: 'bar',
-      stacked: true,
-      stackType: '100%',
+      type: 'line',
       toolbar: { show: false },
       background: 'transparent',
       fontFamily: 'Inter, system-ui, sans-serif'
     },
-    colors: ['#FF9500', '#34C759'],
-    plotOptions: {
-      bar: {
-        horizontal: false,
-        columnWidth: '65%',
-        borderRadius: 6
+    colors: ['#FF6B35'],
+    stroke: {
+      width: 3,
+      curve: 'smooth'
+    },
+    markers: {
+      size: 6,
+      colors: ['#FF6B35'],
+      strokeColors: '#ffffff',
+      strokeWidth: 2,
+      hover: {
+        size: 8
       }
     },
     xaxis: {
-      categories: costBreakdownData.categories,
+      categories: cementTrendData.categories,
       labels: {
         style: {
           fontSize: '12px',
@@ -679,7 +781,7 @@ export default function ProduccionDashboard() {
     },
     yaxis: {
       title: {
-        text: 'Porcentaje (%)',
+        text: 'Consumo de Cemento (kg/m³)',
         style: {
           fontSize: '14px',
           fontWeight: 600,
@@ -687,33 +789,41 @@ export default function ProduccionDashboard() {
         }
       },
       labels: {
-        formatter: (val: number) => `${val.toFixed(0)}%`,
+        formatter: (val: number) => `${val.toFixed(1)}`,
         style: {
           fontSize: '12px',
           colors: '#6B7280'
         }
       }
     },
-    legend: {
-      position: 'top',
-      horizontalAlign: 'left',
-      fontSize: '12px',
-      fontWeight: 500,
-      markers: { size: 12 },
-      itemMargin: { horizontal: 16, vertical: 0 }
+    grid: {
+      borderColor: '#F3F4F6',
+      strokeDashArray: 4,
+      xaxis: { lines: { show: false } }
     },
     tooltip: {
       y: {
-        formatter: (val: number) => `${val.toFixed(1)}%`
+        formatter: (val: number) => `${val.toFixed(2)} kg/m³`
       },
       style: { fontSize: '12px' }
     },
-    grid: {
-      borderColor: '#F3F4F6',
-      strokeDashArray: 2,
-      xaxis: { lines: { show: false } }
-    },
-    dataLabels: { enabled: false }
+    dataLabels: {
+      enabled: true,
+      formatter: (val: number) => `${val.toFixed(1)}`,
+      style: {
+        fontSize: '11px',
+        fontWeight: 500,
+        colors: ['#FF6B35']
+      },
+      background: {
+        enabled: true,
+        foreColor: '#ffffff',
+        borderRadius: 4,
+        padding: 4,
+        opacity: 0.9
+      },
+      offsetY: -10
+    }
   };
 
   // Export to Excel function
@@ -1209,23 +1319,47 @@ export default function ProduccionDashboard() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Desglose de Costos por Resistencia</CardTitle>
-                <CardDescription>Costo de cemento vs. otros materiales agrupado por resistencia</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Tendencia de Consumo de Cemento por m³
+                </CardTitle>
+                <CardDescription>
+                  Evolución del consumo de cemento por metro cúbico en los últimos meses
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                {typeof window !== 'undefined' && (
-                  <Chart
-                    options={{
-                      ...costChartOptions,
-                      chart: {
-                        ...costChartOptions.chart,
-                        background: 'transparent'
-                      }
-                    }}
-                    series={costBreakdownData.series}
-                    type="bar"
-                    height={320}
-                  />
+                {trendLoading ? (
+                  <div className="flex items-center justify-center h-80">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                    <span className="ml-2 text-muted-foreground">Cargando datos de tendencia...</span>
+                  </div>
+                ) : cementTrendData.categories.length > 0 ? (
+                  typeof window !== 'undefined' && (
+                    <Chart
+                      options={{
+                        ...cementTrendChartOptions,
+                        chart: {
+                          ...cementTrendChartOptions.chart,
+                          background: 'transparent'
+                        }
+                      }}
+                      series={cementTrendData.series}
+                      type="line"
+                      height={320}
+                    />
+                  )
+                ) : (
+                  <div className="flex items-center justify-center h-80">
+                    <div className="text-center">
+                      <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">
+                        No hay datos suficientes para mostrar la tendencia.
+                      </p>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        Asegúrate de tener una planta seleccionada y datos de producción disponibles.
+                      </p>
+                    </div>
+                  </div>
                 )}
               </CardContent>
             </Card>
