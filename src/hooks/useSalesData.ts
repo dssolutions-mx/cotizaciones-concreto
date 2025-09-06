@@ -136,7 +136,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
 
         // 3. Fetch order items (products) for these orders
         const orderIds = orders.map(order => order.id);
-        let orderItemsQuery = supabase
+        const orderItemsQuery = supabase
           .from('order_items')
           .select('*')
           .in('order_id', orderIds);
@@ -293,7 +293,7 @@ export const useHistoricalSalesData = (currentPlant: any) => {
 
         // 3. Fetch order items (MATCHING MAIN SALES LOGIC)
         const orderIds = orders.map(order => order.id);
-        let orderItemsQuery = supabase
+        const orderItemsQuery = supabase
           .from('order_items')
           .select('*')
           .in('order_id', orderIds);

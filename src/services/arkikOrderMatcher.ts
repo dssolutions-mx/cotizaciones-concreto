@@ -491,8 +491,7 @@ export class ArkikOrderMatcher {
                     material_type: code,
                     cantidad_teorica,
                     cantidad_real,
-                    ajuste,
-                    plant_id: this.plantId
+                    ajuste
                   });
                 }
               });

@@ -13,12 +13,78 @@ export interface ReportColumn {
 
 export interface ReportFilter {
   dateRange: DateRange;
-  clientId?: string;
-  constructionSite?: string;
-  recipeCode?: string;
+  clientIds?: string[];
+  constructionSites?: string[];
+  recipeCodes?: string[];
+  orderIds?: string[];
+  remisionIds?: string[];
+  plantIds?: string[];
   deliveryStatus?: 'all' | 'delivered' | 'pending';
   invoiceRequirement?: 'all' | 'with_invoice' | 'without_invoice';
   singleDateMode?: boolean;
+  
+  // Legacy single selection support for backward compatibility
+  clientId?: string;
+  constructionSite?: string;
+  recipeCode?: string;
+}
+
+// Enhanced selection interfaces for hierarchical data
+export interface SelectableOrder {
+  id: string;
+  order_number: string;
+  construction_site: string;
+  elemento?: string;
+  client_id: string;
+  client_name: string;
+  total_remisiones: number;
+  total_volume: number;
+  total_amount: number;
+  selected: boolean;
+  remisiones: SelectableRemision[];
+}
+
+export interface SelectableRemision {
+  id: string;
+  remision_number: string;
+  fecha: string;
+  order_id: string;
+  volumen_fabricado: number;
+  recipe_code?: string;
+  conductor?: string;
+  line_total?: number;
+  selected: boolean;
+  plant_info?: {
+    plant_id: string;
+    plant_code: string;
+    plant_name: string;
+    vat_percentage: number;
+  };
+}
+
+export interface SelectableClient {
+  id: string;
+  business_name: string;
+  client_code?: string;
+  rfc?: string;
+  selected: boolean;
+  orders: SelectableOrder[];
+}
+
+export interface SelectionSummary {
+  totalClients: number;
+  totalOrders: number;
+  totalRemisiones: number;
+  totalVolume: number;
+  totalAmount: number;
+  selectedClients: string[];
+  selectedOrders: string[];
+  selectedRemisiones: string[];
+}
+
+export interface HierarchicalReportData {
+  clients: SelectableClient[];
+  selectionSummary: SelectionSummary;
 }
 
 export interface ReportTemplate {
@@ -114,11 +180,14 @@ export interface ReportConfiguration {
   template?: ReportTemplate;
   showSummary: boolean;
   showVAT: boolean;
-  groupBy?: 'none' | 'date' | 'recipe' | 'construction_site';
+  groupBy?: 'none' | 'date' | 'recipe' | 'construction_site' | 'client' | 'order';
   sortBy?: {
     field: string;
     direction: 'asc' | 'desc';
   };
+  // Enhanced selection options
+  selectionMode: 'client-level' | 'order-level' | 'remision-level';
+  allowPartialSelection: boolean;
 }
 
 export interface PDFReportProps {

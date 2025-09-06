@@ -256,7 +256,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
         setTotalQuotes(totalFiltered);
       } else {
         // Count total quotes for pagination
-        let countQuery = supabase
+        const countQuery = supabase
           .from('quotes')
           .select('id', { count: 'exact' })
           .eq('status', 'PENDING_APPROVAL');

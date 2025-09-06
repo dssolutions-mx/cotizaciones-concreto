@@ -457,7 +457,7 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
 
   const byId = new Map(AVAILABLE_COLUMNS.map((c) => [c.id, c] as const));
 
-  let initialSelected = configuration.selectedColumns
+  const initialSelected = configuration.selectedColumns
     .filter((col) => byId.has(col.id))
     .map((col) => ({ ...byId.get(col.id)!, ...col }));
 

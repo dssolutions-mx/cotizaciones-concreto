@@ -119,12 +119,12 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
           let pumpingVolume = 0;
           
           // Get amounts directly from the order
-          let subtotal = Number(order.final_amount || 0);
-          let totalWithVAT = Number(order.invoice_amount || order.final_amount || 0);
-          let vat = totalWithVAT - subtotal; // Calculate VAT as the difference
+          const subtotal = Number(order.final_amount || 0);
+          const totalWithVAT = Number(order.invoice_amount || order.final_amount || 0);
+          const vat = totalWithVAT - subtotal; // Calculate VAT as the difference
           
           // Product names
-          let productNames: string[] = [];
+          const productNames: string[] = [];
           
           // Process items to get volumes and product names - USE DELIVERED VOLUMES when available
           if (items && items.length > 0) {
