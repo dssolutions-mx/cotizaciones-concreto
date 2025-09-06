@@ -135,12 +135,14 @@ const inventorySubMenuItems: InventoryNavItem[] = [
 ];
 
 // Define quality submenu items (grouped for better UX)
-type QualityNavItem = 
+type QualityNavItem =
   | { title: string; href: string; IconComponent: React.ElementType }
   | { type: 'group'; title: string };
 
 const qualitySubMenuItems: QualityNavItem[] = [
   { title: "Dashboard Calidad", href: "/quality", IconComponent: BarChart },
+  { type: 'group', title: "Análisis" },
+  { title: "Análisis por Cliente", href: "/quality/clientes", IconComponent: Users },
   { type: 'group', title: "Operación" },
   { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
   { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
@@ -155,6 +157,8 @@ const qualitySubMenuItems: QualityNavItem[] = [
 
 // Quality submenu for QUALITY_TEAM (without dashboard)
 const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
+  { type: 'group', title: "Análisis" },
+  { title: "Análisis por Cliente", href: "/quality/clientes", IconComponent: Users },
   { type: 'group', title: "Operación" },
   { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
   { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
@@ -169,6 +173,8 @@ const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
 
 // Quality submenu for QUALITY_TEAM in specific plants (P002, P003, P004) - limited access
 const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
+  { type: 'group', title: "Análisis" },
+  { title: "Análisis por Cliente", href: "/quality/clientes", IconComponent: Users },
   { type: 'group', title: "Operación" },
   { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
   { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },

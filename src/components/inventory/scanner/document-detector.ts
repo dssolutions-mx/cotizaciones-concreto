@@ -494,7 +494,7 @@ export class DocumentDetector {
     const isReasonableShape = this.isReasonableQuadrilateral(corners, canvas);
 
     // Combine factors
-    let confidence = coverageRatio * 0.7 + (isReasonableShape ? 0.3 : 0);
+    const confidence = coverageRatio * 0.7 + (isReasonableShape ? 0.3 : 0);
 
     return Math.min(confidence, 1.0);
   }

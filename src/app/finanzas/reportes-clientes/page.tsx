@@ -9,7 +9,6 @@ import { PDFDownloadLink } from '@react-pdf/renderer';
 // UI Components
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-with-presets";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -17,26 +16,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { 
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList
-} from "@/components/ui/command";
 
 // Icons
 import { 
@@ -45,11 +24,11 @@ import {
   Settings, 
   Eye, 
   Search, 
-  ChevronDown, 
-  X,
   Filter,
   BarChart3,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Target,
+  X
 } from 'lucide-react';
 
 // Services and Types
@@ -59,7 +38,9 @@ import type {
   ReportConfiguration, 
   ReportRemisionData, 
   ReportSummary,
-  ReportColumn
+  ReportColumn,
+  HierarchicalReportData,
+  SelectionSummary
 } from '@/types/pdf-reports';
 import { 
   AVAILABLE_COLUMNS, 
@@ -69,180 +50,112 @@ import {
 
 // Components
 import ClientReportPDF from '@/components/reports/ClientReportPDF';
+import EnhancedReportFilters from '@/components/reports/EnhancedReportFilters';
 import { formatCurrency } from '@/lib/utils';
 
 export default function ReportesClientes() {
-  // State for filters
-  const [dateRange, setDateRange] = useState<DateRange>({
-    from: subDays(new Date(), 30),
-    to: new Date()
+  // Enhanced state for new hierarchical system
+  const [hierarchicalData, setHierarchicalData] = useState<HierarchicalReportData | null>(null);
+  const [selectionSummary, setSelectionSummary] = useState<SelectionSummary>({
+    totalClients: 0,
+    totalOrders: 0,
+    totalRemisiones: 0,
+    totalVolume: 0,
+    totalAmount: 0,
+    selectedClients: [],
+    selectedOrders: [],
+    selectedRemisiones: []
   });
-  const [singleDateMode, setSingleDateMode] = useState<boolean>(false);
-  const [selectedClientId, setSelectedClientId] = useState<string>('');
-  const [selectedSite, setSelectedSite] = useState<string>('todos');
-  const [selectedRecipe, setSelectedRecipe] = useState<string>('all');
-  const [invoiceRequirement, setInvoiceRequirement] = useState<string>('all');
+  const [currentFilters, setCurrentFilters] = useState<ReportFilter>({
+    dateRange: { from: subDays(new Date(), 30), to: new Date() },
+    clientIds: [],
+    orderIds: [],
+    remisionIds: []
+  });
 
-  // State for data
-  const [clients, setClients] = useState<any[]>([]);
-  const [clientSites, setClientSites] = useState<string[]>([]);
-  const [recipeCodes, setRecipeCodes] = useState<string[]>([]);
+  // State for legacy report data (for PDF generation)
   const [reportData, setReportData] = useState<ReportRemisionData[]>([]);
   const [reportSummary, setReportSummary] = useState<ReportSummary | null>(null);
   
   // State for UI
   const [loading, setLoading] = useState(false);
-  const [loadingClients, setLoadingClients] = useState(false);
-  const [loadingFilters, setLoadingFilters] = useState(false);
-  const [clientSearchTerm, setClientSearchTerm] = useState('');
-  const [clientComboboxOpen, setClientComboboxOpen] = useState(false);
+  const [generatingReport, setGeneratingReport] = useState(false);
   
   // State for report configuration
   const [selectedColumns, setSelectedColumns] = useState<ReportColumn[]>(
     AVAILABLE_COLUMNS.filter(col => DEFAULT_COLUMN_SETS.company_standard.includes(col.id))
   );
   const [selectedTemplate, setSelectedTemplate] = useState<string>('company-standard');
-  const [reportTitle, setReportTitle] = useState<string>('Reporte Estándar de Entregas por Cliente');
+  const [reportTitle, setReportTitle] = useState<string>('Reporte Dinámico de Entregas');
   const [showSummary, setShowSummary] = useState<boolean>(true);
   const [showVAT, setShowVAT] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<string>('filters');
+  const [activeTab, setActiveTab] = useState<string>('selection');
 
-  // Load clients with remisiones when date range changes
-  const loadClientsWithRemisiones = useCallback(async () => {
-    if (!dateRange.from || !dateRange.to) return;
-    
-    setLoadingClients(true);
-    try {
-      const clientsData = await ReportDataService.getClientsWithRemisiones({
-        from: dateRange.from,
-        to: dateRange.to
-      });
-      setClients(clientsData);
-    } catch (error) {
-      console.error('Error loading clients:', error);
-      setClients([]);
-    } finally {
-      setLoadingClients(false);
+  // Handle data changes from enhanced filters
+  const handleDataChange = useCallback((data: HierarchicalReportData, filters: ReportFilter) => {
+    setHierarchicalData(data);
+    setCurrentFilters(filters);
+  }, []);
+
+  // Handle selection changes
+  const handleSelectionChange = useCallback((summary: SelectionSummary) => {
+    setSelectionSummary(summary);
+  }, []);
+
+  // Generate actual report data for PDF
+  const generateReportData = useCallback(async () => {
+    if (!currentFilters.dateRange.from || !currentFilters.dateRange.to) {
+      alert('Por favor selecciona un rango de fechas válido');
+      return;
     }
-  }, [dateRange]);
-
-  // Load recipe codes
-  const loadRecipeCodes = useCallback(async () => {
-    if (!dateRange.from || !dateRange.to) return;
     
-    setLoadingFilters(true);
-    try {
-      // Only load recipe codes if a client is selected
-      if (selectedClientId) {
-        const codes = await ReportDataService.getAvailableRecipeCodes({
-          from: dateRange.from,
-          to: dateRange.to
-        }, selectedClientId);
-        setRecipeCodes(codes);
-      } else {
-        setRecipeCodes([]);
-      }
-    } catch (error) {
-      console.error('Error loading recipe codes:', error);
-      setRecipeCodes([]);
-    } finally {
-      setLoadingFilters(false);
-    }
-  }, [dateRange, selectedClientId]);
-
-  // Load client construction sites when client is selected
-  const loadClientSites = useCallback(async () => {
-    if (!selectedClientId || !dateRange.from || !dateRange.to) {
-      setClientSites([]);
+    if (selectionSummary.selectedRemisiones.length === 0) {
+      alert('Por favor selecciona al menos una remisión para el reporte');
       return;
     }
 
-    try {
-      const sites = await ReportDataService.getClientConstructionSites(selectedClientId, {
-        from: dateRange.from,
-        to: dateRange.to
-      });
-      setClientSites(sites);
-    } catch (error) {
-      console.error('Error loading client sites:', error);
-      setClientSites([]);
+    if (selectionSummary.selectedClients.length === 0) {
+      alert('Por favor selecciona al menos un cliente para el reporte');
+      return;
     }
-  }, [selectedClientId, dateRange]);
 
-  // Fetch report data
-  const fetchReportData = useCallback(async () => {
-    if (!selectedClientId || !dateRange.from || !dateRange.to) return;
-    
-    setLoading(true);
+    setGeneratingReport(true);
     try {
-      const filters: ReportFilter = {
-        dateRange,
-        clientId: selectedClientId,
-        constructionSite: selectedSite !== 'todos' ? selectedSite : undefined,
-        recipeCode: selectedRecipe !== 'all' ? selectedRecipe : undefined,
-        invoiceRequirement: invoiceRequirement !== 'all' ? 
-          invoiceRequirement as 'with_invoice' | 'without_invoice' : undefined,
-        singleDateMode
+      // Ensure clientIds are properly set from selection summary
+      const filtersWithClients = {
+        ...currentFilters,
+        clientIds: selectionSummary.selectedClients,
+        orderIds: selectionSummary.selectedOrders,
+        remisionIds: selectionSummary.selectedRemisiones
       };
-
-      const result = await ReportDataService.fetchReportData(filters);
+      
+      const result = await ReportDataService.fetchReportData(filtersWithClients);
       setReportData(result.data);
       setReportSummary(result.summary);
       
-      // Don't automatically switch tabs - let user choose when to view preview
+      // Switch to preview tab
+      setActiveTab('preview');
     } catch (error) {
-      console.error('Error fetching report data:', error);
-      setReportData([]);
-      setReportSummary(null);
+      console.error('Error generating report data:', error);
+      alert('Error al generar los datos del reporte');
     } finally {
-      setLoading(false);
+      setGeneratingReport(false);
     }
-  }, [selectedClientId, dateRange, selectedSite, selectedRecipe, invoiceRequirement, singleDateMode]);
+  }, [currentFilters, selectionSummary]);
 
-  // Effects
+  // Clear report data when selection changes
   useEffect(() => {
-    loadClientsWithRemisiones();
-    loadRecipeCodes();
-  }, [loadClientsWithRemisiones, loadRecipeCodes]);
-
-  useEffect(() => {
-    loadClientSites();
-  }, [loadClientSites]);
-
-  // Reset filters when date range changes
-  useEffect(() => {
-    if (dateRange.from && dateRange.to) {
-      // Reset client selection when date range changes
-      setSelectedClientId('');
+    if (selectionSummary.selectedRemisiones.length === 0) {
       setReportData([]);
       setReportSummary(null);
-      setRecipeCodes([]); // Clear recipe codes when date range changes
-      // Reload available clients for new date range
-      loadClientsWithRemisiones();
     }
-  }, [dateRange.from, dateRange.to]);
+  }, [selectionSummary.selectedRemisiones]);
 
-  useEffect(() => {
-    if (selectedClientId) {
-      // Load recipe codes and construction sites for the selected client
-      loadRecipeCodes();
-      loadClientSites();
-    }
-  }, [selectedClientId, loadRecipeCodes, loadClientSites]);
-
-  // Filtered clients for search
-  const filteredClients = useMemo(() => {
-    if (!clientSearchTerm) return clients;
-    
-    const searchTerm = clientSearchTerm.toLowerCase();
-    return clients.filter(client => 
-      client.business_name?.toLowerCase().includes(searchTerm) ||
-      client.name?.toLowerCase().includes(searchTerm)
-    );
-  }, [clients, clientSearchTerm]);
-
-  // Selected client info
-  const selectedClient = clients.find(c => c.id === selectedClientId);
+  // Get selected client info from hierarchical data
+  const selectedClient = useMemo(() => {
+    if (!hierarchicalData || selectionSummary.selectedClients.length !== 1) return null;
+    return hierarchicalData.clients.find(c => c.id === selectionSummary.selectedClients[0]);
+  }, [hierarchicalData, selectionSummary.selectedClients]);
 
   // Extract plant information from report data for VAT calculation
   const plantInfo = useMemo(() => {
@@ -293,11 +206,14 @@ export default function ReportesClientes() {
 
   // Enhanced client info with plant information
   const enhancedClientInfo = useMemo(() => {
-    if (!selectedClient) return null;
+    if (!selectedClient) return undefined;
     
     return {
-      ...selectedClient,
-      plant_info: plantInfo
+      business_name: selectedClient.business_name,
+      name: selectedClient.business_name,
+      address: '', // We don't have address in SelectableClient
+      rfc: selectedClient.rfc,
+      plant_info: plantInfo || undefined
     };
   }, [selectedClient, plantInfo]);
 
@@ -334,15 +250,7 @@ export default function ReportesClientes() {
   // Generate report configuration
   const reportConfiguration: ReportConfiguration = {
     title: reportTitle,
-    filters: {
-      dateRange,
-      clientId: selectedClientId,
-      constructionSite: selectedSite !== 'todos' ? selectedSite : undefined,
-      recipeCode: selectedRecipe !== 'all' ? selectedRecipe : undefined,
-      invoiceRequirement: invoiceRequirement !== 'all' ? 
-        invoiceRequirement as 'with_invoice' | 'without_invoice' : undefined,
-      singleDateMode
-    },
+    filters: currentFilters,
     selectedColumns,
     showSummary,
     showVAT,
@@ -350,11 +258,13 @@ export default function ReportesClientes() {
     sortBy: {
       field: 'fecha',
       direction: 'desc'
-    }
+    },
+    selectionMode: 'remision-level',
+    allowPartialSelection: true
   };
 
   // PDF filename
-  const pdfFilename = `reporte-${selectedClient?.business_name?.replace(/[^a-zA-Z0-9]/g, '-') || 'cliente'}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+  const pdfFilename = `reporte-${selectedClient?.business_name?.replace(/[^a-zA-Z0-9]/g, '-') || 'dinamico'}-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
 
   return (
     <div className="container mx-auto p-6">
@@ -362,19 +272,19 @@ export default function ReportesClientes() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Reportes Dinámicos por Cliente
+            Reportes Dinámicos Avanzados
           </CardTitle>
           <CardDescription>
-            Genera reportes personalizados de entregas con información detallada para cada cliente
+            Sistema avanzado de generación de reportes con selección jerárquica flexible por cliente, orden y remisión
           </CardDescription>
         </CardHeader>
         
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="filters" className="flex items-center gap-2">
+              <TabsTrigger value="selection" className="flex items-center gap-2">
                 <Filter className="h-4 w-4" />
-                Filtros
+                Selección
               </TabsTrigger>
               <TabsTrigger value="columns" className="flex items-center gap-2">
                 <Settings className="h-4 w-4" />
@@ -390,192 +300,31 @@ export default function ReportesClientes() {
               </TabsTrigger>
             </TabsList>
 
-            {/* Filters Tab */}
-            <TabsContent value="filters" className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* Date Range */}
-                <div className="space-y-2">
-                  <Label>Rango de Fechas</Label>
-                  <DateRangePickerWithPresets 
-                    dateRange={dateRange} 
-                    onDateRangeChange={(range) => range && setDateRange(range)}
-                    singleDateMode={singleDateMode}
-                    onSingleDateModeChange={setSingleDateMode}
-                  />
-                </div>
-
-                {/* Client Selection */}
-                <div className="space-y-2">
-                  <Label>Cliente</Label>
-                  <Popover open={clientComboboxOpen} onOpenChange={setClientComboboxOpen}>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        aria-expanded={clientComboboxOpen}
-                        className="w-full justify-between"
-                        disabled={loadingClients}
-                      >
-                        {loadingClients ? (
-                          <span className="text-gray-400">Cargando clientes...</span>
-                        ) : selectedClient ? (
-                          <span className="truncate">{selectedClient.business_name}</span>
-                        ) : (
-                          <span className="text-gray-400">Seleccionar cliente...</span>
-                        )}
-                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-full p-0">
-                      <div className="relative">
-                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="Buscar cliente..."
-                          className="pl-8 h-9 rounded-none border-0 border-b focus-visible:ring-0"
-                          value={clientSearchTerm}
-                          onChange={(e) => setClientSearchTerm(e.target.value)}
-                        />
-                      </div>
-                                              <Command>
-                          <CommandList className="max-h-64 overflow-auto py-2">
-                            <CommandEmpty>
-                              {loadingClients ? "Cargando clientes..." : 
-                               clients.length === 0 ? "No hay clientes con remisiones en este período" :
-                               "No se encontraron clientes"}
-                              </CommandEmpty>
-                            <CommandGroup>
-                              {filteredClients.map((client) => (
-                                <CommandItem
-                                  key={client.id}
-                                  value={client.id}
-                                  onSelect={() => {
-                                    setSelectedClientId(client.id);
-                                    setClientComboboxOpen(false);
-                                  }}
-                                  className="cursor-pointer"
-                                >
-                                  <div className="flex flex-col">
-                                    <span>{client.business_name}</span>
-                                    {client.client_code && (
-                                      <span className="text-xs text-gray-500">{client.client_code}</span>
-                                    )}
-                                  </div>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                    </PopoverContent>
-                  </Popover>
-                  
-                  {selectedClientId && (
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="text-xs h-auto p-0"
-                      onClick={() => {
-                        setSelectedClientId('');
-                        setReportData([]);
-                        setReportSummary(null);
-                      }}
-                    >
-                      <X className="h-3 w-3 mr-1" /> Limpiar
-                    </Button>
-                  )}
-                </div>
-
-                {/* Construction Site */}
-                <div className="space-y-2">
-                  <Label>Obra</Label>
-                  <Select 
-                    value={selectedSite} 
-                    onValueChange={setSelectedSite}
-                    disabled={!selectedClientId || loadingFilters}
+            {/* Enhanced Selection Tab */}
+            <TabsContent value="selection" className="space-y-6">
+              <EnhancedReportFilters
+                onDataChange={handleDataChange}
+                onSelectionChange={handleSelectionChange}
+                loading={loading}
+              />
+              
+              {selectionSummary.selectedRemisiones.length > 0 && (
+                <div className="flex justify-center">
+                  <Button 
+                    onClick={generateReportData}
+                    disabled={generatingReport}
+                    size="lg"
+                    className="flex items-center gap-2"
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder={
-                        loadingFilters ? "Cargando obras..." : 
-                        !selectedClientId ? "Selecciona un cliente primero" : 
-                        "Seleccionar obra..."
-                      } />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="todos">Todas las Obras</SelectItem>
-                      {clientSites.map((site, index) => (
-                        <SelectItem key={`site-select-${index}-${site}`} value={site}>
-                          {site}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedClientId && clientSites.length === 0 && !loadingFilters && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      No hay obras con remisiones para este cliente en el período seleccionado
-                    </p>
-                  )}
+                    {generatingReport ? (
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    ) : (
+                      <BarChart3 className="h-4 w-4" />
+                    )}
+                    {generatingReport ? 'Generando Reporte...' : 'Generar Reporte para PDF'}
+                  </Button>
                 </div>
-
-                {/* Recipe Filter */}
-                <div className="space-y-2">
-                  <Label>Receta</Label>
-                  <Select 
-                    value={selectedRecipe} 
-                    onValueChange={setSelectedRecipe} 
-                    disabled={loadingFilters || !selectedClientId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder={
-                        !selectedClientId ? "Selecciona un cliente primero" :
-                        loadingFilters ? "Cargando recetas..." : 
-                        "Todas las recetas..."
-                      } />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todas las Recetas</SelectItem>
-                      {recipeCodes.map((code, index) => (
-                        <SelectItem key={`recipe-select-${index}-${code}`} value={code}>
-                          {code}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedClientId && recipeCodes.length === 0 && !loadingFilters && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      No hay recetas con remisiones para este cliente en el período seleccionado
-                    </p>
-                  )}
-                </div>
-
-                {/* Invoice Requirement */}
-                <div className="space-y-2">
-                  <Label>Facturación</Label>
-                  <Select value={invoiceRequirement} onValueChange={setInvoiceRequirement}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Todos..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Todos</SelectItem>
-                      <SelectItem value="with_invoice">Con Factura</SelectItem>
-                      <SelectItem value="without_invoice">Sin Factura</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <Button 
-                  onClick={fetchReportData}
-                  disabled={!selectedClientId || loading}
-                  className="flex items-center gap-2"
-                >
-                  {loading ? (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                  ) : (
-                    <Search className="h-4 w-4" />
-                  )}
-                  Generar Reporte
-                </Button>
-              </div>
+              )}
             </TabsContent>
 
             {/* Columns Tab */}
@@ -724,7 +473,7 @@ export default function ReportesClientes() {
 
             {/* Preview Tab */}
             <TabsContent value="preview" className="space-y-6">
-              {loading ? (
+              {loading || generatingReport ? (
                 <div className="space-y-4">
                   <Skeleton className="h-10 w-full" />
                   <Skeleton className="h-32 w-full" />
@@ -738,13 +487,16 @@ export default function ReportesClientes() {
                       No hay datos para mostrar
                     </h3>
                     <p className="text-gray-500 mb-4">
-                      Configura los filtros y genera un reporte para ver la vista previa
+                      {selectionSummary.selectedRemisiones.length === 0 
+                        ? 'Selecciona remisiones en la pestaña de Selección'
+                        : 'Haz clic en "Generar Reporte para PDF" para procesar los datos'
+                      }
                     </p>
                     <Button 
-                      onClick={() => setActiveTab('filters')}
+                      onClick={() => setActiveTab(selectionSummary.selectedRemisiones.length === 0 ? 'selection' : 'selection')}
                       variant="outline"
                     >
-                      Configurar Filtros
+                      {selectionSummary.selectedRemisiones.length === 0 ? 'Ir a Selección' : 'Generar Datos'}
                     </Button>
                   </CardContent>
                 </Card>
@@ -908,13 +660,16 @@ export default function ReportesClientes() {
                         No hay datos para exportar
                       </h3>
                       <p className="text-gray-500 mb-4">
-                        Genera un reporte con datos antes de exportar
+                        {selectionSummary.selectedRemisiones.length === 0
+                          ? 'Selecciona remisiones para generar el reporte'
+                          : 'Genera los datos del reporte antes de exportar'
+                        }
                       </p>
                       <Button 
-                        onClick={() => setActiveTab('filters')}
+                        onClick={() => setActiveTab('selection')}
                         variant="outline"
                       >
-                        Configurar Reporte
+                        {selectionSummary.selectedRemisiones.length === 0 ? 'Seleccionar Datos' : 'Generar Reporte'}
                       </Button>
                     </div>
                   ) : (
@@ -923,12 +678,18 @@ export default function ReportesClientes() {
                       <div className="bg-gray-50 p-4 rounded-lg">
                         <h4 className="font-medium mb-2">Resumen del Reporte:</h4>
                         <ul className="text-sm text-gray-600 space-y-1">
-                          <li>• Cliente: {selectedClient?.business_name}</li>
-                          <li>• Período: {format(dateRange.from!, 'dd/MM/yyyy', { locale: es })} - {format(dateRange.to!, 'dd/MM/yyyy', { locale: es })}</li>
-                          <li>• Registros: {reportData.length}</li>
+                          <li>• Clientes seleccionados: {selectionSummary.selectedClients.length}</li>
+                          <li>• Órdenes seleccionadas: {selectionSummary.selectedOrders.length}</li>
+                          <li>• Remisiones seleccionadas: {selectionSummary.selectedRemisiones.length}</li>
+                          <li>• Período: {format(currentFilters.dateRange.from!, 'dd/MM/yyyy', { locale: es })} - {format(currentFilters.dateRange.to!, 'dd/MM/yyyy', { locale: es })}</li>
+                          <li>• Registros en PDF: {reportData.length}</li>
                           <li>• Columnas: {selectedColumns.length}</li>
-                          {selectedSite !== 'todos' && <li>• Obra: {selectedSite}</li>}
-                          {selectedRecipe !== 'all' && <li>• Receta: {selectedRecipe}</li>}
+                          {currentFilters.recipeCodes && currentFilters.recipeCodes.length > 0 && (
+                            <li>• Recetas filtradas: {currentFilters.recipeCodes.length}</li>
+                          )}
+                          {currentFilters.constructionSites && currentFilters.constructionSites.length > 0 && (
+                            <li>• Obras filtradas: {currentFilters.constructionSites.length}</li>
+                          )}
                           {plantInfo && <li>• Planta: {plantInfo.plant_name} ({plantInfo.plant_code})</li>}
                           {showVAT && <li>• IVA: {((plantInfo?.vat_percentage || 0.16) * 100).toFixed(0)}%</li>}
                         </ul>
@@ -943,7 +704,7 @@ export default function ReportesClientes() {
                               configuration={reportConfiguration}
                               summary={reportSummary!}
                               clientInfo={enhancedClientInfo}
-                              dateRange={dateRange}
+                              dateRange={currentFilters.dateRange}
                               generatedAt={new Date()}
                             />
                           }

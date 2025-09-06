@@ -140,7 +140,7 @@ function DailyPaymentsTableSkeleton() {
 // Payment Metrics Section - Modified to work with date ranges
 async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDate: string }) {
   // Initialize metrics with default values
-  let metricsData = {
+  const metricsData = {
     totalPaymentsAmount: 0,
     totalPaymentsCount: 0,
     averagePaymentAmount: 0,

@@ -132,9 +132,9 @@ export class ArkikDuplicateHandler {
 
       // Get order information for existing remisiones
       const orderIds = existingRemisiones.map(r => r.order_id).filter(Boolean);
-      let orderNumbers: Map<string, string> = new Map();
-      let orderClientIds: Map<string, string> = new Map();
-      let orderSiteIds: Map<string, string> = new Map();
+      const orderNumbers: Map<string, string> = new Map();
+      const orderClientIds: Map<string, string> = new Map();
+      const orderSiteIds: Map<string, string> = new Map();
       
       if (orderIds.length > 0) {
         try {

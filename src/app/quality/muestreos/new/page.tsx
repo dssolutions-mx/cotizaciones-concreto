@@ -476,7 +476,7 @@ export default function NuevoMuestreoPage() {
       });
       
       // Ensure we're using the remision date if available, but preserve user's time selection
-      let finalData = { ...data };
+      const finalData = { ...data };
       if (selectedRemision?.fecha) {
         // Get the user's selected time from the form
         const userSelectedTime = data.fecha_muestreo;
