@@ -85,26 +85,9 @@ export class ArkikStatusProcessor {
     problemRemision: StagingRemision,
     allRemisiones: StagingRemision[]
   ): StagingRemision[] {
-    const candidates = allRemisiones.filter(candidate => {
-      // Don't suggest self
-      if (candidate.id === problemRemision.id) return false;
-
-      // Only suggest completed remisiones
-      if (this.normalizeStatus(candidate.estatus) !== RemisionStatus.TERMINADO) return false;
-
-      // Must be same client
-      if (candidate.cliente_name !== problemRemision.cliente_name) return false;
-
-      // Must be same construction site
-      if (candidate.obra_name !== problemRemision.obra_name) return false;
-
-      // Must be within reasonable timeframe (±3 days for more flexibility)
-      const timeDiff = Math.abs(candidate.fecha.getTime() - problemRemision.fecha.getTime());
-      const daysDiff = timeDiff / (1000 * 60 * 60 * 24);
-      if (daysDiff > 3) return false;
-
-      return true;
-    });
+    // Relaxed: Show ALL available remisiones so the user can freely reassign
+    // Only exclude the source remision itself
+    const candidates = allRemisiones.filter(candidate => candidate.id !== problemRemision.id);
 
     // Sort candidates by compatibility score (higher = better)
     return candidates.sort((a, b) => {

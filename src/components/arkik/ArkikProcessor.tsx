@@ -110,6 +110,9 @@ export default function ArkikProcessor() {
   const [duplicateHandlingDecisions, setDuplicateHandlingDecisions] = useState<DuplicateHandlingDecision[]>([]);
   const [showDuplicateHandling, setShowDuplicateHandling] = useState(false);
   const [duplicateHandler, setDuplicateHandler] = useState<ArkikDuplicateHandler | null>(null);
+  
+  // One-time initializer to prevent re-running status processing automatically
+  const [statusProcessingInitialized, setStatusProcessingInitialized] = useState(false);
 
   // Helper function to translate technical error messages into user-friendly messages for dosificadores
   const translateErrorForDosificador = (error: any): string => {
@@ -270,28 +273,34 @@ Fin del reporte
 
     setLoading(true);
     try {
-      // Check for duplicates after validation is complete
-      console.log('[ArkikProcessor] Starting duplicate detection after validation...');
-      const duplicateHandlerInstance = new ArkikDuplicateHandler(currentPlant.id);
-      setDuplicateHandler(duplicateHandlerInstance);
+      if (processingMode === 'commercial') {
+        // Commercial mode: Duplicates already handled, proceed to status processing
+        console.log('[ArkikProcessor] Commercial mode: Duplicates already handled, proceeding to status processing');
+        handleStatusProcessing();
+      } else {
+        // Dedicated mode: Check for duplicates after validation is complete
+        console.log('[ArkikProcessor] Dedicated mode: Starting duplicate detection after validation...');
+        const duplicateHandlerInstance = new ArkikDuplicateHandler(currentPlant.id);
+        setDuplicateHandler(duplicateHandlerInstance);
 
-      console.log('[ArkikProcessor] Calling detectDuplicates with', result.validated.length, 'remisiones');
-      const duplicates = await duplicateHandlerInstance.detectDuplicates(result.validated);
-      console.log('[ArkikProcessor] Duplicate detection result:', duplicates);
+        console.log('[ArkikProcessor] Calling detectDuplicates with', result.validated.length, 'remisiones');
+        const duplicates = await duplicateHandlerInstance.detectDuplicates(result.validated);
+        console.log('[ArkikProcessor] Duplicate detection result:', duplicates);
 
-      setDuplicateRemisiones(duplicates);
+        setDuplicateRemisiones(duplicates);
 
-      if (duplicates.length > 0) {
-        console.log(`[ArkikProcessor] Found ${duplicates.length} duplicate remisiones - showing manual interface`);
-        // Show duplicate handling interface for user to decide
-        setShowDuplicateHandling(true);
-        setCurrentStep('duplicate-handling');
-        return;
+        if (duplicates.length > 0) {
+          console.log(`[ArkikProcessor] Found ${duplicates.length} duplicate remisiones - showing manual interface`);
+          // Show duplicate handling interface for user to decide
+          setShowDuplicateHandling(true);
+          setCurrentStep('duplicate-handling');
+          return;
+        }
+
+        // No duplicates found, proceed directly to status processing
+        console.log('[ArkikProcessor] No duplicates found, proceeding to status processing');
+        handleStatusProcessing();
       }
-
-      // No duplicates found, proceed directly to status processing
-      console.log('[ArkikProcessor] No duplicates found, proceeding to status processing');
-      handleStatusProcessing();
 
     } catch (error) {
       console.error('Error in duplicate processing:', error);
@@ -351,7 +360,7 @@ Fin del reporte
       
       setProblemRemisiones(remisionesNeedingAttention);
 
-      console.log('[ArkikProcessor] Problem remisiones identified:', result.validated.length);
+      console.log('[ArkikProcessor] Problem remisiones identified:', remisionesNeedingAttention.length);
 
       // Detect potential reassignments
       if (result.validated.length > 0) {
@@ -470,6 +479,18 @@ Fin del reporte
       const allAreMaterialsOnlyUpdates = remainingRemisiones.length > 0 && 
         remainingRemisiones.every(r => r.duplicate_strategy === 'materials_only');
       
+      console.log('[ArkikProcessor] Status processing completion check:', {
+        totalProcessedData: processedData.length,
+        remainingRemisiones: remainingRemisiones.length,
+        allAreMaterialsOnlyUpdates,
+        sampleRemisiones: remainingRemisiones.slice(0, 3).map(r => ({
+          remision_number: r.remision_number,
+          is_excluded_from_import: r.is_excluded_from_import,
+          duplicate_strategy: r.duplicate_strategy,
+          status_processing_action: r.status_processing_action
+        }))
+      });
+      
       if (allAreMaterialsOnlyUpdates) {
         console.log('[ArkikProcessor] All remaining remisiones are materials-only updates - skipping order grouping');
         
@@ -511,6 +532,10 @@ Fin del reporte
       
       // Continue to grouping with the processed data (only if there are remisiones that need orders)
       // Pass the processed data directly to avoid React state timing issues
+      console.log('[ArkikProcessor] Calling handleOrderGrouping with processed data:', {
+        processedDataLength: processedData.length,
+        processingMode: processingMode
+      });
       handleOrderGrouping(processedData);
       
     } catch (error) {
@@ -735,6 +760,11 @@ Fin del reporte
           existingOrderMatches: matchedOrders
         });
         
+        if (suggestions.length === 0) {
+          alert('No hay órdenes sugeridas en modo Comercial. Verifica precios/códigos y vuelve a intentar, o cambia a "Obra Dedicada".');
+          return;
+        }
+        
       } else {
         // Dedicated site mode: create new orders automatically
         console.log('[ArkikProcessor] Dedicated site mode: Creating new orders');
@@ -745,13 +775,20 @@ Fin del reporte
         suggestions = grouper.groupRemisiones(readyForOrderCreation, {
           processingMode: 'dedicated'
         });
+        
+        if (suggestions.length === 0) {
+          alert('No hay órdenes sugeridas en modo Obra Dedicada. Verifica que existan remisiones listas para crear órdenes.');
+          return;
+        }
       }
       
       setOrderSuggestions(suggestions);
       
-      // Update statistics based on ready remisiones
-      const stats = {
-        totalRows: readyForOrderCreation.length, // Use filtered count
+      // Update statistics based on all processed remisiones (not just filtered ones)
+      const totalRemisionesInSuggestions = suggestions.reduce((total, suggestion) => total + suggestion.remisiones.length, 0);
+      
+      const newStats = {
+        totalRows: totalRemisionesInSuggestions, // Count remisiones actually in the suggestions
         validRows: readyForOrderCreation.filter(r => r.validation_status === 'valid').length,
         errorRows: remisionesToProcess.filter(r => r.validation_status === 'error').length, // Show errors from processed data
         ordersToCreate: suggestions.filter((s: OrderSuggestion) => !s.remisiones[0].orden_original).length,
@@ -762,8 +799,22 @@ Fin del reporte
         newDrivers: new Set(readyForOrderCreation.map(r => r.conductor).filter(Boolean)).size
       };
       
-      setStats(stats);
+      console.log('[ArkikProcessor] Statistics calculation:', {
+        totalRemisionesToProcess: remisionesToProcess.length,
+        readyForOrderCreation: readyForOrderCreation.length,
+        totalRemisionesInSuggestions,
+        suggestionsCount: suggestions.length,
+        newStatsTotal: newStats.totalRows
+      });
+      
+      setStats(newStats);
       setCurrentStep('grouping');
+      
+      console.log('[ArkikProcessor] Order grouping completed successfully:', {
+        suggestions: suggestions.length,
+        step: 'grouping',
+        stats: newStats
+      });
       
     } catch (error) {
       console.error('Error in order grouping:', error);
@@ -830,11 +881,16 @@ Fin del reporte
     setShowDuplicateHandling(false);
 
     try {
-      if (!duplicateHandler || !result?.validated) return;
+      if (!duplicateHandler) return;
 
-      // Apply duplicate decisions to the validated data
+      // In commercial mode, we need to work with staging data since duplicates were checked before validation
+      const dataToProcess = processingMode === 'commercial' ? stagingData : (result?.validated || []);
+      
+      if (dataToProcess.length === 0) return;
+
+      // Apply duplicate decisions to the data
       const { processedRemisiones: processed, skippedRemisiones: skipped, updatedRemisiones: updated, result: duplicateResult } =
-        duplicateHandler.applyDuplicateDecisions(result.validated, decisions, duplicateRemisiones);
+        duplicateHandler.applyDuplicateDecisions(dataToProcess, decisions, duplicateRemisiones);
 
       console.log('[ArkikProcessor] Duplicate handling results:', {
         processed: processed.length,
@@ -843,9 +899,36 @@ Fin del reporte
         summary: duplicateResult.summary
       });
 
-      // Update the result with processed data
-      const updatedValidated = [...processed, ...updated];
-      setResult(prev => prev ? { ...prev, validated: updatedValidated } : null);
+      // In commercial mode, validate the processed remisiones now
+      let updatedValidated: StagingRemision[];
+      if (processingMode === 'commercial' && processed.length > 0) {
+        console.log('[ArkikProcessor] Commercial mode: Validating processed remisiones after duplicate handling...');
+        const validator = new DebugArkikValidator(currentPlant!.id);
+        const { validated: validatedProcessed, errors: validationErrors } = await validator.validateBatch(processed);
+        
+        // Update validation errors state
+        setValidationErrors(validationErrors);
+        
+        // Combine validated processed remisiones with updated ones
+        updatedValidated = [...validatedProcessed, ...updated];
+        
+        // Update or create the result object
+        const processingTime = Date.now() - Date.now(); // Placeholder
+        const successRate = validatedProcessed.length > 0 ? (validatedProcessed.filter(r => r.validation_status === 'valid').length / validatedProcessed.length) * 100 : 0;
+        
+        setResult({
+          validated: updatedValidated,
+          errors: validationErrors,
+          debugLogs: [],
+          processingTime,
+          totalRows: updatedValidated.length,
+          successRate
+        });
+      } else {
+        // Dedicated mode: use existing validated data
+        updatedValidated = [...processed, ...updated];
+        setResult(prev => prev ? { ...prev, validated: updatedValidated } : null);
+      }
 
       // Check if ALL remisiones are materials-only updates (no new orders needed)
       const allAreMaterialsOnlyUpdates = updated.length > 0 &&
@@ -1152,7 +1235,8 @@ Fin del reporte
           
           if (updateResult.success) {
             totalOrdersUpdated++;
-            totalOrderItemsCreated += updateResult.updatedOrderItems?.length || 0;
+            // Note: In commercial mode, we update existing order_items, not create new ones
+            // So we don't count them as "created"
             totalRemisionesCreated += suggestion.remisiones.length;
             // TODO: Add material processing count
           } else {
@@ -1339,6 +1423,32 @@ Fin del reporte
           suggested_order_group: ''
         } as StagingRemision));
 
+      // Handle processing based on mode
+      if (processingMode === 'commercial') {
+        // Commercial mode: Check duplicates BEFORE validation
+        console.log('[ArkikProcessor] Commercial mode: Checking duplicates before validation...');
+        
+        const duplicateHandlerInstance = new ArkikDuplicateHandler(currentPlant.id);
+        setDuplicateHandler(duplicateHandlerInstance);
+        
+        const duplicates = await duplicateHandlerInstance.detectDuplicates(stagingRows);
+        console.log('[ArkikProcessor] Duplicate detection result:', duplicates);
+        
+        setDuplicateRemisiones(duplicates);
+        
+        if (duplicates.length > 0) {
+          console.log(`[ArkikProcessor] Found ${duplicates.length} duplicate remisiones - showing duplicate handling interface`);
+          // Set staging data and show duplicate handling interface
+          setStagingData(stagingRows);
+          setShowDuplicateHandling(true);
+          setCurrentStep('duplicate-handling');
+          setLoading(false);
+          return;
+        } else {
+          console.log('[ArkikProcessor] No duplicates found, proceeding with validation...');
+        }
+      }
+
       // Then validate using the debug validator
       const validator = new DebugArkikValidator(currentPlant.id);
       const { validated, errors } = await validator.validateBatch(stagingRows);
@@ -1494,7 +1604,7 @@ Fin del reporte
     }
   };
 
-  // Auto-trigger status processing when step changes to status-processing
+  // Auto-trigger status processing only once when entering the step
   useEffect(() => {
     console.log('[ArkikProcessor] useEffect triggered:', {
       currentStep,
@@ -1502,12 +1612,20 @@ Fin del reporte
       validatedLength: result?.validated?.length || 0,
       problemRemisionesLength: problemRemisiones.length
     });
-    
-    if (currentStep === 'status-processing' && result?.validated && problemRemisiones.length === 0) {
-      console.log('[ArkikProcessor] Auto-triggering status processing for step change');
+
+    if (currentStep === 'status-processing' && result?.validated && !statusProcessingInitialized) {
+      console.log('[ArkikProcessor] Auto-triggering status processing for step change (first time)');
+      setStatusProcessingInitialized(true);
       handleStatusProcessing();
     }
-  }, [currentStep, result?.validated, problemRemisiones.length]);
+  }, [currentStep, result?.validated, statusProcessingInitialized]);
+
+  // Reset initializer when leaving status-processing step
+  useEffect(() => {
+    if (currentStep !== 'status-processing' && statusProcessingInitialized) {
+      setStatusProcessingInitialized(false);
+    }
+  }, [currentStep, statusProcessingInitialized]);
 
   const getValidationIcon = (status: StagingRemision['validation_status']) => {
     switch (status) {
@@ -3005,6 +3123,16 @@ Fin del reporte
         />
       )}
 
+      {/* Manual Assignment Interface */}
+      {currentStep === 'manual-assignment' && unmatchedRemisiones.length > 0 && (
+        <ManualAssignmentInterface
+          unmatchedRemisiones={unmatchedRemisiones}
+          plantId={currentPlant.id}
+          onAssignmentsComplete={handleManualAssignmentsComplete}
+          onCancel={handleManualAssignmentCancel}
+        />
+      )}
+
       {/* Status Processing Dialog */}
       <StatusProcessingDialog
         isOpen={statusDialogOpen}
@@ -3013,7 +3141,9 @@ Fin del reporte
           setSelectedRemisionForProcessing(null);
         }}
         remision={selectedRemisionForProcessing}
-        potentialTargets={selectedRemisionForProcessing ? potentialReassignments.get(selectedRemisionForProcessing.id) || [] : []}
+        potentialTargets={selectedRemisionForProcessing 
+          ? (result?.validated || []).filter(r => r.id !== selectedRemisionForProcessing.id)
+          : []}
         onSaveDecision={handleSaveStatusDecision}
       />
     </div>

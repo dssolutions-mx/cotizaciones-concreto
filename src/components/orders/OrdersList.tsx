@@ -132,6 +132,20 @@ function formatDate(dateString: string) {
 // Define a basic OrderCard component
 function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onClick: () => void; groupKey: string }) {
 
+  function handleContextMenu(e: React.MouseEvent) {
+    // Allow the default browser context menu to appear
+    // This enables "Open in new tab" functionality
+    // Don't prevent default here - let the browser handle it
+  }
+
+  function handleAuxClick(e: React.MouseEvent) {
+    // Handle middle-click to open in new tab
+    if (e.button === 1) { // Middle mouse button
+      e.preventDefault();
+      onClick();
+    }
+  }
+
   // Determinar el monto a mostrar (final o preliminar)
   const finalAmount = order.final_amount || (order as any).final_amount;
   const preliminaryAmount = order.preliminary_amount || (order as any).preliminary_amount;
@@ -157,7 +171,16 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
   const requiresInvoice = order.requires_invoice;
 
   return (
-    <div className="p-4 hover:bg-gray-50 transition duration-150">
+    <a
+      href={`/orders/${order.id}`}
+      className="block p-4 hover:bg-gray-50 transition duration-150 cursor-pointer"
+      onClick={(e) => {
+        e.preventDefault();
+        onClick();
+      }}
+      onContextMenu={handleContextMenu}
+      onAuxClick={handleAuxClick}
+    >
       <div className="flex flex-col md:flex-row justify-between">
         <div className="flex-1">
           <div className="flex items-center">
@@ -182,18 +205,19 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
               <span className="font-medium">Obra:</span> {order.construction_site}
               {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
                 <>
-                  <a
+                  <button
                     className="ml-2 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
-                    href={(order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
                     title="Abrir ubicación en Google Maps"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open((order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`, '_blank');
+                    }}
                   >
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
                     </svg>
                     Ver mapa
-                  </a>
+                  </button>
                   <span className="ml-2 text-xs text-gray-500">
                     {(order as any).delivery_latitude}, {(order as any).delivery_longitude}
                   </span>
@@ -224,15 +248,18 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
               <p className="text-xs text-gray-500">Monto preliminar</p>
             )}
           </div>
-          <button 
-            onClick={onClick} 
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onClick();
+            }}
             className="inline-flex items-center justify-center rounded-md border border-input px-3 h-9 text-sm font-medium bg-background hover:bg-accent hover:text-accent-foreground shadow-xs hover:shadow-sm transition-all"
           >
             Ver detalles
           </button>
         </div>
       </div>
-    </div>
+    </a>
   );
 }
 

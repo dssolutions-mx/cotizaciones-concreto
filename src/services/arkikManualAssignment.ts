@@ -21,7 +21,7 @@ export interface OrderItem {
   id: string;
   recipe_id: string;
   recipe_name: string;
-  quantity: number;
+  volume: number;
   unit_price: number;
   quote_detail_id?: string;
 }
@@ -61,6 +61,31 @@ export class ArkikManualAssignmentService {
     this.plantId = plantId;
   }
 
+  // Parse a date string like YYYY-MM-DD as a local date to avoid UTC shift
+  private parseLocalDate(dateInput: string | Date): Date {
+    if (dateInput instanceof Date) return dateInput;
+    if (!dateInput) return new Date();
+    // Expecting format YYYY-MM-DD; fall back to native Date if not
+    const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(dateInput);
+    if (m) {
+      const year = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      const day = Number(m[3]);
+      return new Date(year, month, day);
+    }
+    return new Date(dateInput);
+  }
+
+  // Normalize recipe codes for robust comparisons
+  private normalizeRecipeCode(value?: string | null): string {
+    return (value || '')
+      .toString()
+      .normalize('NFKD')
+      .replace(/\s+/g, '')
+      .replace(/[-_/]/g, '')
+      .toUpperCase();
+  }
+
   /**
    * Find compatible orders for manual assignment of unmatched remisiones
    */
@@ -91,12 +116,12 @@ export class ArkikManualAssignmentService {
       return [];
     }
 
-    // Define date range (±2 days flexibility for manual assignment)
+    // Define broader date range for manual assignment (±30 days for more flexibility)
     const baseDate = remision.fecha;
     const startDate = new Date(baseDate);
-    startDate.setDate(startDate.getDate() - 2);
+    startDate.setDate(startDate.getDate() - 30);
     const endDate = new Date(baseDate);
-    endDate.setDate(endDate.getDate() + 2);
+    endDate.setDate(endDate.getDate() + 30);
 
     try {
       console.log('[ManualAssignment] Searching orders for remision:', remision.remision_number, {
@@ -105,7 +130,7 @@ export class ArkikManualAssignmentService {
         date_range: [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]
       });
 
-      const { data: orders, error } = await supabase
+      let { data: orders, error } = await supabase
         .from('orders')
         .select(`
           id,
@@ -121,10 +146,10 @@ export class ArkikManualAssignmentService {
             id,
             business_name
           ),
-          order_items!inner (
+          order_items (
             id,
             recipe_id,
-            quantity,
+            volume,
             unit_price,
             quote_detail_id,
             recipes!inner (
@@ -138,12 +163,58 @@ export class ArkikManualAssignmentService {
         .gte('delivery_date', startDate.toISOString().split('T')[0])
         .lte('delivery_date', endDate.toISOString().split('T')[0])
         .in('order_status', ['created', 'validated', 'scheduled']) // Only orders that can be updated
-        .eq('credit_status', 'approved') // Only approved orders
-        .eq('plant_id', this.plantId);
+        .eq('plant_id', this.plantId)
+        .limit(50); // Limit results for performance
 
       if (error) {
-        console.error('[ManualAssignment] Error fetching orders:', error);
-        return [];
+        console.error('[ManualAssignment] Error fetching orders (same client):', error);
+      }
+
+      // If no orders found for same client, try broader search (same plant, similar timeframe)
+      if (!orders || orders.length === 0) {
+        console.log('[ManualAssignment] No orders found for same client, trying broader search...');
+        
+        const { data: broadOrders, error: broadError } = await supabase
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            client_id,
+            construction_site,
+            construction_site_id,
+            delivery_date,
+            order_status,
+            credit_status,
+            total_amount,
+            clients!inner (
+              id,
+              business_name
+            ),
+            order_items (
+              id,
+              recipe_id,
+              volume,
+              unit_price,
+              quote_detail_id,
+              recipes!inner (
+                id,
+                recipe_code,
+                arkik_long_code
+              )
+            )
+          `)
+          .gte('delivery_date', startDate.toISOString().split('T')[0])
+          .lte('delivery_date', endDate.toISOString().split('T')[0])
+          .in('order_status', ['created', 'validated', 'scheduled'])
+          .eq('plant_id', this.plantId)
+          .limit(30); // Smaller limit for broader search
+
+        if (broadError) {
+          console.error('[ManualAssignment] Error fetching orders (broad search):', broadError);
+          return [];
+        }
+
+        orders = broadOrders;
       }
 
       if (!orders || orders.length === 0) {
@@ -176,7 +247,7 @@ export class ArkikManualAssignmentService {
               id: item.id,
               recipe_id: item.recipe_id,
               recipe_name: item.recipes?.arkik_long_code || item.recipes?.recipe_code || 'Unknown Recipe',
-              quantity: item.quantity,
+              volume: item.volume,
               unit_price: item.unit_price,
               quote_detail_id: item.quote_detail_id
             }))
@@ -359,13 +430,15 @@ export class ArkikManualAssignmentService {
     order: any
   ): { score: number; reasons: string[] } {
     const reasons: string[] = [];
-    let score = 0;
+    let score = 1; // Base score so all orders are at least considered
     const maxScore = 10;
 
-    // Client match (mandatory - already filtered in query)
+    // Client match (high priority)
     if (order.client_id === remision.client_id) {
       score += 3;
       reasons.push('Cliente exacto');
+    } else {
+      reasons.push('Cliente diferente');
     }
 
     // Construction site match
@@ -376,11 +449,13 @@ export class ArkikManualAssignmentService {
                order.construction_site.toLowerCase().includes(remision.obra_name.toLowerCase())) {
       score += 1;
       reasons.push('Obra similar');
+    } else {
+      reasons.push('Obra diferente');
     }
 
-    // Date proximity
-    const orderDate = new Date(order.delivery_date);
-    const remisionDate = remision.fecha;
+    // Date proximity (more flexible for manual assignment)
+    const orderDate = this.parseLocalDate(order.delivery_date);
+    const remisionDate = this.parseLocalDate(remision.fecha as any);
     const daysDiff = Math.abs((orderDate.getTime() - remisionDate.getTime()) / (1000 * 60 * 60 * 24));
 
     if (daysDiff === 0) {
@@ -389,20 +464,32 @@ export class ArkikManualAssignmentService {
     } else if (daysDiff <= 1) {
       score += 1.5;
       reasons.push('Fecha próxima');
-    } else if (daysDiff <= 2) {
+    } else if (daysDiff <= 7) {
       score += 1;
       reasons.push('Fecha cercana');
+    } else if (daysDiff <= 30) {
+      score += 0.5;
+      reasons.push('Fecha en el mes');
+    } else {
+      reasons.push('Fecha distante');
     }
 
     // Recipe/Product compatibility
     const orderItems = order.order_items || [];
-    const hasMatchingRecipe = orderItems.some((item: any) =>
-      item.recipe_id === remision.recipe_id
-    );
+    const remisionRecipeId = (remision as any).recipe_id as string | undefined;
+    const remisionArkikCode = this.normalizeRecipeCode((remision as any).arkik_long_code || (remision as any).recipe_code);
+    const hasMatchingRecipe = orderItems.some((item: any) => {
+      const idMatch = item.recipe_id && remisionRecipeId && item.recipe_id === remisionRecipeId;
+      const itemArkik = this.normalizeRecipeCode(item.recipes?.arkik_long_code || item.recipes?.recipe_code);
+      const codeMatch = !!remisionArkikCode && remisionArkikCode.length > 0 && itemArkik === remisionArkikCode;
+      return idMatch || codeMatch;
+    });
 
     if (hasMatchingRecipe) {
       score += 2;
       reasons.push('Receta compatible');
+    } else {
+      reasons.push('Receta diferente');
     }
 
     // Quote compatibility (bonus points)
@@ -415,6 +502,12 @@ export class ArkikManualAssignmentService {
         score += 1;
         reasons.push('Cotización exacta');
       }
+    }
+
+    // Order status bonus (prefer orders that are easier to modify)
+    if (order.order_status === 'created') {
+      score += 0.5;
+      reasons.push('Orden nueva');
     }
 
     return {

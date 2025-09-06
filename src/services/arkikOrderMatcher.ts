@@ -413,63 +413,135 @@ export class ArkikOrderMatcher {
     error?: string;
   }> {
     try {
-      // Group remisiones by product/recipe to create or update order items
-      const remisionsByProduct = this.groupRemisionesByProduct(remisiones);
-      const updatedOrderItems: OrderItem[] = [];
-
-      for (const [productKey, productRemisiones] of remisionsByProduct.entries()) {
-        const totalVolume = productRemisiones.reduce((sum, r) => sum + r.volumen_fabricado, 0);
-        const avgPrice = this.calculateAveragePrice(productRemisiones);
-        const firstRemision = productRemisiones[0];
-
-        // Create new order item for this product group
-        const orderItemData = {
-          order_id: orderId,
-          product_type: 'CONCRETO',
-          volume: totalVolume,
-          unit_price: avgPrice,
-          total_price: totalVolume * avgPrice,
-          quote_detail_id: firstRemision.quote_detail_id,
-          recipe_id: firstRemision.recipe_id,
-          has_pump_service: false,
-          pump_price: 0,
-          pump_volume: 0,
-          has_empty_truck_charge: false,
-          empty_truck_volume: 0,
-          empty_truck_price: 0
-        };
-
-        const { data: orderItem, error } = await supabase
-          .from('order_items')
-          .insert(orderItemData)
-          .select()
-          .single();
-
-        if (error) {
-          throw error;
+      console.log(`[ArkikOrderMatcher] Adding ${remisiones.length} remisiones to existing order ${orderId}`);
+      
+      // Step 1: Insert remisiones into the database using the same field mapping as dedicated mode
+      const remisionesToInsert = remisiones.map(remision => {
+        // Format hora_carga properly
+        let horaCarga: string;
+        if (remision.hora_carga instanceof Date) {
+          horaCarga = remision.hora_carga.toTimeString().split(' ')[0]; // Extract HH:MM:SS
+        } else if (typeof remision.hora_carga === 'string') {
+          horaCarga = remision.hora_carga;
+        } else {
+          horaCarga = '08:00:00';
         }
 
-        updatedOrderItems.push(orderItem);
+        // Format fecha properly
+        let fecha: string;
+        if (remision.fecha instanceof Date) {
+          fecha = remision.fecha.toISOString().split('T')[0]; // Extract YYYY-MM-DD
+        } else if (typeof remision.fecha === 'string') {
+          fecha = remision.fecha;
+        } else {
+          fecha = new Date().toISOString().split('T')[0];
+        }
+
+        return {
+          order_id: orderId, // Link to the existing order
+          remision_number: remision.remision_number,
+          fecha: fecha,
+          hora_carga: horaCarga,
+          volumen_fabricado: remision.volumen_fabricado,
+          conductor: remision.conductor || undefined,
+          unidad: remision.placas || undefined, // Map placas from Excel to unidad field (same as dedicated mode)
+          tipo_remision: 'CONCRETO',
+          recipe_id: remision.recipe_id!,
+          plant_id: this.plantId
+        };
+      });
+
+      const { data: insertedRemisiones, error: remisionError } = await supabase
+        .from('remisiones')
+        .insert(remisionesToInsert)
+        .select();
+
+      if (remisionError) {
+        throw remisionError;
       }
 
-      // Update order total amount
-      const newTotalAmount = updatedOrderItems.reduce((sum, item) => sum + item.total_price, 0);
-      
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({ 
-          total_amount: newTotalAmount,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', orderId);
+      console.log(`[ArkikOrderMatcher] Successfully inserted ${insertedRemisiones?.length} remisiones`);
 
-      if (updateError) {
-        throw updateError;
+      // Step 2: Create materials for each remision (read from staging maps)
+      let materialsCreated = 0;
+      if (insertedRemisiones && insertedRemisiones.length > 0) {
+        console.log(`[ArkikOrderMatcher] Creating materials for ${insertedRemisiones.length} remisiones`);
+        
+        const allRemisionMaterials: any[] = [];
+        
+        // Prepare materials data for batch insertion
+        for (const createdRemision of insertedRemisiones) {
+          const stagingRemision = remisiones.find(r => r.remision_number === createdRemision.remision_number);
+          
+          if (stagingRemision && stagingRemision.materials_teorico) {
+            const teoricos = stagingRemision.materials_teorico as Record<string, number>;
+            const reales = (stagingRemision.materials_real || {}) as Record<string, number>;
+            const retrabajo = (stagingRemision.materials_retrabajo || {}) as Record<string, number>;
+
+            const materialCodes = new Set<string>([...Object.keys(teoricos), ...Object.keys(reales), ...Object.keys(retrabajo)]);
+            if (materialCodes.size > 0) {
+              materialCodes.forEach(code => {
+                const cantidad_teorica = Number(teoricos[code] || 0);
+                const cantidad_real = Number(reales[code] || 0);
+                const ajuste = retrabajo[code] != null ? Number(retrabajo[code]) : null;
+                // Only insert if at least one value is non-zero
+                if (cantidad_teorica > 0 || cantidad_real > 0 || (ajuste != null && ajuste !== 0)) {
+                  allRemisionMaterials.push({
+                    remision_id: createdRemision.id,
+                    material_type: code,
+                    cantidad_teorica,
+                    cantidad_real,
+                    ajuste,
+                    plant_id: this.plantId
+                  });
+                }
+              });
+            }
+          }
+        }
+        
+        // Insert materials in batch if any exist
+        if (allRemisionMaterials.length > 0) {
+          const { error: materialsError } = await supabase
+            .from('remision_materiales')
+            .insert(allRemisionMaterials);
+            
+          if (materialsError) {
+            console.error(`[ArkikOrderMatcher] Error creating materials:`, materialsError);
+            // Don't fail the entire operation if materials creation fails
+          } else {
+            console.log(`[ArkikOrderMatcher] Successfully created ${allRemisionMaterials.length} material records`);
+            materialsCreated += allRemisionMaterials.length;
+          }
+        } else {
+          console.log(`[ArkikOrderMatcher] No materials to create for these remisiones`);
+        }
+      }
+
+      // Step 3: Trigger automatic order recalculation using the existing orderService
+      try {
+        const { recalculateOrderAmount } = await import('./orderService');
+        const recalcResult = await recalculateOrderAmount(orderId);
+        console.log(`[ArkikOrderMatcher] Successfully recalculated order ${orderId}:`, recalcResult.message);
+      } catch (recalcError) {
+        console.warn(`[ArkikOrderMatcher] Warning: Could not trigger automatic recalculation:`, recalcError);
+        // Don't fail the entire operation if recalculation fails
+      }
+
+      // Step 4: Get the updated order items after recalculation (optional, for return value)
+      const { data: updatedOrderItems, error: fetchError } = await supabase
+        .from('order_items')
+        .select('*')
+        .eq('order_id', orderId);
+
+      if (fetchError) {
+        console.warn(`[ArkikOrderMatcher] Warning: Could not fetch updated order items:`, fetchError);
       }
 
       return {
         success: true,
-        updatedOrderItems
+        updatedOrderItems: updatedOrderItems || [],
+        materialsCreated
       };
 
     } catch (error) {
