@@ -1641,7 +1641,7 @@ export default function ScheduleOrderForm({
                           // Server-side expansion via Supabase Edge Function to avoid CORS
                           if (/^https?:\/\/(maps\.app\.goo\.gl|g\.co|goo\.gl)\//i.test(mapsPaste)) {
                             try {
-                              const { data, error } = await supabase.functions.invoke('expand-maps-url', {
+                              const { data, error } = await supabase.functions.invoke('maps-url-parser', {
                                 body: { url: mapsPaste }
                               });
                               if (!error && data) {
@@ -1660,9 +1660,13 @@ export default function ScheduleOrderForm({
                                   setCoordinatesError('');
                                   return;
                                 }
+                              } else if (error?.message?.includes('Missing authorization header') || error?.message?.includes('401')) {
+                                // Auth issue - fall back to client-side parsing immediately
+                                console.log('Edge Function auth issue, falling back to client parsing');
                               }
-                            } catch (_) {
-                              // ignore and fall through
+                            } catch (e) {
+                              // Any error (auth, network, etc.) - fall back to client-side parsing
+                              console.log('Edge Function error, falling back to client parsing:', e);
                             }
                           }
 
@@ -1678,7 +1682,7 @@ export default function ScheduleOrderForm({
                     </button>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Pega cualquier enlace de Google Maps (incluye <a href="https://maps.app.goo.gl/jLGe1St2kHpfrGRYA?g_st=ipc" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">maps.app.goo.gl</a>) o lat,lng.
+                    Pega cualquier enlace de Google Maps (incluye <a href="https://maps.app.goo.gl/jLGe1St2kHpfrGRYA?g_st=ipc" target="_blank" rel="noopener noreferrer" className="underline text-blue-600">maps.app.goo.gl</a>) o lat,lng. Procesamiento automático para enlaces cortos.
                   </p>
                   {/* Fallback guidance when short links cannot be expanded automatically */}
                   <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-md p-2">

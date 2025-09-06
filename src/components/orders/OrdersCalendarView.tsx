@@ -384,6 +384,25 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
     router.push(`/orders/${id}?returnTo=calendar`);
   }
 
+  function handleOrderContextMenu(e: React.MouseEvent, id: string) {
+    // Allow the default browser context menu to appear
+    // This enables "Open in new tab" functionality
+    // Don't prevent default here - let the browser handle it
+  }
+
+  function handleOrderAuxClick(e: React.MouseEvent, id: string) {
+    // Handle middle-click to open in new tab
+    if (e.button === 1) { // Middle mouse button
+      e.preventDefault();
+      updatePreferences({
+        calendarDate: currentDate.toISOString(),
+        calendarViewType: viewType,
+        lastScrollPosition: calendarRef.current?.scrollTop || 0
+      });
+      window.open(`/orders/${id}?returnTo=calendar`, '_blank');
+    }
+  }
+
   function getViewTitle() {
     if (viewType === 'day') {
       return format(currentDate, 'EEEE, d MMMM yyyy', { locale: es });
@@ -469,10 +488,16 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                 {hourSlot.orders.map(order => {
                   const { bg, border, text } = getStatusBadgeColors(order.order_status);
                   return (
-                    <div
+                    <a
                       key={order.id}
-                      onClick={() => handleOrderClick(order.id)}
-                      className={`p-3 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs`}
+                      href={`/orders/${order.id}?returnTo=calendar`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleOrderClick(order.id);
+                      }}
+                      onContextMenu={(e) => handleOrderContextMenu(e, order.id)}
+                      onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
+                      className={`block p-3 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs`}
                     >
                       <div className="font-medium">{order.clients?.business_name || 'Cliente no disponible'}</div>
                       <div className="flex items-center mt-1 text-sm">
@@ -492,18 +517,19 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           )}
                         </span>
                         {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
-                          <a
+                          <button
                             className="ml-2 inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 shrink-0 whitespace-nowrap"
-                            href={(order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             title="Abrir ubicación en Google Maps"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open((order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`, '_blank');
+                            }}
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
                             </svg>
                             Ver mapa
-                          </a>
+                          </button>
                         )}
                       </div>
                       <div className="flex items-center mt-1 text-sm">
@@ -528,7 +554,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           </span>
                         )}
                       </div>
-                    </div>
+                    </a>
                   );
                 })}
                 {hourSlot.orders.length === 0 && (
@@ -577,10 +603,16 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                 day.orders.map(order => {
                   const { bg, border, text } = getStatusBadgeColors(order.order_status);
                   return (
-                    <div
+                    <a
                       key={order.id}
-                      onClick={() => handleOrderClick(order.id)}
-                      className={`p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-sm`}
+                      href={`/orders/${order.id}?returnTo=calendar`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        handleOrderClick(order.id);
+                      }}
+                      onContextMenu={(e) => handleOrderContextMenu(e, order.id)}
+                      onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
+                      className={`block p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-sm`}
                     >
                       <div className="font-medium truncate">{order.clients?.business_name || 'Cliente no disponible'}</div>
                       <div className="flex items-center mt-1 text-xs">
@@ -602,18 +634,19 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       </div>
                       {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
                         <div className="mt-1">
-                          <a
+                          <button
                             className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
-                            href={(order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
                             title="Abrir ubicación en Google Maps"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              window.open((order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`, '_blank');
+                            }}
                           >
                             <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                               <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
                             </svg>
                             Mapa
-                          </a>
+                          </button>
                         </div>
                       )}
                       <div className="flex items-center mt-1 text-xs">
@@ -638,7 +671,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           </span>
                         )}
                       </div>
-                    </div>
+                    </a>
                   );
                 })
               ) : (
@@ -684,10 +717,16 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
               {day.orders.map(order => {
                 const { bg, border, text } = getStatusBadgeColors(order.order_status);
                 return (
-                  <div
+                  <a
                     key={order.id}
-                    onClick={() => handleOrderClick(order.id)}
-                    className={`p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-xs`}
+                    href={`/orders/${order.id}?returnTo=calendar`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleOrderClick(order.id);
+                    }}
+                    onContextMenu={(e) => handleOrderContextMenu(e, order.id)}
+                    onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
+                    className={`block p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-xs`}
                   >
                     <div className="font-medium truncate">{order.clients?.business_name || 'Cliente no disponible'}</div>
                     <div className="text-xs mt-1 flex items-center">
@@ -716,7 +755,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                         {(order as any).hasPumpService ? ` • B: ${(order as any).pumpVolume} m³` : ''}
                       </span>
                     </div>
-                  </div>
+                  </a>
                 );
               })}
             </div>
