@@ -34,7 +34,7 @@ checkEnvVars();
 // Run the Next.js build with linting disabled
 console.log('Running Next.js build with linting disabled...');
 try {
-  execSync('next build --no-lint', { 
+  execSync('npx next build --no-lint', { 
     stdio: 'inherit',
     env: {
       ...process.env, // Pass through all environment variables

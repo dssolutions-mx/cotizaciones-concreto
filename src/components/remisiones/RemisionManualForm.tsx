@@ -16,6 +16,12 @@ import {
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { getRecipeMaterials } from '@/utils/recipeMaterialsCache';
+import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
+import { FileText } from 'lucide-react';
+import SimpleFileUpload from '@/components/inventory/SimpleFileUpload';
+import { useSignedUrls } from '@/hooks/useSignedUrls';
+import { RemisionDocument, RemisionPendingFile } from '@/types/remisiones';
 
 // Define Recipe type inline if import is problematic
 interface Recipe {
@@ -55,6 +61,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
   const [formData, setFormData] = useState({
     remisionNumber: '',
     fecha: new Date().toISOString().split('T')[0],
+    horaCarga: new Date().toTimeString().split(' ')[0].substring(0, 5), // HH:MM format
     volumen: '',
     conductor: '',
     unidad: '',
@@ -64,6 +71,11 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingRecipes, setLoadingRecipes] = useState(false);
+  
+  // Evidence state
+  const [pendingFiles, setPendingFiles] = useState<RemisionPendingFile[]>([]);
+  const [existingDocuments, setExistingDocuments] = useState<RemisionDocument[]>([]);
+  const { getSignedUrl, isLoading: urlLoading } = useSignedUrls('remision-documents', 3600);
 
   // Log para depuración cuando el componente se monte
   useEffect(() => {
@@ -206,11 +218,111 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
     );
   };
 
+  // Evidence handling functions
+  const handleFileUpload = (files: FileList) => {
+    const newFiles: RemisionPendingFile[] = Array.from(files).map(file => ({
+      file,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      status: 'pending' as const,
+      isCameraCapture: false
+    }));
+    setPendingFiles(prev => [...prev, ...newFiles]);
+  };
+
+  const removePendingFile = (index: number) => {
+    setPendingFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const uploadDocuments = async (remisionId: string) => {
+    if (pendingFiles.length === 0) return;
+
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const pendingFile = pendingFiles[i];
+      
+      try {
+        // Update status to uploading
+        setPendingFiles(prev => 
+          prev.map((file, index) => 
+            index === i ? { ...file, status: 'uploading' } : file
+          )
+        );
+
+        const formData = new FormData();
+        formData.append('remision_id', remisionId);
+        formData.append('document_type', 'delivery_evidence');
+        formData.append('document_category', 'pumping_remision');
+        formData.append('file', pendingFile.file);
+
+        const response = await fetch('/api/remisiones/documents', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Error al subir documento');
+        }
+
+        const result = await response.json();
+        
+        // Update status to uploaded
+        setPendingFiles(prev => 
+          prev.map((file, index) => 
+            index === i ? { ...file, status: 'uploaded', documentId: result.data.id } : file
+          )
+        );
+
+      } catch (error) {
+        console.error('Error uploading document:', error);
+        setPendingFiles(prev => 
+          prev.map((file, index) => 
+            index === i ? { ...file, status: 'error', error: error instanceof Error ? error.message : 'Error desconocido' } : file
+          )
+        );
+      }
+    }
+  };
+
+  const handleViewDocument = async (doc: RemisionDocument) => {
+    try {
+      const signedUrl = await getSignedUrl(doc.file_path);
+      if (signedUrl) {
+        window.open(signedUrl, '_blank');
+      } else {
+        showError('No se pudo generar el enlace para ver el documento');
+      }
+    } catch (error) {
+      console.error('Error viewing document:', error);
+      showError('Error al abrir el documento');
+    }
+  };
+
+  const deleteDocument = async (documentId: string) => {
+    try {
+      const response = await fetch(`/api/remisiones/documents/${documentId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Error al eliminar documento');
+      }
+
+      setExistingDocuments(prev => prev.filter(doc => doc.id !== documentId));
+      showSuccess('Documento eliminado correctamente');
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      showError(error instanceof Error ? error.message : 'Error al eliminar documento');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.remisionNumber || !formData.fecha || !formData.volumen) {
-      showError('Por favor, completa los campos obligatorios (Nº Remisión, Fecha, Volumen)');
+    if (!formData.remisionNumber || !formData.fecha || !formData.horaCarga || !formData.volumen) {
+      showError('Por favor, completa los campos obligatorios (Nº Remisión, Fecha, Hora de Carga, Volumen)');
       return;
     }
     if (tipoRemision === 'CONCRETO' && !formData.recipeId) {
@@ -228,7 +340,7 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         order_id: orderId,
         remision_number: formData.remisionNumber,
         fecha: formData.fecha,
-        hora_carga: new Date().toISOString().split('T')[1].split('.')[0],
+        hora_carga: formData.horaCarga + ':00', // Add seconds to match database format
         volumen_fabricado: volumen,
         conductor: formData.conductor || null,
         unidad: formData.unidad || null,
@@ -254,9 +366,14 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
 
       // 2. Insert materials if it's a CONCRETO remision and materials exist
       if (tipoRemision === 'CONCRETO' && manualMaterials.length > 0) {
+        // Get recipe materials with optimized caching
+        const materialIdMap = await getRecipeMaterials(formData.recipeId);
+
+        // Prepare materials with material_id from recipe
         const materialsToInsert = manualMaterials.map(mat => ({
           remision_id: newRemisionId,
           material_type: mat.material_type,
+          material_id: materialIdMap.get(mat.material_type) || null, // Get material_id from recipe
           cantidad_real: mat.cantidad_real,
           cantidad_teorica: (mat.cantidad_teorica || 0) * volumen, // Multiply by volume
           ajuste: 0 // Manual entries don't have retrabajo/manual adjustments
@@ -272,6 +389,11 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
           throw new Error('Error al guardar materiales: ' + materialsError.message);
         }
       }
+
+      // 3. Upload evidence documents if any (only for BOMBEO type)
+      if (tipoRemision === 'BOMBEO' && pendingFiles.length > 0) {
+        await uploadDocuments(newRemisionId);
+      }
       
       showSuccess('Remisión registrada correctamente');
       
@@ -279,12 +401,15 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
       setFormData({
         remisionNumber: '',
         fecha: new Date().toISOString().split('T')[0],
+        horaCarga: new Date().toTimeString().split(' ')[0].substring(0, 5), // Reset to current time
         volumen: '',
         conductor: '',
         unidad: '',
         recipeId: '',
       });
       setManualMaterials([]); // Reset materials
+      setPendingFiles([]); // Reset pending files
+      setExistingDocuments([]); // Reset existing documents
       setTipoRemision('BOMBEO'); // Reset type to default
       
       onSuccess(); // Callback to refresh list or navigate
@@ -387,6 +512,20 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
             name="fecha"
             type="date"
             value={formData.fecha}
+            onChange={handleInputChange}
+            required
+            className="mt-1"
+          />
+        </div>
+        
+        {/* Hora de Carga */}
+        <div>
+          <Label htmlFor="horaCarga">Hora de Carga *</Label>
+          <Input
+            id="horaCarga"
+            name="horaCarga"
+            type="time"
+            value={formData.horaCarga}
             onChange={handleInputChange}
             required
             className="mt-1"
@@ -499,6 +638,116 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
           </div>
           <p className="text-xs text-gray-500">* Ingrese la cantidad total real dosificada para el volumen de esta remisión ({formData.volumen} m³).</p>
         </div>
+      )}
+
+      {/* Evidence Section (only for BOMBEO type) */}
+      {tipoRemision === 'BOMBEO' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              Evidencia de la Remisión
+            </CardTitle>
+            <CardDescription>
+              Adjunte documentos de evidencia de la entrega del servicio de bombeo (opcional)
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <SimpleFileUpload
+              onFileSelect={handleFileUpload}
+              acceptedTypes={['image/*', 'application/pdf']}
+              multiple
+              maxSize={10} // 10MB
+              uploading={loading}
+              disabled={loading}
+            />
+
+            {pendingFiles.length > 0 && (
+              <div className="mt-2 space-y-2">
+                <p className="text-sm text-gray-600">
+                  Archivos pendientes de subir:
+                </p>
+                {pendingFiles.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between text-xs p-2 bg-yellow-50 rounded border border-yellow-200">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-gray-700 truncate">{file.name}</span>
+                      <span className={`text-xs px-2 py-1 rounded ${
+                        file.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                        file.status === 'uploading' ? 'bg-blue-100 text-blue-700' :
+                        file.status === 'uploaded' ? 'bg-green-100 text-green-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {file.status === 'pending' ? 'Pendiente' :
+                         file.status === 'uploading' ? 'Subiendo...' :
+                         file.status === 'uploaded' ? 'Subido' :
+                         'Error'}
+                      </span>
+                      {file.error && (
+                        <span className="text-xs text-red-600 truncate" title={file.error}>
+                          {file.error}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removePendingFile(index)}
+                      className="text-red-500 hover:text-red-700 text-xs"
+                      title="Eliminar archivo"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {existingDocuments.length > 0 && (
+              <div className="mt-4 space-y-2">
+                <p className="text-sm text-gray-600">
+                  Documentos subidos:
+                </p>
+                {existingDocuments.map((doc) => (
+                  <div key={doc.id} className="flex items-center justify-between text-xs p-2 bg-green-50 rounded border border-green-200">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-gray-700 truncate">{doc.original_name}</span>
+                      <span className="text-xs px-2 py-1 rounded bg-green-100 text-green-700">
+                        Subido
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {new Date(doc.created_at).toLocaleDateString('es-ES', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleViewDocument(doc)}
+                        disabled={urlLoading(doc.file_path)}
+                        className="text-blue-600 hover:text-blue-800 text-xs disabled:opacity-50"
+                        title="Ver documento (genera enlace seguro)"
+                      >
+                        {urlLoading(doc.file_path) ? 'Cargando...' : 'Ver'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteDocument(doc.id)}
+                        className="text-red-500 hover:text-red-700 text-xs"
+                        title="Eliminar documento"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
       
       {/* Submit Button - Restored original */}

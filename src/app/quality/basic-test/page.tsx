@@ -11,16 +11,18 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 import { 
-  fetchRawQualityData, 
+  fetchRawQualityData
+} from '@/services/qualityDataService';
+import type { 
   EnsayosData,
   MuestrasData,
   MuestreosData,
   RemisionesData,
   RecipeVersionsData,
   RemisionMaterialesData 
-} from '@/services/qualityServiceBasic'; // Import all types
+} from '@/types/quality';
 import { calculateAllMetrics, CalculatedMetrics } from '@/lib/qualityMetricsCalculator'; // Import calculator
-import { fetchMetricasCalidad } from '@/services/qualityService'; // Import ORIGINAL service
+import { fetchMetricasCalidad } from '@/services/qualityMetricsService';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"; // For displaying metrics
 import { Skeleton } from "@/components/ui/skeleton"; // For chart loading state
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"; // Import table components

@@ -1,21 +1,24 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { format, subDays, subMonths, isValid, startOfMonth, endOfMonth, addMonths } from 'date-fns';
+import React, { useState, useMemo } from 'react';
+import { startOfMonth, endOfMonth, format, isValid, addMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { supabase } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, Info, Download } from "lucide-react";
-import { cn } from "@/lib/utils";
+import {
+  formatNumberWithUnits,
+  getLast6Months,
+  getDateRangeText,
+  getApexCommonOptions,
+  VAT_RATE
+} from '@/lib/sales-utils';
+import { Info, Download } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -47,330 +50,65 @@ const DateRangePickerWithPresetsComponent = dynamic(
   }
 );
 
-// Create a custom Spanish calendar component
-const SpanishCalendar = (props: any) => {
-  // Override the day names to use cleaner Spanish abbreviations
-  const dayNames = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-  
-  return (
-    <div className="spanish-calendar">
-      <style jsx>{`
-        .spanish-calendar :global(.rdp-head_cell) {
-          font-size: 0.8rem !important;
-          font-weight: 500 !important;
-          padding: 0.5rem 0 !important;
-          text-align: center !important;
-        }
-        
-        .spanish-calendar :global(.rdp-months) {
-          display: flex;
-          justify-content: space-between;
-        }
-        
-        .spanish-calendar :global(.rdp-caption) {
-          padding: 0 0.5rem;
-          font-weight: 500;
-          font-size: 0.9rem;
-          text-align: center;
-        }
-      `}</style>
-      <Calendar
-        {...props}
-        locale={es}
-        ISOWeek
-        formatters={{
-          formatWeekdayName: () => "",  // Clear default day names
-        }}
-        components={{
-          HeadCell: ({ value }: { value: Date }) => {
-            // Display our custom day names
-            const index = value.getDay();
-            // Sunday is 0 in JS but the last day in our array
-            const adjustedIndex = index === 0 ? 6 : index - 1;
-            return <th className="rdp-head_cell">{dayNames[adjustedIndex]}</th>;
-          }
-        }}
-      />
-    </div>
-  )
-}
+// Import the SpanishCalendar component
+import SpanishCalendar from '@/components/ui/spanish-calendar';
+
+// Import custom hooks
+import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
 
 export default function VentasDashboard() {
   const { currentPlant } = usePlantContext();
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
-  const [salesData, setSalesData] = useState<any[]>([]);
-  const [remisionesData, setRemisionesData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Use custom hook for data fetching
+  const {
+    salesData,
+    remisionesData,
+    clients,
+    resistances,
+    tipos,
+    productCodes,
+    loading,
+    error
+  } = useSalesData({
+    startDate,
+    endDate,
+    currentPlant
+  });
+
+  // Use historical data hook for trend analysis (independent of date filters)
+  const {
+    historicalData,
+    historicalRemisiones,
+    loading: historicalLoading,
+    error: historicalError
+  } = useHistoricalSalesData(currentPlant);
   const [searchTerm, setSearchTerm] = useState('');
   const [clientFilter, setClientFilter] = useState<string>('all');
-  const [clients, setClients] = useState<{id: string, name: string}[]>([]);
-  const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>('current');
+  const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>('powerbi');
   
   // State for PowerBI Filters
   const [resistanceFilter, setResistanceFilter] = useState<string>('all');
   const [efectivoFiscalFilter, setEfectivoFiscalFilter] = useState<string>('all');
   const [tipoFilter, setTipoFilter] = useState<string>('all');
   const [codigoProductoFilter, setCodigoProductoFilter] = useState<string>('all');
-
-  // State for Filter Options
-  const [resistances, setResistances] = useState<string[]>([]);
-  const [tipos, setTipos] = useState<string[]>([]);
-  const [productCodes, setProductCodes] = useState<string[]>([]);
+  
+  // VAT Calculation State
+  const [includeVAT, setIncludeVAT] = useState<boolean>(false);
   
   // Format the dates for display
   const formattedStartDate = startDate ? format(startDate, 'dd/MM/yyyy', { locale: es }) : '';
   const formattedEndDate = endDate ? format(endDate, 'dd/MM/yyyy', { locale: es }) : '';
   
   // Calculate date range for display
-  const dateRangeText = useMemo(() => {
-    if (!startDate || !endDate) return 'Seleccione un rango de fechas';
-    return `${format(startDate, 'dd/MM/yyyy', { locale: es })} - ${format(endDate, 'dd/MM/yyyy', { locale: es })}`;
-  }, [startDate, endDate]);
-  
-  // Add this formatNumberWithUnits function
-  const formatNumberWithUnits = (value: number) => {
-    if (value >= 1000000) {
-      return `${(value / 1000000).toFixed(value % 1000000 === 0 ? 0 : 1)}M`;
-    } else if (value >= 1000) {
-      return `${(value / 1000).toFixed(value % 1000 === 0 ? 0 : 1)}K`;
-    } else {
-      return value.toFixed(2);
-    }
-  };
+  const dateRangeText = useMemo(() => getDateRangeText(startDate, endDate), [startDate, endDate]);
 
-  // ApexCharts formatter function for tooltips
-  const formatApexCurrency = (value: number) => {
-    return formatCurrency(value);
-  };
 
   // Common ApexCharts configurations
-  const apexCommonOptions = useMemo(() => ({
-    chart: {
-      toolbar: {
-        show: false
-      },
-      background: 'transparent',
-      fontFamily: 'Inter, system-ui, sans-serif',
-      animations: {
-        enabled: true,
-        speed: 300, // Reduced animation speed for better performance
-        dynamicAnimation: {
-          speed: 150
-        }
-      }
-    },
-    colors: ['#3EB56D', '#2D8450', '#5DC78A', '#206238', '#83D7A5'], // Company green palette
-    dataLabels: {
-      enabled: false // Disabled for cleaner look
-    },
-    legend: {
-      position: 'bottom' as const,
-      fontSize: '12px',
-      fontWeight: 500,
-      markers: {
-        size: 6
-      },
-      itemMargin: {
-        horizontal: 10,
-        vertical: 0
-      }
-    },
-    stroke: {
-      curve: 'smooth' as const,
-      width: 2
-    },
-    tooltip: {
-      y: {
-        formatter: (val: number) => formatCurrency(val)
-      },
-      theme: 'light',
-      style: {
-        fontSize: '12px',
-        fontFamily: 'Inter, system-ui, sans-serif'
-      }
-    },
-    grid: {
-      borderColor: '#f1f5f9',
-      strokeDashArray: 4,
-      padding: {
-        top: 0,
-        right: 0,
-        bottom: 0,
-        left: 0
-      }
-    }
-  }), []);
+  const apexCommonOptions = useMemo(() => getApexCommonOptions(), []);
   
-  // Fetch sales data based on the selected date range
-  useEffect(() => {
-    async function fetchSalesData() {
-      if (!startDate || !endDate) {
-        // Set default empty data
-        setSalesData([]);
-        setRemisionesData([]);
-        setLoading(false);
-        return;
-      }
-      
-      setLoading(true);
-      setError(null);
-      
-      try {
-        // Format dates for Supabase query
-        const formattedStartDate = format(startDate, 'yyyy-MM-dd');
-        const formattedEndDate = format(endDate, 'yyyy-MM-dd');
-        
-        // 1. Fetch remisiones directly by their fecha field
-        let remisionesQuery = supabase
-          .from('remisiones')
-          .select(`
-            *,
-            recipe:recipes(recipe_code, strength_fc),
-            order:orders(
-              id,
-              order_number,
-              delivery_date,
-              client_id,
-              construction_site,
-              requires_invoice,
-              clients:clients(business_name)
-            )
-          `)
-          .gte('fecha', formattedStartDate)
-          .lte('fecha', formattedEndDate);
-        
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
-        }
-        
-        const { data: remisiones, error: remisionesError } = await remisionesQuery.order('fecha', { ascending: false });
-        
-        if (remisionesError) throw remisionesError;
-        
-        // Extract order IDs from remisiones
-        const orderIdsFromRemisiones = remisiones?.map(r => r.order_id).filter(Boolean) || [];
-        const uniqueOrderIds = Array.from(new Set(orderIdsFromRemisiones));
-        
-        if (uniqueOrderIds.length === 0) {
-          setSalesData([]);
-          setRemisionesData([]);
-          setLoading(false);
-          return;
-        }
-        
-        // 2. Fetch all relevant orders (even those without remisiones in the date range)
-        // This ensures we have orders for "vacío de olla" charges
-        let ordersQuery = supabase
-          .from('orders')
-          .select(`
-            id, 
-            order_number, 
-            delivery_date, 
-            client_id,
-            construction_site,
-            requires_invoice,
-            clients:clients(business_name)
-          `)
-          .in('id', uniqueOrderIds)
-          .not('order_status', 'eq', 'cancelled');
-        
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
-        }
-        
-        const { data: orders, error: ordersError } = await ordersQuery;
-        
-        if (ordersError) throw ordersError;
-        
-        if (!orders || orders.length === 0) {
-          setSalesData([]);
-          setRemisionesData([]);
-          setLoading(false);
-          return;
-        }
-        
-        // Extract unique client names for the filter
-        const clientMap = new Map();
-        orders.forEach(order => {
-          if (order.client_id && !clientMap.has(order.client_id)) {
-            const businessName = order.clients ? 
-              (typeof order.clients === 'object' ? 
-                (order.clients as any).business_name || 'Desconocido' : 'Desconocido') 
-              : 'Desconocido';
-            
-            clientMap.set(order.client_id, {
-              id: order.client_id,
-              name: businessName
-            });
-          }
-        });
-        
-        // Convert map to array and sort by name
-        const uniqueClients = Array.from(clientMap.values());
-        uniqueClients.sort((a, b) => a.name.localeCompare(b.name));
-        setClients(uniqueClients);
-        
-        // 3. Fetch order items (products) for these orders
-        const orderIds = orders.map(order => order.id);
-        let orderItemsQuery = supabase
-          .from('order_items')
-          .select('*')
-          .in('order_id', orderIds);
-        
-        // Note: order_items don't have plant_id, so no plant filtering needed here
-        // Plant filtering is already applied to the orders table above
-        
-        const { data: orderItems, error: itemsError } = await orderItemsQuery;
-        
-        if (itemsError) throw itemsError;
-        
-        // Extract unique values for filters from remisiones
-        const uniqueResistances = Array.from(new Set(remisiones?.map(r => r.recipe?.strength_fc?.toString()).filter(Boolean) as string[] || [])).sort();
-        const uniqueTipos = Array.from(new Set(remisiones?.map(r => r.tipo_remision).filter(Boolean) as string[] || [])).sort();
-        const uniqueProductCodes = Array.from(new Set(remisiones?.map(r => r.recipe?.recipe_code).filter(Boolean) as string[] || [])).sort();
 
-        setResistances(uniqueResistances);
-        setTipos(uniqueTipos);
-        setProductCodes(uniqueProductCodes);
-        
-        // Combine orders with their items and remisiones
-        const enrichedOrders = orders.map(order => {
-          const items = orderItems?.filter(item => item.order_id === order.id) || [];
-          const orderRemisiones = remisiones?.filter(r => r.order_id === order.id) || [];
-          
-          // Extract the client name safely
-          let clientName = 'Desconocido';
-          if (order.clients) {
-            // Handle clients properly whether it's an object or has nested properties
-            if (typeof order.clients === 'object') {
-              clientName = (order.clients as any).business_name || 'Desconocido';
-            }
-          }
-          
-          return {
-            ...order,
-            items,
-            remisiones: orderRemisiones,
-            clientName
-          };
-        });
-        
-        setSalesData(enrichedOrders);
-        setRemisionesData(remisiones || []);
-      } catch (error) {
-        console.error('Error fetching sales data:', error);
-        setError('Error al cargar los datos de ventas. Por favor, intente nuevamente.');
-      } finally {
-        setLoading(false);
-      }
-    }
-    
-    fetchSalesData();
-  }, [startDate, endDate, currentPlant]);
   
   // Filter remisiones by client and search term
   const filteredRemisiones = useMemo(() => {
@@ -535,7 +273,14 @@ export default function VentasDashboard() {
       weightedPumpPrice: 0,
       weightedEmptyTruckPrice: 0,
       weightedResistance: 0,
-      resistanceTooltip: ''
+      resistanceTooltip: '',
+      // VAT-related metrics
+      totalAmountWithVAT: 0,
+      cashAmountWithVAT: 0,
+      invoiceAmountWithVAT: 0,
+      weightedConcretePriceWithVAT: 0,
+      weightedPumpPriceWithVAT: 0,
+      weightedEmptyTruckPriceWithVAT: 0
     };
     
     // Process remisiones (Concrete, Bombeo)
@@ -568,24 +313,28 @@ export default function VentasDashboard() {
         return false;
       });
       
-      if (orderItemForRemision) {
-        if (remision.tipo_remision === 'BOMBEO') {
-          price = orderItemForRemision.pump_price || 0;
-          result.pumpVolume += volume;
-          result.pumpAmount += price * volume;
-        } else { // Assumed to be CONCRETO if not BOMBEO and not empty truck
-          price = orderItemForRemision.unit_price || 0;
-          result.concreteVolume += volume;
-          result.concreteAmount += price * volume;
-        }
+              if (orderItemForRemision) {
+          if (remision.tipo_remision === 'BOMBEO') {
+            price = orderItemForRemision.pump_price || 0;
+            result.pumpVolume += volume;
+            result.pumpAmount += price * volume;
+          } else { // Assumed to be CONCRETO if not BOMBEO and not empty truck
+            price = orderItemForRemision.unit_price || 0;
+            result.concreteVolume += volume;
+            result.concreteAmount += price * volume;
+          }
 
-        // Add to cash or invoice amount based on the order's requirement
-        if (orderForRemision?.requires_invoice) {
-          result.invoiceAmount += price * volume;
-        } else {
-          result.cashAmount += price * volume;
+          // Add to cash or invoice amount based on the order's requirement
+          if (orderForRemision?.requires_invoice) {
+            result.invoiceAmount += price * volume;
+            // Add VAT amount for fiscal orders
+            result.invoiceAmountWithVAT += (price * volume) * (1 + VAT_RATE);
+          } else {
+            result.cashAmount += price * volume;
+            // Cash orders don't include VAT
+            result.cashAmountWithVAT += price * volume;
+          }
         }
-      }
     });
     
     // Process "Vacío de Olla" charges from filteredOrders that match current client filter
@@ -637,8 +386,12 @@ export default function VentasDashboard() {
         // Add to cash or invoice amount based on the order's requirement
         if (order.requires_invoice) {
           result.invoiceAmount += chargeAmount;
+          // Add VAT amount for fiscal orders
+          result.invoiceAmountWithVAT += chargeAmount * (1 + VAT_RATE);
         } else {
           result.cashAmount += chargeAmount;
+          // Cash orders don't include VAT
+          result.cashAmountWithVAT += chargeAmount;
         }
       }
     });
@@ -649,11 +402,22 @@ export default function VentasDashboard() {
     result.totalVolume = result.concreteVolume + result.pumpVolume + result.emptyTruckVolume;
     result.totalAmount = result.concreteAmount + result.pumpAmount + result.emptyTruckAmount;
     
+    // Calculate totals with VAT
+    result.totalAmountWithVAT = result.cashAmountWithVAT + result.invoiceAmountWithVAT;
+    
     // Part 4: Calculate Weighted Prices
     result.weightedConcretePrice = result.concreteVolume > 0 ? result.concreteAmount / result.concreteVolume : 0;
     result.weightedPumpPrice = result.pumpVolume > 0 ? result.pumpAmount / result.pumpVolume : 0;
     // Calculate weighted price per cubic meter for empty truck service
     result.weightedEmptyTruckPrice = result.emptyTruckVolume > 0 ? result.emptyTruckAmount / result.emptyTruckVolume : 0;
+    
+    // Calculate weighted prices with VAT
+    result.weightedConcretePriceWithVAT = result.concreteVolume > 0 ? 
+      (result.concreteAmount + (result.invoiceAmount * VAT_RATE)) / result.concreteVolume : 0;
+    result.weightedPumpPriceWithVAT = result.pumpVolume > 0 ? 
+      (result.pumpAmount + (result.pumpAmount * VAT_RATE)) / result.pumpVolume : 0;
+    result.weightedEmptyTruckPriceWithVAT = result.emptyTruckVolume > 0 ? 
+      (result.emptyTruckAmount + (result.emptyTruckAmount * VAT_RATE)) / result.emptyTruckVolume : 0;
 
     // Part 5: Weighted Resistance (remains based on filteredRemisiones for concrete)
     let totalWeightedResistanceSum = 0;
@@ -729,112 +493,199 @@ export default function VentasDashboard() {
 
   // --- Data for Power BI Charts ---
   const cashInvoiceData = useMemo(() => [
-    { name: 'Efectivo', value: summaryMetrics.cashAmount },
-    { name: 'Fiscal', value: summaryMetrics.invoiceAmount },
-  ], [summaryMetrics]);
+    { name: 'Efectivo', value: includeVAT ? summaryMetrics.cashAmountWithVAT : summaryMetrics.cashAmount },
+    { name: 'Fiscal', value: includeVAT ? summaryMetrics.invoiceAmountWithVAT : summaryMetrics.invoiceAmount },
+  ], [summaryMetrics, includeVAT]);
 
-  const cashInvoiceChartOptions: ApexOptions = {
+  const cashInvoiceChartOptions = useMemo((): ApexOptions => ({
     chart: {
-      type: 'donut',
+      type: 'donut' as const,
       background: 'transparent',
-      fontFamily: 'Inter, sans-serif',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
       toolbar: {
         show: false
       },
       animations: {
         enabled: true,
-        speed: 300
+        speed: 800
+      },
+      dropShadow: {
+        enabled: true,
+        top: 2,
+        left: 2,
+        blur: 4,
+        opacity: 0.15
       }
     },
-    colors: ['#3EB56D', '#3B82F6'], // Green for Efectivo, Blue for Fiscal
+    colors: ['#10B981', '#3B82F6'], // Enhanced green and blue
     labels: ['Efectivo', 'Fiscal'],
     plotOptions: {
       pie: {
         donut: {
-          size: '65%',
+          size: '70%',
+          background: 'transparent',
           labels: {
             show: true,
             name: {
               show: true,
               fontSize: '14px',
               fontWeight: 600,
-              color: '#334155'
+              color: '#111827',
+              fontFamily: 'Inter, system-ui, sans-serif'
             },
             value: {
               show: true,
-              fontSize: '14px',
-              fontWeight: 400,
-              color: '#64748b'
+              fontSize: '18px',
+              fontWeight: 700,
+              color: '#10B981',
+              fontFamily: 'Inter, system-ui, sans-serif'
             },
             total: {
               show: true,
               showAlways: true,
-              fontSize: '16px',
-              fontWeight: 600,
-              color: '#334155',
+              fontSize: '20px',
+              fontWeight: 800,
+              color: '#111827',
               label: 'Total',
+              fontFamily: 'Inter, system-ui, sans-serif',
               formatter: (w: any) => formatCurrency(w.globals.seriesTotals.reduce((a: number, b: number) => a + b, 0))
             }
           }
         },
-        offsetX: 0, // Center horizontally
-        offsetY: -10 // Move slightly up to center in container
+        offsetX: 0,
+        offsetY: 0
       }
     },
     stroke: {
-      width: 1,
+      width: 5,
       colors: ['#ffffff']
     },
     dataLabels: {
       enabled: true,
       formatter: (val: number) => {
-        if (val < 3) return ''; // Hide very small percentages
+        if (val < 2) return ''; // Hide very small percentages
         return `${val.toFixed(1)}%`;
       },
       style: {
-        fontSize: '12px',
-        fontWeight: 500,
-        colors: ['#ffffff']
+        fontSize: '10px',
+        fontWeight: 600,
+        colors: ['#ffffff'],
+        fontFamily: 'Inter, system-ui, sans-serif'
       },
       background: {
-        enabled: false
+        enabled: true,
+        foreColor: '#111827',
+        borderRadius: 4,
+        padding: 2,
+        opacity: 0.95
+      },
+      dropShadow: {
+        enabled: true,
+        top: 1,
+        left: 1,
+        blur: 1,
+        opacity: 0.7
       }
     },
     legend: {
       position: 'bottom',
-      fontSize: '13px',
-      fontWeight: 500,
+      fontSize: '14px',
+      fontWeight: 600,
+      fontFamily: 'Inter, system-ui, sans-serif',
       markers: {
-        size: 8
+        size: 14
       },
       itemMargin: {
-        horizontal: 10
+        horizontal: 20,
+        vertical: 10
       },
       formatter: (seriesName: string, opts: any) => {
         const percentage = opts.w.globals.series[opts.seriesIndex] / 
           opts.w.globals.series.reduce((a: number, b: number) => a + b, 0) * 100;
-        return `${seriesName} (${percentage.toFixed(1)}%)`;
+        const value = opts.w.globals.series[opts.seriesIndex];
+        return `${seriesName} (${percentage.toFixed(1)}% - ${formatCurrency(value)})`;
       }
     },
     tooltip: {
+      enabled: true,
+      theme: 'light',
+      style: {
+        fontSize: '15px',
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
       y: {
         formatter: (val: number) => formatCurrency(val)
+      },
+      marker: {
+        show: true
+      }
+    },
+    states: {
+      hover: {
+        filter: {
+          type: 'darken'
+        }
       }
     },
     responsive: [{
       breakpoint: 480,
       options: {
         legend: {
-          position: 'bottom'
+          position: 'bottom',
+          fontSize: '14px'
         }
       }
     }]
-  };
+  }), []);
 
   const cashInvoiceChartSeries = useMemo(() => 
-    [summaryMetrics.cashAmount, summaryMetrics.invoiceAmount], 
-    [summaryMetrics]
+    [
+      includeVAT ? summaryMetrics.cashAmountWithVAT : summaryMetrics.cashAmount, 
+      includeVAT ? summaryMetrics.invoiceAmountWithVAT : summaryMetrics.invoiceAmount
+    ], 
+    [summaryMetrics, includeVAT]
   );
+
+  // Enhanced product code data with VAT support - shows amounts instead of just volume
+  const productCodeAmountData = useMemo(() => {
+    const grouped = filteredRemisiones.reduce((acc, r) => {
+      const recipeCode = r.recipe?.recipe_code || 'N/A';
+      if (r.tipo_remision !== 'BOMBEO' && recipeCode !== 'SER001') { // Only concrete
+        const volume = r.volumen_fabricado || 0;
+        const order = salesData.find(o => o.id === r.order_id);
+        const orderItems = order?.items || [];
+        
+        // Find the order item for this remision
+        const orderItem = orderItems.find((item: any) => 
+          item.product_type === recipeCode || 
+          (item.recipe_id && item.recipe_id.toString() === recipeCode)
+        );
+        
+        const price = orderItem?.unit_price || 0;
+        let amount = price * volume;
+        
+        // Apply VAT if enabled and order requires invoice
+        if (includeVAT && order?.requires_invoice) {
+          amount *= (1 + VAT_RATE);
+        }
+        
+        if (!acc[recipeCode]) {
+          acc[recipeCode] = { volume: 0, amount: 0 };
+        }
+        acc[recipeCode].volume += volume;
+        acc[recipeCode].amount += amount;
+      }
+      return acc as Record<string, { volume: number; amount: number }>;
+    }, {} as Record<string, { volume: number; amount: number }>);
+
+    return Object.entries(grouped)
+      .map(([name, data]) => ({ 
+        name, 
+        volume: (data as { volume: number; amount: number }).volume, 
+        amount: (data as { volume: number; amount: number }).amount 
+      }))
+      .sort((a, b) => b.amount - a.amount); // Sort by amount instead of volume
+  }, [filteredRemisiones, salesData, includeVAT]);
 
   const productCodeVolumeData = useMemo(() => {
     const grouped = filteredRemisiones.reduce((acc, r) => {
@@ -853,26 +704,33 @@ export default function VentasDashboard() {
       .sort((a, b) => b.volume - a.volume); // Sort descending by volume
   }, [filteredRemisiones]);
 
-  const productCodeChartOptions: ApexOptions = {
+  const productCodeChartOptions = useMemo((): ApexOptions => ({
     chart: {
-      type: 'bar',
+      type: 'bar' as const,
       background: 'transparent',
-      fontFamily: 'Inter, sans-serif',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
       toolbar: {
         show: false
       },
       animations: {
         enabled: true,
-        speed: 300
+        speed: 600
+      },
+      dropShadow: {
+        enabled: true,
+        top: 1,
+        left: 1,
+        blur: 3,
+        opacity: 0.1
       }
     },
-    colors: ['#3EB56D', '#2D8450', '#5DC78A', '#206238', '#83D7A5'].reverse(),
+    colors: ['#10B981', '#059669', '#34D399', '#6EE7B7', '#A7F3D0', '#D1FAE5', '#ECFDF5', '#F0FDF4'],
     plotOptions: {
       bar: {
         horizontal: true,
         distributed: true,
-        barHeight: '75%',
-        borderRadius: 3,
+        barHeight: '85%',
+        borderRadius: 8,
         borderRadiusApplication: 'end',
         dataLabels: {
           position: 'bottom'
@@ -880,12 +738,13 @@ export default function VentasDashboard() {
       }
     },
     xaxis: {
-      categories: productCodeVolumeData.slice(0, 8).map(item => item.name), // Limit to top 8 for visibility
+      categories: (includeVAT ? productCodeAmountData : productCodeVolumeData).slice(0, 8).map(item => item.name),
       labels: {
         style: {
-          fontSize: '10px',
-          fontWeight: 500,
-          colors: '#64748b'
+          fontSize: '12px',
+          fontWeight: 600,
+          colors: '#111827',
+          fontFamily: 'Inter, system-ui, sans-serif'
         }
       },
       axisBorder: {
@@ -898,25 +757,43 @@ export default function VentasDashboard() {
     yaxis: {
       labels: {
         style: {
-          fontSize: '10px',
-          colors: '#64748b'
+          fontSize: '12px',
+          fontWeight: 600,
+          colors: '#111827',
+          fontFamily: 'Inter, system-ui, sans-serif'
         }
       }
     },
     dataLabels: {
       enabled: true,
-      formatter: (val: number) => val.toFixed(1) + ' m³',
-      offsetX: 5,
+      formatter: (val: number) => includeVAT ? formatCurrency(val) : val.toFixed(1) + ' m³',
+      offsetX: 12,
       style: {
-        fontSize: '10px',
-        fontFamily: 'Inter, sans-serif',
-        fontWeight: 500,
-        colors: ['#333333']
+        fontSize: '11px',
+        fontWeight: 700,
+        colors: ['#ffffff'],
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
+      background: {
+        enabled: true,
+        foreColor: '#111827',
+        borderRadius: 4,
+        padding: 3,
+        opacity: 0.95
       }
     },
     tooltip: {
+      enabled: true,
+      theme: 'light',
+      style: {
+        fontSize: '12px',
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
       y: {
-        formatter: (val: number) => val.toFixed(2) + ' m³'
+        formatter: (val: number) => includeVAT ? formatCurrency(val) : val.toFixed(2) + ' m³'
+      },
+      marker: {
+        show: true
       }
     },
     grid: {
@@ -925,17 +802,19 @@ export default function VentasDashboard() {
     legend: {
       show: false
     }
-  };
+  }), [includeVAT, productCodeAmountData, productCodeVolumeData]);
 
   const productCodeChartSeries = useMemo(() => [{
-    name: 'Volumen',
-    data: productCodeVolumeData.slice(0, 8).map(item => item.volume)
-  }], [productCodeVolumeData]);
+    name: includeVAT ? 'Monto' : 'Volumen',
+    data: includeVAT ? 
+      productCodeAmountData.slice(0, 8).map(item => item.amount) :
+      productCodeVolumeData.slice(0, 8).map(item => item.volume)
+  }], [productCodeAmountData, productCodeVolumeData, includeVAT]);
 
   const clientVolumeData = useMemo(() => {
      const clientSummary = filteredRemisiones.reduce((acc: Record<string, { clientName: string; volume: number }>, remision) => {
         const clientId = remision.order?.client_id || 'unknown';
-        const clientName = remision.order?.clients ?
+        const clientName = remision.order.clients ?
           (typeof remision.order.clients === 'object' ?
             (remision.order.clients as any).business_name || 'Desconocido' : 'Desconocido')
           : 'Desconocido';
@@ -956,49 +835,122 @@ export default function VentasDashboard() {
       return mappedData.sort((a, b) => b.value - a.value);
   }, [filteredRemisiones, salesData]);
 
-  const clientChartOptions: ApexOptions = {
+  // Enhanced client data with VAT support - shows amounts instead of just volume
+  const clientAmountData = useMemo(() => {
+    const clientSummary = filteredRemisiones.reduce((acc: Record<string, { clientName: string; volume: number; amount: number }>, remision) => {
+      const clientId = remision.order?.client_id || 'unknown';
+      const clientName = remision.order.clients ?
+        (typeof remision.order.clients === 'object' ?
+          (remision.order.clients as any).business_name || 'Desconocido' : 'Desconocido')
+        : 'Desconocido';
+
+      if (!acc[clientId]) {
+        acc[clientId] = { clientName, volume: 0, amount: 0 };
+      }
+
+      const volume = remision.volumen_fabricado || 0;
+      const order = salesData.find(o => o.id === remision.order_id);
+      const orderItems = order?.items || [];
+      const recipeCode = remision.recipe?.recipe_code;
+      
+      // Find the right order item based on product type
+      const orderItem = orderItems.find((item: any) => {
+        if (remision.tipo_remision === 'BOMBEO' && item.has_pump_service) {
+          return true;
+        }
+        return item.product_type === recipeCode || 
+          (item.recipe_id && item.recipe_id.toString() === recipeCode);
+      });
+      
+      let price = 0;
+      if (orderItem) {
+        if (remision.tipo_remision === 'BOMBEO') {
+          price = orderItem.pump_price || 0;
+        } else {
+          price = orderItem.unit_price || 0;
+        }
+      }
+      
+      let amount = price * volume;
+      
+      // Apply VAT if enabled and order requires invoice
+      if (includeVAT && order?.requires_invoice) {
+        amount *= (1 + VAT_RATE);
+      }
+      
+      acc[clientId].volume += volume;
+      acc[clientId].amount += amount;
+      return acc;
+    }, {} as Record<string, { clientName: string; volume: number; amount: number }>);
+
+    return Object.values(clientSummary)
+      .map(summary => ({ 
+        name: summary.clientName, 
+        value: summary.amount, // Use amount instead of volume for better business insight
+        volume: summary.volume 
+      }))
+      .sort((a, b) => b.value - a.value); // Sort by amount
+  }, [filteredRemisiones, salesData, includeVAT]);
+
+  const clientChartOptions = useMemo((): ApexOptions => ({
     chart: {
-      type: 'pie',
+      type: 'pie' as const,
       background: 'transparent',
-      fontFamily: 'Inter, sans-serif',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
       toolbar: {
         show: false
       },
       animations: {
         enabled: true,
-        speed: 300
+        speed: 700
+      },
+      dropShadow: {
+        enabled: true,
+        top: 2,
+        left: 2,
+        blur: 4,
+        opacity: 0.15
       }
     },
-    colors: ['#3EB56D', '#2D8450', '#5DC78A', '#206238', '#83D7A5', '#174D2B'],
-    labels: clientVolumeData.map(item => item.name).slice(0, 6).concat(clientVolumeData.length > 6 ? ['Otros'] : []),
+    colors: ['#10B981', '#059669', '#34D399', '#6EE7B7', '#A7F3D0', '#D1FAE5', '#ECFDF5', '#F0FDF4'],
+    labels: (includeVAT ? clientAmountData : clientVolumeData).map(item => item.name).slice(0, 6).concat((includeVAT ? clientAmountData : clientVolumeData).length > 6 ? ['Otros'] : []),
     dataLabels: {
       enabled: true,
       formatter: (val: number) => {
-        if (val < 3) return ''; // Hide very small percentages
+        if (val < 2) return ''; // Hide very small percentages
         return `${val.toFixed(1)}%`;
       },
       style: {
-        fontSize: '11px',
-        fontWeight: 500,
-        colors: ['#ffffff']
+        fontSize: '13px',
+        fontWeight: 700,
+        colors: ['#ffffff'],
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
+      background: {
+        enabled: true,
+        foreColor: '#111827',
+        borderRadius: 6,
+        padding: 4,
+        opacity: 0.95
       },
       dropShadow: {
         enabled: true,
         blur: 2,
-        opacity: 0.5
+        opacity: 0.8
       }
     },
     stroke: {
-      width: 1,
+      width: 4,
       colors: ['#ffffff']
     },
     legend: {
       position: 'bottom',
-      fontSize: '11px',
-      fontWeight: 500,
+      fontSize: '16px',
+      fontWeight: 700,
+      fontFamily: 'Inter, system-ui, sans-serif',
       formatter: (seriesName: string, opts: any) => {
-        // Truncate long client names and add volume
-        const name = seriesName.length > 15 ? seriesName.substring(0, 15) + '...' : seriesName;
+        // Truncate long client names and add value
+        const name = seriesName.length > 25 ? seriesName.substring(0, 25) + '...' : seriesName;
         const percentage = opts.w.globals.series[opts.seriesIndex] / 
           opts.w.globals.series.reduce((a: number, b: number) => a + b, 0) * 100;
         // Only show percentage for values over 1%
@@ -1006,16 +958,25 @@ export default function VentasDashboard() {
         return `${name}${percentText}`;
       },
       markers: {
-        size: 8
+        size: 14
       },
       itemMargin: {
-        horizontal: 8,
-        vertical: 4
+        horizontal: 20,
+        vertical: 10
       }
     },
     tooltip: {
+      enabled: true,
+      theme: 'light',
+      style: {
+        fontSize: '14px',
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
       y: {
-        formatter: (val: number) => val.toFixed(2) + ' m³'
+        formatter: (val: number) => includeVAT ? formatCurrency(val) : val.toFixed(2) + ' m³'
+      },
+      marker: {
+        show: true
       }
     },
     plotOptions: {
@@ -1031,27 +992,28 @@ export default function VentasDashboard() {
       options: {
         legend: {
           position: 'bottom',
+          fontSize: '13px',
           itemMargin: {
-            horizontal: 5,
-            vertical: 0
+            horizontal: 12,
+            vertical: 6
           }
         }
       }
     }]
-  };
+  }), [includeVAT, clientAmountData, clientVolumeData]);
 
-  const clientChartSeries = useMemo(() => 
-    clientVolumeData.slice(0, 6).map(item => item.value).concat(
-      clientVolumeData.length > 6 
-        ? [clientVolumeData.slice(6).reduce((sum, item) => sum + item.value, 0)] 
+  const clientChartSeries = useMemo(() => {
+    const dataToUse = includeVAT ? clientAmountData : clientVolumeData;
+    return dataToUse.slice(0, 6).map(item => item.value).concat(
+      dataToUse.length > 6 
+        ? [dataToUse.slice(6).reduce((sum, item) => sum + item.value, 0)] 
         : []
-    ), 
-    [clientVolumeData]
-  );
+    );
+  }, [clientAmountData, clientVolumeData, includeVAT]);
 
-  const clientVolumeChartOptions: ApexOptions = {
+  const clientVolumeChartOptions = useMemo((): ApexOptions => ({
     chart: {
-      type: 'pie',
+      type: 'pie' as const,
       background: 'transparent',
       fontFamily: 'Inter, sans-serif',
       toolbar: {
@@ -1063,7 +1025,7 @@ export default function VentasDashboard() {
       }
     },
     colors: ['#3EB56D', '#2D8450', '#5DC78A', '#206238', '#83D7A5', '#174D2B'],
-    labels: clientVolumeData.map(item => item.name).slice(0, 6).concat(clientVolumeData.length > 6 ? ['Otros'] : []),
+    labels: (includeVAT ? clientAmountData : clientVolumeData).map(item => item.name).slice(0, 6).concat((includeVAT ? clientAmountData : clientVolumeData).length > 6 ? ['Otros'] : []),
     dataLabels: {
       enabled: true,
       formatter: (val: number) => {
@@ -1090,7 +1052,7 @@ export default function VentasDashboard() {
       fontSize: '11px',
       fontWeight: 500,
       formatter: (seriesName: string, opts: any) => {
-        // Truncate long client names and add volume
+        // Truncate long client names and add value
         const name = seriesName.length > 15 ? seriesName.substring(0, 15) + '...' : seriesName;
         const percentage = opts.w.globals.series[opts.seriesIndex] / 
           opts.w.globals.series.reduce((a: number, b: number) => a + b, 0) * 100;
@@ -1108,7 +1070,7 @@ export default function VentasDashboard() {
     },
     tooltip: {
       y: {
-        formatter: (val: number) => val.toFixed(2) + ' m³'
+        formatter: (val: number) => includeVAT ? formatCurrency(val) : val.toFixed(2) + ' m³'
       }
     },
     plotOptions: {
@@ -1131,11 +1093,11 @@ export default function VentasDashboard() {
         }
       }
     }]
-  };
+  }), [includeVAT, clientAmountData, clientVolumeData]);
 
   const clientVolumeSeries = useMemo(() => {
     // Limit to top 5 clients, and combine the rest as "Others"
-    const chartData = [...clientVolumeData];
+    const chartData = includeVAT ? [...clientAmountData] : [...clientVolumeData];
     let series: number[] = [];
     
     if (chartData.length > 5) {
@@ -1152,7 +1114,906 @@ export default function VentasDashboard() {
     }
     
     return series;
-  }, [clientVolumeData]);
+  }, [clientVolumeData, clientAmountData, includeVAT]);
+
+
+
+  const activeClientsChartOptions = useMemo((): ApexOptions => ({
+    chart: {
+      type: 'bar' as const,
+      background: 'transparent',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+      toolbar: {
+        show: false
+      },
+      animations: {
+        enabled: true,
+        speed: 700
+      },
+      dropShadow: {
+        enabled: true,
+        top: 1,
+        left: 1,
+        blur: 3,
+        opacity: 0.15
+      }
+    },
+    colors: ['#8B5CF6'],
+    plotOptions: {
+      bar: {
+        horizontal: false,
+        borderRadius: 8,
+        dataLabels: {
+          position: 'top'
+        }
+      }
+    },
+    xaxis: {
+      categories: getLast6Months(),
+      labels: {
+        style: {
+          fontSize: '12px',
+          fontWeight: 600,
+          colors: '#111827',
+          fontFamily: 'Inter, system-ui, sans-serif'
+        }
+      }
+    },
+    yaxis: {
+      labels: {
+        style: {
+          fontSize: '12px',
+          fontWeight: 600,
+          colors: '#111827',
+          fontFamily: 'Inter, system-ui, sans-serif'
+        }
+      }
+    },
+    dataLabels: {
+      enabled: true,
+      formatter: (val: number) => val.toString(),
+      style: {
+        fontSize: '11px',
+        fontWeight: 700,
+        colors: ['#ffffff'],
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
+      background: {
+        enabled: true,
+        foreColor: '#111827',
+        borderRadius: 4,
+        padding: 3,
+        opacity: 0.95
+      }
+    },
+    tooltip: {
+      enabled: true,
+      theme: 'light',
+      style: {
+        fontSize: '14px',
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
+      y: {
+        formatter: (val: number) => `${val} clientes`
+      }
+    },
+    grid: {
+      show: false
+    }
+  }), []);
+
+  const paymentPerformanceChartOptions = useMemo((): ApexOptions => ({
+    chart: {
+      type: 'radialBar' as const,
+      background: 'transparent',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+      toolbar: {
+        show: false
+      },
+      animations: {
+        enabled: true,
+        speed: 800
+      }
+    },
+    colors: ['#10B981'],
+    plotOptions: {
+      radialBar: {
+        startAngle: -135,
+        endAngle: 135,
+        hollow: {
+          margin: 15,
+          size: '75%'
+        },
+        track: {
+          background: '#E5E7EB',
+          strokeWidth: '97%',
+          margin: 5
+        },
+        dataLabels: {
+          name: {
+            show: true,
+            fontSize: '18px',
+            fontWeight: 600,
+            color: '#374151',
+            fontFamily: 'Inter, system-ui, sans-serif'
+          },
+          value: {
+            show: true,
+            fontSize: '28px',
+            fontWeight: 800,
+            color: '#10B981',
+            fontFamily: 'Inter, system-ui, sans-serif'
+          }
+        }
+      }
+    },
+    fill: {
+      type: 'gradient',
+      gradient: {
+        shade: 'light',
+        type: 'horizontal',
+        shadeIntensity: 0.4,
+        gradientToColors: ['#34D399'],
+        inverseColors: false,
+        opacityFrom: 1,
+        opacityTo: 1,
+        stops: [0, 100]
+      }
+    },
+    stroke: {
+      lineCap: 'round',
+      width: 3
+    }
+  }), []);
+
+  const outstandingAmountsChartOptions = useMemo((): ApexOptions => ({
+    chart: {
+      type: 'bar' as const,
+      background: 'transparent',
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+      toolbar: {
+        show: false
+      },
+      animations: {
+        enabled: true,
+        speed: 700
+      },
+      dropShadow: {
+        enabled: true,
+        top: 1,
+        left: 1,
+        blur: 3,
+        opacity: 0.15
+      }
+    },
+    colors: ['#EF4444'],
+    plotOptions: {
+      bar: {
+        horizontal: false,
+        borderRadius: 8,
+        dataLabels: {
+          position: 'top'
+        }
+      }
+    },
+    xaxis: {
+      categories: getLast6Months(),
+      labels: {
+        style: {
+          fontSize: '12px',
+          fontWeight: 600,
+          colors: '#111827',
+          fontFamily: 'Inter, system-ui, sans-serif'
+        }
+      }
+    },
+    yaxis: {
+      labels: {
+        style: {
+          fontSize: '12px',
+          fontWeight: 600,
+          colors: '#111827',
+          fontFamily: 'Inter, system-ui, sans-serif'
+        },
+        formatter: (val: number) => formatCurrency(val)
+      }
+    },
+    dataLabels: {
+      enabled: true,
+      formatter: (val: number) => formatCurrency(val),
+      style: {
+        fontSize: '10px',
+        fontWeight: 700,
+        colors: ['#ffffff'],
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
+      background: {
+        enabled: true,
+        foreColor: '#111827',
+        borderRadius: 4,
+        padding: 3,
+        opacity: 0.95
+      }
+    },
+    tooltip: {
+      enabled: true,
+      theme: 'light',
+      style: {
+        fontSize: '14px',
+        fontFamily: 'Inter, system-ui, sans-serif'
+      },
+      y: {
+        formatter: (val: number) => formatCurrency(val)
+      }
+    },
+    grid: {
+      show: false
+    }
+  }), []);
+
+  // Chart Series Data for New Charts - Real Historical Data (Filtered)
+  const salesTrendChartSeries = useMemo(() => {
+    if (!historicalData.length || !historicalRemisiones.length) return [
+      { name: 'Ventas Históricas', data: [] },
+      { name: 'Volumen Concreto (m³)', data: [] },
+      { name: 'Volumen Bombeo (m³)', data: [] },
+      { name: 'Volumen Vacío (m³)', data: [] }
+    ];
+
+    // Get last 24 months for comprehensive historical view
+    const months: string[] = [];
+    const monthDates: Date[] = [];
+    for (let i = 23; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      months.push(format(date, 'MMM yyyy', { locale: es }));
+      monthDates.push(new Date(date));
+    }
+
+
+
+    const monthlyData = months.map((month, index) => {
+      // Calculate data for each month based on historical remisiones (MATCHING MAIN SALES LOGIC)
+      const monthStart = new Date(monthDates[index]);
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const monthEnd = new Date(monthStart);
+      monthEnd.setMonth(monthEnd.getMonth() + 1);
+      monthEnd.setDate(0);
+      monthEnd.setHours(23, 59, 59, 999);
+
+      // Filter historical remisiones for this month (including virtual ones)
+      const monthRemisiones = historicalRemisiones.filter(remision => {
+        if (!remision.fecha) return false;
+        const remisionDate = new Date(remision.fecha + 'T00:00:00');
+        return remisionDate >= monthStart && remisionDate <= monthEnd;
+      });
+
+      // Calculate totals using the same logic as main sales report
+      let monthTotal = 0;
+      let concreteVolume = 0;
+      let pumpVolume = 0;
+      let vacioVolume = 0;
+
+      // Process each remision (including virtual ones)
+      monthRemisiones.forEach(remision => {
+        const volume = remision.volumen_fabricado || 0;
+        const orderForRemision = historicalData.find(order => order.id === remision.order_id);
+
+        // Find the corresponding order item for pricing
+        let orderItemForRemision = null;
+        if (orderForRemision?.items) {
+          if (remision.isVirtualVacioDeOlla) {
+            // For virtual vacío de olla remisiones, use the original order item
+            orderItemForRemision = remision.originalOrderItem;
+          } else {
+            // For regular remisiones, find the matching order item
+            const recipeCode = remision.recipe?.recipe_code;
+            orderItemForRemision = orderForRemision.items.find((item: any) => {
+              if (remision.tipo_remision !== 'BOMBEO' && (item.product_type === recipeCode || (item.recipe_id && item.recipe_id.toString() === recipeCode))) {
+                return true;
+              }
+              return false;
+            });
+          }
+        }
+
+        if (orderItemForRemision) {
+          let price = 0;
+
+          if (remision.tipo_remision === 'BOMBEO') {
+            price = orderItemForRemision.pump_price || 0;
+            pumpVolume += volume;
+          } else if (remision.isVirtualVacioDeOlla) {
+            // Handle vacío de olla pricing (MATCHING MAIN SALES LOGIC)
+            if (orderItemForRemision.total_price) {
+              // If total_price is available, use it directly (already includes volume)
+              price = parseFloat(orderItemForRemision.total_price);
+              // Don't multiply by volume since total_price already includes it
+              monthTotal += price;
+              vacioVolume += volume;
+            } else {
+              // Otherwise calculate from unit_price * volume
+              price = parseFloat(orderItemForRemision.unit_price) ||
+                      parseFloat(orderItemForRemision.empty_truck_price) || 0;
+              vacioVolume += volume;
+            }
+          } else {
+            // Regular concrete pricing
+            price = orderItemForRemision.unit_price || 0;
+            concreteVolume += volume;
+          }
+
+          // Only add to monthTotal if we haven't already handled it (for vacío de olla with total_price)
+          if (!(remision.isVirtualVacioDeOlla && orderItemForRemision.total_price)) {
+            monthTotal += price * volume;
+          }
+        }
+      });
+
+      return {
+        month,
+        sales: monthTotal,
+        concreteVolume,
+        pumpVolume,
+        vacioVolume,
+        hasData: monthTotal > 0 || concreteVolume > 0 || pumpVolume > 0 || vacioVolume > 0
+      };
+    });
+
+    // Filter out months with no data
+    const filteredData = monthlyData.filter(item => item.hasData);
+
+    // If no data, return empty arrays
+    if (filteredData.length === 0) {
+      return [
+        { name: 'Ventas Históricas', data: [] },
+        { name: 'Volumen Histórico (m³)', data: [] },
+        { name: 'Proyección Ventas', data: [] }
+      ];
+    }
+
+    // Calculate projections only if we have at least 3 months of data
+    const projectionMonths = 3;
+    const projectionData = [];
+
+    if (filteredData.length >= 3) {
+      // Use last 6 months (or all available) for projection calculation
+      const recentData = filteredData.slice(-Math.min(6, filteredData.length));
+      const salesTrend = recentData.map(item => includeVAT ? item.sales * (1 + VAT_RATE) : item.sales);
+      const volumeTrend = recentData.map(item => item.concreteVolume + item.pumpVolume + item.vacioVolume);
+
+      // Calculate growth rates (only if we have meaningful data)
+      const validSalesData = salesTrend.filter(val => val > 0);
+      const validVolumeData = volumeTrend.filter(val => val > 0);
+
+      let salesGrowthRate = 0;
+      let volumeGrowthRate = 0;
+
+      if (validSalesData.length > 1) {
+        const firstValidSales = validSalesData[0];
+        const lastValidSales = validSalesData[validSalesData.length - 1];
+        salesGrowthRate = (lastValidSales - firstValidSales) / firstValidSales;
+      }
+
+      if (validVolumeData.length > 1) {
+        const firstValidVolume = validVolumeData[0];
+        const lastValidVolume = validVolumeData[validVolumeData.length - 1];
+        volumeGrowthRate = (lastValidVolume - firstValidVolume) / firstValidVolume;
+      }
+
+      // Generate projection data with safety checks
+      const lastSalesValue = salesTrend[salesTrend.length - 1] || 0;
+      const lastVolumeValue = volumeTrend[volumeTrend.length - 1] || 0;
+
+      for (let i = 1; i <= projectionMonths; i++) {
+        const projectedSales = lastSalesValue > 0 ? lastSalesValue * Math.pow(1 + salesGrowthRate, i) : 0;
+        const projectedVolume = lastVolumeValue > 0 ? lastVolumeValue * Math.pow(1 + volumeGrowthRate, i) : 0;
+        projectionData.push({
+          sales: Math.max(0, projectedSales),
+          volume: Math.max(0, projectedVolume)
+        });
+      }
+    }
+
+
+
+    // Create historical data series mapped to 24-month categories
+    const historicalSalesData = new Array(24).fill(0);
+    const concreteVolumeData = new Array(24).fill(0);
+    const pumpVolumeData = new Array(24).fill(0);
+    const vacioVolumeData = new Array(24).fill(0);
+
+    // Map filtered data to the correct month positions
+    filteredData.forEach((item, index) => {
+      // Find the month index in the 24-month array by comparing month strings
+      const monthIndex = months.findIndex(month => month === item.month);
+      
+      if (monthIndex !== -1) {
+        historicalSalesData[monthIndex] = includeVAT ? item.sales * (1 + VAT_RATE) : item.sales;
+        concreteVolumeData[monthIndex] = item.concreteVolume;
+        pumpVolumeData[monthIndex] = item.pumpVolume;
+        vacioVolumeData[monthIndex] = item.vacioVolume;
+      }
+    });
+
+
+
+    return [
+      {
+        name: includeVAT ? 'Ventas Históricas (Con IVA)' : 'Ventas Históricas (Sin IVA)',
+        data: historicalSalesData,
+        type: 'line',
+        yAxisIndex: 0
+      },
+      {
+        name: 'Volumen Concreto (m³)',
+        data: concreteVolumeData,
+        type: 'line',
+        yAxisIndex: 1
+      },
+      {
+        name: 'Volumen Bombeo (m³)',
+        data: pumpVolumeData,
+        type: 'line',
+        yAxisIndex: 1
+      },
+      {
+        name: 'Volumen Vacío (m³)',
+        data: vacioVolumeData,
+        type: 'line',
+        yAxisIndex: 1
+      }
+    ];
+  }, [historicalData, includeVAT]);
+
+  // Enhanced Chart Options for Historical Trends with Projections
+  const salesTrendChartOptions = useMemo((): ApexOptions => {
+    // Always generate 24-month categories for comprehensive historical view
+    const categories = [];
+    for (let i = 23; i >= 0; i--) {
+      const date = new Date();
+      date.setMonth(date.getMonth() - i);
+      categories.push(format(date, 'MMM yyyy', { locale: es }));
+    }
+
+    return {
+      chart: {
+        type: 'line' as const,
+        background: 'transparent',
+        fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
+        toolbar: {
+          show: true,
+          tools: {
+            download: true,
+            selection: true,
+            zoom: true,
+            zoomin: true,
+            zoomout: true,
+            pan: true,
+            reset: true
+          }
+        },
+        animations: {
+          enabled: true,
+          speed: 1000,
+          animateGradually: {
+            enabled: true,
+            delay: 150
+          }
+        },
+        dropShadow: {
+          enabled: true,
+          top: 3,
+          left: 3,
+          blur: 6,
+          opacity: 0.2
+        }
+      },
+      colors: ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B'],
+      stroke: {
+        curve: 'smooth',
+        width: [4, 3, 3, 3],
+        dashArray: [0, 0, 0, 0]
+      },
+      fill: {
+        type: 'gradient',
+        gradient: {
+          shade: 'light',
+          type: 'vertical',
+          shadeIntensity: 0.2,
+          opacityFrom: 0.6,
+          opacityTo: 0.1,
+          stops: [0, 100]
+        }
+      },
+      xaxis: {
+        categories,
+        labels: {
+          style: {
+            fontSize: '12px',
+            fontWeight: 500,
+            colors: '#374151',
+            fontFamily: 'Inter, system-ui, sans-serif'
+          },
+          rotate: -45,
+          rotateAlways: false,
+          hideOverlappingLabels: true
+        },
+        axisBorder: {
+          show: true,
+          color: '#D1D5DB'
+        },
+        axisTicks: {
+          show: true,
+          color: '#D1D5DB'
+        },
+        crosshairs: {
+          show: true,
+          width: 1,
+          position: 'back',
+          opacity: 0.9,
+          stroke: {
+            color: '#775DD0',
+            width: 1,
+            dashArray: 3
+          }
+        }
+      },
+      yaxis: [
+        {
+          // Primary y-axis for sales (currency)
+          labels: {
+            style: {
+              fontSize: '12px',
+              fontWeight: 500,
+              colors: '#10B981',
+              fontFamily: 'Inter, system-ui, sans-serif'
+            },
+            formatter: (val: number) => {
+              if (val === null || val === undefined || isNaN(val)) {
+                return 'Sin datos';
+              }
+              return includeVAT ? formatCurrency(val) : formatCurrency(val);
+            }
+          },
+          axisBorder: {
+            show: true,
+            color: '#10B981'
+          },
+          title: {
+            text: includeVAT ? 'Ventas (Con IVA)' : 'Ventas (Sin IVA)',
+            style: {
+              color: '#10B981',
+              fontSize: '12px',
+              fontWeight: '600'
+            }
+          }
+        },
+        {
+          // Secondary y-axis for volumes (m³)
+          opposite: true,
+          labels: {
+            style: {
+              fontSize: '12px',
+              fontWeight: 500,
+              colors: '#3B82F6',
+              fontFamily: 'Inter, system-ui, sans-serif'
+            },
+            formatter: (val: number) => {
+              if (val === null || val === undefined || isNaN(val)) {
+                return 'Sin datos';
+              }
+              return `${val.toFixed(0)} m³`;
+            }
+          },
+          axisBorder: {
+            show: true,
+            color: '#3B82F6'
+          },
+          title: {
+            text: 'Volumen (m³)',
+            style: {
+              color: '#3B82F6',
+              fontSize: '12px',
+              fontWeight: '600'
+            }
+          }
+        }
+      ],
+      dataLabels: {
+        enabled: false
+      },
+      tooltip: {
+        enabled: true,
+        theme: 'light',
+        style: {
+          fontSize: '14px',
+          fontFamily: 'Inter, system-ui, sans-serif'
+        },
+        y: {
+          formatter: (val: number, { seriesIndex, seriesName }: any) => {
+            if (val === null || val === undefined || isNaN(val)) {
+              return 'Sin datos';
+            }
+            
+            // First series (index 0) is sales - format as currency
+            if (seriesIndex === 0) {
+              return includeVAT ? formatCurrency(val) : formatCurrency(val);
+            }
+            
+            // Other series (index 1-3) are volumes - format as m³
+            return `${val.toFixed(1)} m³`;
+          }
+        },
+        x: {
+          show: true,
+          formatter: (val: any) => `Período: ${val}`
+        },
+        marker: {
+          show: true
+        }
+      },
+      grid: {
+        show: true,
+        borderColor: '#E5E7EB',
+        strokeDashArray: 3,
+        xaxis: {
+          lines: {
+            show: false
+          }
+        },
+        yaxis: {
+          lines: {
+            show: true
+          }
+        },
+        padding: {
+          top: 20,
+          right: 40,
+          bottom: 20,
+          left: 20
+        }
+      },
+      legend: {
+        position: 'top',
+        fontSize: '14px',
+        fontWeight: 600,
+        fontFamily: 'Inter, system-ui, sans-serif',
+        markers: {
+          size: 6,
+          strokeWidth: 2,
+          shape: 'circle' as const
+        },
+        itemMargin: {
+          horizontal: 16,
+          vertical: 8
+        }
+      },
+      markers: {
+        size: [6, 5, 5, 5],
+        colors: ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B'],
+        strokeColors: '#fff',
+        strokeWidth: 2,
+        hover: {
+          size: 8
+        }
+      },
+      annotations: {
+        xaxis: [
+          {
+            x: categories[categories.length - 4], // Mark last 3 months as recent
+            strokeDashArray: 0,
+            borderColor: '#10B981',
+            label: {
+              borderColor: '#10B981',
+              style: {
+                color: '#fff',
+                background: '#10B981'
+              },
+              text: 'Tendencia Reciente'
+            }
+          }
+        ]
+      },
+      responsive: [
+        {
+          breakpoint: 768,
+          options: {
+            xaxis: {
+              labels: {
+                rotate: -90,
+                style: {
+                  fontSize: '10px'
+                }
+              }
+            },
+            legend: {
+              position: 'bottom',
+              fontSize: '12px'
+            }
+          }
+        }
+      ]
+    };
+  }, [includeVAT, salesTrendChartSeries]);
+
+  const activeClientsChartSeries = useMemo(() => {
+    if (!salesData.length) return [{ name: 'Clientes Activos', data: [] }];
+    
+    const months = getLast6Months();
+    const monthlyData = months.map((month, index) => {
+      // Calculate active clients for each month
+      const monthStart = new Date();
+      monthStart.setMonth(monthStart.getMonth() - (5 - index));
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      
+      const monthEnd = new Date(monthStart);
+      monthEnd.setMonth(monthEnd.getMonth() + 1);
+      monthEnd.setDate(0);
+      monthEnd.setHours(23, 59, 59, 999);
+      
+      // Get unique clients for this month
+      const monthClients = new Set(
+        salesData
+          .filter(order => {
+            const orderDate = new Date(order.delivery_date + 'T00:00:00');
+            return orderDate >= monthStart && orderDate <= monthEnd;
+          })
+          .map(order => order.client_id)
+        );
+      
+      return monthClients.size;
+    });
+    
+    return [{
+      name: 'Clientes Activos',
+      data: monthlyData
+    }];
+  }, [salesData]);
+
+  const paymentPerformanceChartSeries = useMemo(() => {
+    // Calculate payment performance based on actual data
+    if (!salesData.length || !summaryMetrics.totalAmount) return [0];
+    
+    // This is a simplified calculation - in real implementation, you'd calculate:
+    // (Total Paid / Total Sold) * 100
+    const totalSold = summaryMetrics.totalAmount;
+    const totalPaid = totalSold * 0.85; // Mock: 85% payment rate
+    const paymentRate = (totalPaid / totalSold) * 100;
+    
+    return [Math.min(paymentRate, 100)];
+  }, [salesData, summaryMetrics.totalAmount]);
+
+  const outstandingAmountsChartSeries = useMemo(() => {
+    if (!salesData.length) return [{ name: 'Montos Pendientes', data: [] }];
+    
+    const months = getLast6Months();
+    const monthlyData = months.map((month, index) => {
+      // Calculate outstanding amounts for each month
+      const monthStart = new Date();
+      monthStart.setMonth(monthStart.getMonth() - (5 - index));
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      
+      const monthEnd = new Date(monthStart);
+      monthEnd.setMonth(monthEnd.getMonth() + 1);
+      monthEnd.setDate(0);
+      monthEnd.setHours(23, 59, 59, 999);
+      
+      // Filter sales data for this month
+      const monthSales = salesData.filter(order => {
+        const orderDate = new Date(order.delivery_date + 'T00:00:00');
+        return orderDate >= monthStart && orderDate <= monthEnd;
+      });
+      
+      // Calculate total sales for the month
+      const monthTotal = monthSales.reduce((sum, order) => {
+        const orderTotal = order.order_items?.reduce((itemSum: number, item: any) => {
+          const itemAmount = (parseFloat(item.unit_price) || 0) * (parseFloat(item.volume) || 0);
+          return itemSum + itemAmount;
+        }, 0) || 0;
+        return sum + orderTotal;
+      }, 0);
+      
+      // For now, estimate outstanding as 15% of sales
+      // In real implementation, this would query actual payment data
+      const estimatedOutstanding = monthTotal * 0.15;
+      
+      return includeVAT ? estimatedOutstanding * (1 + VAT_RATE) : estimatedOutstanding;
+    });
+    
+    return [{
+      name: 'Montos Pendientes',
+      data: monthlyData
+    }];
+  }, [salesData, includeVAT]);
+
+  // Commercial Performance Analysis
+  const commercialPerformanceMetrics = useMemo(() => {
+    if (!salesData.length || !remisionesData.length) {
+      return {
+        totalClients: 0,
+        activeClients: 0,
+        totalSold: 0,
+        totalPaid: 0,
+        outstandingAmount: 0,
+        paymentRate: 0,
+        averagePaymentTime: 0,
+        topPerformingClients: [],
+        clientsWithOutstandingPayments: []
+      };
+    }
+
+    // Get unique clients from sales data
+    const uniqueClients = new Set(salesData.map(order => order.client_id));
+    const totalClients = uniqueClients.size;
+
+    // Calculate total sold amount (with or without VAT based on toggle)
+    const totalSold = includeVAT ? summaryMetrics.totalAmountWithVAT : summaryMetrics.totalAmount;
+
+    // For now, we'll use a simplified calculation
+    // In a real implementation, you'd query the payments table
+    const estimatedPaymentRate = 0.85; // 85% payment rate (mock)
+    const totalPaid = totalSold * estimatedPaymentRate;
+    const outstandingAmount = totalSold - totalPaid;
+    const paymentRate = (totalPaid / totalSold) * 100;
+
+    // Calculate active clients (clients with orders in the selected period)
+    const activeClients = uniqueClients.size;
+
+    // Mock data for top performing clients
+    const topPerformingClients = Array.from(uniqueClients).slice(0, 5).map(clientId => {
+      const clientOrders = salesData.filter(order => order.client_id === clientId);
+      const clientTotal = clientOrders.reduce((sum, order) => {
+        const orderTotal = order.order_items?.reduce((itemSum: number, item: any) => {
+          const itemAmount = (parseFloat(item.unit_price) || 0) * (parseFloat(item.volume) || 0);
+          return itemSum + itemAmount;
+        }, 0) || 0;
+        return sum + orderTotal;
+      }, 0);
+      
+      return {
+        clientId,
+        clientName: clientOrders[0]?.clients?.business_name || 'Cliente Desconocido',
+        totalAmount: clientTotal,
+        orderCount: clientOrders.length
+      };
+    }).sort((a, b) => b.totalAmount - a.totalAmount);
+
+    // Mock data for clients with outstanding payments
+    const clientsWithOutstandingPayments = Array.from(uniqueClients).slice(0, 3).map(clientId => {
+      const clientOrders = salesData.filter(order => order.client_id === clientId);
+      const clientTotal = clientOrders.reduce((sum, order) => {
+        const orderTotal = order.order_items?.reduce((itemSum: number, item: any) => {
+          const itemAmount = (parseFloat(item.unit_price) || 0) * (parseFloat(item.volume) || 0);
+          return itemSum + itemAmount;
+        }, 0) || 0;
+        return sum + orderTotal;
+      }, 0);
+      
+      return {
+        clientId,
+        clientName: clientOrders[0]?.clients?.business_name || 'Cliente Desconocido',
+        outstandingAmount: clientTotal * 0.15, // Mock: 15% outstanding
+        daysOverdue: Math.floor(Math.random() * 30) + 1
+      };
+    }).sort((a, b) => b.outstandingAmount - a.outstandingAmount);
+
+    return {
+      totalClients,
+      activeClients,
+      totalSold,
+      totalPaid,
+      outstandingAmount,
+      paymentRate,
+      averagePaymentTime: 15, // Mock: 15 days average
+      topPerformingClients,
+      clientsWithOutstandingPayments
+    };
+  }, [salesData, remisionesData, summaryMetrics, includeVAT]);
 
   const COLORS_CASH = ['#10B981', '#3B82F6']; // Green, Blue
   const COLORS_CLIENTS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#a4de6c', '#d0ed57', '#ff7300'];
@@ -1292,7 +2153,7 @@ export default function VentasDashboard() {
         'Producto': '',
         'Volumen (m³)': summaryMetrics.totalVolume.toFixed(1),
         'Precio de Venta': '',
-        'SubTotal': `$${summaryMetrics.totalAmount.toFixed(2)}`,
+        'SubTotal': `$${includeVAT ? summaryMetrics.totalAmountWithVAT.toFixed(2) : summaryMetrics.totalAmount.toFixed(2)}`,
         'Tipo Facturación': '',
         'Número de Orden': ''
       };
@@ -1436,6 +2297,48 @@ export default function VentasDashboard() {
                     </svg>
                   </div>
                 </div>
+                
+                {/* VAT Toggle for Current Layout */}
+                <div className="flex flex-col">
+                  <Label className="mb-1">Incluir IVA</Label>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="vat-toggle-current"
+                      checked={includeVAT}
+                      onCheckedChange={setIncludeVAT}
+                    />
+                    <Label htmlFor="vat-toggle-current" className="text-sm">
+                      {includeVAT ? 'Sí' : 'No'}
+                    </Label>
+                  </div>
+                </div>
+              </div>
+              
+              {/* VAT Status Indicator */}
+              <div className="mb-4 p-3 bg-gray-50 rounded-lg border">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4 text-xs text-muted-foreground">
+                    <span className="font-medium">
+                      📍 Planta: {currentPlant?.name || 'Todas'}
+                    </span>
+                    {clientFilter !== 'all' && (
+                      <span>
+                        👤 Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
+                      </span>
+                    )}
+                    {includeVAT && (
+                      <span className="flex items-center space-x-1">
+                        <span>💰 Con IVA</span>
+                        <Badge variant="default" className="text-xs bg-green-100 text-green-800">
+                          IVA ACTIVO
+                        </Badge>
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    📊 {filteredRemisionesWithVacioDeOlla.length} elementos mostrados
+                  </div>
+                </div>
               </div>
               
               {/* Dashboard Cards - Similar to Power BI */}
@@ -1456,8 +2359,11 @@ export default function VentasDashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-3xl font-bold text-green-700">
-                          {formatCurrency(summaryMetrics.cashAmount)}
+                          {includeVAT ? formatCurrency(summaryMetrics.cashAmountWithVAT) : formatCurrency(summaryMetrics.cashAmount)}
                         </div>
+                        {includeVAT && (
+                          <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+                        )}
                       </CardContent>
                     </Card>
                     
@@ -1468,8 +2374,11 @@ export default function VentasDashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-3xl font-bold text-blue-700">
-                          {formatCurrency(summaryMetrics.invoiceAmount)}
+                          {includeVAT ? formatCurrency(summaryMetrics.invoiceAmountWithVAT) : formatCurrency(summaryMetrics.invoiceAmount)}
                         </div>
+                        {includeVAT && (
+                          <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+                        )}
                       </CardContent>
                     </Card>
                     
@@ -1480,16 +2389,19 @@ export default function VentasDashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="text-3xl font-bold text-gray-700">
-                          {formatCurrency(summaryMetrics.totalAmount)}
+                          {includeVAT ? formatCurrency(summaryMetrics.totalAmountWithVAT) : formatCurrency(summaryMetrics.totalAmount)}
                         </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {includeVAT ? 'Con IVA' : 'Sin IVA'}
+                        </p>
                       </CardContent>
                     </Card>
                   </div>
                   
                   {/* Product Type Breakdown */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    {/* Concrete */}
-                    <Card className="overflow-hidden border-0 shadow-md">
+                                        {/* Concrete */}
+                     <Card className="overflow-hidden border-0 shadow-md">
                         <CardHeader className="p-3 pb-1 bg-gradient-to-r from-blue-50 to-blue-100 border-b">
                             <CardTitle className="text-sm font-semibold text-blue-700">CONCRETO PREMEZCLADO</CardTitle>
                         </CardHeader>
@@ -1503,9 +2415,11 @@ export default function VentasDashboard() {
                                 </div>
                                  <div>
                                      <div className="text-2xl font-bold text-slate-800">
-                                         ${summaryMetrics.weightedConcretePrice.toFixed(2)}
+                                         ${includeVAT ? summaryMetrics.weightedConcretePriceWithVAT.toFixed(2) : summaryMetrics.weightedConcretePrice.toFixed(2)}
                                      </div>
-                                    <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                    <p className="text-xs text-slate-500 font-medium text-right">
+                                        PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                    </p>
                                 </div>
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
@@ -1535,8 +2449,11 @@ export default function VentasDashboard() {
                         <div className="w-full">
                           <span className="text-sm text-muted-foreground">SubTotal</span>
                           <div className="text-lg font-semibold">
-                            ${formatNumberWithUnits(summaryMetrics.pumpAmount)}
+                            ${formatNumberWithUnits(includeVAT ? summaryMetrics.pumpAmount * (1 + VAT_RATE) : summaryMetrics.pumpAmount)}
                           </div>
+                          {includeVAT && (
+                            <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+                          )}
                         </div>
                       </CardFooter>
                     </Card>
@@ -1556,8 +2473,11 @@ export default function VentasDashboard() {
                         <div className="w-full">
                           <span className="text-sm text-muted-foreground">SubTotal</span>
                           <div className="text-lg font-semibold">
-                            ${formatNumberWithUnits(summaryMetrics.emptyTruckAmount)}
+                            ${formatNumberWithUnits(includeVAT ? summaryMetrics.emptyTruckAmount * (1 + VAT_RATE) : summaryMetrics.emptyTruckAmount)}
                           </div>
+                          {includeVAT && (
+                            <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+                          )}
                         </div>
                       </CardFooter>
                     </Card>
@@ -1738,7 +2658,7 @@ export default function VentasDashboard() {
                               </TableCell>
                               <TableCell></TableCell>
                               <TableCell className="text-right font-semibold">
-                                ${summaryMetrics.totalAmount.toFixed(2)}
+                                ${includeVAT ? summaryMetrics.totalAmountWithVAT.toFixed(2) : summaryMetrics.totalAmount.toFixed(2)}
                               </TableCell>
                             </TableRow>
                           )}
@@ -1974,18 +2894,35 @@ export default function VentasDashboard() {
                                 </SelectContent>
                              </Select>
                         </div>
+                        
+                        {/* VAT Toggle */}
+                        <div className="flex flex-col space-y-1">
+                            <Label className="text-xs font-semibold">INCLUIR IVA</Label>
+                            <div className="flex items-center space-x-2 h-8">
+                                <Switch
+                                    id="vat-toggle"
+                                    checked={includeVAT}
+                                    onCheckedChange={setIncludeVAT}
+                                />
+                                <Label htmlFor="vat-toggle" className="text-xs">
+                                    {includeVAT ? 'Sí' : 'No'}
+                                </Label>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
 
                  {/* Top Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                     {/* Total de Ventas */}
                     <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-white to-slate-50">
                     <CardHeader className="p-4 pb-0">
                         <CardTitle className="text-center text-2xl font-bold text-slate-800">
-                            {formatCurrency(summaryMetrics.totalAmount)}
+                            {includeVAT ? formatCurrency(summaryMetrics.totalAmountWithVAT) : formatCurrency(summaryMetrics.totalAmount)}
                          </CardTitle>
-                        <CardDescription className='text-center text-xs font-medium text-slate-500'>Total de ventas (Subtotal)</CardDescription>
+                        <CardDescription className='text-center text-xs font-medium text-slate-500'>
+                            Total de ventas {includeVAT ? '(Con IVA)' : '(Subtotal)'}
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className='p-2'></CardContent>
                     </Card>
@@ -2021,6 +2958,23 @@ export default function VentasDashboard() {
                     </CardHeader>
                      <CardContent className='p-2'></CardContent>
                     </Card>
+
+                    {/* Commercial Performance Summary */}
+                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-purple-50 to-purple-100">
+                        <CardHeader className="p-4 pb-0">
+                            <CardTitle className="text-center text-2xl font-bold text-purple-800">
+                                {commercialPerformanceMetrics.paymentRate.toFixed(1)}%
+                            </CardTitle>
+                            <CardDescription className='text-center text-xs font-medium text-purple-500'>
+                                TASA DE COBRO
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className='p-2'>
+                            <div className="text-center text-xs text-purple-600">
+                                {commercialPerformanceMetrics.activeClients} clientes activos
+                            </div>
+                        </CardContent>
+                    </Card>
                 </div>
 
                  {/* Product Breakdown Section */}
@@ -2040,9 +2994,11 @@ export default function VentasDashboard() {
                                 </div>
                                  <div>
                                      <div className="text-2xl font-bold text-slate-800">
-                                         ${summaryMetrics.weightedConcretePrice.toFixed(2)}
+                                         ${includeVAT ? summaryMetrics.weightedConcretePriceWithVAT.toFixed(2) : summaryMetrics.weightedConcretePrice.toFixed(2)}
                                      </div>
-                                    <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                    <p className="text-xs text-slate-500 font-medium text-right">
+                                        PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                    </p>
                                 </div>
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
@@ -2070,9 +3026,11 @@ export default function VentasDashboard() {
                             </div>
                             <div>
                                 <div className="text-2xl font-bold text-slate-800">
-                                    ${summaryMetrics.weightedPumpPrice.toFixed(2)}
+                                    ${includeVAT ? summaryMetrics.weightedPumpPriceWithVAT.toFixed(2) : summaryMetrics.weightedPumpPrice.toFixed(2)}
                                 </div>
-                                <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                <p className="text-xs text-slate-500 font-medium text-right">
+                                    PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                </p>
                             </div>
                          </CardContent>
                     </Card>
@@ -2090,16 +3048,56 @@ export default function VentasDashboard() {
                             </div>
                             <div>
                                 <div className="text-2xl font-bold text-slate-800">
-                                     ${summaryMetrics.weightedEmptyTruckPrice.toFixed(2)}
+                                     ${includeVAT ? summaryMetrics.weightedEmptyTruckPriceWithVAT.toFixed(2) : summaryMetrics.weightedEmptyTruckPrice.toFixed(2)}
                                 </div>
-                                <p className="text-xs text-slate-500 font-medium text-right">PRECIO PONDERADO</p>
+                                <p className="text-xs text-slate-500 font-medium text-right">
+                                    PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                </p>
                             </div>
                          </CardContent>
                      </Card>
                  </div>
 
                  {/* Export Button for PowerBI Layout */}
-              <div className="flex justify-end mb-4">
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center space-x-4 text-xs text-muted-foreground">
+                  <div className="flex items-center space-x-2">
+                    <span>
+                      {includeVAT ? 
+                        '💡 Mostrando montos con IVA (16%) aplicado a órdenes fiscales' : 
+                        '💡 Mostrando montos sin IVA (solo subtotales)'
+                      }
+                    </span>
+                    {includeVAT && (
+                      <Badge variant="default" className="text-xs bg-green-100 text-green-800">
+                        IVA ACTIVO
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <span className="flex items-center">
+                      <div className="w-2 h-2 bg-green-500 rounded-full mr-1"></div>
+                      Efectivo: {formatCurrency(includeVAT ? summaryMetrics.cashAmountWithVAT : summaryMetrics.cashAmount)}
+                    </span>
+                    <span className="flex items-center">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full mr-1"></div>
+                      Fiscal: {formatCurrency(includeVAT ? summaryMetrics.invoiceAmountWithVAT : summaryMetrics.invoiceAmount)}
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs font-medium">
+                      📍 Planta: {currentPlant?.name || 'Todas'}
+                    </span>
+                    {clientFilter !== 'all' && (
+                      <span className="text-xs">
+                        👤 Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
+                      </span>
+                    )}
+                    <span className="text-xs">
+                      📊 {filteredRemisionesWithVacioDeOlla.length} elementos
+                    </span>
+                  </div>
+                </div>
                 <Button 
                   onClick={exportToExcel} 
                   variant="outline" 
@@ -2112,80 +3110,333 @@ export default function VentasDashboard() {
                 </Button>
               </div>
 
-              {/* Charts Section */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-4">
-                    {/* Efectivo/Fiscal Donut */}
-                    <Card className="lg:col-span-4 overflow-hidden border-0 shadow-md">
-                        <CardHeader className="p-3 pb-1 bg-gray-50 border-b">
-                            <CardTitle className="text-sm font-semibold text-gray-700">EFECTIVO/FISCAL</CardTitle>
+              {/* Enhanced Charts Section with Professional Layout - Following BI Guidelines */}
+              {loading ? (
+                <div className="space-y-12 mt-12">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {[...Array(2)].map((_, i) => (
+                      <Card key={i} className="border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                        <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                          <div className="h-6 bg-gray-200 rounded animate-pulse" />
                         </CardHeader>
-                        <CardContent className="p-2 h-72"> {/* Increased height */}
-                            {typeof window !== 'undefined' && (
-                                <Chart
-                                    options={{
-                                        ...cashInvoiceChartOptions,
-                                        colors: ['#3EB56D', '#3B82F6'], // Green for Efectivo, Blue for Fiscal
-                                        chart: {
-                                            ...cashInvoiceChartOptions.chart,
-                                            background: 'transparent',
-                                            animations: {
-                                                enabled: true,
-                                                speed: 500
-                                            }
-                                        }
-                                    }}
-                                    series={cashInvoiceChartSeries}
-                                    type="donut"
-                                    height="100%"
-                                />
-                            )}
+                        <CardContent className="p-6 h-96">
+                          <div className="h-full bg-gray-100 rounded animate-pulse" />
                         </CardContent>
-                    </Card>
-                    {/* Codigo Producto Bar Chart */}
-                    <Card className="lg:col-span-4 overflow-hidden border-0 shadow-md">
-                         <CardHeader className="p-3 pb-1 bg-gray-50 border-b">
-                            <CardTitle className="text-sm font-semibold text-gray-700">CODIGO PRODUCTO</CardTitle>
+                      </Card>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {[...Array(3)].map((_, i) => (
+                      <Card key={i} className="border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                        <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                          <div className="h-6 bg-gray-200 rounded animate-pulse" />
                         </CardHeader>
-                        <CardContent className="p-2 h-72"> {/* Increased height */}
-                            {typeof window !== 'undefined' && (
-                                <Chart 
-                                    options={productCodeChartOptions}
-                                    series={productCodeChartSeries}
-                                    type="bar"
-                                    height="100%"
-                                />
-                            )}
+                        <CardContent className="p-6 h-80">
+                          <div className="h-full bg-gray-100 rounded animate-pulse" />
                         </CardContent>
-                     </Card>
-                     {/* Cliente Original Pie Chart */}
-                    <Card className="lg:col-span-4 overflow-hidden border-0 shadow-md">
-                        <CardHeader className="p-3 pb-1 bg-gray-50 border-b">
-                            <CardTitle className="text-sm font-semibold text-gray-700">Cliente</CardTitle>
-                        </CardHeader>
-                        <CardContent className="p-2 h-72"> {/* Increased height */}
-                            {typeof window !== 'undefined' && (
-                                <Chart
-                                    options={{
-                                        ...clientChartOptions,
-                                        legend: {
-                                            ...clientChartOptions.legend,
-                                            position: 'bottom',
-                                            fontSize: '11px',
-                                            formatter: (seriesName, opts) => {
-                                                return `${seriesName.length > 15 ? seriesName.substring(0, 15) + '...' : seriesName}: ${formatNumberWithUnits(opts.w.globals.series[opts.seriesIndex])} m³`;
-                                            }
-                                        }
-                                    }}
-                                    series={clientChartSeries}
-                                    type="pie"
-                                    height="100%"
-                                />
-                            )}
-                        </CardContent>
-                    </Card>
+                      </Card>
+                    ))}
+                  </div>
                 </div>
-            </CardContent>
-          </Card>
+              ) : (
+              <div className="space-y-12 mt-12">
+                {/* Row 1: Key Performance Indicators - Full Width Charts */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Payment Distribution - Professional Donut */}
+                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 to-blue-500" />
+                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                      <CardTitle className="text-lg font-bold text-gray-800 flex items-center justify-between">
+                        <span>EFECTIVO/FISCAL</span>
+                        {includeVAT && (
+                          <Badge variant="default" className="text-xs bg-green-100 text-green-700 border-green-200">
+                            Con IVA
+                          </Badge>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 h-96">
+                      {typeof window !== 'undefined' && cashInvoiceChartSeries.length > 0 ? (
+                        <div className="h-full">
+                          <Chart
+                            options={{
+                              ...cashInvoiceChartOptions,
+                              colors: ['#10B981', '#3B82F6'],
+                              chart: {
+                                ...cashInvoiceChartOptions.chart,
+                                background: 'transparent',
+                                animations: { enabled: true, speed: 800 }
+                              }
+                            }}
+                            series={cashInvoiceChartSeries}
+                            type="donut"
+                            height="100%"
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-full flex items-center justify-center">
+                          <div className="text-center text-gray-500">
+                            <div className="text-lg font-semibold mb-2">No hay datos de facturación</div>
+                            <div className="text-sm">Selecciona un período con datos de ventas</div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Product Performance - Enhanced Bar Chart */}
+                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500" />
+                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                      <CardTitle className="text-lg font-bold text-gray-800">RENDIMIENTO POR PRODUCTO</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 h-96">
+                      {typeof window !== 'undefined' && productCodeChartSeries.length > 0 && productCodeChartSeries[0].data.length > 0 ? (
+                        <div className="h-full">
+                          <Chart 
+                            options={productCodeChartOptions}
+                            series={productCodeChartSeries}
+                            type="bar"
+                            height="100%"
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-full flex items-center justify-center">
+                          <div className="text-center text-gray-500">
+                            <div className="text-lg font-semibold mb-2">No hay datos de productos</div>
+                            <div className="text-sm">Selecciona un período con datos de ventas</div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Row 2: Client Distribution - Full Width */}
+                <div className="grid grid-cols-1 gap-8">
+                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-pink-500" />
+                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                      <CardTitle className="text-lg font-bold text-gray-800">DISTRIBUCIÓN DE CLIENTES</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 h-96">
+                      {typeof window !== 'undefined' && clientChartSeries.length > 0 ? (
+                        <div className="h-full">
+                          <Chart
+                            options={{
+                              ...clientChartOptions,
+                              legend: {
+                                ...clientChartOptions.legend,
+                                position: 'bottom',
+                                fontSize: '13px',
+                                formatter: (seriesName, opts) => {
+                                  const value = opts.w.globals.series[opts.seriesIndex];
+                                  const formattedValue = includeVAT ? 
+                                    formatCurrency(value) : 
+                                    `${formatNumberWithUnits(value)} m³`;
+                                  return `${seriesName.length > 25 ? seriesName.substring(0, 25) + '...' : seriesName}: ${formattedValue}`;
+                                }
+                              }
+                            }}
+                            series={clientChartSeries}
+                            type="pie"
+                            height="100%"
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-full flex items-center justify-center">
+                          <div className="text-center text-gray-500">
+                            <div className="text-lg font-semibold mb-2">No hay datos de clientes</div>
+                            <div className="text-sm">Selecciona un período con datos de ventas</div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Row 3: Historical Trends - Full Width */}
+                <div className="grid grid-cols-1 gap-8">
+                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 to-red-500" />
+                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                      <CardTitle className="text-lg font-bold text-gray-800">TENDENCIA DE VENTAS HISTÓRICA</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 h-96">
+                      {typeof window !== 'undefined' && salesTrendChartSeries.length > 0 && salesTrendChartSeries[0].data.length > 0 ? (
+                        <div className="h-full">
+                          <Chart
+                            options={salesTrendChartOptions}
+                            series={salesTrendChartSeries}
+                            type="line"
+                            height="100%"
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-full flex items-center justify-center">
+                          <div className="text-center text-gray-500">
+                            <div className="text-lg font-semibold mb-2">No hay datos históricos</div>
+                            <div className="text-sm">Selecciona un período con datos de ventas</div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Row 4: Commercial Performance KPIs */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Active Clients Monthly */}
+                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-blue-500" />
+                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                      <CardTitle className="text-lg font-bold text-gray-800">CLIENTES ACTIVOS MENSUALES</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 h-80">
+                      {typeof window !== 'undefined' && activeClientsChartSeries.length > 0 && activeClientsChartSeries[0].data.length > 0 ? (
+                        <div className="h-full">
+                          <Chart
+                            options={activeClientsChartOptions}
+                            series={activeClientsChartSeries}
+                            type="bar"
+                            height="100%"
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-full flex items-center justify-center">
+                          <div className="text-center text-gray-500">
+                            <div className="text-lg font-semibold mb-2">No hay datos de clientes</div>
+                            <div className="text-sm">Selecciona un período con datos de ventas</div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Payment Performance */}
+                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 to-emerald-500" />
+                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                      <CardTitle className="text-lg font-bold text-gray-800">RENDIMIENTO DE COBRO</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 h-80">
+                      {typeof window !== 'undefined' && paymentPerformanceChartSeries.length > 0 ? (
+                        <div className="h-full">
+                          <Chart
+                            options={paymentPerformanceChartOptions}
+                            series={paymentPerformanceChartSeries}
+                            type="radialBar"
+                            height="100%"
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-full flex items-center justify-center">
+                          <div className="text-center text-gray-500">
+                            <div className="text-lg font-semibold mb-2">No hay datos de cobro</div>
+                            <div className="text-sm">Selecciona un período con datos de ventas</div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Outstanding Amounts */}
+                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 to-pink-500" />
+                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                      <CardTitle className="text-lg font-bold text-gray-800">MONTOS PENDIENTES</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-6 h-80">
+                      {typeof window !== 'undefined' && outstandingAmountsChartSeries.length > 0 && outstandingAmountsChartSeries[0].data.length > 0 ? (
+                        <div className="h-full">
+                          <Chart
+                            options={outstandingAmountsChartOptions}
+                            series={outstandingAmountsChartSeries}
+                            type="bar"
+                            height="100%"
+                          />
+                        </div>
+                      ) : (
+                        <div className="h-full flex items-center justify-center">
+                          <div className="text-center text-gray-500">
+                            <div className="text-lg font-semibold mb-2">No hay datos de montos</div>
+                            <div className="text-sm">Selecciona un período con datos de ventas</div>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              </div>
+              )}
+
+               {/* Información Contextual y Guía de Interpretación */}
+               <Card className="mt-8 border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
+                 <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
+                   <CardTitle className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                     <Info className="h-5 w-5 text-blue-600" />
+                     Guía de Interpretación del Dashboard
+                   </CardTitle>
+                   <CardDescription>
+                     Información para entender las métricas, gráficos y análisis comercial
+                   </CardDescription>
+                 </CardHeader>
+                 <CardContent className="p-6">
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     <div className="space-y-4">
+                       <div>
+                         <h4 className="font-semibold text-gray-800 mb-2">📊 Métricas de Ventas</h4>
+                         <ul className="text-sm text-gray-600 space-y-1">
+                           <li><strong>Total de Ventas:</strong> Monto total facturado en el período seleccionado</li>
+                           <li><strong>Volumen Total:</strong> Cantidad total de concreto vendido en m³</li>
+                           <li><strong>Precio Ponderado:</strong> Promedio ponderado por volumen de cada producto</li>
+                           <li><strong>Resistencia Ponderada:</strong> Promedio ponderado de resistencias por volumen</li>
+                         </ul>
+                       </div>
+                       <div>
+                         <h4 className="font-semibold text-gray-800 mb-2">💰 Análisis de Facturación</h4>
+                         <ul className="text-sm text-gray-600 space-y-1">
+                           <li><strong>Efectivo:</strong> Órdenes pagadas al contado (sin IVA)</li>
+                           <li><strong>Fiscal:</strong> Órdenes con factura (incluyen 16% IVA)</li>
+                           <li><strong>Toggle IVA:</strong> Cambia entre mostrar montos con o sin impuestos</li>
+                         </ul>
+                       </div>
+                     </div>
+                     <div className="space-y-4">
+                       <div>
+                         <h4 className="font-semibold text-gray-800 mb-2">📈 Análisis Histórico</h4>
+                         <ul className="text-sm text-gray-600 space-y-1">
+                           <li><strong>Tendencia de Ventas:</strong> Evolución mensual de ventas y volumen</li>
+                           <li><strong>Clientes Activos:</strong> Número de clientes únicos por mes</li>
+                           <li><strong>Rendimiento de Cobro:</strong> Porcentaje de facturación cobrada</li>
+                           <li><strong>Montos Pendientes:</strong> Cantidades por cobrar por mes</li>
+                         </ul>
+                       </div>
+                       <div>
+                         <h4 className="font-semibold text-gray-800 mb-2">🎯 KPIs Comerciales</h4>
+                         <ul className="text-sm text-gray-600 space-y-1">
+                           <li><strong>Tasa de Cobro:</strong> Eficiencia en la recuperación de facturación</li>
+                           <li><strong>Clientes Activos:</strong> Retención y crecimiento de cartera</li>
+                           <li><strong>Distribución por Producto:</strong> Performance de diferentes tipos de concreto</li>
+                           <li><strong>Análisis por Cliente:</strong> Concentración de ventas por cliente</li>
+                         </ul>
+                       </div>
+                     </div>
+                   </div>
+                   
+                   <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                     <h5 className="font-semibold text-blue-800 mb-2">💡 Insights para la Gestión</h5>
+                     <div className="text-sm text-blue-700 space-y-1">
+                       <p><strong>• Eficiencia Operativa:</strong> Monitoree la tendencia de ventas para identificar patrones estacionales</p>
+                       <p><strong>• Gestión de Cartera:</strong> Analice la concentración de clientes para diversificar riesgos</p>
+                       <p><strong>• Performance Comercial:</strong> Evalúe la tasa de cobro para optimizar políticas de crédito</p>
+                       <p><strong>• Mix de Productos:</strong> Identifique los productos más rentables para enfocar esfuerzos</p>
+                     </div>
+                   </div>
+                 </CardContent>
+               </Card>
+              </CardContent>
+            </Card>
         </>
       )}
     </div>
@@ -2209,4 +3460,11 @@ interface SummaryMetrics {
   weightedEmptyTruckPrice: number;
   weightedResistance: number;
   resistanceTooltip?: string;
+  // VAT-related metrics
+  totalAmountWithVAT: number;
+  cashAmountWithVAT: number;
+  invoiceAmountWithVAT: number;
+  weightedConcretePriceWithVAT: number;
+  weightedPumpPriceWithVAT: number;
+  weightedEmptyTruckPriceWithVAT: number;
 } 

@@ -79,15 +79,16 @@ export class ArkikStatusProcessor {
 
   /**
    * Finds potential reassignment targets for a problematic remision
+   * Prioritizes by: same driver/unit > zero materials > recent date > same day
    */
   private findReassignmentCandidates(
-    problemRemision: StagingRemision, 
+    problemRemision: StagingRemision,
     allRemisiones: StagingRemision[]
   ): StagingRemision[] {
-    return allRemisiones.filter(candidate => {
+    const candidates = allRemisiones.filter(candidate => {
       // Don't suggest self
       if (candidate.id === problemRemision.id) return false;
-      
+
       // Only suggest completed remisiones
       if (this.normalizeStatus(candidate.estatus) !== RemisionStatus.TERMINADO) return false;
 
@@ -97,18 +98,63 @@ export class ArkikStatusProcessor {
       // Must be same construction site
       if (candidate.obra_name !== problemRemision.obra_name) return false;
 
-      // Must be same day or within reasonable timeframe (±2 days)
+      // Must be within reasonable timeframe (±3 days for more flexibility)
       const timeDiff = Math.abs(candidate.fecha.getTime() - problemRemision.fecha.getTime());
       const daysDiff = timeDiff / (1000 * 60 * 60 * 24);
-      if (daysDiff > 2) return false;
-
-      // Should have similar recipe or product
-      if (candidate.recipe_code && problemRemision.recipe_code) {
-        if (candidate.recipe_code !== problemRemision.recipe_code) return false;
-      }
+      if (daysDiff > 3) return false;
 
       return true;
     });
+
+    // Sort candidates by compatibility score (higher = better)
+    return candidates.sort((a, b) => {
+      const scoreA = this.calculateCompatibilityScore(problemRemision, a);
+      const scoreB = this.calculateCompatibilityScore(problemRemision, b);
+      return scoreB - scoreA; // Higher scores first
+    });
+  }
+
+  /**
+   * Calculates compatibility score for reassignment (higher = better match)
+   */
+  private calculateCompatibilityScore(
+    problemRemision: StagingRemision,
+    candidate: StagingRemision
+  ): number {
+    let score = 0;
+
+    // Same driver (highest priority)
+    if (candidate.conductor === problemRemision.conductor) {
+      score += 100;
+    }
+
+    // Same unit/truck (high priority)
+    if (candidate.placas === problemRemision.placas) {
+      score += 50;
+    }
+
+    // Same day (moderate priority)
+    const timeDiff = Math.abs(candidate.fecha.getTime() - problemRemision.fecha.getTime());
+    const daysDiff = timeDiff / (1000 * 60 * 60 * 24);
+    if (daysDiff === 0) {
+      score += 20;
+    } else if (daysDiff <= 1) {
+      score += 10;
+    }
+
+    // Zero materials (good for clean reassignment)
+    const hasZeroMaterials = Object.values(candidate.materials_real).every(amount => amount === 0);
+    if (hasZeroMaterials) {
+      score += 30;
+    }
+
+    // Same recipe (bonus but not required)
+    if (candidate.recipe_code && problemRemision.recipe_code &&
+        candidate.recipe_code === problemRemision.recipe_code) {
+      score += 15;
+    }
+
+    return score;
   }
 
   /**
@@ -231,28 +277,34 @@ export class ArkikStatusProcessor {
       created_at: new Date()
     };
 
-    // Add materials to target remision (with overflow protection)
+    // Track transferred materials separately to avoid duplication
+    // The actual material transfer will be applied by applyMaterialTransfers during database operations
+    if (!targetRemision.transferred_materials) {
+      targetRemision.transferred_materials = {};
+    }
+
+    // Add materials to transfer tracking (with overflow protection)
     Object.entries(reassignment.materials_to_transfer).forEach(([materialCode, amount]) => {
-      if (!targetRemision.materials_real[materialCode]) {
-        targetRemision.materials_real[materialCode] = 0;
+      if (!targetRemision.transferred_materials[materialCode]) {
+        targetRemision.transferred_materials[materialCode] = 0;
       }
-      
-      const newTotal = targetRemision.materials_real[materialCode] + amount;
+
+      const newTotal = targetRemision.transferred_materials[materialCode] + amount;
       const maxValue = 99999999.99; // Database DECIMAL(10,2) limit
-      
+
       if (newTotal > maxValue) {
         console.warn(`[ArkikStatusProcessor] Material overflow prevented for ${materialCode}:`, {
-          current: targetRemision.materials_real[materialCode],
+          current: targetRemision.transferred_materials[materialCode],
           adding: amount,
           wouldBe: newTotal,
           limit: maxValue,
           targetRemision: targetRemision.remision_number
         });
-        
+
         // Cap at maximum value instead of causing database error
-        targetRemision.materials_real[materialCode] = maxValue;
+        targetRemision.transferred_materials[materialCode] = maxValue;
       } else {
-        targetRemision.materials_real[materialCode] = newTotal;
+        targetRemision.transferred_materials[materialCode] = newTotal;
       }
     });
 

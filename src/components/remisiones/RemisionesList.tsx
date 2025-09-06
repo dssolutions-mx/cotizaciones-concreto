@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
-import { ChevronDown, ChevronRight, Trash2, Edit } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2, Edit, FileText, Eye } from 'lucide-react';
 import RemisionProductosAdicionalesList from './RemisionProductosAdicionalesList';
 import RemisionProductoAdicionalForm from './RemisionProductoAdicionalForm';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
@@ -29,6 +29,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useSignedUrls } from '@/hooks/useSignedUrls';
 
 interface RemisionesListProps {
   orderId: string;
@@ -244,6 +245,157 @@ export const formatRemisionesForAccounting = (
   // Combine headers and rows
   return `${headers}\n${rows.join("\n")}`;
 };
+
+// Component to display evidence for a single pumping remision
+function PumpingRemisionEvidence({ remisionId, remisionNumber }: { remisionId: string; remisionNumber: string }) {
+  const [evidence, setEvidence] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { getSignedUrl, isLoading: urlLoading } = useSignedUrls('remision-documents', 3600);
+
+  useEffect(() => {
+    const fetchEvidence = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch(`/api/remisiones/documents?remision_id=${remisionId}&document_category=pumping_remision`);
+        
+        if (!response.ok) {
+          throw new Error('Error al obtener evidencia');
+        }
+        
+        const result = await response.json();
+        setEvidence(result.data || []);
+      } catch (err) {
+        console.error('Error fetching evidence:', err);
+        setError(err instanceof Error ? err.message : 'Error desconocido');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEvidence();
+  }, [remisionId]);
+
+  const handleViewEvidence = async (evidenceItem: any) => {
+    try {
+      const signedUrl = await getSignedUrl(evidenceItem.file_path);
+      if (signedUrl) {
+        window.open(signedUrl, '_blank');
+      } else {
+        toast.error('No se pudo generar el enlace para ver el documento');
+      }
+    } catch (error) {
+      console.error('Error viewing evidence:', error);
+      toast.error('Error al abrir el documento');
+    }
+  };
+
+  const formatDateSafely = (dateStr: string) => {
+    if (!dateStr) return '-';
+    try {
+      const date = new Date(dateStr);
+      return format(date, 'dd/MM/yyyy HH:mm', { locale: es });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const getFileIcon = (mimeType: string) => {
+    if (mimeType.startsWith('image/')) return '🖼️';
+    if (mimeType === 'application/pdf') return '📄';
+    if (mimeType.includes('text/')) return '📝';
+    return '📎';
+  };
+
+  if (loading) {
+    return (
+      <div className="p-3 bg-gray-50 rounded-lg border">
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="w-4 h-4 border-t-2 border-b-2 border-gray-400 rounded-full animate-spin"></div>
+          Cargando evidencia para remisión #{remisionNumber}...
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+        <div className="text-sm text-red-600">
+          Error al cargar evidencia para remisión #{remisionNumber}: {error}
+        </div>
+      </div>
+    );
+  }
+
+  if (evidence.length === 0) {
+    return (
+      <div className="p-3 bg-gray-50 rounded-lg border">
+        <div className="text-sm text-gray-600">
+          Remisión #{remisionNumber}: Sin documentos de evidencia
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-3 bg-gray-50 rounded-lg border">
+      <div className="flex items-center justify-between mb-2">
+        <h5 className="text-sm font-medium text-gray-900">
+          Remisión #{remisionNumber}
+        </h5>
+        <Badge variant="outline" className="bg-blue-50 text-blue-700">
+          {evidence.length} {evidence.length === 1 ? 'documento' : 'documentos'}
+        </Badge>
+      </div>
+      
+      <div className="space-y-2">
+        {evidence.map((evidenceItem) => (
+          <div
+            key={evidenceItem.id}
+            className="flex items-center justify-between p-2 bg-white rounded border"
+          >
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="text-sm">{getFileIcon(evidenceItem.mime_type)}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">
+                  {evidenceItem.original_name}
+                </p>
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <span>{formatFileSize(evidenceItem.file_size)}</span>
+                  <span>•</span>
+                  <span>{formatDateSafely(evidenceItem.created_at)}</span>
+                </div>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleViewEvidence(evidenceItem)}
+              disabled={urlLoading(evidenceItem.file_path)}
+              className="flex items-center gap-1 ml-2"
+            >
+              {urlLoading(evidenceItem.file_path) ? (
+                <div className="w-3 h-3 border-t border-gray-400 rounded-full animate-spin"></div>
+              ) : (
+                <Eye className="h-3 w-3" />
+              )}
+              Ver
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function RemisionesList({ orderId, requiresInvoice, constructionSite, hasEmptyTruckCharge, onRemisionesLoaded }: RemisionesListProps) {
   const [remisiones, setRemisiones] = useState<any[]>([]);
@@ -611,6 +763,19 @@ export default function RemisionesList({ orderId, requiresInvoice, constructionS
                     ))}
                   </TableBody>
                 </Table>
+              </div>
+              
+              {/* Evidence Section for Pumping Remisiones */}
+              <div className="mt-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
+                  <FileText className="h-4 w-4" />
+                  Evidencia de Remisiones de Bombeo
+                </h4>
+                <div className="space-y-3">
+                  {pumpRemisiones.map((remision) => (
+                    <PumpingRemisionEvidence key={remision.id} remisionId={remision.id} remisionNumber={remision.remision_number} />
+                  ))}
+                </div>
               </div>
             </div>
           )}

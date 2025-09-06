@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { fetchConstructionSitesWithQualityData } from '@/services/qualityService';
+import { fetchConstructionSitesWithQualityData } from '@/services/qualityDataService';
 import type { DateRange } from "react-day-picker";
 
 export function useConstructionSitesWithQualityData(clientId?: string, dateRange?: DateRange) {

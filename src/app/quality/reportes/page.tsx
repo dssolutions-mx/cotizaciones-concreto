@@ -45,10 +45,9 @@ import {
   fetchResistenciaReporteData,
   fetchEficienciaReporteData,
   fetchDistribucionResistenciaData,
-
   fetchResistenciaReporteDataFixed,
   fetchEficienciaReporteDataFixed
-} from '@/services/qualityService';
+} from '@/services/qualityReportService';
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 import { calcularMediaSinCeros } from '@/lib/qualityMetricsUtils';

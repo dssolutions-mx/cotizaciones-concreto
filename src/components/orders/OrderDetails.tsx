@@ -970,61 +970,52 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     
     const loadPumpServicePricing = async () => {
       try {
-        // Look for pump service pricing in quote_details that are approved for this client + site combination
-        const { data: pumpServiceData, error: pumpServiceError } = await supabase
-          .from('quotes')
+        console.log(`Fetching pump service pricing for Client: ${order.client_id}, Site: ${order.construction_site}`);
+        
+        const { data: pumpServiceDetails, error: pumpServiceError } = await supabase
+          .from('quote_details')
           .select(`
-            quote_details(
-              pump_service,
-              pump_price
+            pump_price,
+            quotes!inner(
+              client_id,
+              construction_site,
+              status
             )
           `)
-          .eq('status', 'APPROVED')
-          .eq('client_id', order.client_id)
-          .eq('construction_site', order.construction_site)
-          .not('quote_details.pump_price', 'is', null)
-          .order('created_at', { ascending: false })
+          .eq('quotes.client_id', order.client_id)
+          .eq('quotes.construction_site', order.construction_site)
+          .eq('quotes.status', 'APPROVED')
+          .eq('pump_service', true)
+          .not('pump_price', 'is', null) // Ensure pump_price is not null
+          .order('created_at', { ascending: false, foreignTable: 'quotes' })
           .limit(1);
           
         if (pumpServiceError) {
           console.error("Error fetching pump service pricing:", pumpServiceError);
+          setPumpPrice(0); // Set to 0 to allow manual entry
           return;
         }
         
-        // Find the first quote with pump service pricing
-        if (pumpServiceData && pumpServiceData.length > 0) {
-          const quoteWithPumpService = pumpServiceData.find(quote => 
-            quote.quote_details.some((detail: any) => detail.pump_service && detail.pump_price)
-          );
-          
-          if (quoteWithPumpService) {
-            const pumpDetail = quoteWithPumpService.quote_details.find((detail: any) => 
-              detail.pump_service && detail.pump_price
-            );
-            
-            if (pumpDetail && pumpDetail.pump_price) {
-              setPumpPrice(pumpDetail.pump_price);
-            }
-          }
-        }
-        
-        // Fallback: If no pump pricing found, check if this order already has legacy pump service
-        // and allow manual pricing for backward compatibility
-        if (!pumpServiceData || pumpServiceData.length === 0) {
-          // Check if order has any existing pump service pricing we can use as fallback
-          const existingPumpItems = order.products?.filter(p => p.has_pump_service && p.pump_price) || [];
-          if (existingPumpItems.length > 0) {
-            const fallbackPrice = existingPumpItems[0].pump_price || 0; // Ensure it's a number
-            setPumpPrice(fallbackPrice);
-          } else {
-            // Set to 0 to allow manual entry for legacy orders
-            setPumpPrice(0);
-          }
+        if (pumpServiceDetails && pumpServiceDetails.length > 0 && pumpServiceDetails[0].pump_price !== null) {
+          setPumpPrice(pumpServiceDetails[0].pump_price);
+          console.log(`Found pump service price: $${pumpServiceDetails[0].pump_price} for client + site combination`);
+        } else {
+          console.log('No pump service pricing found in approved quotes for this client + site combination');
+          setPumpPrice(0); // Set to 0 to allow manual entry
         }
       } catch (err) {
         console.error('Error loading pump service pricing:', err);
-        // Set to 0 to allow manual entry in case of any errors
-        setPumpPrice(0);
+        
+        // Fallback: Check if this order already has legacy pump service
+        // and allow manual pricing for backward compatibility
+        const existingPumpItems = order.products?.filter(p => p.has_pump_service && p.pump_price) || [];
+        if (existingPumpItems.length > 0) {
+          const fallbackPrice = existingPumpItems[0].pump_price || 0; // Ensure it's a number
+          setPumpPrice(fallbackPrice);
+        } else {
+          // Set to 0 to allow manual entry for legacy orders
+          setPumpPrice(0);
+        }
       }
     };
     
@@ -1370,6 +1361,44 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       </dd>
                     </div>
                   </dl>
+
+                  {/* Delivery location map (if coordinates exist) */}
+                  {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
+                    <div className="mt-6">
+                      <h4 className="text-md font-medium text-gray-900 mb-2">Ubicación de Entrega</h4>
+                      <div className="text-sm text-gray-700 mb-3">
+                        <span className="font-medium">Coordenadas:</span>
+                        <span className="ml-2">
+                          {(order as any).delivery_latitude}, {(order as any).delivery_longitude}
+                        </span>
+                        {(() => {
+                          const url = (order as any).delivery_google_maps_url || `https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}`;
+                          return (
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-3 text-blue-600 hover:text-blue-800 underline"
+                            >
+                              Abrir en Google Maps
+                            </a>
+                          );
+                        })()}
+                      </div>
+                      <div className="rounded-md overflow-hidden bg-gray-100">
+                        <iframe
+                          src={`https://www.google.com/maps?q=${(order as any).delivery_latitude},${(order as any).delivery_longitude}&z=15&hl=es&output=embed`}
+                          width="100%"
+                          height="320"
+                          style={{ border: 0 }}
+                          allowFullScreen
+                          loading="lazy"
+                          referrerPolicy="no-referrer-when-downgrade"
+                          title="Ubicación de entrega"
+                        ></iframe>
+                      </div>
+                    </div>
+                  )}
                   {/* Order actions buttons */}
                   <div className="px-4 py-5 sm:px-6 bg-gray-50 border-t flex flex-wrap gap-2">
                     {/* Buttons removed to avoid duplication - actions are available in the bottom actions section */}

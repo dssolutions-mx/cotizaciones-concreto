@@ -866,14 +866,17 @@ async function createSingleOrder(
           allMaterialCodes.forEach(materialCode => {
             const cachedMaterial = dataCache.materialsMap.get(materialCode);
             if (cachedMaterial) {
+              // CRITICAL FIX: Use original materials_real values, not ones modified by status processing
+              // Transferred materials are applied separately by applyMaterialTransfers to prevent duplication
               const baseRealValue = fullRemisionData.materials_real[materialCode] || 0;
               const retrabajoValue = fullRemisionData.materials_retrabajo?.[materialCode] || 0;
               const manualValue = fullRemisionData.materials_manual?.[materialCode] || 0;
-              
+
               // Calculate ajuste as retrabajo + manual
               const ajusteValue = retrabajoValue + manualValue;
-              
+
               // Calculate final real value as base real + retrabajo + manual
+              // IMPORTANT: Transferred materials are NOT included here - they are applied by applyMaterialTransfers
               const finalRealValue = baseRealValue + retrabajoValue + manualValue;
               
               allRemisionMaterials.push({
@@ -1323,14 +1326,17 @@ async function createSingleOrderWithoutBalanceUpdate(
           allMaterialCodes.forEach(materialCode => {
             const cachedMaterial = dataCache.materialsMap.get(materialCode);
             if (cachedMaterial) {
+              // CRITICAL FIX: Use original materials_real values, not ones modified by status processing
+              // Transferred materials are applied separately by applyMaterialTransfers to prevent duplication
               const baseRealValue = fullRemisionData.materials_real[materialCode] || 0;
               const retrabajoValue = fullRemisionData.materials_retrabajo?.[materialCode] || 0;
               const manualValue = fullRemisionData.materials_manual?.[materialCode] || 0;
-              
+
               // Calculate ajuste as retrabajo + manual
               const ajusteValue = retrabajoValue + manualValue;
-              
+
               // Calculate final real value as base real + retrabajo + manual
+              // IMPORTANT: Transferred materials are NOT included here - they are applied by applyMaterialTransfers
               const finalRealValue = baseRealValue + retrabajoValue + manualValue;
               
               allRemisionMaterials.push({

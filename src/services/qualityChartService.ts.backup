@@ -1,0 +1,499 @@
+import { supabase } from '@/lib/supabase';
+import { handleError } from '@/utils/errorHandler';
+import {
+  Muestreo,
+  Muestra,
+  Ensayo,
+  Evidencia,
+  MuestreoWithRelations,
+  MuestraWithRelations,
+  EnsayoWithRelations,
+  FiltrosCalidad,
+  MetricasCalidad,
+  DatoGraficoResistencia
+} from '@/types/quality';
+import { format, subMonths } from 'date-fns';
+import { v4 as uuidv4 } from 'uuid';
+
+// Test function to verify plant filtering
+export async function testPlantFiltering(plantCode: string) {
+  console.log('🧪 Testing plant filtering with code:', plantCode);
+
+  try {
+    // First, get plant details
+    const { data: plantData } = await supabase
+      .from('plants')
+      .select('id, code, name')
+      .eq('code', plantCode)
+      .single();
+
+    console.log('🧪 Plant lookup result:', plantData);
+
+    if (plantData) {
+      // Test filtering by plant_id
+      const { data: muestreosById, error: idError } = await supabase
+        .from('muestreos')
+        .select('id, plant_id, planta, fecha_muestreo')
+        .eq('plant_id', plantData.id)
+        .limit(5);
+
+      console.log('🧪 Filtering by plant_id results:', {
+        plantId: plantData.id,
+        foundMuestreos: muestreosById?.length || 0,
+        sampleMuestreos: muestreosById?.map(m => ({ id: m.id, plant_id: m.plant_id, planta: m.planta })),
+        error: idError
+      });
+
+      // Also test filtering by planta field for comparison
+      const { data: muestreosByPlanta, error: plantaError } = await supabase
+        .from('muestreos')
+        .select('id, plant_id, planta, fecha_muestreo')
+        .eq('planta', plantCode)
+        .limit(5);
+
+      console.log('🧪 Filtering by planta results:', {
+        plantCode,
+        foundMuestreos: muestreosByPlanta?.length || 0,
+        sampleMuestreos: muestreosByPlanta?.map(m => ({ id: m.id, plant_id: m.plant_id, planta: m.planta })),
+        error: plantaError
+      });
+
+      return {
+        plantData,
+        byPlantId: muestreosById,
+        byPlanta: muestreosByPlanta
+      };
+    }
+
+    return null;
+  } catch (err) {
+    console.error('🧪 Test failed:', err);
+    return null;
+  }
+}
+
+// Test function to verify plant name to ID mapping
+export async function testPlantMapping(plantCode: string, expectedId?: string) {
+  console.log('🧪 Testing plant mapping for code:', plantCode);
+
+  try {
+    // First, let's see what plants exist
+    const { data: allPlants, error: plantsError } = await supabase
+      .from('plants')
+      .select('id, name, code')
+      .limit(10);
+
+    console.log('🧪 All plants in database:', allPlants);
+
+    // Test the mapping logic
+    const nameToIdMap = new Map<string, string>();
+    const codeToIdMap = new Map<string, string>();
+
+    if (allPlants) {
+      allPlants.forEach(plant => {
+        console.log('🧪 Processing plant:', {
+          id: plant.id,
+          name: plant.name,
+          code: plant.code,
+          nameLower: plant.name.toLowerCase()
+        });
+
+        nameToIdMap.set(plant.name, plant.id);
+        if (plant.code) {
+          codeToIdMap.set(plant.code, plant.id);
+        }
+
+        // Try to derive code from name
+        const nameLower = plant.name.toLowerCase();
+        console.log('🧪 Checking patterns for:', plant.name, {
+          containsPlanta1: nameLower.includes('planta 1'),
+          containsPlanta2: nameLower.includes('planta 2'),
+          containsPlanta3: nameLower.includes('planta 3'),
+          containsPlanta4: nameLower.includes('planta 4')
+        });
+
+        if (nameLower.includes('planta 1') || nameLower.includes('plant 1')) {
+          codeToIdMap.set('P001', plant.id);
+          console.log('🧪 SET P001 mapping:', plant.name, '->', plant.id);
+        }
+        if (nameLower.includes('planta 2') || nameLower.includes('plant 2')) {
+          codeToIdMap.set('P002', plant.id);
+          console.log('🧪 SET P002 mapping:', plant.name, '->', plant.id);
+        }
+        if (nameLower.includes('planta 3') || nameLower.includes('plant 3')) {
+          codeToIdMap.set('P003', plant.id);
+          console.log('🧪 SET P003 mapping:', plant.name, '->', plant.id);
+        }
+        if (nameLower.includes('planta 4') || nameLower.includes('plant 4')) {
+          codeToIdMap.set('P004', plant.id);
+          console.log('🧪 SET P004 mapping:', plant.name, '->', plant.id);
+        }
+      });
+    }
+
+    const foundInCodeMap = codeToIdMap.get(plantCode);
+    const foundInNameMap = nameToIdMap.get(plantCode);
+
+    console.log('🧪 Mapping test results:', {
+      plantCode,
+      foundInCodeMap,
+      foundInNameMap,
+      expectedId,
+      codeMap: Object.fromEntries(codeToIdMap),
+      nameMap: Object.fromEntries(nameToIdMap)
+    });
+
+    return {
+      foundInCodeMap,
+      foundInNameMap,
+      codeMap: Object.fromEntries(codeToIdMap),
+      nameMap: Object.fromEntries(nameToIdMap)
+    };
+  } catch (err) {
+    console.error('🧪 Mapping test failed:', err);
+    return null;
+  }
+}
+
+// Diagnostic function to check plant data consistency
+export async function diagnosePlantDataConsistency() {
+  console.log('🔍 Diagnosing plant data consistency...');
+
+  try {
+    // Get all plants
+    const { data: allPlants, error: plantsError } = await supabase
+      .from('plants')
+      .select('id, code, name')
+      .order('code');
+
+
+
+    // Get sample muestreos with plant data
+    const { data: sampleMuestreos, error: muestreosError } = await supabase
+      .from('muestreos')
+      .select('id, plant_id, planta, fecha_muestreo')
+      .limit(20);
+
+
+
+    // Check consistency between plant_id and planta
+    const consistencyIssues: Array<{
+      type: string;
+      muestreo_id: string;
+      planta: string | null;
+      plant_id: string | null;
+    }> = [];
+    const plantUsageStats = new Map();
+
+    sampleMuestreos?.forEach(muestreo => {
+      const plantCode = muestreo.planta;
+      const plantId = muestreo.plant_id;
+
+      // Count usage
+      const key = `${plantCode || 'null'}:${plantId || 'null'}`;
+      plantUsageStats.set(key, (plantUsageStats.get(key) || 0) + 1);
+
+      // Check for consistency issues
+      if (plantCode && !plantId) {
+        consistencyIssues.push({
+          type: 'missing_plant_id',
+          muestreo_id: muestreo.id,
+          planta: plantCode,
+          plant_id: plantId
+        });
+      }
+
+      if (plantId && !plantCode) {
+        consistencyIssues.push({
+          type: 'missing_planta',
+          muestreo_id: muestreo.id,
+          planta: plantCode,
+          plant_id: plantId
+        });
+      }
+
+      // Check if plant_id matches the expected plant
+      if (plantId && plantCode) {
+        const expectedPlant = allPlants?.find(p => p.id === plantId);
+        if (expectedPlant && expectedPlant.code !== plantCode) {
+          consistencyIssues.push({
+            type: 'mismatched_plant_data',
+            muestreo_id: muestreo.id,
+            planta: plantCode,
+            plant_id: plantId
+          });
+        }
+      }
+    });
+
+    console.log('📈 Plant usage statistics:', Object.fromEntries(plantUsageStats));
+    console.log('⚠️ Consistency issues found:', consistencyIssues);
+
+    return {
+      allPlants,
+      sampleMuestreos,
+      consistencyIssues,
+      plantUsageStats: Object.fromEntries(plantUsageStats)
+    };
+
+  } catch (err) {
+    console.error('❌ Diagnostic failed:', err);
+    return null;
+  }
+}
+
+// Make test functions available globally for console testing
+if (typeof window !== 'undefined') {
+  (window as any).testPlantMapping = testPlantMapping;
+  (window as any).testPlantFiltering = testPlantFiltering;
+  (window as any).diagnosePlantDataConsistency = diagnosePlantDataConsistency;
+}
+
+// Chart data functions
+export async function fetchDatosGraficoResistencia(
+  fechaDesde?: string | Date,
+  fechaHasta?: string | Date,
+  client_id?: string,
+  construction_site_id?: string,
+  recipe_code?: string,
+  plant_code?: string,
+  soloEdadGarantia: boolean = false,
+  incluirEnsayosFueraTiempo: boolean = false
+) {
+  try {
+    // Ensure dates are formatted correctly
+    const formattedFechaDesde = fechaDesde
+      ? (typeof fechaDesde === 'string' ? fechaDesde : format(fechaDesde, 'yyyy-MM-dd'))
+      : undefined;
+
+    const formattedFechaHasta = fechaHasta
+      ? (typeof fechaHasta === 'string' ? fechaHasta : format(fechaHasta, 'yyyy-MM-dd'))
+      : undefined;
+
+    console.log('🔍 Fetching Resistance Graph Data', {
+      fechaDesde: formattedFechaDesde,
+      fechaHasta: formattedFechaHasta,
+      client_id,
+      construction_site_id,
+      recipe_code,
+      plant_code,
+      plant_filter_active: plant_code !== undefined && plant_code !== null,
+      soloEdadGarantia,
+      incluirEnsayosFueraTiempo
+    });
+
+    // Start query from muestreos to get proper data flow
+    let query = supabase
+      .from('muestreos')
+      .select(`
+        id,
+        fecha_muestreo,
+        fecha_muestreo_ts,
+        event_timezone,
+        planta,
+        concrete_specs,
+        remision:remision_id (
+          id,
+          order:order_id(
+            id,
+            client_id,
+            construction_site
+          ),
+          recipe:recipe_id(
+            id,
+            recipe_code,
+            strength_fc,
+            age_days,
+            age_hours
+          )
+        ),
+        muestras(
+          id,
+          tipo_muestra,
+          ensayos(
+            id,
+            fecha_ensayo,
+            porcentaje_cumplimiento,
+            resistencia_calculada,
+            is_edad_garantia,
+            is_ensayo_fuera_tiempo
+          )
+        )
+      `)
+      .order('fecha_muestreo', { ascending: true });
+
+    // Apply date filtering at muestreo level FIRST
+    if (formattedFechaDesde) {
+      query = query.gte('fecha_muestreo', formattedFechaDesde);
+    }
+    if (formattedFechaHasta) {
+      query = query.lte('fecha_muestreo', formattedFechaHasta);
+    }
+
+    // Apply other filters at muestreo level
+    console.log('🎯 Applying filters:', {
+      client_id: !!client_id,
+      construction_site_id: !!construction_site_id,
+      recipe_code: !!recipe_code,
+      plant_code,
+      plant_code_type: typeof plant_code,
+      plant_code_length: plant_code ? plant_code.length : 0
+    });
+
+    if (client_id) {
+      console.log('📊 Applying client filter:', client_id);
+      query = query.filter('remision.order.client_id', 'eq', client_id);
+    }
+    if (construction_site_id) {
+      console.log('📊 Applying construction site filter:', construction_site_id);
+      query = query.filter('remision.order.construction_site', 'eq', construction_site_id);
+    }
+    if (recipe_code) {
+      console.log('📊 Applying recipe filter:', recipe_code);
+      query = query.filter('remision.recipe.recipe_code', 'eq', recipe_code);
+    }
+    if (plant_code) {
+
+
+      // First, try to find the plant by code in the plants table to get the plant_id
+      const { data: plantData, error: plantError } = await supabase
+        .from('plants')
+        .select('id, code, name')
+        .eq('code', plant_code)
+        .single();
+
+      if (plantData) {
+        query = query.eq('plant_id', plantData.id);
+      } else {
+        // Fallback to filtering by planta field if plant_id lookup fails
+        query = query.eq('planta', plant_code);
+      }
+
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('❌ Error fetching graph data:', error);
+      throw error;
+    }
+
+    // Flatten the data structure: extract all ensayos from the muestreos
+    let allEnsayos: any[] = [];
+
+    data?.forEach((muestreo: any) => {
+      if (muestreo.muestras) {
+        muestreo.muestras.forEach((muestra: any) => {
+          if (muestra.ensayos) {
+            muestra.ensayos.forEach((ensayo: any) => {
+              // Attach the muestreo and muestra data to each ensayo for processing
+              allEnsayos.push({
+                ...ensayo,
+                muestra: {
+                  ...muestra,
+                  muestreo: muestreo
+                }
+              });
+            });
+          }
+        });
+      }
+    });
+
+    // Debug plant filtering
+    const uniquePlantsInData = new Set();
+    allEnsayos.forEach(ensayo => {
+      if (ensayo.muestra?.muestreo?.planta) {
+        uniquePlantsInData.add(ensayo.muestra.muestreo.planta);
+      }
+    });
+
+    console.log('🔄 Flattened ensayos from muestreos:', {
+      totalEnsayos: allEnsayos.length,
+      uniquePlantsFound: Array.from(uniquePlantsInData),
+      targetEnsayo: allEnsayos.find(e => e.id === 'b675cd11-58d4-4a5f-be2d-582617b6841b')
+    });
+
+    // Start with flattened data
+    let filteredData = allEnsayos;
+
+    // Filter to only show ensayos at edad garantia if requested
+    if (soloEdadGarantia) {
+      console.log('🔍 Filtering for edad garantia using new columns - total records before filter:', filteredData.length);
+
+      filteredData = filteredData.filter((item: any) => {
+        // Use the new is_edad_garantia column
+        const isEdadGarantia = item.is_edad_garantia === true;
+
+        // Special debug for the target ensayo
+        if (item.id === 'b675cd11-58d4-4a5f-be2d-582617b6841b') {
+          console.log('🎯 Target ensayo edad garantia check:', {
+            ensayoId: item.id,
+            isEdadGarantia,
+            is_edad_garantia: item.is_edad_garantia,
+            is_ensayo_fuera_tiempo: item.is_ensayo_fuera_tiempo,
+            incluirEnsayosFueraTiempo,
+            willPass: isEdadGarantia && (incluirEnsayosFueraTiempo || !item.is_ensayo_fuera_tiempo)
+          });
+        }
+
+        // Debug logging for chart edad garantia filtering
+        if (!isEdadGarantia) {
+          console.log('❌ Chart filtered out ensayo - not edad garantia:', {
+            ensayoId: item.id,
+            is_edad_garantia: item.is_edad_garantia,
+            fecha_ensayo: item.fecha_ensayo,
+            muestra_id: item.muestra_id
+          });
+        }
+
+        // If incluirEnsayosFueraTiempo is false, also filter out essays that are fuera de tiempo
+        if (!incluirEnsayosFueraTiempo) {
+          const isFueraTiempo = item.is_ensayo_fuera_tiempo === true;
+          if (isFueraTiempo) {
+            console.log('❌ Chart filtered out ensayo - fuera de tiempo:', {
+              ensayoId: item.id,
+              is_ensayo_fuera_tiempo: item.is_ensayo_fuera_tiempo,
+              fecha_ensayo: item.fecha_ensayo
+            });
+            return false;
+          }
+        }
+
+        return isEdadGarantia;
+      });
+
+      console.log('🔍 Filtered for edad garantia using new columns - records after filter:', filteredData.length);
+
+      // Check if target ensayo is still there after filtering
+      const targetAfterEdadFilter = filteredData.find(d => d.id === 'b675cd11-58d4-4a5f-be2d-582617b6841b');
+      console.log('🎯 Target ensayo after edad garantia filter:', targetAfterEdadFilter ? {
+        found: true,
+        id: targetAfterEdadFilter.id,
+        is_edad_garantia: targetAfterEdadFilter.is_edad_garantia,
+        is_ensayo_fuera_tiempo: targetAfterEdadFilter.is_ensayo_fuera_tiempo
+      } : { found: false });
+    }
+
+    // Check if the specific ensayo is still in filtered data
+    const targetEnsayoAfterFilters = filteredData.find(d => d.id === 'b675cd11-58d4-4a5f-be2d-582617b6841b');
+    console.log('🎯 Target Ensayo after all filters:', targetEnsayoAfterFilters ? {
+      found: true,
+      id: targetEnsayoAfterFilters.id,
+      is_edad_garantia: targetEnsayoAfterFilters.is_edad_garantia,
+      is_ensayo_fuera_tiempo: targetEnsayoAfterFilters.is_ensayo_fuera_tiempo
+    } : { found: false });
+
+    console.log('📊 Filtered Ensayos Data', {
+      count: filteredData.length
+    });
+
+    console.log('📈 Filtered Chart Data', {
+      count: filteredData.length
+    });
+
+    return filteredData;
+  } catch (error) {
+    console.error('🚨 Comprehensive Error in fetchDatosGraficoResistencia:', error);
+    return [];
+  }
+}

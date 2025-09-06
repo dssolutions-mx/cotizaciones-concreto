@@ -7,6 +7,8 @@ export interface PointAnalysisData {
   muestreo: {
     id: string;
     fecha_muestreo: string;
+    fecha_muestreo_ts?: string;
+    event_timezone?: string;
     planta: string;
     revenimiento_sitio: number;
     masa_unitaria: number;
@@ -28,6 +30,8 @@ export interface PointAnalysisData {
     ensayos: Array<{
       id: string;
       fecha_ensayo: string;
+      fecha_ensayo_ts?: string;
+      event_timezone?: string;
       carga_kg: number;
       resistencia_calculada: number;
       porcentaje_cumplimiento: number;
@@ -58,12 +62,7 @@ export interface PointAnalysisData {
 
 export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Promise<PointAnalysisData | null> {
   try {
-    console.log('🔍 fetchPointAnalysisData called with point:', {
-      point: point,
-      hasMuestra: !!point.muestra,
-      hasMuestreo: !!point.muestra?.muestreo,
-      muestreoId: point.muestra?.muestreo?.id
-    });
+
 
     if (!point.muestra?.muestreo?.id) {
       console.error('❌ Point validation failed:', {
@@ -75,7 +74,7 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
     }
 
     const muestreoId = point.muestra.muestreo.id;
-    console.log('🔍 Fetching muestreo data for ID:', muestreoId);
+
 
     // Fetch detailed muestreo data with all related information
     const { data: muestreoData, error: muestreoError } = await supabase
@@ -104,7 +103,7 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
       .eq('id', muestreoId)
       .single();
 
-    console.log('🔍 Muestreo query result:', { muestreoData, muestreoError });
+
     
     if (muestreoError) {
       console.error('❌ Supabase error fetching muestreo:', muestreoError);
@@ -132,7 +131,7 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
       .eq('muestras.muestreos.remision_id', muestreoData.remision_id)
       .order('fecha_ensayo', { ascending: true });
 
-    console.log('🔍 Evolution query result:', { evolutionData, evolutionError });
+
     
     if (evolutionError) {
       console.error('❌ Supabase error fetching evolution data:', evolutionError);
@@ -144,10 +143,10 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
     
     // Add data from the current muestreo first
     if (muestreoData.muestras) {
-      muestreoData.muestras.forEach(muestra => {
+      muestreoData.muestras.forEach((muestra: any) => {
         if (muestra.ensayos && muestra.ensayos.length > 0) {
           // Use the actual test date as key, not the guarantee age
-          muestra.ensayos.forEach(ensayo => {
+          muestra.ensayos.forEach((ensayo: any) => {
             const testDate = ensayo.fecha_ensayo;
             if (!evolutionMap.has(testDate)) {
               evolutionMap.set(testDate, []);
@@ -171,10 +170,10 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
 
     // If we still don't have data, create a single point from the current muestreo
     if (evolutionMap.size === 0 && muestreoData.muestras) {
-      const currentEnsayos = muestreoData.muestras.flatMap(m => m.ensayos || []);
+      const currentEnsayos = muestreoData.muestras.flatMap((m: any) => m.ensayos || []);
       
       if (currentEnsayos.length > 0) {
-        currentEnsayos.forEach(ensayo => {
+        currentEnsayos.forEach((ensayo: any) => {
           const testDate = ensayo.fecha_ensayo;
           if (!evolutionMap.has(testDate)) {
             evolutionMap.set(testDate, []);
@@ -209,6 +208,8 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
       muestreo: {
         id: muestreoData.id,
         fecha_muestreo: muestreoData.fecha_muestreo,
+        fecha_muestreo_ts: muestreoData.fecha_muestreo_ts,
+        event_timezone: muestreoData.event_timezone,
         planta: muestreoData.planta,
         revenimiento_sitio: muestreoData.revenimiento_sitio,
         masa_unitaria: muestreoData.masa_unitaria,
@@ -216,15 +217,17 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
         temperatura_concreto: muestreoData.temperatura_concreto,
         concrete_specs: muestreoData.concrete_specs
       },
-      muestras: muestreoData.muestras?.map(muestra => ({
+      muestras: muestreoData.muestras?.map((muestra: any) => ({
         id: muestra.id,
         tipo_muestra: muestra.tipo_muestra,
         identificacion: muestra.identificacion,
         fecha_programada_ensayo: muestra.fecha_programada_ensayo,
         estado: muestra.estado,
-        ensayos: muestra.ensayos?.map(ensayo => ({
+        ensayos: muestra.ensayos?.map((ensayo: any) => ({
           id: ensayo.id,
           fecha_ensayo: ensayo.fecha_ensayo,
+          fecha_ensayo_ts: ensayo.fecha_ensayo_ts,
+          event_timezone: ensayo.event_timezone,
           carga_kg: ensayo.carga_kg,
           resistencia_calculada: ensayo.resistencia_calculada,
           porcentaje_cumplimiento: ensayo.porcentaje_cumplimiento,
@@ -239,9 +242,9 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
         age_days: muestreoData.remision?.recipe?.age_days || 28
       },
       project: {
-        client_name: muestreoData.remision?.orders?.clients?.business_name || 'No disponible',
-        construction_site: muestreoData.remision?.orders?.construction_sites?.name || 'No disponible',
-        order_number: muestreoData.remision?.orders?.order_number || 'No disponible'
+        client_name: muestreoData.remision?.order?.clients?.business_name || 'No disponible',
+        construction_site: muestreoData.remision?.order?.construction_site || 'No disponible',
+        order_number: muestreoData.remision?.order?.order_number || 'No disponible'
       },
       resistanceEvolution
     };

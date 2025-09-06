@@ -10,6 +10,7 @@ import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { CheckIcon, Cross2Icon } from '@radix-ui/react-icons';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 
 interface PendingApprovalTabProps {
   onDataSaved?: () => void;
@@ -22,6 +23,13 @@ interface SupabasePendingQuote {
   quote_number: string;
   construction_site: string;
   created_at: string;
+  creator: {
+    first_name: string;
+    last_name: string;
+  }[] | {
+    first_name: string;
+    last_name: string;
+  } | null;
   clients: {
     business_name: string;
     client_code: string;
@@ -58,6 +66,7 @@ interface PendingQuote {
   construction_site: string;
   total_amount: number;
   created_at: string;
+  creator_name?: string;
   quote_details: Array<{
     id: string;
     volume: number;
@@ -122,6 +131,10 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
           quote_number,
           construction_site,
           created_at,
+          creator:user_profiles!created_by (
+            first_name,
+            last_name
+          ),
           clients (
             business_name,
             client_code
@@ -170,12 +183,19 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
         const clientData = Array.isArray(quote.clients) 
           ? quote.clients[0] 
           : quote.clients;
+        const creatorData = Array.isArray((quote as any).creator) 
+          ? (quote as any).creator[0] 
+          : (quote as any).creator;
+        const creatorFirstName = creatorData?.first_name || '';
+        const creatorLastName = creatorData?.last_name || '';
+        const creatorFullName = [creatorFirstName, creatorLastName].filter(Boolean).join(' ');
         
         return {
           id: quote.id,
           quote_number: quote.quote_number,
           construction_site: quote.construction_site,
           created_at: quote.created_at,
+          creator_name: creatorFullName || undefined,
           client: clientData ? {
             business_name: clientData.business_name,
             client_code: clientData.client_code
@@ -600,6 +620,11 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                               <div>
                                 <span className="font-medium text-gray-500">Código:</span> {quote.client?.client_code || 'Sin código'}
                               </div>
+                              {quote.creator_name && (
+                                <div>
+                                  <span className="font-medium text-gray-500">Creada por:</span> {quote.creator_name}
+                                </div>
+                              )}
                             </div>
                             
                             <div className="mt-2 flex flex-wrap gap-2">
@@ -625,11 +650,11 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                                 })}
                               </p>
                             </div>
-                            
-                            <div className="flex flex-col sm:flex-row gap-2">
+                            <div className="flex items-center gap-2">
                               <button
                                 onClick={() => openQuoteDetails(quote)}
                                 className="inline-flex items-center justify-center px-3 py-1.5 border border-gray-300 bg-white rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500"
+                                aria-label="Ver detalles"
                               >
                                 <svg className="h-4 w-4 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -646,27 +671,40 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                                 </svg>
                                 Aprobar
                               </button>
-                              <button
-                                onClick={() => {
-                                  const reason = prompt('Razón de rechazo:');
-                                  if (reason) rejectQuote(quote.id, reason);
-                                }}
-                                className="inline-flex items-center justify-center px-3 py-1.5 border border-transparent bg-red-600 rounded-md text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500"
-                              >
-                                <svg className="h-4 w-4 mr-1.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                                Rechazar
-                              </button>
-                              <button
-                                onClick={() => deleteQuote(quote.id)}
-                                className="inline-flex items-center justify-center px-3 py-1.5 border border-transparent bg-gray-600 rounded-md text-sm font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                              >
-                                <svg className="h-4 w-4 mr-1.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                Eliminar
-                              </button>
+                              <DropdownMenu.Root>
+                                <DropdownMenu.Trigger asChild>
+                                  <button
+                                    className="inline-flex items-center justify-center h-8 w-8 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500"
+                                    aria-label="Más acciones"
+                                  >
+                                    <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                                      <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" />
+                                    </svg>
+                                  </button>
+                                </DropdownMenu.Trigger>
+                                <DropdownMenu.Content className="min-w-[180px] rounded-md border border-gray-200 bg-white p-1 shadow-md">
+                                  <DropdownMenu.Item
+                                    className="px-2 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                                    onSelect={(e) => {
+                                      e.preventDefault();
+                                      const reason = prompt('Razón de rechazo:');
+                                      if (reason) rejectQuote(quote.id, reason);
+                                    }}
+                                  >
+                                    Rechazar
+                                  </DropdownMenu.Item>
+                                  <DropdownMenu.Separator className="my-1 h-px bg-gray-200" />
+                                  <DropdownMenu.Item
+                                    className="px-2 py-1.5 rounded text-sm text-red-600 hover:bg-red-50 cursor-pointer"
+                                    onSelect={(e) => {
+                                      e.preventDefault();
+                                      deleteQuote(quote.id);
+                                    }}
+                                  >
+                                    Eliminar
+                                  </DropdownMenu.Item>
+                                </DropdownMenu.Content>
+                              </DropdownMenu.Root>
                             </div>
                           </div>
                         </div>
@@ -755,14 +793,31 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
               <Dialog.Content className="fixed inset-0 flex justify-center items-end sm:items-center z-50 p-0 sm:p-4">
                 <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-xl w-full sm:w-11/12 md:max-w-4xl h-[92vh] sm:max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in duration-200">
                   <Dialog.Title className="p-6 border-b border-gray-200 flex justify-between items-center">
-                    <div className="text-xl font-bold text-gray-800">Detalles de Cotización</div>
+                    <div className="flex flex-col gap-1">
+                      <div className="text-xl font-bold text-gray-800">Detalles de Cotización</div>
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
+                        <span className="inline-flex items-center gap-2">
+                          <span className="font-medium">Creada por:</span>
+                          <span className="inline-flex items-center gap-2">
+                            <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-100 text-gray-700 text-xs">
+                              {(selectedQuote?.creator_name || 'NA').split(' ').map(s => s[0]).join('').slice(0,2).toUpperCase()}
+                            </span>
+                            <span>{selectedQuote?.creator_name || 'Sin información'}</span>
+                          </span>
+                        </span>
+                        <span className="hidden sm:inline text-gray-300">•</span>
+                        <span>
+                          <span className="font-medium">Creada el:</span> {new Date(selectedQuote?.created_at || '').toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
                     <Dialog.Close className="text-gray-500 hover:text-gray-700 focus:outline-none" aria-label="Cerrar">
                       <Cross2Icon className="h-5 w-5" />
                     </Dialog.Close>
                   </Dialog.Title>
 
                   <div className="p-6 overflow-y-auto flex-grow">
-                    {/* Client Information */}
+                    {/* Client & Meta Information */}
                     <div className="grid grid-cols-1 @md:grid-cols-2 gap-6 mb-6 bg-gray-50 p-4 rounded-lg">
                       <div>
                         <p className="font-medium text-gray-500 text-sm mb-1">Cliente</p>
@@ -772,6 +827,21 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                       <div>
                         <p className="font-medium text-gray-500 text-sm mb-1">Sitio de Construcción</p>
                         <p className="font-semibold text-gray-900">{selectedQuote.construction_site}</p>
+                      </div>
+                      <div className="@md:col-span-2 grid grid-cols-1 @sm:grid-cols-2 gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 text-sm">
+                            {(selectedQuote?.creator_name || 'NA').split(' ').map(s => s[0]).join('').slice(0,2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-500 text-xs">Creada por</p>
+                            <p className="text-gray-900 text-sm">{selectedQuote?.creator_name || 'Sin información'}</p>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-500 text-xs">Fecha de creación</p>
+                          <p className="text-gray-900 text-sm">{new Date(selectedQuote?.created_at || '').toLocaleString()}</p>
+                        </div>
                       </div>
                     </div>
 
@@ -1020,64 +1090,77 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                   </div>
 
                   {/* Modal Actions */}
-                  <div className="p-6 border-t border-gray-200 bg-gray-50 flex flex-col @sm:flex-row @sm:justify-end gap-3">
+                  <div className="p-6 border-t border-gray-200 bg-gray-50 flex flex-col @sm:flex-row @sm:justify-between gap-3">
                     <Dialog.Close 
-                      className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                      className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                     >
                       Cancelar
                     </Dialog.Close>
-                    <button 
-                      onClick={saveQuoteModifications}
-                      className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                    >
-                      <svg className="h-4 w-4 me-1.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M17 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 11v6" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 14h6" />
-                      </svg>
-                      Guardar Cambios
-                    </button>
-                    <button 
-                      onClick={() => {
-                        approveQuote(selectedQuote.id);
-                        closeQuoteDetails();
-                      }}
-                      className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                    >
-                      <svg className="h-4 w-4 me-1.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
-                      </svg>
-                      Aprobar
-                    </button>
-                    <button 
-                      onClick={() => {
-                        const reason = prompt('Razón de rechazo:');
-                        if (reason) {
-                          rejectQuote(selectedQuote.id, reason);
+                    <div className="flex items-center gap-2 @sm:justify-end">
+                      <button 
+                        onClick={saveQuoteModifications}
+                        className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                      >
+                        <svg className="h-4 w-4 me-1.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 11v6" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 14h6" />
+                        </svg>
+                        Guardar cambios
+                      </button>
+                      <button 
+                        onClick={() => {
+                          approveQuote(selectedQuote.id);
                           closeQuoteDetails();
-                        }
-                      }}
-                      className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                    >
-                      <svg className="h-4 w-4 me-1.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                      Rechazar
-                    </button>
-                    <button 
-                      onClick={() => {
-                        if (confirm("¿Estás seguro de que deseas eliminar esta cotización? Esta acción no se puede deshacer.")) {
-                          deleteQuote(selectedQuote.id);
-                          closeQuoteDetails();
-                        }
-                      }}
-                      className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
-                    >
-                      <svg className="h-4 w-4 me-1.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                      Eliminar
-                    </button>
+                        }}
+                        className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                      >
+                        <svg className="h-4 w-4 me-1.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                        </svg>
+                        Aprobar
+                      </button>
+                      <DropdownMenu.Root>
+                        <DropdownMenu.Trigger asChild>
+                          <button
+                            className="inline-flex items-center justify-center h-9 w-9 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            aria-label="Más acciones"
+                          >
+                            <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                              <path d="M6 10a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0zm6 0a2 2 0 11-4 0 2 2 0 014 0z" />
+                            </svg>
+                          </button>
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Content className="min-w-[200px] rounded-md border border-gray-200 bg-white p-1 shadow-md">
+                          <DropdownMenu.Item
+                            className="px-2 py-1.5 rounded text-sm text-gray-700 hover:bg-gray-100 cursor-pointer"
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              const reason = prompt('Razón de rechazo:');
+                              if (reason) {
+                                rejectQuote(selectedQuote.id, reason);
+                                closeQuoteDetails();
+                              }
+                            }}
+                          >
+                            Rechazar cotización
+                          </DropdownMenu.Item>
+                          <DropdownMenu.Separator className="my-1 h-px bg-gray-200" />
+                          <DropdownMenu.Item
+                            className="px-2 py-1.5 rounded text-sm text-red-600 hover:bg-red-50 cursor-pointer"
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              if (confirm('¿Eliminar esta cotización? Esta acción no se puede deshacer.')) {
+                                deleteQuote(selectedQuote.id);
+                                closeQuoteDetails();
+                              }
+                            }}
+                          >
+                            Eliminar cotización
+                          </DropdownMenu.Item>
+                        </DropdownMenu.Content>
+                      </DropdownMenu.Root>
+                    </div>
                   </div>
                 </div>
               </Dialog.Content>

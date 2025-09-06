@@ -31,7 +31,7 @@ import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
 import { Loader2, AlertTriangle, Plus, FileText, ChevronRight, Filter, X } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
-import { fetchMuestreos } from '@/services/qualityService';
+import { fetchMuestreos } from '@/services/qualityMuestreoService';
 import type { MuestreoWithRelations } from '@/types/quality';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { subMonths } from 'date-fns';

@@ -51,20 +51,40 @@ export default function ManualMuestreoHeader({ form, agePlanUnit, setAgePlanUnit
         )}
       />
 
-      <FormItem>
-        <FormLabel>Hora de Muestreo</FormLabel>
-        <Input
-          type="time"
-          value={(function(){
-            const ts = (form.getValues('fecha_muestreo') as Date) || new Date();
-            const hh = String(ts.getHours()).padStart(2, '0');
-            const mm = String(ts.getMinutes()).padStart(2, '0');
-            return `${hh}:${mm}`;
-          })()}
-          onChange={(e) => onHoraChange(e.target.value)}
-        />
-        <FormDescription>Define la hora exacta del muestreo.</FormDescription>
-      </FormItem>
+      <FormField
+        control={form.control}
+        name="fecha_muestreo"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Hora de Muestreo</FormLabel>
+            <FormControl>
+              <Input
+                type="time"
+                value={(function(){
+                  const ts = field.value instanceof Date && !isNaN(field.value.getTime()) ? field.value : new Date();
+                  const hh = String(ts.getHours()).padStart(2, '0');
+                  const mm = String(ts.getMinutes()).padStart(2, '0');
+                  return `${hh}:${mm}`;
+                })()}
+                onChange={(e) => {
+                  const base = field.value instanceof Date && !isNaN(field.value.getTime()) ? field.value : new Date();
+                  const [h, m] = e.target.value.split(':').map(n => parseInt(n, 10));
+                  if (base && !isNaN(h) && !isNaN(m)) {
+                    const newBase = new Date(base);
+                    newBase.setHours(h, m, 0, 0);
+                    field.onChange(newBase);
+                    if (onHoraChange) {
+                      onHoraChange(e.target.value);
+                    }
+                  }
+                }}
+              />
+            </FormControl>
+            <FormDescription>Define la hora exacta del muestreo.</FormDescription>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
 
       <div className="md:col-span-2">
         <FormItem>

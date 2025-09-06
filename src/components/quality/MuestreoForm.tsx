@@ -8,7 +8,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/components/ui/use-toast';
 import RemisionesPicker from '@/components/quality/RemisionesPicker';
-import { createMuestreo, crearMuestrasPorEdad } from '@/services/qualityService';
+import { createMuestreo } from '@/services/qualityMuestreoService';
+import { crearMuestrasPorEdad } from '@/services/qualityMuestraService';
 import { Muestreo } from '@/types/quality';
 import { supabase } from '@/lib/supabase';
 
@@ -185,15 +186,17 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
       console.log('Submitting with remision date:', remisionDate);
       
       // Create muestreo record
-      const muestreoData: Partial<Muestreo> = {
+      const currentDate = new Date();
+      const muestreoData = {
         remision_id: remisionId,
         planta: formData.planta,
         revenimiento_sitio: parseFloat(formData.revenimientoSitio) || 0,
         masa_unitaria: parseFloat(formData.masaUnitaria) || 0,
         temperatura_ambiente: parseFloat(formData.temperaturaAmbiente) || 0,
         temperatura_concreto: parseFloat(formData.temperaturaConcreto) || 0,
-        fecha_muestreo: remisionDate || new Date().toISOString().split('T')[0],
-      };
+        fecha_muestreo: remisionDate || currentDate.toISOString().split('T')[0],
+        hora_muestreo: currentDate.toTimeString().split(' ')[0], // HH:MM:SS format
+      } as Partial<Muestreo>;
       
       console.log('Final muestreo data being sent:', muestreoData);
       

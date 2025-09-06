@@ -3,14 +3,19 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import type { PDFReportProps, ReportColumn } from '@/types/pdf-reports';
 import { AVAILABLE_COLUMNS } from '@/types/pdf-reports';
+import { formatDate } from '@/lib/utils';
 
-// Extend styles from QuotePDF with report-specific modifications
+// Enhanced styles optimized for report layout with better space management
 const styles = StyleSheet.create({
-  // Base page styles from QuotePDF
+  // Optimized page styles for A4 landscape orientation (more standard)
   page: {
     fontFamily: 'Helvetica',
     backgroundColor: 'white',
     position: 'relative',
+    paddingTop: 40,
+    paddingBottom: 60,
+    paddingLeft: 20,
+    paddingRight: 20,
   },
   pageBackground: {
     position: 'absolute',
@@ -20,10 +25,10 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   topSection: {
-    height: 40,
+    height: 30,
     width: '100%',
     position: 'relative',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   darkBluePath: {
     fill: '#1B365D',
@@ -32,23 +37,23 @@ const styles = StyleSheet.create({
     fill: '#00A650',
   },
   mainContent: {
-    padding: 30,
-    paddingTop: 50,
-    paddingBottom: 120,
+    padding: 15,
+    paddingTop: 20,
+    paddingBottom: 80,
   },
   
-  // Header styles (adapted from QuotePDF)
+  // Header styles (only for first page)
   header: {
-    height: 60,
+    height: 50,
     position: 'relative',
-    marginBottom: 20,
+    marginBottom: 15,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     backgroundColor: 'white',
   },
   logo: {
-    width: 100,
+    width: 80,
     height: 'auto',
     marginTop: 0,
   },
@@ -56,100 +61,112 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   reportTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: 'Helvetica-Bold',
   },
   dateSection: {
-    marginTop: 10,
-    fontSize: 10,
+    marginTop: 8,
+    fontSize: 9,
   },
   
   // Client info styles
   clientInfo: {
-    marginBottom: 20,
-    fontSize: 10,
+    marginBottom: 15,
+    fontSize: 9,
   },
   clientName: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 5,
+    marginBottom: 4,
   },
   
   // Report title
   title: {
-    fontSize: 14,
+    fontSize: 13,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 15,
     fontFamily: 'Helvetica-Bold',
   },
   
   // Filter info section
   filterInfo: {
-    marginBottom: 15,
+    marginBottom: 12,
     backgroundColor: '#f8f9fa',
-    padding: 10,
-    borderRadius: 4,
+    padding: 8,
+    borderRadius: 3,
   },
   filterTitle: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 5,
+    marginBottom: 4,
   },
   filterItem: {
-    fontSize: 9,
-    marginBottom: 2,
+    fontSize: 8,
+    marginBottom: 1,
   },
   
-  // Table styles (enhanced from QuotePDF)
+  // Professional table styles for client estimates
   table: {
-    marginBottom: 20,
+    marginBottom: 12,
     alignSelf: 'center',
-    width: '95%',
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#333333',
+    borderStyle: 'solid',
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#304F1E',
-    padding: 4,
-    borderBottom: 1,
-    borderBottomColor: '#CCCCCC',
+    backgroundColor: '#1B365D',
+    borderBottomWidth: 2,
+    borderBottomColor: '#333333',
+    borderBottomStyle: 'solid',
+    minHeight: 25,
+    alignItems: 'center',
   },
   tableRow: {
     flexDirection: 'row',
-    borderBottom: 1,
-    borderBottomColor: '#CCCCCC',
-    padding: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    borderBottomStyle: 'solid',
+    paddingVertical: 3,
+    paddingHorizontal: 2,
     minHeight: 20,
     alignItems: 'center',
   },
   groupHeaderRow: {
     flexDirection: 'row',
     backgroundColor: '#E8F3EA',
-    borderTop: 1,
+    borderTopWidth: 1,
     borderTopColor: '#CCCCCC',
-    borderBottom: 1,
+    borderTopStyle: 'solid',
+    borderBottomWidth: 1,
     borderBottomColor: '#CCCCCC',
-    padding: 6,
+    borderBottomStyle: 'solid',
+    padding: 5,
     alignItems: 'center',
   },
   groupHeaderText: {
-    fontSize: 9,
+    fontSize: 8,
     fontFamily: 'Helvetica-Bold',
     color: '#1B365D',
   },
   groupTotalsRow: {
     flexDirection: 'row',
     backgroundColor: '#f1f3f4',
-    borderBottom: 1,
+    borderBottomWidth: 1,
     borderBottomColor: '#CCCCCC',
-    padding: 4,
+    borderBottomStyle: 'solid',
+    padding: 3,
     alignItems: 'center',
   },
   tableRowAlternate: {
     flexDirection: 'row',
-    borderBottom: 1,
-    borderBottomColor: '#CCCCCC',
-    backgroundColor: '#f9f9f9',
-    padding: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+    borderBottomStyle: 'solid',
+    backgroundColor: '#F8F9FA',
+    paddingVertical: 3,
+    paddingHorizontal: 2,
     minHeight: 20,
     alignItems: 'center',
   },
@@ -176,146 +193,192 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   
-  // Text styles
+  // Professional text styles for client presentation
   headerText: {
     color: 'white',
-    fontSize: 8,
+    fontSize: 7,
     fontFamily: 'Helvetica-Bold',
-  },
-  cellText: {
-    fontSize: 8,
-  },
-  cellTextBold: {
-    fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
-  },
-  cellTextCenter: {
-    fontSize: 8,
     textAlign: 'center',
   },
+  cellText: {
+    fontSize: 7,
+    color: '#333333',
+  },
+  cellTextBold: {
+    fontSize: 7,
+    fontFamily: 'Helvetica-Bold',
+    color: '#333333',
+  },
+  cellTextCenter: {
+    fontSize: 7,
+    textAlign: 'center',
+    color: '#333333',
+  },
   cellTextRight: {
-    fontSize: 8,
+    fontSize: 7,
     textAlign: 'right',
+    color: '#333333',
   },
   
   // Summary section
   summarySection: {
-    marginTop: 20,
-    marginBottom: 20,
+    marginTop: 15,
+    marginBottom: 15,
   },
   summaryTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   summaryGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   summaryCard: {
     backgroundColor: '#f8f9fa',
-    padding: 10,
-    borderRadius: 4,
+    padding: 8,
+    borderRadius: 3,
     width: '23%',
   },
   summaryCardTitle: {
-    fontSize: 9,
+    fontSize: 8,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 3,
+    marginBottom: 2,
   },
   summaryCardValue: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#1B365D',
   },
   
   // Group summary
   groupSummary: {
-    marginTop: 15,
+    marginTop: 12,
   },
   groupSummaryTitle: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: 'Helvetica-Bold',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   groupItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 3,
+    marginBottom: 2,
     backgroundColor: '#f1f3f4',
-    padding: 5,
+    padding: 4,
   },
   groupItemText: {
-    fontSize: 9,
+    fontSize: 8,
   },
   
-  // Footer styles (from QuotePDF)
+  // Footer styles (only for last page)
   footer: {
     position: 'absolute',
-    bottom: 20,
-    left: 30,
-    right: 30,
+    bottom: 15,
+    left: 20,
+    right: 20,
     backgroundColor: 'white',
   },
   footerContent: {
-    borderTop: 1,
+    borderTopWidth: 1,
     borderTopColor: '#CCCCCC',
-    paddingTop: 10,
+    borderTopStyle: 'solid',
+    paddingTop: 8,
   },
   contactInfo: {
     position: 'absolute',
-    bottom: 12,
-    left: 30,
-    right: 30,
+    bottom: 8,
+    left: 20,
+    right: 20,
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
-    gap: 20,
+    gap: 15,
     backgroundColor: 'white',
-    paddingBottom: 4,
+    paddingBottom: 3,
   },
   footerRow: {
     flexDirection: 'column',
     alignItems: 'flex-end',
-    gap: 4,
+    gap: 3,
   },
   footerText: {
-    fontSize: 8,
+    fontSize: 7,
     color: '#666666',
-    marginRight: 3,
+    marginRight: 2,
   },
   footerIcon: {
-    width: 14,
-    height: 14,
+    width: 12,
+    height: 12,
   },
   bottomSection: {
     position: 'absolute',
     bottom: 0,
     width: '100%',
-    height: 12,
+    height: 10,
   },
+  
+  // NEW: Professional totals section with visual hierarchy (only at the end)
   grandTotals: {
-    marginTop: 10,
-    alignSelf: 'center',
-    width: '95%',
-    backgroundColor: '#1B365D',
-    padding: 8,
+    marginTop: 20,
+    alignSelf: 'flex-end',
+    width: '60%',
+    borderWidth: 1,
+    borderColor: '#1B365D',
+    borderStyle: 'solid',
   },
   grandTotalsInner: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#0f2b49',
-    padding: 8,
+    backgroundColor: '#1B365D',
+    padding: 6,
+    paddingHorizontal: 10,
   },
   grandTotalsLabel: {
     color: 'white',
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: 'Helvetica-Bold',
   },
   grandTotalsValue: {
     color: 'white',
+    fontSize: 9,
+    fontFamily: 'Helvetica',
+  },
+  
+  // NEW: Enhanced totals with proper visual hierarchy
+  totalsSection: {
+    marginTop: 10,
+    alignSelf: 'flex-end',
+    width: '60%',
+  },
+  totalsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 8,
+    marginBottom: 2,
+  },
+  totalsRowBlue: {
+    backgroundColor: '#1B365D',
+  },
+  totalsRowGreen: {
+    backgroundColor: '#00A650',
+  },
+  totalsLabel: {
+    color: 'white',
+    fontSize: 9,
+    fontFamily: 'Helvetica-Bold',
+  },
+  totalsValue: {
+    color: 'white',
+    fontSize: 9,
+    fontFamily: 'Helvetica',
+  },
+  totalsValueBold: {
+    color: 'white',
     fontSize: 10,
+    fontFamily: 'Helvetica-Bold',
   },
 });
 
@@ -344,45 +407,53 @@ const LocationIcon = () => (
   </Svg>
 );
 
-// Page background component (reused from QuotePDF)
+// Page background component (only for first page)
 const PageBackground = () => (
   <View style={styles.pageBackground}>
     <Svg style={styles.topSection}>
-      <Path d="M0,0 L595,0 L595,40 L0,40 Z" style={styles.darkBluePath} />
-      <Path d="M297,0 L595,0 L595,40 L347,40 Z" style={styles.greenPath} />
+      <Path d="M0,0 L595,0 L595,30 L0,30 Z" style={styles.darkBluePath} />
+      <Path d="M297,0 L595,0 L595,30 L347,30 Z" style={styles.greenPath} />
     </Svg>
+  </View>
+);
 
-    <View style={styles.footer}>
-      <View style={styles.footerRow}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={styles.footerText}>477-129-2394</Text>
-          <PhoneIcon />
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={styles.footerText}>ventas@dcconcretos.com.mx</Text>
-          <EmailIcon />
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={styles.footerText}>www.dcconcretos.com.mx</Text>
-          <WebIcon />
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Text style={styles.footerText}>Carr. Silao-san Felipe km 4.1 cp. 36110</Text>
-          <LocationIcon />
-        </View>
+// Footer component (only for last page)
+const PageFooter = () => (
+  <View style={styles.footer}>
+    <View style={styles.footerRow}>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text style={styles.footerText}>477-129-2394</Text>
+        <PhoneIcon />
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text style={styles.footerText}>ventas@dcconcretos.com.mx</Text>
+        <EmailIcon />
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text style={styles.footerText}>www.dcconcretos.com.mx</Text>
+        <WebIcon />
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Text style={styles.footerText}>Carr. Silao-san Felipe km 4.1 cp. 36110</Text>
+        <LocationIcon />
       </View>
     </View>
-
+    
     <Svg style={styles.bottomSection}>
-      <Path d="M0,0 L595,0 L595,12 L0,12 Z" style={styles.darkBluePath} />
+      <Path d="M0,0 L595,0 L595,10 L0,10 Z" style={styles.darkBluePath} />
     </Svg>
   </View>
 );
 
 const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, generatedAt }: PDFReportProps) => {
-  // Column handling: enforce ordering, required columns and limit
-  const MAX_COLUMNS = 10;
-  const REQUIRED_COLUMN_IDS = ['order_number'];
+  // Enhanced column handling with better layout management
+  const MAX_COLUMNS = 11; // Increased to accommodate company standard columns
+  const REQUIRED_COLUMN_IDS = ['fecha', 'remision_number']; // Company requirements
+
+  // Validate date range
+  if (!dateRange.from || !dateRange.to) {
+    throw new Error('Invalid date range provided to PDF component');
+  }
 
   const byId = new Map(AVAILABLE_COLUMNS.map((c) => [c.id, c] as const));
 
@@ -396,32 +467,36 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
       initialSelected.unshift(byId.get(reqId)!);
     }
   }
-  // Include important 'elemento' by default if not present
-  if (!initialSelected.some((c) => c.id === 'elemento') && byId.has('elemento')) {
-    // Insert after order_number if exists, else prepend
-    const orderIdx = initialSelected.findIndex((c) => c.id === 'order_number');
-    if (orderIdx >= 0) {
-      initialSelected.splice(orderIdx + 1, 0, byId.get('elemento')!);
-    } else {
-      initialSelected.unshift(byId.get('elemento')!);
-    }
-  }
 
-  // Limit number of columns
+  // Limit number of columns to prevent overflow
   const limitedColumns = initialSelected.slice(0, MAX_COLUMNS);
 
-  // Normalize widths so total fits 100%
-  const totalWidth = limitedColumns.reduce((sum, c) => {
-    const widthStr = c.width || '10%';
-    const numeric = Number(widthStr.toString().replace('%', '')) || 10;
-    return sum + numeric;
-  }, 0);
-  const selectedColumns = limitedColumns.map((c) => {
-    const widthStr = c.width || '10%';
-    const numeric = Number(widthStr.toString().replace('%', '')) || 10;
-    const normalized = (numeric / totalWidth) * 100;
-    return { ...c, width: `${normalized}%` } as ReportColumn;
-  });
+  // Smart column width optimization for A4 landscape
+  const optimizeColumnWidths = (columns: ReportColumn[]): ReportColumn[] => {
+    // Base widths optimized for A4 landscape - more balanced distribution
+    const widthMap: Record<string, string> = {
+      'fecha': '9%',           // Fecha
+      'remision_number': '9%', // Remision
+      'business_name': '14%',  // Cliente
+      'order_number': '9%',    // N° pedido
+      'construction_site': '13%', // OBRA
+      'elemento': '11%',       // ELEMENTO
+      'unidad_cr': '7%',       // Unidad
+      'recipe_code': '12%',    // Producto
+      'volumen_fabricado': '7%', // M3
+      'unit_price': '10%',     // P.U
+      'line_total': '10%',     // Subtotal
+      'conductor': '9%',       // Additional columns
+      'unidad': '7%'
+    };
+
+    return columns.map(col => ({
+      ...col,
+      width: widthMap[col.id] || '9%'
+    }));
+  };
+
+  const selectedColumns = optimizeColumnWidths(limitedColumns);
 
   // Helper function to format values based on column type
   const formatValue = (value: any, column: ReportColumn): string => {
@@ -430,7 +505,7 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
     switch (column.format) {
       case 'date':
         try {
-          return format(new Date(value), 'dd/MM/yyyy', { locale: es });
+          return formatDate(value, 'dd/MM/yyyy');
         } catch {
           return value?.toString() || '-';
         }
@@ -454,30 +529,37 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
     }
   };
 
-  // Helper function to get column width style
+  // Professional column style function with visual segmentation
   const getColumnStyle = (column: ReportColumn) => {
     const baseStyle = {
-      width: column.width || '10%',
-      padding: 3,
+      width: column.width || '9%',
+      paddingVertical: 2,
+      paddingHorizontal: 3,
+      borderRightWidth: 1,
+      borderRightColor: '#D0D0D0',
+      borderRightStyle: 'solid' as const,
+      justifyContent: 'center' as const,
+      alignItems: 'center' as const,
     };
 
     switch (column.type) {
       case 'currency':
       case 'number':
-        return { ...baseStyle, textAlign: 'right' as const };
+        return { ...baseStyle, alignItems: 'flex-end' as const };
       case 'boolean':
-        return { ...baseStyle, textAlign: 'center' as const };
+        return { ...baseStyle, alignItems: 'center' as const };
       default:
-        return { ...baseStyle, textAlign: 'left' as const };
+        return { ...baseStyle, alignItems: 'flex-start' as const };
     }
   };
 
   // Helper function to get value from data using field path
   const getValue = (item: any, fieldPath: string): any => {
-    // Handle elemento from orders table
+    // Handle elemento from orders table - try multiple possible paths
     if (fieldPath === 'order.elemento') {
-      return item?.orders?.elemento ?? item?.order?.elemento ?? '-';
+      return item?.orders?.elemento ?? item?.order?.elemento ?? item?.elemento ?? '-';
     }
+    
     return fieldPath.split('.').reduce((obj, key) => obj?.[key], item);
   };
 
@@ -485,7 +567,7 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
   const formatFilterSummary = () => {
     const filters = [];
     
-    filters.push(`Período: ${format(dateRange.from, 'dd/MM/yyyy', { locale: es })} - ${format(dateRange.to, 'dd/MM/yyyy', { locale: es })}`);
+    filters.push(`Período: ${format(dateRange.from!, 'dd/MM/yyyy', { locale: es })} - ${format(dateRange.to!, 'dd/MM/yyyy', { locale: es })}`);
     
     if (configuration.filters.constructionSite && configuration.filters.constructionSite !== 'todos') {
       filters.push(`Obra: ${configuration.filters.constructionSite}`);
@@ -502,6 +584,7 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
 
     return filters;
   };
+  
   // Build grouped data by order
   type GroupInfo = {
     key: string;
@@ -545,9 +628,9 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
     flattenedRows.push({ type: 'groupTotal', group: g });
   });
 
-  // Row capacity per page (first page has header+summary)
-  const firstPageCapacity = 16;
-  const nextPageCapacity = 22;
+  // Enhanced row capacity per page for A4 landscape
+  const firstPageCapacity = 20; // Reduced for better layout
+  const nextPageCapacity = 25; // Balanced capacity for subsequent pages
 
   const pages: RenderRow[][] = [];
   let current: RenderRow[] = [];
@@ -620,12 +703,61 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
     </View>
   );
 
-  // Grand totals from summary
-  const grandTotals = {
-    volume: summary.totalVolume,
-    subtotal: summary.totalAmount,
-    vat: configuration.showVAT ? summary.totalVAT : 0,
-    total: configuration.showVAT ? summary.totalAmount + summary.totalVAT : summary.totalAmount,
+  // NEW: Professional totals section with proper visual hierarchy (only at the end)
+  const renderFinalTotals = () => {
+    // Get VAT percentage from plant info or default to 16%
+    // Database stores VAT as decimal (0.08 for 8%), so multiply by 100 for display
+    const vatRateDecimal = clientInfo?.plant_info?.vat_percentage || 0.16;
+    const vatPercentage = vatRateDecimal * 100; // Convert to percentage for display
+    
+    // Recalculate VAT amount based on plant's VAT rate
+    const vatAmount = (summary.totalAmount * vatRateDecimal);
+    const finalTotal = summary.totalAmount + vatAmount;
+    
+    return (
+      <View style={styles.totalsSection}>
+        {/* M3 and Subtotal Row */}
+        <View style={[styles.totalsRow, styles.totalsRowBlue]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
+            <Text style={styles.totalsLabel}>M3 Total:</Text>
+            <Text style={styles.totalsValue}>{summary.totalVolume.toFixed(2)} m³</Text>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 20 }}>
+            <Text style={styles.totalsLabel}>Subtotal:</Text>
+            <Text style={styles.totalsValue}>
+              ${summary.totalAmount.toLocaleString('es-MX', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })}
+            </Text>
+          </View>
+        </View>
+        
+        {/* IVA Row */}
+        {configuration.showVAT && (
+          <View style={[styles.totalsRow, styles.totalsRowBlue]}>
+            <Text style={styles.totalsLabel}>IVA ({vatPercentage.toFixed(0)}%):</Text>
+            <Text style={styles.totalsValue}>
+              ${vatAmount.toLocaleString('es-MX', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })}
+            </Text>
+          </View>
+        )}
+        
+        {/* Final Total Row */}
+        <View style={[styles.totalsRow, styles.totalsRowGreen]}>
+          <Text style={styles.totalsLabel}>TOTAL:</Text>
+          <Text style={styles.totalsValueBold}>
+            ${finalTotal.toLocaleString('es-MX', {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2
+            })}
+          </Text>
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -634,9 +766,9 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
       <Page size="A4" style={styles.page} orientation="landscape">
         <PageBackground />
         <View style={styles.mainContent}>
-          {/* Header */}
+          {/* Header - ONLY on first page */}
           <View style={styles.header}>
-              <Image style={styles.logo} src="/images/logo.png" />
+            <Image style={styles.logo} src="/images/logo.png" />
             <View style={styles.documentInfo}>
               <Text style={styles.reportTitle}>{configuration.title || 'REPORTE DE ENTREGAS'}</Text>
               <View style={styles.dateSection}>
@@ -654,6 +786,9 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
               )}
               {clientInfo.rfc && <Text>RFC: {clientInfo.rfc}</Text>}
               {clientInfo.address && <Text>{clientInfo.address}</Text>}
+              {clientInfo.plant_info && (
+                <Text>Planta: {clientInfo.plant_info.plant_name} ({clientInfo.plant_info.plant_code}) - IVA: {(clientInfo.plant_info.vat_percentage * 100).toFixed(0)}%</Text>
+              )}
             </View>
           )}
 
@@ -669,78 +804,87 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
           {configuration.showSummary && renderSummarySection()}
 
           {/* Data Table */}
-      {flattenedRows.length > 0 && (
-        <View style={styles.table}>
-          {/* Table Header */}
-          <View style={styles.tableHeader}>
-            {selectedColumns.map((column) => (
-              <View key={column.id} style={getColumnStyle(column)}>
-                <Text style={styles.headerText}>{column.label.toUpperCase()}</Text>
-              </View>
-            ))}
-          </View>
-
-          {/* Table Rows - page 1 */}
-          {pages[0]?.map((entry, index) => {
-            if (entry.type === 'group') {
-              return (
-                <View key={`g-${index}`} style={styles.groupHeaderRow}>
-                  <Text style={styles.groupHeaderText}>Orden: {entry.group.orderNumber}   Obra: {entry.group.constructionSite || '-' }   Elemento: {entry.group.elemento || '-'}</Text>
-                </View>
-              );
-            }
-            if (entry.type === 'groupTotal') {
-              return (
-                <View key={`gt-${index}`} style={styles.groupTotalsRow}>
-                  <View style={{ width: '50%', padding: 3 }}>
-                    <Text style={styles.cellTextBold}>Subtotal de orden</Text>
-                  </View>
-                  <View style={{ width: '20%', padding: 3, textAlign: 'right' }}>
-                    <Text style={styles.cellTextBold}>{entry.group.totals.volume.toFixed(2)} m³</Text>
-                  </View>
-                  <View style={{ width: '30%', padding: 3, textAlign: 'right' }}>
-                    <Text style={styles.cellTextBold}>
-                      ${Number(entry.group.totals.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </Text>
-              </View>
-                </View>
-              );
-            }
-            const item = entry.item;
-            return (
-              <View key={`r-${item.id || `idx-${index}`}`} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlternate}>
-                {selectedColumns.map((column) => {
-                  const value = getValue(item, column.field);
-                  const formattedValue = formatValue(value, column);
+          {flattenedRows.length > 0 && (
+            <View style={styles.table}>
+              {/* Table Header */}
+              <View style={styles.tableHeader}>
+                {selectedColumns.map((column, index) => {
+                  const headerStyle = getColumnStyle(column);
                   return (
-                    <View key={`${item.id || index}-${column.id}-${index}`} style={getColumnStyle(column)}>
-                      <Text style={styles.cellText}>{formattedValue}</Text>
+                    <View 
+                      key={`header-${column.id}`} 
+                      style={[
+                        headerStyle,
+                        {
+                          borderRightWidth: index === selectedColumns.length - 1 ? 0 : 1,
+                          borderRightColor: '#666666',
+                          borderRightStyle: 'solid',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }
+                      ]}
+                    >
+                      <Text style={styles.headerText} wrap={false}>{column.label.toUpperCase()}</Text>
                     </View>
                   );
                 })}
               </View>
-            );
-          })}
-                  
-                  {/* Summary Row if enabled */}
-                  {configuration.showSummary && (
-            <View style={styles.tableRow}>
-              <View style={{ width: '50%', padding: 3 }}>
-                <Text style={styles.cellTextBold}>TOTALES:</Text>
+
+              {/* Table Rows - page 1 */}
+              {pages[0]?.map((entry, index) => {
+                if (entry.type === 'group') {
+                  return (
+                    <View key={`g-${index}`} style={styles.groupHeaderRow}>
+                      <Text style={styles.groupHeaderText}>Orden: {entry.group.orderNumber}   Obra: {entry.group.constructionSite || '-' }   Elemento: {entry.group.elemento || '-'}</Text>
+                    </View>
+                  );
+                }
+                if (entry.type === 'groupTotal') {
+                  return (
+                    <View key={`gt-${index}`} style={styles.groupTotalsRow}>
+                      <View style={{ width: '60%', padding: 1 }}>
+                        <Text style={styles.cellTextBold}>Subtotal de orden</Text>
                       </View>
-              <View style={{ width: '20%', padding: 3, textAlign: 'right' }}>
-                <Text style={styles.cellTextBold}>{summary.totalVolume.toFixed(2)} m³</Text>
+                      <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
+                        <Text style={styles.cellTextBold}>{entry.group.totals.volume.toFixed(2)} m³</Text>
                       </View>
-              <View style={{ width: '30%', padding: 3, textAlign: 'right' }}>
-                <Text style={styles.cellTextBold}>
-                          ${summary.totalAmount.toLocaleString('es-MX', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          })}
+                      <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
+                        <Text style={styles.cellTextBold}>
+                          ${Number(entry.group.totals.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Text>
                       </View>
                     </View>
-              )}
+                  );
+                }
+                const item = entry.item;
+                return (
+                  <View key={`r-${item.id || `idx-${index}`}`} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlternate}>
+                    {selectedColumns.map((column, colIndex) => {
+                      const value = getValue(item, column.field);
+                      const formattedValue = formatValue(value, column);
+                      const textStyle = column.type === 'currency' || column.type === 'number' ? 
+                        styles.cellTextRight : styles.cellText;
+                      
+                      const cellStyle = getColumnStyle(column);
+                      return (
+                        <View 
+                          key={`${item.id || index}-${column.id}-${index}`} 
+                          style={[
+                            cellStyle,
+                            {
+                              borderRightWidth: colIndex === selectedColumns.length - 1 ? 0 : 1,
+                              borderRightColor: '#D0D0D0',
+                              borderRightStyle: 'solid',
+                            }
+                          ]}
+                        >
+                          <Text style={textStyle}>{formattedValue}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                );
+              })}
             </View>
           )}
 
@@ -755,30 +899,33 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
       {/* Additional pages if data spans multiple pages */}
       {pages.slice(1).map((pageRows, pageIndex) => (
         <Page key={`page-${pageIndex + 1}`} size="A4" style={styles.page} orientation="landscape">
-          <PageBackground />
           <View style={styles.mainContent}>
-            {/* Simplified header for continuation pages */}
-            <View style={styles.header}>
-              <Image style={styles.logo} src="/images/logo.png" />
-              <View style={styles.documentInfo}>
-                <Text style={styles.reportTitle}>
-                  {configuration.title || 'REPORTE DE ENTREGAS'} - Página {pageIndex + 2}
-                </Text>
-                <Text style={styles.dateSection}>
-                  {clientInfo?.business_name}
-                </Text>
-              </View>
-            </View>
-
+            {/* NO header on continuation pages - cleaner layout */}
+            
             {/* Continuation table */}
             <View style={styles.table}>
-              {/* Table Header */}
+              {/* Table Header - consistent with first page */}
               <View style={styles.tableHeader}>
-                {selectedColumns.map((column) => (
-                  <View key={`header-${pageIndex}-${column.id}`} style={getColumnStyle(column)}>
-                    <Text style={styles.headerText}>{column.label.toUpperCase()}</Text>
-                  </View>
-                ))}
+                {selectedColumns.map((column, index) => {
+                  const headerStyle = getColumnStyle(column);
+                  return (
+                    <View 
+                      key={`header-${pageIndex}-${column.id}`} 
+                      style={[
+                        headerStyle,
+                        {
+                          borderRightWidth: index === selectedColumns.length - 1 ? 0 : 1,
+                          borderRightColor: '#666666',
+                          borderRightStyle: 'solid',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                        }
+                      ]}
+                    >
+                      <Text style={styles.headerText} wrap={false}>{column.label.toUpperCase()}</Text>
+                    </View>
+                  );
+                })}
               </View>
 
               {/* Table Rows for this page */}
@@ -787,71 +934,70 @@ const ClientReportPDF = ({ data, configuration, summary, clientInfo, dateRange, 
                   return (
                     <View key={`pg-${pageIndex}-g-${index}`} style={styles.groupHeaderRow}>
                       <Text style={styles.groupHeaderText}>Orden: {entry.group.orderNumber}   Obra: {entry.group.constructionSite || '-'}   Elemento: {entry.group.elemento || '-'}</Text>
-                  </View>
+                    </View>
                   );
                 }
                 if (entry.type === 'groupTotal') {
                   return (
                     <View key={`pg-${pageIndex}-gt-${index}`} style={styles.groupTotalsRow}>
-                      <View style={{ width: '50%', padding: 3 }}>
+                      <View style={{ width: '60%', padding: 1 }}>
                         <Text style={styles.cellTextBold}>Subtotal de orden</Text>
                       </View>
-                      <View style={{ width: '20%', padding: 3, textAlign: 'right' }}>
+                      <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
                         <Text style={styles.cellTextBold}>{entry.group.totals.volume.toFixed(2)} m³</Text>
                       </View>
-                      <View style={{ width: '30%', padding: 3, textAlign: 'right' }}>
+                      <View style={{ width: '20%', padding: 1, textAlign: 'right' }}>
                         <Text style={styles.cellTextBold}>
                           ${Number(entry.group.totals.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </Text>
-                  </View>
+                        </Text>
+                      </View>
                     </View>
                   );
                 }
                 const item = entry.item;
                 return (
                   <View key={`page-${pageIndex}-row-${item.id || `index-${index}`}-${index}`} style={index % 2 === 0 ? styles.tableRow : styles.tableRowAlternate}>
-                    {selectedColumns.map((column) => {
+                    {selectedColumns.map((column, colIndex) => {
                       const value = getValue(item, column.field);
                       const formattedValue = formatValue(value, column);
+                      const textStyle = column.type === 'currency' || column.type === 'number' ? 
+                        styles.cellTextRight : styles.cellText;
+                      
+                      const cellStyle = getColumnStyle(column);
                       return (
-                        <View key={`page-${pageIndex}-${item.id || index}-${column.id}-${index}`} style={getColumnStyle(column)}>
-                          <Text style={styles.cellText}>{formattedValue}</Text>
+                        <View 
+                          key={`page-${pageIndex}-${item.id || index}-${column.id}-${index}`} 
+                          style={[
+                            cellStyle,
+                            {
+                              borderRightWidth: colIndex === selectedColumns.length - 1 ? 0 : 1,
+                              borderRightColor: '#D0D0D0',
+                              borderRightStyle: 'solid',
+                            }
+                          ]}
+                        >
+                          <Text style={textStyle}>{formattedValue}</Text>
                         </View>
                       );
                     })}
                   </View>
                 );
               })}
-                </View>
-
-            {/* Grand totals only on the last page of multipage reports */}
-            {pages.length > 1 && pageIndex === pages.length - 2 && (
-              <View style={styles.grandTotals}>
-                <View style={styles.grandTotalsInner}>
-                  <Text style={styles.grandTotalsLabel}>M3</Text>
-                  <Text style={styles.grandTotalsValue}>{grandTotals.volume.toFixed(2)}</Text>
-                  <Text style={styles.grandTotalsLabel}>Sub Total</Text>
-                  <Text style={styles.grandTotalsValue}>
-                    ${grandTotals.subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
-                  {configuration.showVAT && (
-                    <>
-                      <Text style={styles.grandTotalsLabel}>IVA</Text>
-                      <Text style={styles.grandTotalsValue}>
-                        ${grandTotals.vat.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Text>
-                    </>
-                  )}
-                  <Text style={styles.grandTotalsLabel}>Total</Text>
-                  <Text style={styles.grandTotalsValue}>
-                    ${grandTotals.total.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </Text>
             </View>
-              </View>
-            )}
           </View>
         </Page>
       ))}
+
+      {/* Final Page - Totals and Footer */}
+      <Page size="A4" style={styles.page} orientation="landscape">
+        <PageFooter />
+        <View style={styles.mainContent}>
+          {/* NO header on final page - removed completely */}
+          
+          {/* Final totals section with proper visual hierarchy - positioned closer to top */}
+          {configuration.showSummary && renderFinalTotals()}
+        </View>
+      </Page>
     </Document>
   );
 };

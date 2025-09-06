@@ -9,7 +9,9 @@ interface PlantFilterOptions {
 
 export class PlantAwareDataService {
   private static instance: PlantAwareDataService;
-  
+  private plantIdsCache: Map<string, { plantIds: string[] | null; timestamp: number }> = new Map();
+  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
   static getInstance(): PlantAwareDataService {
     if (!PlantAwareDataService.instance) {
       PlantAwareDataService.instance = new PlantAwareDataService();
@@ -23,31 +25,45 @@ export class PlantAwareDataService {
   async getAccessiblePlantIds(options: PlantFilterOptions): Promise<string[] | null> {
     const { userAccess, isGlobalAdmin, currentPlantId } = options;
 
+    // Create cache key based on user access pattern
+    const cacheKey = `${isGlobalAdmin}-${userAccess?.accessLevel}-${userAccess?.plantId}-${userAccess?.businessUnitId}-${currentPlantId}`;
+
+    // Check cache first
+    const cached = this.plantIdsCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < this.CACHE_DURATION) {
+      return cached.plantIds;
+    }
+
+    let plantIds: string[] | null = null;
+
     if (isGlobalAdmin) {
       if (currentPlantId) {
-        return [currentPlantId];
+        plantIds = [currentPlantId];
+      } else {
+        plantIds = null; // Can access all plants
       }
-      return null; // Can access all plants
-    }
-
-    if (userAccess?.accessLevel === 'PLANT' && userAccess.plantId) {
-      return [userAccess.plantId];
-    }
-
-    if (userAccess?.accessLevel === 'BUSINESS_UNIT' && userAccess.businessUnitId) {
+    } else if (userAccess?.accessLevel === 'PLANT' && userAccess.plantId) {
+      plantIds = [userAccess.plantId];
+    } else if (userAccess?.accessLevel === 'BUSINESS_UNIT' && userAccess.businessUnitId) {
       if (currentPlantId) {
-        return [currentPlantId];
+        plantIds = [currentPlantId];
+      } else {
+        // Get all plants in the business unit - this is the expensive query we want to cache
+        const { data: plants } = await supabase
+          .from('plants')
+          .select('id')
+          .eq('business_unit_id', userAccess.businessUnitId);
+
+        plantIds = plants?.map(p => p.id) || [];
       }
-      // Get all plants in the business unit
-      const { data: plants } = await supabase
-        .from('plants')
-        .select('id')
-        .eq('business_unit_id', userAccess.businessUnitId);
-      
-      return plants?.map(p => p.id) || [];
+    } else {
+      plantIds = []; // Unassigned users have no access
     }
 
-    return []; // Unassigned users have no access
+    // Cache the result
+    this.plantIdsCache.set(cacheKey, { plantIds, timestamp: Date.now() });
+
+    return plantIds;
   }
 
   /**

@@ -1,4 +1,5 @@
 // Types for Dynamic PDF Report System
+import { DateRange } from "react-day-picker";
 
 export interface ReportColumn {
   id: string;
@@ -11,10 +12,7 @@ export interface ReportColumn {
 }
 
 export interface ReportFilter {
-  dateRange: {
-    from: Date;
-    to: Date;
-  };
+  dateRange: DateRange;
   clientId?: string;
   constructionSite?: string;
   recipeCode?: string;
@@ -75,6 +73,14 @@ export interface ReportRemisionData {
     address?: string;
   };
   
+  // Plant information for VAT calculation
+  plant_info?: {
+    plant_id: string;
+    plant_code: string;
+    plant_name: string;
+    vat_percentage: number;
+  };
+  
   // Calculated fields
   unit_price?: number;
   line_total?: number;
@@ -124,50 +130,123 @@ export interface PDFReportProps {
     name?: string;
     address?: string;
     rfc?: string;
+    plant_info?: {
+      plant_id: string;
+      plant_code: string;
+      plant_name: string;
+      vat_percentage: number;
+    };
   };
-  dateRange: {
-    from: Date;
-    to: Date;
-  };
+  dateRange: DateRange;
   generatedAt: Date;
 }
 
 // Available columns for the report system
 export const AVAILABLE_COLUMNS: ReportColumn[] = [
-  // Delivery Information
+  // Row Number Column (N°)
   {
-    id: 'remision_number',
-    label: 'No. Remisión',
-    field: 'remision_number',
-    type: 'text',
-    width: '12%',
+    id: 'row_number',
+    label: 'N°',
+    field: '_row_number',
+    type: 'number',
+    width: '4%',
     required: true
   },
+  // Company Standard Columns in exact order
   {
     id: 'fecha',
     label: 'Fecha',
     field: 'fecha',
     type: 'date',
     format: 'date',
-    width: '10%',
+    width: '8%',
+    required: true
+  },
+  {
+    id: 'remision_number',
+    label: 'Remision',
+    field: 'remision_number',
+    type: 'text',
+    width: '8%',
+    required: true
+  },
+  {
+    id: 'business_name',
+    label: 'Cliente',
+    field: 'client.business_name',
+    type: 'text',
+    width: '12%',
+    required: true
+  },
+  {
+    id: 'order_number',
+    label: 'N° pedido',
+    field: 'order.order_number',
+    type: 'text',
+    width: '8%',
     required: true
   },
   {
     id: 'construction_site',
-    label: 'Obra',
+    label: 'OBRA',
     field: 'order.construction_site',
     type: 'text',
-    width: '15%'
+    width: '12%',
+    required: true
   },
   {
-    id: 'volumen_fabricado',
-    label: 'Volumen (m³)',
-    field: 'volumen_fabricado',
-    type: 'number',
-    format: 'decimal',
+    id: 'elemento',
+    label: 'ELEMENTO',
+    field: 'order.elemento',
+    type: 'text',
     width: '10%',
     required: true
   },
+  {
+    id: 'unidad_cr',
+    label: 'Unidad',
+    field: 'unidad',
+    type: 'text',
+    width: '6%',
+    required: true
+  },
+  {
+    id: 'recipe_code',
+    label: 'Producto',
+    field: 'recipe.recipe_code',
+    type: 'text',
+    width: '10%',
+    required: true
+  },
+  {
+    id: 'volumen_fabricado',
+    label: 'M3',
+    field: 'volumen_fabricado',
+    type: 'number',
+    format: 'decimal',
+    width: '6%',
+    required: true
+  },
+  {
+    id: 'unit_price',
+    label: 'P.U',
+    field: 'unit_price',
+    type: 'currency',
+    format: 'currency',
+    width: '8%',
+    required: true
+  },
+  {
+    id: 'line_total',
+    label: 'Subtotal',
+    field: 'line_total',
+    type: 'currency',
+    format: 'currency',
+    width: '8%',
+    required: true
+  },
+  
+  // Additional columns (not in company standard)
   {
     id: 'conductor',
     label: 'Conductor',
@@ -183,14 +262,7 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     width: '8%'
   },
   
-  // Product Information
-  {
-    id: 'recipe_code',
-    label: 'Código Receta',
-    field: 'recipe.recipe_code',
-    type: 'text',
-    width: '10%'
-  },
+  // Additional Product Information
   {
     id: 'strength_fc',
     label: 'Resistencia',
@@ -223,23 +295,7 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     width: '8%'
   },
   
-  // Financial Information
-  {
-    id: 'unit_price',
-    label: 'Precio Unitario',
-    field: 'unit_price',
-    type: 'currency',
-    format: 'currency',
-    width: '12%'
-  },
-  {
-    id: 'line_total',
-    label: 'Total Línea',
-    field: 'line_total',
-    type: 'currency',
-    format: 'currency',
-    width: '12%'
-  },
+  // Additional Financial Information
   {
     id: 'vat_amount',
     label: 'IVA',
@@ -257,22 +313,7 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     width: '12%'
   },
   
-  // Order Information
-  {
-    id: 'order_number',
-    label: 'No. Orden',
-    field: 'order.order_number',
-    type: 'text',
-    width: '10%',
-    required: true
-  },
-  {
-    id: 'elemento',
-    label: 'Elemento',
-    field: 'order.elemento',
-    type: 'text',
-    width: '12%'
-  },
+  // Additional Order Information
   {
     id: 'requires_invoice',
     label: 'Requiere Factura',
@@ -281,14 +322,7 @@ export const AVAILABLE_COLUMNS: ReportColumn[] = [
     width: '8%'
   },
   
-  // Client Information
-  {
-    id: 'business_name',
-    label: 'Razón Social',
-    field: 'client.business_name',
-    type: 'text',
-    width: '15%'
-  },
+  // Additional Client Information
   {
     id: 'client_rfc',
     label: 'RFC Cliente',
@@ -348,17 +382,37 @@ export const DEFAULT_COLUMN_SETS = {
     'unit_price',
     'line_total',
     'requires_invoice'
+  ],
+  // Company standard template with required columns in exact order from image
+  company_standard: [
+    'fecha',
+    'remision_number',
+    'business_name',
+    'order_number',
+    'construction_site',
+    'elemento',
+    'unidad_cr',
+    'recipe_code',
+    'volumen_fabricado',
+    'unit_price',
+    'line_total'
   ]
 };
 
 // Predefined report templates
 export const DEFAULT_TEMPLATES: ReportTemplate[] = [
   {
+    id: 'company-standard',
+    name: 'Estándar Empresarial',
+    description: 'Reporte estándar con columnas requeridas: fecha, remisión, cliente, pedido, obra, elemento, unidad, producto, m3, precio unitario, subtotal',
+    selectedColumns: DEFAULT_COLUMN_SETS.company_standard,
+    isDefault: true
+  },
+  {
     id: 'delivery-summary',
     name: 'Resumen de Entregas',
     description: 'Reporte básico de entregas por cliente',
-    selectedColumns: DEFAULT_COLUMN_SETS.delivery,
-    isDefault: true
+    selectedColumns: DEFAULT_COLUMN_SETS.delivery
   },
   {
     id: 'financial-detail',

@@ -37,6 +37,7 @@ interface DebugMatch {
   quoteBonus: number;
   totalScore: number;
   reasoning: string;
+  validationFailed?: boolean; // Flag to indicate strict validation failure
 }
 
 interface BatchData {
@@ -540,6 +541,37 @@ export class DebugArkikValidator {
       quote_id: bestMatch.pricing.quote_id
     });
 
+    // STEP 4.5: Check for strict client validation failure (CACHE METHOD)
+    console.log(`[DebugArkikValidator] 🔍 VALIDATION FAILURE CHECK (CACHE) for remision ${row.remision_number}:`);
+    console.log(`[DebugArkikValidator]   - validationFailed flag: ${bestMatch.validationFailed}`);
+    console.log(`[DebugArkikValidator]   - clientScore: ${bestMatch.clientScore}`);
+    console.log(`[DebugArkikValidator]   - reasoning: ${bestMatch.reasoning}`);
+
+    if (bestMatch.validationFailed) {
+      errors.push({
+        row_number: row.row_number,
+        error_type: ArkikErrorType.RECIPE_NO_PRICE,
+        field_name: 'cliente_name',
+        field_value: row.cliente_name,
+        message: `No hay precio activo para el cliente "${row.cliente_name}" con la receta "${row.product_description || row.recipe_code}". Se encontró precio para un cliente diferente: "${bestMatch.pricing.business_name}" (similitud de cliente: ${(bestMatch.clientScore * 100).toFixed(1)}%).`,
+        suggestion: {
+          action: 'configure_client_pricing',
+          suggestion: `Contacta al equipo comercial para configurar precio para el cliente "${row.cliente_name}" con esta receta, o verifica si el nombre del cliente debería ser "${bestMatch.pricing.business_name}".`
+        },
+        recoverable: true
+      });
+
+      return {
+        row: { 
+          ...row, 
+          recipe_id: recipe.id, 
+          validation_status: 'error', 
+          validation_errors: errors 
+        },
+        errors
+      };
+    }
+
     // STEP 5: Resolve quote_detail_id if we have quote_id but no quote_detail_id
     if (bestMatch.pricing.quote_id && !bestMatch.pricing.quote_detail_id) {
       bestMatch.pricing.quote_detail_id = this.resolveQuoteDetailId(
@@ -970,6 +1002,40 @@ export class DebugArkikValidator {
     // STEP 4: Smart Client/Site Matching
     const bestMatch = this.selectBestPricing(pricingOptions, row, []); // Fallback: no product prices data available
 
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] 🔍 VALIDATION FAILURE CHECK for remision ${row.remision_number}:`);
+      console.log(`[DebugArkikValidator]   - validationFailed flag: ${bestMatch.validationFailed}`);
+      console.log(`[DebugArkikValidator]   - clientScore: ${bestMatch.clientScore}`);
+      console.log(`[DebugArkikValidator]   - reasoning: ${bestMatch.reasoning}`);
+    }
+
+    // STEP 5: Check for strict client validation failure
+    if (bestMatch.validationFailed) {
+      errors.push({
+        row_number: row.row_number,
+        error_type: ArkikErrorType.RECIPE_NO_PRICE,
+        field_name: 'cliente_name',
+        field_value: row.cliente_name,
+        message: `No hay precio activo para el cliente "${row.cliente_name}" con la receta "${row.product_description || row.recipe_code}". Se encontró precio para un cliente diferente: "${bestMatch.pricing.business_name}" (similitud de cliente: ${(bestMatch.clientScore * 100).toFixed(1)}%).`,
+        suggestion: {
+          action: 'configure_client_pricing',
+          suggestion: `Contacta al equipo comercial para configurar precio para el cliente "${row.cliente_name}" con esta receta, o verifica si el nombre del cliente debería ser "${bestMatch.pricing.business_name}".`
+        },
+        recoverable: true
+      });
+
+      return {
+        row: { 
+          ...row, 
+          recipe_id: recipe.id, 
+          validation_status: 'error', 
+          validation_errors: errors 
+        },
+        errors
+      };
+    }
+
     // Apply Results (resolve construction_site_id when possible)
     const resolvedConstructionSiteId = await this.resolveConstructionSiteId(
       bestMatch.pricing.client_id,
@@ -1214,20 +1280,55 @@ export class DebugArkikValidator {
       console.log(`[DebugArkikValidator]   Available pricing options: ${pricingOptions.length}`);
     }
 
-    // Single option - use directly
+    // Single option - validate client similarity first
     if (pricingOptions.length === 1) {
       const pricing = pricingOptions[0];
+      
+      // CRITICAL: Even with single option, validate client similarity
+      const clientScore = this.calculateClientSimilarity(clientName, pricing.business_name);
+      const siteScore = this.calculateSiteSimilarity(siteName, pricing.construction_site);
       const quoteBonus = pricing.quote_id ? 2.0 : 0;
+      
       if (isDevelopment) {
-        console.log(`[DebugArkikValidator]   ✅ Single option selected: ${pricing.source} - Quote ID: ${pricing.quote_id || 'N/A'} - Quote Bonus: ${quoteBonus}`);
+        console.log(`[DebugArkikValidator]   Single option found: ${pricing.source} - Quote ID: ${pricing.quote_id || 'N/A'}`);
+        console.log(`[DebugArkikValidator]   Client similarity: "${clientName}" vs "${pricing.business_name}" = ${clientScore.toFixed(3)}`);
+        console.log(`[DebugArkikValidator]   Checking if client match is acceptable...`);
       }
+      
+      // Check if single option meets strict validation criteria
+      if (!this.isClientMatchAcceptable(clientName, pricing.business_name, clientScore)) {
+        if (isDevelopment) {
+          console.log(`[DebugArkikValidator]   ❌ CLIENT-RECIPE PRICING MISMATCH: Client "${clientName}" doesn't match pricing client "${pricing.business_name}" (similarity ${clientScore.toFixed(3)} too low)`);
+        }
+        
+        const failedMatch = {
+          pricing,
+          clientScore,
+          siteScore,
+          quoteBonus,
+          totalScore: clientScore + siteScore + quoteBonus,
+          reasoning: 'CLIENT_RECIPE_PRICING_MISMATCH: No matching client-recipe pricing available',
+          validationFailed: true
+        };
+        
+        if (isDevelopment) {
+          console.log(`[DebugArkikValidator]   🚨 RETURNING FAILED MATCH:`, failedMatch);
+        }
+        
+        return failedMatch;
+      }
+      
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator]   ✅ Single option accepted: Client similarity ${clientScore.toFixed(3)} meets criteria`);
+      }
+      
       return {
         pricing,
-        clientScore: 1,
-        siteScore: 1,
+        clientScore,
+        siteScore,
         quoteBonus,
-        totalScore: 2 + quoteBonus,
-        reasoning: 'Single pricing option available'
+        totalScore: clientScore + siteScore + quoteBonus,
+        reasoning: `Single pricing option (validated) - Client: ${clientScore.toFixed(2)}, Site: ${siteScore.toFixed(2)}`
       };
     }
 
@@ -1294,7 +1395,27 @@ export class DebugArkikValidator {
       console.log(`[DebugArkikValidator]   🎯 Selected: ${bestMatch.pricing.source} with score ${bestMatch.totalScore.toFixed(2)} - Quote ID: ${bestMatch.pricing.quote_id || 'N/A'}`);
     }
     
-    return scoredOptions[0];
+    const bestMatch = scoredOptions[0];
+    
+    // STRICT CLIENT VALIDATION: Check if the best match meets our strict criteria
+    if (!this.isClientMatchAcceptable(clientName, bestMatch.pricing.business_name, bestMatch.clientScore)) {
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator]   ❌ STRICT VALIDATION FAILED: Client match score ${bestMatch.clientScore.toFixed(2)} is too low for "${clientName}" vs "${bestMatch.pricing.business_name}"`);
+      }
+      
+      // Return a match that indicates validation failure
+      return {
+        pricing: bestMatch.pricing,
+        clientScore: bestMatch.clientScore,
+        siteScore: bestMatch.siteScore,
+        quoteBonus: bestMatch.quoteBonus,
+        totalScore: bestMatch.totalScore,
+        reasoning: 'STRICT_VALIDATION_FAILED: Client name match too weak',
+        validationFailed: true // Flag to indicate strict validation failure
+      };
+    }
+    
+    return bestMatch;
   }
 
   private calculateClientSimilarity(inputName: string, businessName: string): number {
@@ -1303,29 +1424,116 @@ export class DebugArkikValidator {
     const input = this.normalizeString(inputName);
     const business = this.normalizeString(businessName);
     
+    // Check if this is a SEDENA-related client (special case - keep flexible)
+    const isSedenaRelated = this.isSedenaRelatedClient(input, business);
+    
     // Exact match
     if (input === business) return 1.0;
     
-    // Substring match
-    if (business.includes(input) || input.includes(business)) {
-      return 0.8;
+    // For SEDENA, maintain flexible matching
+    if (isSedenaRelated) {
+      // Substring match for SEDENA
+      if (business.includes(input) || input.includes(business)) {
+        return 0.8;
+      }
+      
+      // Word overlap for SEDENA (more lenient)
+      const inputWords = input.split(/\s+/).filter(w => w.length > 2);
+      const businessWords = business.split(/\s+/).filter(w => w.length > 2);
+      
+      const matchingWords = inputWords.filter(inputWord => 
+        businessWords.some(businessWord => 
+          businessWord.includes(inputWord) || inputWord.includes(businessWord)
+        )
+      );
+      
+      if (matchingWords.length > 0) {
+        return 0.6 + (matchingWords.length / Math.max(inputWords.length, businessWords.length)) * 0.2;
+      }
     }
     
-    // Word overlap
-    const inputWords = input.split(/\s+/).filter(w => w.length > 2);
-    const businessWords = business.split(/\s+/).filter(w => w.length > 2);
+    // STRICT VALIDATION FOR NON-SEDENA CLIENTS
+    // Only allow high-confidence matches
+    
+    // Strict substring match - must be substantial overlap
+    if (business.includes(input) && input.length >= 5) {
+      return 0.7; // Lower score for substring matches
+    }
+    if (input.includes(business) && business.length >= 5) {
+      return 0.7;
+    }
+    
+    // Very strict word overlap - require high percentage of matching words
+    const inputWords = input.split(/\s+/).filter(w => w.length > 3); // Longer words only
+    const businessWords = business.split(/\s+/).filter(w => w.length > 3);
+    
+    if (inputWords.length === 0 || businessWords.length === 0) return 0;
     
     const matchingWords = inputWords.filter(inputWord => 
-      businessWords.some(businessWord => 
-        businessWord.includes(inputWord) || inputWord.includes(businessWord)
-      )
+      businessWords.some(businessWord => businessWord === inputWord) // Exact word match only
     );
     
-    if (matchingWords.length > 0) {
-      return 0.6 + (matchingWords.length / Math.max(inputWords.length, businessWords.length)) * 0.2;
+    const matchPercentage = matchingWords.length / Math.max(inputWords.length, businessWords.length);
+    
+    // Require at least 80% of words to match for non-SEDENA clients
+    if (matchPercentage >= 0.8 && matchingWords.length >= 2) {
+      return 0.5 + (matchPercentage * 0.2); // Max 0.7 for word overlap
     }
     
+    // No match for strict validation
     return 0;
+  }
+
+  /**
+   * Check if client is SEDENA-related and should use flexible matching
+   */
+  private isSedenaRelatedClient(inputName: string, businessName: string): boolean {
+    const sedenaKeywords = ['sedena', 'secretaria', 'defensa', 'nacional', 'fideicomiso', 'administracion'];
+    const input = inputName.toLowerCase();
+    const business = businessName.toLowerCase();
+    
+    // If either name contains SEDENA-related keywords, use flexible matching
+    return sedenaKeywords.some(keyword => 
+      input.includes(keyword) || business.includes(keyword)
+    );
+  }
+
+  /**
+   * Check if the client match meets our strict validation criteria
+   */
+  private isClientMatchAcceptable(inputName: string, businessName: string, clientScore: number): boolean {
+    if (!inputName || !businessName) return false;
+    
+    const input = this.normalizeString(inputName);
+    const business = this.normalizeString(businessName);
+    
+    // Always accept exact matches
+    if (input === business) return true;
+    
+    // SEDENA gets flexible treatment - accept any score > 0.5
+    if (this.isSedenaRelatedClient(input, business)) {
+      return clientScore >= 0.5;
+    }
+    
+    // STRICT CRITERIA FOR NON-SEDENA CLIENTS
+    // Require minimum score of 0.7 for non-SEDENA clients
+    // This means substantial overlap is required
+    const MIN_ACCEPTABLE_SCORE = 0.7;
+    
+    if (clientScore < MIN_ACCEPTABLE_SCORE) {
+      return false;
+    }
+    
+    // Additional validation: if score is between 0.7-0.8, require that one name contains the other
+    // This prevents weak partial matches from passing
+    if (clientScore < 0.8) {
+      const hasSubstantialOverlap = business.includes(input) || input.includes(business);
+      if (!hasSubstantialOverlap) {
+        return false;
+      }
+    }
+    
+    return true;
   }
 
   private calculateSiteSimilarity(inputSite: string, pricingSite: string): number {

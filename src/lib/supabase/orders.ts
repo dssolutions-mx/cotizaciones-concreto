@@ -386,7 +386,16 @@ interface OrderWithDetailsBasic extends OrderBasic {
 export async function getOrdersForDosificador() {
   // Fetch orders relevant for DOSIFICADOR role (read-only access)
   try {
-    const { data, error } = await browserClient
+    // First, get the current user's profile to check their plant assignment
+    const { data: profile, error: profileError } = await browserClient
+      .from('user_profiles')
+      .select('plant_id')
+      .eq('id', (await browserClient.auth.getUser()).data.user?.id)
+      .single();
+
+    if (profileError) throw profileError;
+
+    let query = browserClient
       .from('orders')
       .select(`
         id,
@@ -400,6 +409,7 @@ export async function getOrdersForDosificador() {
         final_amount,
         credit_status,
         order_status,
+        plant_id,
         clients:clients(business_name, client_code)
       `)
       // Add any specific filters for Dosificador if needed, e.g., status
@@ -408,8 +418,14 @@ export async function getOrdersForDosificador() {
         'created', 'validated', 'scheduled',
         // Uppercase (legacy/inconsistent data safety)
         'CREATED', 'VALIDATED', 'SCHEDULED'
-      ])
-      .order('delivery_date', { ascending: true });
+      ]);
+
+    // Filter by the user's assigned plant if they have one
+    if (profile?.plant_id) {
+      query = query.eq('plant_id', profile.plant_id);
+    }
+
+    const { data, error } = await query.order('delivery_date', { ascending: true });
     
     if (error) throw error;
     return data as unknown as OrderWithClient[]; // Return type remains the same

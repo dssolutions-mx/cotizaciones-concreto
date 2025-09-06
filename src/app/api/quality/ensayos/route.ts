@@ -30,15 +30,17 @@ export async function POST(request: NextRequest) {
     // Format the data for insert
     const ensayoToCreate = {
       muestra_id: data.muestra_id,
-      fecha_ensayo: typeof data.fecha_ensayo === 'string' 
-        ? data.fecha_ensayo 
+      fecha_ensayo: typeof data.fecha_ensayo === 'string'
+        ? data.fecha_ensayo
         : format(data.fecha_ensayo, 'yyyy-MM-dd'),
+      hora_ensayo: data.hora_ensayo || null,
       // Persist the exact timestamp and timezone if provided
       fecha_ensayo_ts: data.fecha_ensayo_ts || new Date().toISOString(),
       event_timezone: data.event_timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
       carga_kg: data.carga_kg,
       resistencia_calculada: data.resistencia_calculada,
       porcentaje_cumplimiento: data.porcentaje_cumplimiento,
+      tiempo_desde_carga: data.tiempo_desde_carga || null,
       observaciones: data.observaciones || '',
       created_by: data.created_by
     };

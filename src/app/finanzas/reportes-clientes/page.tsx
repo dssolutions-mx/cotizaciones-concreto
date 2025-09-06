@@ -99,12 +99,12 @@ export default function ReportesClientes() {
   
   // State for report configuration
   const [selectedColumns, setSelectedColumns] = useState<ReportColumn[]>(
-    AVAILABLE_COLUMNS.filter(col => DEFAULT_COLUMN_SETS.delivery.includes(col.id))
+    AVAILABLE_COLUMNS.filter(col => DEFAULT_COLUMN_SETS.company_standard.includes(col.id))
   );
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('delivery-summary');
-  const [reportTitle, setReportTitle] = useState<string>('Reporte de Entregas por Cliente');
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('company-standard');
+  const [reportTitle, setReportTitle] = useState<string>('Reporte Estándar de Entregas por Cliente');
   const [showSummary, setShowSummary] = useState<boolean>(true);
-  const [showVAT, setShowVAT] = useState<boolean>(false);
+  const [showVAT, setShowVAT] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<string>('filters');
 
   // Load clients with remisiones when date range changes
@@ -113,7 +113,10 @@ export default function ReportesClientes() {
     
     setLoadingClients(true);
     try {
-      const clientsData = await ReportDataService.getClientsWithRemisiones(dateRange);
+      const clientsData = await ReportDataService.getClientsWithRemisiones({
+        from: dateRange.from,
+        to: dateRange.to
+      });
       setClients(clientsData);
     } catch (error) {
       console.error('Error loading clients:', error);
@@ -131,7 +134,10 @@ export default function ReportesClientes() {
     try {
       // Only load recipe codes if a client is selected
       if (selectedClientId) {
-        const codes = await ReportDataService.getAvailableRecipeCodes(dateRange, selectedClientId);
+        const codes = await ReportDataService.getAvailableRecipeCodes({
+          from: dateRange.from,
+          to: dateRange.to
+        }, selectedClientId);
         setRecipeCodes(codes);
       } else {
         setRecipeCodes([]);
@@ -152,7 +158,10 @@ export default function ReportesClientes() {
     }
 
     try {
-      const sites = await ReportDataService.getClientConstructionSites(selectedClientId, dateRange);
+      const sites = await ReportDataService.getClientConstructionSites(selectedClientId, {
+        from: dateRange.from,
+        to: dateRange.to
+      });
       setClientSites(sites);
     } catch (error) {
       console.error('Error loading client sites:', error);
@@ -234,6 +243,63 @@ export default function ReportesClientes() {
 
   // Selected client info
   const selectedClient = clients.find(c => c.id === selectedClientId);
+
+  // Extract plant information from report data for VAT calculation
+  const plantInfo = useMemo(() => {
+    if (!reportData || reportData.length === 0) return null;
+    
+    // Get unique plants from the data
+    const plants = Array.from(new Set(
+      reportData
+        .map(item => item.plant_info)
+        .filter(Boolean)
+    ));
+    
+    if (plants.length === 0) return null;
+    
+    // If all plants have the same VAT rate, use that
+    const vatRates = plants.map(p => p?.vat_percentage).filter((rate): rate is number => rate !== undefined);
+    const uniqueVatRates = Array.from(new Set(vatRates));
+    
+    if (uniqueVatRates.length === 1) {
+      // Single VAT rate across all plants
+      const plant = plants[0];
+      return {
+        plant_id: plant?.plant_id || '',
+        plant_code: plant?.plant_code || '',
+        plant_name: plant?.plant_name || '',
+        vat_percentage: uniqueVatRates[0]
+      };
+    } else {
+      // Multiple VAT rates - use the most common one or default
+      const vatCounts: Record<number, number> = {};
+      vatRates.forEach(rate => {
+        vatCounts[rate] = (vatCounts[rate] || 0) + 1;
+      });
+      
+      const mostCommonVat = Object.entries(vatCounts)
+        .sort(([,a], [,b]) => b - a)[0][0];
+      
+      const representativePlant = plants.find(p => p?.vat_percentage === Number(mostCommonVat));
+      
+      return {
+        plant_id: representativePlant?.plant_id || '',
+        plant_code: representativePlant?.plant_code || '',
+        plant_name: representativePlant?.plant_name || '',
+        vat_percentage: Number(mostCommonVat)
+      };
+    }
+  }, [reportData]);
+
+  // Enhanced client info with plant information
+  const enhancedClientInfo = useMemo(() => {
+    if (!selectedClient) return null;
+    
+    return {
+      ...selectedClient,
+      plant_info: plantInfo
+    };
+  }, [selectedClient, plantInfo]);
 
   // Handle template selection
   const handleTemplateChange = (templateId: string) => {
@@ -332,7 +398,7 @@ export default function ReportesClientes() {
                   <Label>Rango de Fechas</Label>
                   <DateRangePickerWithPresets 
                     dateRange={dateRange} 
-                    onDateRangeChange={setDateRange}
+                    onDateRangeChange={(range) => range && setDateRange(range)}
                     singleDateMode={singleDateMode}
                     onSingleDateModeChange={setSingleDateMode}
                   />
@@ -725,9 +791,24 @@ export default function ReportesClientes() {
                           <CardContent className="p-4">
                             <div className="text-center">
                               <div className="text-2xl font-bold text-orange-600">
-                                {formatCurrency(reportSummary.totalVAT)}
+                                {formatCurrency((reportSummary.totalAmount * (plantInfo?.vat_percentage || 0.16)))}
                               </div>
-                              <div className="text-sm text-gray-500">IVA Total</div>
+                              <div className="text-sm text-gray-500">
+                                IVA Total ({((plantInfo?.vat_percentage || 0.16) * 100).toFixed(0)}%)
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
+                      
+                      {showVAT && (
+                        <Card>
+                          <CardContent className="p-4">
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-red-600">
+                                {formatCurrency(reportSummary.totalAmount + ((reportSummary.totalAmount * (plantInfo?.vat_percentage || 0.16))))}
+                              </div>
+                              <div className="text-sm text-gray-500">Total Final</div>
                             </div>
                           </CardContent>
                         </Card>
@@ -762,13 +843,22 @@ export default function ReportesClientes() {
                             {reportData.slice(0, 10).map((item, index) => (
                               <TableRow key={`preview-${item.id || `index-${index}`}`}>
                                 {selectedColumns.slice(0, 8).map(column => {
-                                  const value = column.field.split('.').reduce((obj, key) => obj?.[key], item);
+                                  // Helper function to safely access nested properties
+                                  const getValue = (obj: any, path: string): any => {
+                                    return path.split('.').reduce((current, key) => current?.[key], obj);
+                                  };
+                                  
+                                  const value = getValue(item, column.field);
                                   let formattedValue = value?.toString() || '-';
                                   
-                                  if (column.format === 'currency' && value) {
+                                  if (column.format === 'currency' && value !== null && value !== undefined) {
                                     formattedValue = formatCurrency(Number(value));
                                   } else if (column.format === 'date' && value) {
-                                    formattedValue = format(new Date(value), 'dd/MM/yyyy', { locale: es });
+                                    try {
+                                      formattedValue = format(new Date(value), 'dd/MM/yyyy', { locale: es });
+                                    } catch {
+                                      formattedValue = value?.toString() || '-';
+                                    }
                                   } else if (typeof value === 'boolean') {
                                     formattedValue = value ? 'Sí' : 'No';
                                   }
@@ -839,6 +929,8 @@ export default function ReportesClientes() {
                           <li>• Columnas: {selectedColumns.length}</li>
                           {selectedSite !== 'todos' && <li>• Obra: {selectedSite}</li>}
                           {selectedRecipe !== 'all' && <li>• Receta: {selectedRecipe}</li>}
+                          {plantInfo && <li>• Planta: {plantInfo.plant_name} ({plantInfo.plant_code})</li>}
+                          {showVAT && <li>• IVA: {((plantInfo?.vat_percentage || 0.16) * 100).toFixed(0)}%</li>}
                         </ul>
                       </div>
 
@@ -850,7 +942,7 @@ export default function ReportesClientes() {
                               data={reportData}
                               configuration={reportConfiguration}
                               summary={reportSummary!}
-                              clientInfo={selectedClient}
+                              clientInfo={enhancedClientInfo}
                               dateRange={dateRange}
                               generatedAt={new Date()}
                             />
