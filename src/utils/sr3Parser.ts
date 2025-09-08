@@ -286,8 +286,8 @@ export function parseSr3File(fileContent: string, debug = false): Sr3Result {
         // Use column indices based on the number of columns
         if (columns.length >= 2) {
           // Default: first column is time, second is force
-          let timeIndex = 0;
-          let forceIndex = 1;
+          const timeIndex = 0;
+          const forceIndex = 1;
           
           // Try to parse as numbers
           const time = parseFloat(columns[timeIndex]);

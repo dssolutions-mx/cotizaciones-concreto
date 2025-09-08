@@ -176,7 +176,7 @@ export async function fetchMuestreoById(id: string) {
 export async function createMuestreo(muestreo: Partial<Muestreo>) {
   try {
     // Map planta to plant_id if planta is provided
-    let muestreoToCreate = { ...muestreo };
+    const muestreoToCreate = { ...muestreo };
     if (muestreo.planta && !muestreo.plant_id) {
       const plantId = await mapPlantaToPlantId(muestreo.planta);
       if (plantId) {

@@ -88,8 +88,8 @@ export async function GET(
     let guaranteeAgeTests = 0;
     let compliantSamples = 0;
     let nonCompliantSamples = 0;
-    let resistances: number[] = [];
-    let allResistances: number[] = [];
+    const resistances: number[] = [];
+    const allResistances: number[] = [];
 
     ensayosData.forEach(ensayo => {
       // Collect all resistance values for general statistics

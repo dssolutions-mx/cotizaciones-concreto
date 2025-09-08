@@ -165,7 +165,7 @@ export async function fetchMetricasCalidad(
     });
 
     // Flatten the data structure: extract all ensayos from the muestreos
-    let allEnsayos: any[] = [];
+    const allEnsayos: any[] = [];
 
     finalMuestreos?.forEach((muestreo: any) => {
       if (muestreo.muestras) {

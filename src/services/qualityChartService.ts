@@ -378,7 +378,7 @@ export async function fetchDatosGraficoResistencia(
     });
 
     // Flatten the data structure: extract all ensayos from the muestreos
-    let allEnsayos: any[] = [];
+    const allEnsayos: any[] = [];
 
     filteredData?.forEach((muestreo: any) => {
       if (muestreo.muestras) {
@@ -491,7 +491,7 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
     const hasPorcentajeCumplimiento = item.porcentaje_cumplimiento !== null && item.porcentaje_cumplimiento !== undefined;
     // Check for muestreo reference - either through muestra relationship or direct muestreo_id
     let hasMuestreoReference = item.muestra?.muestreo?.id;
-    let hasMuestraData = !!item.muestra;
+    const hasMuestraData = !!item.muestra;
 
     // Fallback: if we have muestreo_id but no muestra relationship, try to fetch muestreo data
     if (!hasMuestreoReference && item.muestreo_id) {
@@ -509,7 +509,7 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
 
   validData.forEach(item => {
     // Get muestreo_id from either the muestra relationship or direct field
-    let muestreoId = item.muestra?.muestreo?.id || item.muestreo_id;
+    const muestreoId = item.muestra?.muestreo?.id || item.muestreo_id;
 
     if (!muestreoId) {
       return;

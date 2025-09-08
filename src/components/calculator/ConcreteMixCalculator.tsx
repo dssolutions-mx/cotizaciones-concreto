@@ -961,9 +961,45 @@ const ConcreteMixCalculator = () => {
       alert('Variante inválida. Use 000 o PCE.');
       return;
     }
+
+    // Function to compute ARKIK codes (extracted from preview section)
+    const computeArkikCodes = (r: Recipe) => {
+      const fcCode = String(r.strength).padStart(3, '0');
+      const edadCode = String(r.age).padStart(2, '0'); // keep numeric part
+      const revCode = String(r.slump).padStart(2, '0');
+      const tmaFactor = r.aggregateSize >= 40 ? '4' : '2';
+      const coloc = r.placement; // 'D' or 'B'
+      const prefix = designType === 'MR' ? 'P' : '5';
+      const typeCode = arkikDefaults.type_code || 'B';
+      const numSeg = arkikDefaults.num || '2';
+
+      // Detect variante based on additives
+      let variante = arkikDefaults.variante.toUpperCase();
+      try {
+        const selectedAdditiveNames = selectedMaterials.additives
+          .map(id => availableMaterials.additives.find(a => a.id === id.toString())?.material_name?.toUpperCase() || '')
+          .filter(Boolean);
+        const anyPCE = selectedAdditiveNames.some(n => n.includes('PCE'));
+        variante = anyPCE ? 'PCE' : (arkikDefaults.variante || '000').toUpperCase();
+      } catch {
+        variante = (arkikDefaults.variante || '000').toUpperCase();
+      }
+
+      const longCode = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSeg}-${variante}`;
+      const shortCode = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
+      return { longCode, shortCode };
+    };
+
     try {
       setSaving(true);
-      const payload = selected.map(r => ({ ...r, recipeType: designType }));
+      const payload = selected.map(r => {
+        const { longCode } = computeArkikCodes(r);
+        return {
+          ...r,
+          recipeType: designType,
+          recipe_code: longCode // Add ARKIK long code to recipe_code field
+        };
+      });
       const selectionMap = {
         cementId: selectedMaterials.cement
           ? String(availableMaterials.cements.find(c => c.id === String(selectedMaterials.cement))?.id || selectedMaterials.cement)
@@ -1390,13 +1426,13 @@ const ConcreteMixCalculator = () => {
 
               const variante = detectVariante();
 
-              const computeArkikCodes = (r: Recipe) => {
+              const computeArkikCodesPreview = (r: Recipe) => {
                 const fcCode = String(r.strength).padStart(3, '0');
                 const edadCode = String(r.age).padStart(2, '0'); // keep numeric part
                 const revCode = String(r.slump).padStart(2, '0');
                 const tmaFactor = r.aggregateSize >= 40 ? '4' : '2';
                 const coloc = r.placement; // 'D' or 'B'
-                const prefix = designType === 'MR' ? 'PAV' : '5';
+                const prefix = designType === 'MR' ? 'P' : '5';
                 const typeCode = arkikDefaults.type_code || 'B';
                 const numSeg = arkikDefaults.num || '2';
                 const longCode = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSeg}-${variante}`;
@@ -1433,7 +1469,7 @@ const ConcreteMixCalculator = () => {
                     </div>
                   </div>
                   {selectedForPreview.map((r) => {
-                    const { longCode, shortCode } = computeArkikCodes(r);
+                    const { longCode, shortCode } = computeArkikCodesPreview(r);
                     const materialsToShow = previewShowSSS ? r.materialsSSS : r.materialsDry;
                     const materialEntries = Object.entries(materialsToShow).filter(([_, v]) => typeof v === 'number');
                     return (

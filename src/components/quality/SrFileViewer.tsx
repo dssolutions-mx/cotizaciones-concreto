@@ -51,7 +51,7 @@ export function SrFileViewer({ file }: SrFileViewerProps) {
         const encodings = ['UTF-8', 'ISO-8859-1', 'windows-1252'];
         let success = false;
         let result;
-        let processingLog: string[] = [];
+        const processingLog: string[] = [];
         
         processingLog.push(`Processing file: ${file.name} (${file.size} bytes)`);
         

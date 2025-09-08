@@ -4,34 +4,246 @@ import type {
   ReportFilter, 
   ReportRemisionData, 
   ReportSummary,
-  ReportConfiguration 
+  ReportConfiguration,
+  HierarchicalReportData,
+  SelectableClient,
+  SelectableOrder,
+  SelectableRemision,
+  SelectionSummary
 } from '@/types/pdf-reports';
 
 export class ReportDataService {
   /**
+   * Fetch hierarchical data for flexible selection
+   * Supports multi-client, multi-order, and multi-remision selection
+   */
+  static async fetchHierarchicalData(dateRange: { from: Date; to: Date }): Promise<HierarchicalReportData> {
+    try {
+      if (!dateRange.from || !dateRange.to) {
+        throw new Error('Date range is required');
+      }
+
+      const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
+      const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
+
+      // Get all remisiones within date range with full relationships
+      const { data: remisionesData, error: remisionesError } = await supabase
+        .from('remisiones')
+        .select(`
+          id,
+          remision_number,
+          fecha,
+          order_id,
+          volumen_fabricado,
+          conductor,
+          unidad,
+          tipo_remision,
+          recipe:recipes (
+            recipe_code,
+            strength_fc,
+            placement_type,
+            max_aggregate_size,
+            slump,
+            age_days
+          ),
+          orders!inner(
+            id,
+            order_number,
+            construction_site,
+            elemento,
+            requires_invoice,
+            total_amount,
+            final_amount,
+            client_id,
+            order_status,
+            clients!inner(
+              id,
+              business_name,
+              client_code,
+              rfc,
+              address,
+              contact_name,
+              email
+            )
+          ),
+          plant:plants (
+            id,
+            code,
+            name,
+            business_unit:business_units (
+              id,
+              name,
+              vat_rate
+            )
+          )
+        `)
+        .gte('fecha', formattedStartDate)
+        .lte('fecha', formattedEndDate)
+        .order('fecha', { ascending: false });
+
+      if (remisionesError) throw remisionesError;
+
+      if (!remisionesData || remisionesData.length === 0) {
+        return {
+          clients: [],
+          selectionSummary: {
+            totalClients: 0,
+            totalOrders: 0,
+            totalRemisiones: 0,
+            totalVolume: 0,
+            totalAmount: 0,
+            selectedClients: [],
+            selectedOrders: [],
+            selectedRemisiones: []
+          }
+        };
+      }
+
+      // Get order items for pricing
+      const orderIds = Array.from(new Set(remisionesData.map(r => r.order_id)));
+      const { data: orderItems } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('order_id', orderIds);
+
+      // Build hierarchical structure
+      const clientsMap = new Map<string, SelectableClient>();
+
+      remisionesData.forEach(remision => {
+        const order = remision.orders;
+        const client = order?.clients;
+        
+        if (!client || !order) return;
+
+        // Find order item for pricing
+        const orderItem = orderItems?.find(item => 
+          item.order_id === remision.order_id && 
+          (item.product_type === remision.recipe?.recipe_code || 
+           item.recipe_id?.toString() === remision.recipe?.recipe_code)
+        );
+
+        const unitPrice = orderItem?.unit_price || 0;
+        const lineTotal = unitPrice * remision.volumen_fabricado;
+
+        // Build client structure
+        if (!clientsMap.has(client.id)) {
+          clientsMap.set(client.id, {
+            id: client.id,
+            business_name: client.business_name,
+            client_code: client.client_code,
+            rfc: client.rfc,
+            selected: false,
+            orders: []
+          });
+        }
+
+        const clientData = clientsMap.get(client.id)!;
+        
+        // Find or create order
+        let orderData = clientData.orders.find(o => o.id === order.id);
+        if (!orderData) {
+          orderData = {
+            id: order.id,
+            order_number: order.order_number,
+            construction_site: order.construction_site,
+            elemento: order.elemento,
+            client_id: client.id,
+            client_name: client.business_name,
+            total_remisiones: 0,
+            total_volume: 0,
+            total_amount: 0,
+            selected: false,
+            remisiones: []
+          };
+          clientData.orders.push(orderData);
+        }
+
+        // Add remision
+        const remisionData: SelectableRemision = {
+          id: remision.id,
+          remision_number: remision.remision_number,
+          fecha: remision.fecha,
+          order_id: remision.order_id,
+          volumen_fabricado: remision.volumen_fabricado,
+          recipe_code: remision.recipe?.recipe_code,
+          conductor: remision.conductor,
+          line_total: lineTotal,
+          selected: false,
+          plant_info: remision.plant ? {
+            plant_id: remision.plant.id,
+            plant_code: remision.plant.code,
+            plant_name: remision.plant.name,
+            vat_percentage: remision.plant.business_unit?.vat_rate || 16
+          } : undefined
+        };
+
+        orderData.remisiones.push(remisionData);
+        orderData.total_remisiones += 1;
+        orderData.total_volume += remision.volumen_fabricado;
+        orderData.total_amount += lineTotal;
+      });
+
+      const clients = Array.from(clientsMap.values());
+      
+      // Calculate totals
+      const totalRemisiones = clients.reduce((sum, c) => 
+        sum + c.orders.reduce((orderSum, o) => orderSum + o.total_remisiones, 0), 0
+      );
+      const totalVolume = clients.reduce((sum, c) => 
+        sum + c.orders.reduce((orderSum, o) => orderSum + o.total_volume, 0), 0
+      );
+      const totalAmount = clients.reduce((sum, c) => 
+        sum + c.orders.reduce((orderSum, o) => orderSum + o.total_amount, 0), 0
+      );
+
+      return {
+        clients,
+        selectionSummary: {
+          totalClients: clients.length,
+          totalOrders: clients.reduce((sum, c) => sum + c.orders.length, 0),
+          totalRemisiones,
+          totalVolume,
+          totalAmount,
+          selectedClients: [],
+          selectedOrders: [],
+          selectedRemisiones: []
+        }
+      };
+
+    } catch (error) {
+      console.error('Error fetching hierarchical data:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Fetch comprehensive remisiones data for PDF reports
-   * Based on existing patterns from remisiones and ventas modules
+   * Enhanced to support multiple selections
    */
   static async fetchReportData(filters: ReportFilter): Promise<{
     data: ReportRemisionData[];
     summary: ReportSummary;
   }> {
     try {
-      const { dateRange, clientId, constructionSite, recipeCode, deliveryStatus, invoiceRequirement, singleDateMode } = filters;
+      const { dateRange } = filters;
 
       if (!dateRange.from || !dateRange.to) {
         throw new Error('Date range is required');
       }
 
-      if (!clientId) {
-        throw new Error('Client ID is required');
+      // Support both single and multiple client selection
+      const clientIds = filters.clientIds && filters.clientIds.length > 0 ? filters.clientIds : 
+                       (filters.clientId ? [filters.clientId] : []);
+      
+      if (clientIds.length === 0) {
+        throw new Error('At least one client must be selected');
       }
 
       // Format dates for Supabase query
       const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
       const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
 
-      // Step 1: Get all orders for the selected client
+      // Step 1: Get all orders for the selected clients
       let ordersQuery = supabase
         .from('orders')
         .select(`
@@ -55,11 +267,18 @@ export class ReportDataService {
             email
           )
         `)
-        .eq('client_id', clientId);
+        .in('client_id', clientIds);
 
-      // Apply construction site filter if specified
-      if (constructionSite && constructionSite !== 'todos') {
-        ordersQuery = ordersQuery.eq('construction_site', constructionSite);
+      // Apply construction site filter if specified (multiple sites supported)
+      if (filters.constructionSites && filters.constructionSites.length > 0) {
+        ordersQuery = ordersQuery.in('construction_site', filters.constructionSites);
+      } else if (filters.constructionSite && filters.constructionSite !== 'todos') {
+        ordersQuery = ordersQuery.eq('construction_site', filters.constructionSite);
+      }
+
+      // Apply specific order filter if specified
+      if (filters.orderIds && filters.orderIds.length > 0) {
+        ordersQuery = ordersQuery.in('id', filters.orderIds);
       }
 
       const { data: orders, error: ordersError } = await ordersQuery;
@@ -111,7 +330,7 @@ export class ReportDataService {
         .in('order_id', orderIds);
 
       // Apply date filtering based on mode (same as existing remisiones module)
-      if (singleDateMode && dateRange.from) {
+      if (filters.singleDateMode && dateRange.from) {
         const dateStr = format(dateRange.from, 'yyyy-MM-dd');
         remisionesQuery = remisionesQuery.eq('fecha', dateStr);
       } else {
@@ -120,10 +339,18 @@ export class ReportDataService {
           .lte('fecha', formattedEndDate);
       }
 
-      // Apply recipe filter if specified
-      if (recipeCode && recipeCode !== 'all') {
-        // We'll filter this after the query since it's a joined field
+      // Apply specific remision filter if specified
+      if (filters.remisionIds && filters.remisionIds.length > 0) {
+        remisionesQuery = remisionesQuery.in('id', filters.remisionIds);
       }
+
+      // Apply plant filter if specified (multiple plants supported)
+      if (filters.plantIds && filters.plantIds.length > 0) {
+        remisionesQuery = remisionesQuery.in('plant_id', filters.plantIds);
+      }
+
+      // Apply recipe filter if specified (multiple recipes supported)
+      // We'll filter this after the query since it's a joined field
 
       const { data: remisionesData, error: remisionesError } = await remisionesQuery
         .order('fecha', { ascending: false });
@@ -188,22 +415,26 @@ export class ReportDataService {
       // Step 5: Apply additional filters
       let filteredData = enrichedRemisiones;
 
-      // Filter by recipe code if specified
-      if (recipeCode && recipeCode !== 'all') {
+      // Filter by recipe code if specified (multiple recipes supported)
+      if (filters.recipeCodes && filters.recipeCodes.length > 0) {
         filteredData = filteredData.filter(item => 
-          item.recipe?.recipe_code === recipeCode
+          item.recipe?.recipe_code && filters.recipeCodes!.includes(item.recipe.recipe_code)
+        );
+      } else if (filters.recipeCode && filters.recipeCode !== 'all') {
+        filteredData = filteredData.filter(item => 
+          item.recipe?.recipe_code === filters.recipeCode
         );
       }
 
       // Filter by delivery status if specified
-      if (deliveryStatus && deliveryStatus !== 'all') {
+      if (filters.deliveryStatus && filters.deliveryStatus !== 'all') {
         // For this implementation, we assume all fetched remisiones are delivered
         // This can be expanded based on business logic
       }
 
       // Filter by invoice requirement if specified
-      if (invoiceRequirement && invoiceRequirement !== 'all') {
-        const requiresInvoice = invoiceRequirement === 'with_invoice';
+      if (filters.invoiceRequirement && filters.invoiceRequirement !== 'all') {
+        const requiresInvoice = filters.invoiceRequirement === 'with_invoice';
         filteredData = filteredData.filter(item => 
           item.order?.requires_invoice === requiresInvoice
         );
@@ -290,8 +521,52 @@ export class ReportDataService {
   }
 
   /**
+   * Get construction sites for multiple clients within a date range
+   * Only shows sites that actually have remisiones in the selected period
+   */
+  static async getConstructionSitesForClients(clientIds: string[], dateRange: { from: Date; to: Date }): Promise<string[]> {
+    try {
+      if (clientIds.length === 0) return [];
+      
+      const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
+      const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
+
+      // Get remisiones for these clients within date range
+      const { data: remisiones, error: remisionesError } = await supabase
+        .from('remisiones')
+        .select(`
+          order_id,
+          orders!inner(construction_site)
+        `)
+        .gte('fecha', formattedStartDate)
+        .lte('fecha', formattedEndDate)
+        .in('orders.client_id', clientIds);
+      
+      if (remisionesError) throw remisionesError;
+      
+      if (!remisiones || remisiones.length === 0) {
+        return [];
+      }
+
+      // Get unique construction sites
+      const sites = Array.from(new Set(
+        remisiones
+          .map(r => r.orders?.construction_site)
+          .filter(site => site && site.trim() !== '')
+      ));
+      
+      return sites.sort();
+
+    } catch (error) {
+      console.error('Error fetching construction sites for clients:', error);
+      return [];
+    }
+  }
+
+  /**
    * Get construction sites for a specific client within a date range
    * Only shows sites that actually have remisiones in the selected period
+   * @deprecated Use getConstructionSitesForClients instead
    */
   static async getClientConstructionSites(clientId: string, dateRange: { from: Date; to: Date }): Promise<string[]> {
     try {
@@ -331,8 +606,56 @@ export class ReportDataService {
   }
 
   /**
+   * Get available recipe codes for filtering within a date range and for multiple clients
+   * Only shows recipes that actually have remisiones in the selected period for the selected clients
+   */
+  static async getAvailableRecipeCodesForClients(dateRange: { from: Date; to: Date }, clientIds?: string[]): Promise<string[]> {
+    try {
+      const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
+      const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
+
+      let query = supabase
+        .from('remisiones')
+        .select(`
+          recipe:recipes(recipe_code),
+          orders!inner(client_id)
+        `)
+        .gte('fecha', formattedStartDate)
+        .lte('fecha', formattedEndDate)
+        .not('recipe_id', 'is', null);
+
+      // Filter by clients if specified
+      if (clientIds && clientIds.length > 0) {
+        query = query.in('orders.client_id', clientIds);
+      }
+      
+      const { data: remisiones, error: remisionesError } = await query;
+      
+      if (remisionesError) throw remisionesError;
+      
+      if (!remisiones || remisiones.length === 0) {
+        return [];
+      }
+
+      // Get unique recipe codes
+      const recipeCodes = Array.from(new Set(
+        remisiones
+          .map(r => r.recipe?.recipe_code)
+          .filter(code => code && code.trim() !== '')
+      ));
+      
+      return recipeCodes.sort();
+
+    } catch (error) {
+      console.error('Error fetching recipe codes for clients:', error);
+      return [];
+    }
+  }
+
+  /**
    * Get available recipe codes for filtering within a date range and for a specific client
    * Only shows recipes that actually have remisiones in the selected period for the selected client
+   * @deprecated Use getAvailableRecipeCodesForClients instead
    */
   static async getAvailableRecipeCodes(dateRange: { from: Date; to: Date }, clientId?: string): Promise<string[]> {
     try {

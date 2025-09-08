@@ -186,7 +186,7 @@ export class ArkikRawParser {
   private normalizeRemision(value: string): string {
     // Extract trailing numeric portion, e.g., P002-007789 -> 007789 -> 7789
     const m = value.match(/(\d{3,})\s*$/);
-    let digits = m ? m[1] : value.replace(/\D+/g, '');
+    const digits = m ? m[1] : value.replace(/\D+/g, '');
     if (digits) {
       // Normalize to integer to drop leading zeros
       const n = parseInt(digits, 10);

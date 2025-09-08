@@ -23,10 +23,26 @@ export class ArkikDuplicateHandler {
   async detectDuplicates(
     stagingRemisiones: StagingRemision[]
   ): Promise<DuplicateRemisionInfo[]> {
-    const remisionNumbers = stagingRemisiones.map(r => r.remision_number);
+    // Exclude pumping-only (bombeo) remisiones from duplicate detection
+    // Heuristic: product_description or prod_comercial mentions "bombeo" or "pump"
+    const nonPumpingRemisiones = stagingRemisiones.filter(r => {
+      const desc = (r.product_description || '').toLowerCase();
+      const comercial = (r.prod_comercial || '').toLowerCase();
+      const isPumping =
+        desc.includes('bombeo') ||
+        desc.includes('pump') ||
+        comercial.includes('bombeo') ||
+        comercial.includes('pump') ||
+        desc === 'servicio de bombeo' ||
+        comercial === 'servicio de bombeo';
+      return !isPumping;
+    });
+
+    const remisionNumbers = nonPumpingRemisiones.map(r => r.remision_number);
     
     console.log('[ArkikDuplicateHandler] detectDuplicates called with:', {
       totalRemisiones: stagingRemisiones.length,
+      totalAfterPumpingFilter: nonPumpingRemisiones.length,
       sampleRemisionNumbers: remisionNumbers.slice(0, 5),
       allRemisionNumbers: remisionNumbers
     });
@@ -37,7 +53,7 @@ export class ArkikDuplicateHandler {
     }
 
     try {
-      console.log(`[ArkikDuplicateHandler] Checking for duplicates among ${remisionNumbers.length} remision numbers`);
+      console.log(`[ArkikDuplicateHandler] Checking for duplicates among ${remisionNumbers.length} remision numbers (bombeo excluded)`);
       
       // First, check if remisiones table exists and get existing remisiones
       let existingRemisiones: any[] = [];
@@ -54,7 +70,8 @@ export class ArkikDuplicateHandler {
             volumen_fabricado,
             recipe_id,
             order_id,
-            plant_id
+            plant_id,
+            tipo_remision
           `)
           .eq('plant_id', this.plantId)
           .in('remision_number', remisionNumbers);
@@ -65,7 +82,7 @@ export class ArkikDuplicateHandler {
         }
         
         console.log(`[ArkikDuplicateHandler] Query successful, got ${data?.length || 0} results`);
-        existingRemisiones = data || [];
+        existingRemisiones = (data || []).filter(r => (r.tipo_remision || 'CONCRETO') !== 'BOMBEO');
         
         // Debug: Show first few results
         if (existingRemisiones.length > 0) {
@@ -73,7 +90,8 @@ export class ArkikDuplicateHandler {
             existingRemisiones.slice(0, 3).map(r => ({
               id: r.id,
               remision_number: r.remision_number,
-              plant_id: r.plant_id
+              plant_id: r.plant_id,
+              tipo_remision: r.tipo_remision
             }))
           );
         }
@@ -114,9 +132,9 @@ export class ArkikDuplicateHandler {
 
       // Get order information for existing remisiones
       const orderIds = existingRemisiones.map(r => r.order_id).filter(Boolean);
-      let orderNumbers: Map<string, string> = new Map();
-      let orderClientIds: Map<string, string> = new Map();
-      let orderSiteIds: Map<string, string> = new Map();
+      const orderNumbers: Map<string, string> = new Map();
+      const orderClientIds: Map<string, string> = new Map();
+      const orderSiteIds: Map<string, string> = new Map();
       
       if (orderIds.length > 0) {
         try {
@@ -253,7 +271,7 @@ export class ArkikDuplicateHandler {
       const duplicates: DuplicateRemisionInfo[] = [];
       
       for (const existing of existingRemisiones) {
-        const stagingRemision = stagingRemisiones.find(r => r.remision_number === existing.remision_number);
+        const stagingRemision = nonPumpingRemisiones.find(r => r.remision_number === existing.remision_number);
         if (!stagingRemision) continue;
 
         const hasMaterials = materialsData.some(m => m.remision_id === existing.id);
