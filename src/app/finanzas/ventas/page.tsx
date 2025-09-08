@@ -483,13 +483,14 @@ export default function VentasDashboard() {
         <Label htmlFor="layout-toggle">Vista PowerBI</Label>
       </div>
 
+      {layoutType === 'current' && (
           <Card className="mb-6">
             <CardHeader>
               <CardTitle>Reporte de Ventas Mensual</CardTitle>
           <p className="text-sm text-muted-foreground">{dateRangeText}</p>
             </CardHeader>
             <CardContent>
-          {/* Sales Filters Component */}
+          {/* Sales Filters Component - Only in current mode */}
           <SalesFilters
             currentPlant={currentPlant}
             startDate={startDate}
@@ -550,9 +551,10 @@ export default function VentasDashboard() {
               includeVAT={includeVAT}
               onExportToExcel={exportToExcel}
             />
-                        )}
-                      </CardContent>
-                    </Card>
+          )}
+                    </CardContent>
+                </Card>
+      )}
 
       {layoutType === 'powerbi' && (
         <>

@@ -272,19 +272,7 @@ export default function ClientQualityAnalysisPage() {
               {/* KPIs */}
               <ClientQualityMetrics summary={summary} />
 
-              {/* Main Charts */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <ClientQualityCharts
-                  data={qualityData}
-                  summary={summary}
-                  chartType="volume"
-                />
-                <ClientQualityCharts
-                  data={qualityData}
-                  summary={summary}
-                  chartType="compliance"
-                />
-              </div>
+              {/* Main Charts removed: deprecated summary cards */}
             </TabsContent>
 
             <TabsContent value="muestreos" className="space-y-6">

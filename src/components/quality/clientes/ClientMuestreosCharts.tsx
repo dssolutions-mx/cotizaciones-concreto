@@ -114,7 +114,7 @@ export default function ClientMuestreosCharts({ remisiones }: ClientMuestreosCha
       return acc;
     }, {});
 
-    // Recipe performance
+    // Recipe performance (from muestreos)
     const recipeData = allMuestreos.reduce((acc: any, muestreo) => {
       if (!acc[muestreo.recipeCode]) {
         acc[muestreo.recipeCode] = {
@@ -153,10 +153,33 @@ export default function ClientMuestreosCharts({ remisiones }: ClientMuestreosCha
       return acc;
     }, {});
 
+    // Fallback: compute rendimiento by recipe directly from remisiones (more robust)
+    const recipeFromRemisiones = remisiones.reduce((acc: any, r) => {
+      const key = r.recipeCode || 'SIN-RECETA';
+      if (!acc[key]) {
+        acc[key] = { recipe: key, sumR: 0, countR: 0 };
+      }
+      if ((r.rendimientoVolumetrico || 0) > 0) {
+        acc[key].sumR += r.rendimientoVolumetrico as number;
+        acc[key].countR += 1;
+      }
+      return acc;
+    }, {});
+    const recipeRendimiento = Object.values(recipeFromRemisiones)
+      .map((x: any) => ({
+        recipe: x.recipe,
+        avgRendimiento: x.countR > 0 ? x.sumR / x.countR : 0,
+      }))
+      .filter((r: any) => r.avgRendimiento > 0 && r.recipe && r.recipe !== 'SIN-RECETA');
+
     return {
       scatter: scatterData,
       monthly: Object.values(monthlyData).sort((a: any, b: any) => new Date(a.month).getTime() - new Date(b.month).getTime()),
-      recipes: Object.values(recipeData).sort((a: any, b: any) => b.total - a.total).slice(0, 8)
+      recipes: (recipeRendimiento.length > 0
+        ? recipeRendimiento
+        : Object.values(recipeData)
+            .filter((r: any) => (r.avgRendimiento || 0) > 0 && r.recipe && r.recipe !== 'SIN-RECETA')
+      ).sort((a: any, b: any) => (b.avgRendimiento || 0) - (a.avgRendimiento || 0)).slice(0, 8)
     };
   };
 
@@ -285,7 +308,7 @@ export default function ClientMuestreosCharts({ remisiones }: ClientMuestreosCha
           <ResponsiveContainer width="100%" height={400}>
             <BarChart data={chartData.recipes} layout="horizontal">
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" domain={[0, 150]} />
+              <XAxis type="number" domain={[90, 105]} />
               <YAxis dataKey="recipe" type="category" width={160} />
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="avgRendimiento" fill="#ff7300" name="Rendimiento (%)" />

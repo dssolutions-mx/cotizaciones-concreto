@@ -267,8 +267,9 @@ export class ClientQualityService {
               })) || []
             })) || []
           })),
-          complianceStatus: complianceRate >= 95 ? 'compliant' :
-                          complianceRate >= 80 ? 'pending' : 'non_compliant',
+          complianceStatus: hasQualityData
+            ? (complianceRate >= 95 ? 'compliant' : (complianceRate >= 80 ? 'pending' : 'non_compliant'))
+            : 'pending',
           avgResistencia,
           minResistencia,
           maxResistencia
