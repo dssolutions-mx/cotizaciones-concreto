@@ -933,10 +933,9 @@ async function createSingleOrder(
       
       // 1. Always recalculate general client balance (no site filter)
       console.log('[ArkikOrderCreator] Updating general client balance...');
-      const { error: generalBalanceError } = await supabase.rpc('update_client_balance_enhanced', {
+      const { error: generalBalanceError } = await supabase.rpc('update_client_balance', {
         p_client_id: firstRemision.client_id,
-        p_site_name: null, // General balance - no site filter
-        p_site_id: null
+        p_site_name: null
       });
 
       if (generalBalanceError) {
@@ -951,10 +950,9 @@ async function createSingleOrder(
         const siteIdentifier = constructionSiteId ? `UUID: ${constructionSiteId}` : `Name: ${constructionSiteName}`;
         console.log('[ArkikOrderCreator] Updating site-specific balance for:', siteIdentifier);
         
-        const { error: siteBalanceError } = await supabase.rpc('update_client_balance_enhanced', {
+        const { error: siteBalanceError } = await supabase.rpc('update_client_balance', {
           p_client_id: firstRemision.client_id,
-          p_site_name: constructionSiteName, // Fallback name
-          p_site_id: constructionSiteId || null // Preferred UUID
+          p_site_name: constructionSiteName || null
         });
 
         if (siteBalanceError) {

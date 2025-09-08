@@ -115,7 +115,7 @@ export class AdvancedImageProcessor {
 
       // RGB to XYZ conversion
       let x = r * 0.4124 + g * 0.3576 + b * 0.1805;
-      let y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+      const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
       let z = r * 0.0193 + g * 0.1192 + b * 0.9505;
 
       // XYZ to LAB conversion (normalized)
@@ -400,7 +400,7 @@ export class AdvancedImageProcessor {
     }
 
     // Calculate Otsu threshold
-    let threshold = this.calculateOtsuThreshold(histogram, imageData.data.length / 4);
+    const threshold = this.calculateOtsuThreshold(histogram, imageData.data.length / 4);
 
     // Adaptive threshold calculation
     const lowerThresh = Math.max(10, threshold * 0.5);
@@ -481,8 +481,8 @@ export class AdvancedImageProcessor {
 
     // Calculate brightness
     let totalBrightness = 0;
-    let totalContrast = 0;
-    let totalSharpness = 0;
+    const totalContrast = 0;
+    const totalSharpness = 0;
     const pixelCount = data.length / 4;
 
     for (let i = 0; i < data.length; i += 4) {

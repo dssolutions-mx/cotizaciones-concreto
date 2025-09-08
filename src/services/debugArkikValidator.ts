@@ -1278,6 +1278,11 @@ export class DebugArkikValidator {
       console.log(`[DebugArkikValidator]   Client name: "${row.cliente_name}" -> normalized: "${clientName}"`);
       console.log(`[DebugArkikValidator]   Site name: "${row.obra_name}" -> normalized: "${siteName}"`);
       console.log(`[DebugArkikValidator]   Available pricing options: ${pricingOptions.length}`);
+      
+      // Show all available pricing options for debugging
+      pricingOptions.forEach((pricing, index) => {
+        console.log(`[DebugArkikValidator]   Option ${index + 1}: "${pricing.business_name}" | Site: "${pricing.construction_site}" | Source: ${pricing.source} | Price: ${pricing.price}`);
+      });
     }
 
     // Single option - validate client similarity first
@@ -1428,7 +1433,15 @@ export class DebugArkikValidator {
     const isSedenaRelated = this.isSedenaRelatedClient(input, business);
     
     // Exact match
-    if (input === business) return 1.0;
+    if (input === business) {
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] 🎯 EXACT MATCH AFTER NORMALIZATION:`);
+        console.log(`[DebugArkikValidator]   Normalized: "${input}" vs "${business}"`);
+        console.log(`[DebugArkikValidator]   🎯 EXACT MATCH: 1.0`);
+      }
+      return 1.0;
+    }
     
     // For SEDENA, maintain flexible matching
     if (isSedenaRelated) {
@@ -1452,36 +1465,264 @@ export class DebugArkikValidator {
       }
     }
     
-    // STRICT VALIDATION FOR NON-SEDENA CLIENTS
-    // Only allow high-confidence matches
+    // INTELLIGENT FUZZY MATCHING FOR NON-SEDENA CLIENTS
+    // Allow reasonable variations while rejecting completely different names
     
-    // Strict substring match - must be substantial overlap
-    if (business.includes(input) && input.length >= 5) {
-      return 0.7; // Lower score for substring matches
-    }
-    if (input.includes(business) && business.length >= 5) {
-      return 0.7;
+    // Clean and normalize names for better comparison
+    const inputCleaned = this.cleanBusinessName(input);
+    const businessCleaned = this.cleanBusinessName(business);
+    
+    // Exact match after cleaning
+    if (inputCleaned === businessCleaned) {
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] 🧮 EXACT MATCH AFTER CLEANING:`);
+        console.log(`[DebugArkikValidator]   Original: "${inputName}" vs "${businessName}"`);
+        console.log(`[DebugArkikValidator]   Normalized: "${input}" vs "${business}"`);
+        console.log(`[DebugArkikValidator]   Cleaned: "${inputCleaned}" vs "${businessCleaned}"`);
+        console.log(`[DebugArkikValidator]   🎯 EXACT MATCH: 0.95`);
+      }
+      return 0.95;
     }
     
-    // Very strict word overlap - require high percentage of matching words
-    const inputWords = input.split(/\s+/).filter(w => w.length > 3); // Longer words only
-    const businessWords = business.split(/\s+/).filter(w => w.length > 3);
+    // Check for one name being a subset of another (handles company names with additional words)
+    if (businessCleaned.includes(inputCleaned) && inputCleaned.length >= 5) {
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] 🎯 SUBSET MATCH - INPUT IN BUSINESS:`);
+        console.log(`[DebugArkikValidator]   Input: "${inputCleaned}" found in business: "${businessCleaned}"`);
+        console.log(`[DebugArkikValidator]   🎯 HIGH CONFIDENCE: 0.85`);
+      }
+      return 0.85; // High confidence - input is contained in business name
+    }
+    if (inputCleaned.includes(businessCleaned) && businessCleaned.length >= 5) {
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] 🎯 SUBSET MATCH - BUSINESS IN INPUT:`);
+        console.log(`[DebugArkikValidator]   Business: "${businessCleaned}" found in input: "${inputCleaned}"`);
+        console.log(`[DebugArkikValidator]   🎯 HIGH CONFIDENCE: 0.85`);
+      }
+      return 0.85; // High confidence - business name is contained in input
+    }
+    
+    // Advanced word matching with fuzzy logic
+    const inputWords = inputCleaned.split(/\s+/).filter(w => w.length >= 3);
+    const businessWords = businessCleaned.split(/\s+/).filter(w => w.length >= 3);
     
     if (inputWords.length === 0 || businessWords.length === 0) return 0;
     
-    const matchingWords = inputWords.filter(inputWord => 
-      businessWords.some(businessWord => businessWord === inputWord) // Exact word match only
-    );
-    
-    const matchPercentage = matchingWords.length / Math.max(inputWords.length, businessWords.length);
-    
-    // Require at least 80% of words to match for non-SEDENA clients
-    if (matchPercentage >= 0.8 && matchingWords.length >= 2) {
-      return 0.5 + (matchPercentage * 0.2); // Max 0.7 for word overlap
+    // Special case: Single significant word input (common for family names or company names)
+    if (inputWords.length === 1) {
+      const inputWord = inputWords[0];
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      
+      // Check if this single word has a strong match in the business name
+      const hasExactMatch = businessWords.some(businessWord => 
+        this.removeAccents(businessWord.toLowerCase()) === this.removeAccents(inputWord.toLowerCase())
+      );
+      
+      if (hasExactMatch && inputWord.length >= 5) {
+        if (isDevelopment) {
+          console.log(`[DebugArkikValidator] 🎯 SINGLE WORD EXACT MATCH:`);
+          console.log(`[DebugArkikValidator]   Single word: "${inputWord}" found exactly in business name`);
+          console.log(`[DebugArkikValidator]   Business words: [${businessWords.join(', ')}]`);
+          console.log(`[DebugArkikValidator]   🎯 HIGH CONFIDENCE: 0.80`);
+        }
+        return 0.80; // High confidence for single significant word matches
+      }
+      
+      // Check for fuzzy match of single word
+      const hasFuzzyMatch = businessWords.some(businessWord => 
+        this.isWordSimilar(inputWord, businessWord)
+      );
+      
+      if (hasFuzzyMatch && inputWord.length >= 5) {
+        if (isDevelopment) {
+          console.log(`[DebugArkikValidator] 🎯 SINGLE WORD FUZZY MATCH:`);
+          console.log(`[DebugArkikValidator]   Single word: "${inputWord}" fuzzy matches business name`);
+          console.log(`[DebugArkikValidator]   Business words: [${businessWords.join(', ')}]`);
+          console.log(`[DebugArkikValidator]   🎯 GOOD CONFIDENCE: 0.75`);
+        }
+        return 0.75; // Good confidence for single fuzzy word matches
+      }
+      
+      // Single word with no good match - likely different company
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] ❌ SINGLE WORD NO MATCH:`);
+        console.log(`[DebugArkikValidator]   Single word: "${inputWord}" not found in business name`);
+        console.log(`[DebugArkikValidator]   Business words: [${businessWords.join(', ')}]`);
+      }
+      return 0; // Single words that don't match are strong indicators of different companies
     }
     
-    // No match for strict validation
+    // Calculate word similarity with different strategies
+    const exactMatches = this.countExactWordMatches(inputWords, businessWords);
+    const fuzzyMatches = this.countFuzzyWordMatches(inputWords, businessWords);
+    const partialMatches = this.countPartialWordMatches(inputWords, businessWords);
+    
+    // Calculate various similarity scores
+    const exactScore = exactMatches / Math.max(inputWords.length, businessWords.length);
+    const fuzzyScore = fuzzyMatches / Math.max(inputWords.length, businessWords.length);
+    const partialScore = partialMatches / Math.max(inputWords.length, businessWords.length);
+    
+    // Combined scoring with weights
+    const combinedScore = (exactScore * 0.6) + (fuzzyScore * 0.3) + (partialScore * 0.1);
+    
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] 🧮 FUZZY MATCHING DEBUG:`);
+      console.log(`[DebugArkikValidator]   Normalized: "${input}" vs "${business}"`);
+      console.log(`[DebugArkikValidator]   Cleaned: "${inputCleaned}" vs "${businessCleaned}"`);
+      console.log(`[DebugArkikValidator]   Words: [${inputWords.join(', ')}] vs [${businessWords.join(', ')}]`);
+      console.log(`[DebugArkikValidator]   Matches: exact=${exactMatches}, fuzzy=${fuzzyMatches}, partial=${partialMatches}`);
+      console.log(`[DebugArkikValidator]   Scores: exact=${exactScore.toFixed(2)}, fuzzy=${fuzzyScore.toFixed(2)}, partial=${partialScore.toFixed(2)}, combined=${combinedScore.toFixed(2)}`);
+    }
+    
+    // Apply thresholds
+    if (exactScore >= 0.7 && exactMatches >= 2) {
+      if (isDevelopment) console.log(`[DebugArkikValidator]   🎯 HIGH CONFIDENCE: 0.80`);
+      return 0.80;
+    }
+    if (exactScore >= 0.5 && exactMatches >= 2) {
+      if (isDevelopment) console.log(`[DebugArkikValidator]   ✅ GOOD CONFIDENCE: 0.75`);
+      return 0.75;
+    }
+    if (combinedScore >= 0.6 && (exactMatches >= 1 || fuzzyMatches >= 2)) {
+      if (isDevelopment) console.log(`[DebugArkikValidator]   ⚡ ACCEPTABLE: 0.70`);
+      return 0.70;
+    }
+    if (combinedScore >= 0.4 && exactMatches >= 1) {
+      if (isDevelopment) console.log(`[DebugArkikValidator]   ⚠️  LOW BUT ACCEPTABLE: 0.65`);
+      return 0.65;
+    }
+    
+    if (isDevelopment) console.log(`[DebugArkikValidator]   ❌ NO MATCH: 0.00`);
     return 0;
+  }
+
+  /**
+   * Clean business name by removing common suffixes and normalizing
+   */
+  private cleanBusinessName(name: string): string {
+    const commonSuffixes = [
+      'sa de cv', 'sa', 'sapi de cv', 'sapi', 'sc', 'srl', 'srl de cv',
+      'asociacion civil', 'ac', 'fundacion', 'iac', 'spa', 'ltda',
+      'sociedad anonima', 'sociedad civil', 'cooperativa'
+    ];
+    
+    let cleaned = this.removeAccents(name.toLowerCase().trim());
+    
+    // Remove punctuation and normalize spaces
+    cleaned = cleaned.replace(/[,.;:\-_]/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    // Handle plural/singular variations for common business terms
+    const pluralMappings = [
+      { plural: 'contratistas', singular: 'contratista' },
+      { plural: 'constructores', singular: 'constructor' },
+      { plural: 'desarrolladores', singular: 'desarrollador' },
+      { plural: 'ingenieros', singular: 'ingeniero' },
+      { plural: 'consultores', singular: 'consultor' },
+      { plural: 'proyectos', singular: 'proyecto' },
+      { plural: 'servicios', singular: 'servicio' },
+      { plural: 'obras', singular: 'obra' }
+    ];
+    
+    // Normalize plural forms to singular
+    for (const mapping of pluralMappings) {
+      cleaned = cleaned.replace(new RegExp(`\\b${mapping.plural}\\b`, 'g'), mapping.singular);
+    }
+    
+    // Remove common business suffixes
+    for (const suffix of commonSuffixes) {
+      if (cleaned.endsWith(' ' + suffix)) {
+        cleaned = cleaned.substring(0, cleaned.length - suffix.length - 1).trim();
+      }
+    }
+    
+    return cleaned;
+  }
+
+  /**
+   * Count exact word matches between two arrays of words
+   */
+  private countExactWordMatches(words1: string[], words2: string[]): number {
+    return words1.filter(word1 => 
+      words2.some(word2 => word1 === word2)
+    ).length;
+  }
+
+  /**
+   * Count fuzzy word matches (allowing small differences like typos)
+   */
+  private countFuzzyWordMatches(words1: string[], words2: string[]): number {
+    return words1.filter(word1 => 
+      words2.some(word2 => this.isWordSimilar(word1, word2))
+    ).length;
+  }
+
+  /**
+   * Count partial word matches (one word contains another)
+   */
+  private countPartialWordMatches(words1: string[], words2: string[]): number {
+    return words1.filter(word1 => 
+      words2.some(word2 => 
+        (word1.length >= 4 && word2.includes(word1)) || 
+        (word2.length >= 4 && word1.includes(word2))
+      )
+    ).length;
+  }
+
+  /**
+   * Check if two words are similar (allowing for small differences)
+   */
+  private isWordSimilar(word1: string, word2: string): boolean {
+    // Normalize both words (remove accents, lowercase)
+    const normalized1 = this.removeAccents(word1.toLowerCase());
+    const normalized2 = this.removeAccents(word2.toLowerCase());
+    
+    if (normalized1 === normalized2) return true;
+    if (Math.abs(normalized1.length - normalized2.length) > 3) return false;
+    if (normalized1.length < 3 || normalized2.length < 3) return false;
+    
+    // Check for one word being contained in the other (handles plural/singular)
+    if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
+      const minLength = Math.min(normalized1.length, normalized2.length);
+      if (minLength >= 6) return true; // Long words with containment are similar
+    }
+    
+    // Simple edit distance for variations
+    const editDistance = this.calculateEditDistance(normalized1, normalized2);
+    const maxLength = Math.max(normalized1.length, normalized2.length);
+    
+    // More lenient thresholds for business names
+    let threshold = 1;
+    if (maxLength >= 8) threshold = 2;
+    if (maxLength >= 12) threshold = 3;
+    
+    return editDistance <= threshold;
+  }
+
+  /**
+   * Calculate simple edit distance between two strings
+   */
+  private calculateEditDistance(str1: string, str2: string): number {
+    const matrix = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(null));
+    
+    for (let i = 0; i <= str1.length; i++) matrix[0][i] = i;
+    for (let j = 0; j <= str2.length; j++) matrix[j][0] = j;
+    
+    for (let j = 1; j <= str2.length; j++) {
+      for (let i = 1; i <= str1.length; i++) {
+        const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+        matrix[j][i] = Math.min(
+          matrix[j][i - 1] + 1,     // deletion
+          matrix[j - 1][i] + 1,     // insertion
+          matrix[j - 1][i - 1] + indicator // substitution
+        );
+      }
+    }
+    
+    return matrix[str2.length][str1.length];
   }
 
   /**
@@ -1515,23 +1756,17 @@ export class DebugArkikValidator {
       return clientScore >= 0.5;
     }
     
-    // STRICT CRITERIA FOR NON-SEDENA CLIENTS
-    // Require minimum score of 0.7 for non-SEDENA clients
-    // This means substantial overlap is required
-    const MIN_ACCEPTABLE_SCORE = 0.7;
+    // INTELLIGENT CRITERIA FOR NON-SEDENA CLIENTS
+    // The fuzzy matching algorithm returns scores from 0.65-0.95
+    // We set a reasonable threshold that allows similar names but rejects completely different ones
+    const MIN_ACCEPTABLE_SCORE = 0.65;
     
     if (clientScore < MIN_ACCEPTABLE_SCORE) {
       return false;
     }
     
-    // Additional validation: if score is between 0.7-0.8, require that one name contains the other
-    // This prevents weak partial matches from passing
-    if (clientScore < 0.8) {
-      const hasSubstantialOverlap = business.includes(input) || input.includes(business);
-      if (!hasSubstantialOverlap) {
-        return false;
-      }
-    }
+    // All scores above 0.65 from our intelligent fuzzy matching are considered acceptable
+    // The algorithm already applies multiple validation layers internally
     
     return true;
   }
@@ -1553,10 +1788,16 @@ export class DebugArkikValidator {
     return 0.1; // Small base score
   }
 
-  // DEPRECATED: Use standardized functions from recipeCodeUtils instead
-  // Kept for client/site name normalization only
+  // Enhanced normalization for client/site names with accent removal
   private normalizeString(str: string): string {
-    return str.toLowerCase().trim().replace(/\s+/g, ' ');
+    return this.removeAccents(str.toLowerCase().trim().replace(/\s+/g, ' '));
+  }
+
+  /**
+   * Remove accents and diacritical marks from text
+   */
+  private removeAccents(str: string): string {
+    return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   }
 
   // REMOVED: Old fuzzy matching logic that caused recipe mismatches

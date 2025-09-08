@@ -90,7 +90,7 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
       console.log(`Found ${orders?.length || 0} orders for date ${date} with plant filtering`);
       
       // Initialize metrics with default values
-      let metricsData = {
+      const metricsData = {
         totalConcreteVolume: 0,
         totalPumpingVolume: 0,
         totalSubtotal: 0,

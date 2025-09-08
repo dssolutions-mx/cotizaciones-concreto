@@ -283,7 +283,7 @@ export default function ManualAssignmentInterface({
             </div>
           </div>
 
-          {/* View Mode Toggle */}
+          {/* View Mode Toggle and Actions */}
           <div className="flex gap-2">
             <Button
               variant={viewMode === 'unmatched' ? 'default' : 'outline'}
@@ -300,6 +300,17 @@ export default function ManualAssignmentInterface({
               >
                 <Search className="h-4 w-4 mr-1" />
                 Buscar remisiones
+              </Button>
+            )}
+            {viewMode === 'unmatched' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadCompatibleOrders}
+                disabled={loading}
+                title="Actualizar órdenes compatibles"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               </Button>
             )}
           </div>
@@ -461,6 +472,16 @@ export default function ManualAssignmentInterface({
               <Button
                 variant="outline"
                 size="sm"
+                onClick={loadCompatibleOrders}
+                disabled={loading}
+                title="Actualizar órdenes compatibles"
+              >
+                <RefreshCw className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
+                Actualizar
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   const newAssignments = new Map(assignments);
                   candidates.forEach(candidate => {
@@ -568,14 +589,14 @@ export default function ManualAssignmentInterface({
                         Asignar a orden:
                       </label>
                       <Select 
-                        value={assignedOrderId || ""} 
-                        onValueChange={(value) => handleAssignment(remision.remision_number, value || null)}
+                        value={assignedOrderId || "__no_assignment__"} 
+                        onValueChange={(value) => handleAssignment(remision.remision_number, value === "__no_assignment__" ? null : value)}
                       >
                         <SelectTrigger className="max-w-md">
                           <SelectValue placeholder="Seleccionar orden..." />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">
+                          <SelectItem value="__no_assignment__">
                             <span className="text-gray-500">No asignar (crear nueva orden)</span>
                           </SelectItem>
                           {candidate.compatibleOrders.map((order) => (

@@ -37,7 +37,7 @@ export default function UserPlantAssignment({ user, onUpdate, className }: UserP
     try {
       setLoading(true);
 
-      let updateData: { plant_id: string | null; business_unit_id: string | null } = {
+      const updateData: { plant_id: string | null; business_unit_id: string | null } = {
         plant_id: null,
         business_unit_id: null
       };
