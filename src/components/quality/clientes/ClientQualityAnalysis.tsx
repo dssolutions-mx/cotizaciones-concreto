@@ -184,7 +184,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
 
   // Compliance of frequency vs. target (100 m³): >100 worse, <100 better
   const samplingCompliancePct = averageSamplingFrequency > 0
-    ? (averageSamplingFrequency / 100) * 100
+    ? (averageSamplingFrequency / 100) * 100 // 136 m³ -> 136%
     : 0;
 
   // Radar chart data for quality dimensions - more relevant metrics
@@ -201,17 +201,17 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
     },
     {
       dimension: 'Freq. Promedio',
-      value: Math.min(100, (100 / Math.max(1, averageSamplingFrequency)) * 100),
+      value: Math.min(100, (averageSamplingFrequency / 100) * 100),
       fullMark: 100
     },
     {
-      dimension: '% Pedidos Muestreados',
-      value: ordersSampledPct,
+      dimension: 'Rend. Volumétrico',
+      value: Math.min(100, summary.averages.rendimientoVolumetrico || 0),
       fullMark: 100
     },
     {
       dimension: 'Rendimiento',
-      value: Math.min(100, summary.averages.rendimientoVolumetrico),
+      value: Math.min(100, summary.averages.rendimientoVolumetrico || 0),
       fullMark: 100
     }
   ];
