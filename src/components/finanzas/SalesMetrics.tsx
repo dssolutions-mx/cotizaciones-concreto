@@ -63,7 +63,7 @@ export function SalesMetrics({ date }: SalesMetricsProps) {
         <KPICard
           title="Volumen de Concreto Entregado"
           value={`${salesData.totalConcreteVolume.toFixed(2)} m³`}
-          description={`${salesData.totalOrders} órdenes entregadas`}
+          description={`${salesData.totalOrders} órdenes entregadas${salesData.emptyTruckVolume ? ` · Vacío: ${salesData.emptyTruckVolume.toFixed(2)} m³ (no incluido)` : ''}`}
           icon={<Beaker className="h-5 w-5 text-blue-500" />}
           className="border-s-4 border-s-blue-500"
         />
