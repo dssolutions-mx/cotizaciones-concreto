@@ -3,7 +3,7 @@
 import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Area, AreaChart } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Scatter, ScatterChart, ComposedChart } from 'recharts';
 import { TrendingUp, Target, Activity, Calendar, BarChart3, Info, Beaker } from 'lucide-react';
 import { PointAnalysisData } from '@/services/qualityPointAnalysisService';
 
@@ -20,25 +20,83 @@ interface ChartDataPoint {
   muestras: number;
   fecha: string;
   cumplimiento: number;
+  individualPoints?: Array<{
+    resistencia: number;
+    edad: number;
+    fecha: string;
+    muestra_id: string;
+  }>;
 }
 
 export default function ResistanceEvolutionChart({ data, className = '' }: ResistanceEvolutionChartProps) {
-  // Transform data for the chart
+  // Transform data for the chart with proper age grouping
   const chartData: ChartDataPoint[] = useMemo(() => {
-    return data.resistanceEvolution.map(evolution => {
-      const cumplimiento = data.recipe.strength_fc > 0 ? 
-        (evolution.resistencia_promedio / data.recipe.strength_fc) * 100 : 0;
-      
-      return {
-        edad: evolution.edad_dias,
-        resistencia: evolution.resistencia_promedio,
-        resistencia_min: evolution.resistencia_min,
-        resistencia_max: evolution.resistencia_max,
-        muestras: evolution.numero_muestras,
-        fecha: evolution.fecha_ensayo,
-        cumplimiento: Math.round(cumplimiento)
-      };
+    // Group all individual points by age first
+    const ageGroups = new Map<number, Array<{
+      resistencia: number;
+      edad: number;
+      fecha: string;
+      muestra_id: string;
+    }>>();
+    
+    // Collect all individual points and group by age
+    data.muestras.forEach(muestra => {
+      muestra.ensayos.forEach(ensayo => {
+        // Calculate age in days from muestreo to test date
+        const muestreoDate = new Date(data.muestreo.fecha_muestreo);
+        const testDate = new Date(ensayo.fecha_ensayo);
+        const ageInDays = Math.ceil((testDate.getTime() - muestreoDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (!ageGroups.has(ageInDays)) {
+          ageGroups.set(ageInDays, []);
+        }
+        
+        ageGroups.get(ageInDays)!.push({
+          resistencia: ensayo.resistencia_calculada,
+          edad: ageInDays,
+          fecha: ensayo.fecha_ensayo,
+          muestra_id: muestra.id
+        });
+      });
     });
+    
+    // Convert grouped data to chart format
+    const chartPoints = Array.from(ageGroups.entries())
+      .map(([age, individualPoints]) => {
+        const resistencias = individualPoints.map(p => p.resistencia);
+        const resistencia_promedio = resistencias.reduce((a, b) => a + b, 0) / resistencias.length;
+        const resistencia_min = Math.min(...resistencias);
+        const resistencia_max = Math.max(...resistencias);
+        
+        const cumplimiento = data.recipe.strength_fc > 0 ? 
+          (resistencia_promedio / data.recipe.strength_fc) * 100 : 0;
+        
+        return {
+          edad: age,
+          resistencia: resistencia_promedio,
+          resistencia_min: resistencia_min,
+          resistencia_max: resistencia_max,
+          muestras: individualPoints.length,
+          fecha: individualPoints[0]?.fecha || '',
+          cumplimiento: Math.round(cumplimiento),
+          individualPoints: individualPoints
+        };
+      })
+      .sort((a, b) => a.edad - b.edad);
+    
+    // Add day 0 with resistance 0 at the beginning
+    const dayZeroPoint: ChartDataPoint = {
+      edad: 0,
+      resistencia: 0,
+      resistencia_min: 0,
+      resistencia_max: 0,
+      muestras: 0,
+      fecha: data.muestreo.fecha_muestreo,
+      cumplimiento: 0,
+      individualPoints: []
+    };
+    
+    return [dayZeroPoint, ...chartPoints];
   }, [data]);
 
   // Calculate target resistance line
@@ -48,49 +106,136 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
   const averageResistance = chartData.length > 0 ? 
     chartData.reduce((sum, point) => sum + point.resistencia, 0) / chartData.length : 0;
 
+  // Flatten all individual points for scatter plot
+  const allIndividualPoints = chartData.flatMap(point => 
+    point.individualPoints?.map(individual => ({
+      ...individual,
+      isIndividual: true
+    })) || []
+  );
+
+  // Unique ages for clean numeric X-axis ticks
+  const uniqueAges = useMemo(() => {
+    return Array.from(new Set(chartData.map(p => p.edad))).sort((a, b) => a - b);
+  }, [chartData]);
+
+  // Calculate trend line data for better visualization
+  const trendLineData = useMemo(() => {
+    if (chartData.length < 2) return [];
+    
+    // Simple linear regression for trend line
+    const n = chartData.length;
+    const sumX = chartData.reduce((sum, point) => sum + point.edad, 0);
+    const sumY = chartData.reduce((sum, point) => sum + point.resistencia, 0);
+    const sumXY = chartData.reduce((sum, point) => sum + point.edad * point.resistencia, 0);
+    const sumXX = chartData.reduce((sum, point) => sum + point.edad * point.edad, 0);
+    
+    const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    const intercept = (sumY - slope * sumX) / n;
+    
+    // Generate trend line points
+    const minAge = Math.min(...chartData.map(p => p.edad));
+    const maxAge = Math.max(...chartData.map(p => p.edad));
+    
+    return [
+      { edad: minAge, resistencia: slope * minAge + intercept, isTrend: true },
+      { edad: maxAge, resistencia: slope * maxAge + intercept, isTrend: true }
+    ];
+  }, [chartData]);
+
   // Custom tooltip content
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
-      const data = payload[0].payload as ChartDataPoint;
-      return (
-        <div className="bg-white border-2 border-slate-300 rounded-xl p-4 shadow-xl">
-          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-3 mb-3">
-            <p className="font-bold text-lg text-slate-800 text-center">{`Día ${label} desde muestreo`}</p>
-            <p className="text-sm text-slate-600 text-center">
-              {new Date(data.fecha).toLocaleDateString('es-ES', { 
-                weekday: 'long', 
-                year: 'numeric', 
-                month: 'long', 
-                day: 'numeric' 
-              })}
-            </p>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-3">
-            <div className="bg-blue-50 rounded-lg p-2 text-center">
-              <p className="text-xs text-blue-600 font-medium">Resistencia</p>
-              <p className="text-lg font-bold text-blue-800">{data.resistencia.toFixed(1)} kg/cm²</p>
-            </div>
-            
-            <div className="bg-green-50 rounded-lg p-2 text-center">
-              <p className="text-xs text-green-600 font-medium">Cumplimiento</p>
-              <p className="text-lg font-bold text-green-800">{data.cumplimiento}%</p>
-            </div>
-            
-            <div className="bg-purple-50 rounded-lg p-2 text-center">
-              <p className="text-xs text-purple-600 font-medium">Muestras</p>
-              <p className="text-lg font-bold text-purple-800">{data.muestras}</p>
-            </div>
-            
-            <div className="bg-orange-50 rounded-lg p-2 text-center">
-              <p className="text-xs text-orange-600 font-medium">Rango</p>
-              <p className="text-sm font-bold text-orange-800">
-                {data.resistencia_min.toFixed(1)} - {data.resistencia_max.toFixed(1)}
+      const data = payload[0].payload;
+      
+      // Check if this is an individual point or a chart data point
+      const isIndividualPoint = data.isIndividual;
+      
+      if (isIndividualPoint) {
+        // Handle individual scatter points
+        return (
+          <div className="bg-white border-2 border-slate-300 rounded-xl p-4 shadow-xl">
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-3 mb-3">
+              <p className="font-bold text-lg text-slate-800 text-center">{`Día ${label} desde muestreo`}</p>
+              <p className="text-sm text-slate-600 text-center">
+                {data.fecha ? new Date(data.fecha).toLocaleDateString('es-ES', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                }) : 'N/A'}
               </p>
             </div>
+            
+            <div className="grid grid-cols-1 gap-3">
+              <div className="bg-blue-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-blue-600 font-medium">Resistencia Individual</p>
+                <p className="text-lg font-bold text-blue-800">
+                  {data.resistencia ? data.resistencia.toFixed(1) : 'N/A'} kg/cm²
+                </p>
+              </div>
+              
+              <div className="bg-purple-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-purple-600 font-medium">Muestra ID</p>
+                <p className="text-sm font-bold text-purple-800">{data.muestra_id || 'N/A'}</p>
+              </div>
+            </div>
           </div>
-        </div>
-      );
+        );
+      } else {
+        // Handle main chart data points
+        const isDayZero = data.edad === 0;
+        return (
+          <div className="bg-white border-2 border-slate-300 rounded-xl p-4 shadow-xl">
+            <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-3 mb-3">
+              <p className="font-bold text-lg text-slate-800 text-center">
+                {isDayZero ? 'Día 0 (Muestreo)' : `Día ${label} desde muestreo`}
+              </p>
+              <p className="text-sm text-slate-600 text-center">
+                {data.fecha ? new Date(data.fecha).toLocaleDateString('es-ES', { 
+                  weekday: 'long', 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                }) : 'N/A'}
+              </p>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-blue-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-blue-600 font-medium">Resistencia Promedio</p>
+                <p className="text-lg font-bold text-blue-800">
+                  {data.resistencia ? data.resistencia.toFixed(1) : 'N/A'} kg/cm²
+                </p>
+              </div>
+              
+              <div className="bg-green-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-green-600 font-medium">Cumplimiento</p>
+                <p className="text-lg font-bold text-green-800">
+                  {data.cumplimiento ? `${data.cumplimiento}%` : 'N/A'}
+                </p>
+              </div>
+              
+              <div className="bg-purple-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-purple-600 font-medium">Muestras</p>
+                <p className="text-lg font-bold text-purple-800">
+                  {data.muestras ? data.muestras : 'N/A'}
+                </p>
+              </div>
+              
+              <div className="bg-orange-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-orange-600 font-medium">Rango</p>
+                <p className="text-sm font-bold text-orange-800">
+                  {data.resistencia_min && data.resistencia_max && !isDayZero ? 
+                    `${data.resistencia_min.toFixed(1)} - ${data.resistencia_max.toFixed(1)}` : 
+                    isDayZero ? 'N/A' : 'N/A'
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      }
     }
     return null;
   };
@@ -136,7 +281,7 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-slate-600" />
-            Evolución de Resistencia
+            Evolución de Resistencia del Concreto
           </CardTitle>
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="text-xs">
@@ -148,7 +293,7 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
           </div>
         </div>
         <p className="text-sm text-slate-600">
-          Seguimiento de resistencia a través del tiempo (desde muestreo)
+          Seguimiento de resistencia a través del tiempo
         </p>
       </CardHeader>
       
@@ -201,68 +346,43 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
         </div>
 
         {/* Main Chart */}
-        <div className="h-96 w-full">
+        <div className="h-96 w-full bg-white rounded-lg border border-gray-200 p-4">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
-              <defs>
-                <linearGradient id="colorResistencia" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/>
-                  <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.15}/>
-                </linearGradient>
-                <linearGradient id="colorRange" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.6}/>
-                  <stop offset="95%" stopColor="#10B981" stopOpacity={0.25}/>
-                </linearGradient>
-                <linearGradient id="colorRangeBorder" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#059669" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#059669" stopOpacity={0.4}/>
-                </linearGradient>
-                <linearGradient id="colorBackground" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#F8FAFC" stopOpacity={0.8}/>
-                  <stop offset="95%" stopColor="#F8FAFC" stopOpacity={0.3}/>
-                </linearGradient>
-              </defs>
-              
-              {/* Background area for better visibility */}
-              <Area
-                type="monotone"
-                dataKey="resistencia_max"
-                stackId="background"
-                stroke="none"
-                fill="url(#colorBackground)"
-                fillOpacity={0.1}
-              />
-              
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" strokeWidth={0.5} />
+            <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 40, bottom: 40 }}>
+              <CartesianGrid strokeDasharray="1 1" stroke="#F1F5F9" strokeWidth={0.5} />
               
               <XAxis 
+                type="number"
                 dataKey="edad" 
-                stroke="#475569"
-                fontSize={13}
-                fontWeight={500}
+                stroke="#64748B"
+                fontSize={12}
+                fontWeight={400}
                 tickLine={false}
-                axisLine={{ stroke: '#CBD5E1', strokeWidth: 1 }}
-                tick={{ fill: '#475569', fontSize: 12 }}
+                axisLine={{ stroke: '#E2E8F0', strokeWidth: 1 }}
+                tick={{ fill: '#64748B', fontSize: 11 }}
+                domain={[0, 'dataMax']}
+                allowDuplicatedCategory={false}
+                ticks={uniqueAges}
                 label={{ 
-                  value: 'Días desde Muestreo', 
+                  value: 'Días', 
                   position: 'insideBottom', 
-                  offset: -10, 
-                  style: { textAnchor: 'middle', fill: '#475569', fontSize: 13, fontWeight: 600 } 
+                  offset: -15, 
+                  style: { textAnchor: 'middle', fill: '#475569', fontSize: 12, fontWeight: 500 } 
                 }}
               />
               
               <YAxis 
-                stroke="#475569"
-                fontSize={13}
-                fontWeight={500}
+                stroke="#64748B"
+                fontSize={12}
+                fontWeight={400}
                 tickLine={false}
-                axisLine={{ stroke: '#CBD5E1', strokeWidth: 1 }}
-                tick={{ fill: '#475569', fontSize: 12 }}
+                axisLine={{ stroke: '#E2E8F0', strokeWidth: 1 }}
+                tick={{ fill: '#64748B', fontSize: 11 }}
                 label={{ 
                   value: 'Resistencia (kg/cm²)', 
                   angle: -90, 
                   position: 'insideLeft', 
-                  style: { textAnchor: 'middle', fill: '#475569', fontSize: 13, fontWeight: 600 } 
+                  style: { textAnchor: 'middle', fill: '#475569', fontSize: 12, fontWeight: 500 } 
                 }}
               />
               
@@ -271,145 +391,73 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
               {/* Target resistance reference line */}
               <ReferenceLine 
                 y={targetResistance} 
-                stroke="#DC2626" 
-                strokeDasharray="6 4"
-                strokeWidth={3}
+                stroke="#EF4444" 
+                strokeDasharray="4 4"
+                strokeWidth={1.5}
                 label={{
                   value: `Objetivo: ${targetResistance} kg/cm²`,
                   position: 'top',
-                  fill: '#DC2626',
-                  fontSize: 13,
-                  fontWeight: 600
+                  fill: '#EF4444',
+                  fontSize: 11,
+                  fontWeight: 500
                 }}
               />
               
-              {/* Resistance range area with better visibility */}
-              <Area
-                type="monotone"
-                dataKey="resistencia_max"
-                stackId="1"
-                stroke="none"
-                fill="url(#colorRange)"
-                fillOpacity={0.5}
-              />
-              <Area
-                type="monotone"
-                dataKey="resistencia_min"
-                stackId="1"
-                stroke="none"
-                fill="url(#colorRange)"
-                fillOpacity={0.5}
+              {/* Individual data points - rendered as a dot-only line to avoid index-based duplication */}
+              <Line
+                type="linear"
+                dataKey="resistencia"
+                data={allIndividualPoints as any}
+                stroke="transparent"
+                dot={{ r: 3, fill: '#60A5FA', stroke: '#FFFFFF', strokeWidth: 1.5 }}
+                activeDot={{ r: 5, fill: '#60A5FA', stroke: '#1D4ED8' }}
+                isAnimationActive={false}
+                connectNulls
               />
               
-              {/* Main resistance line with enhanced styling */}
+              {/* Main resistance line (average) */}
               <Line
                 type="monotone"
                 dataKey="resistencia"
-                stroke="#2563EB"
-                strokeWidth={4}
-                dot={{ 
-                  fill: '#2563EB', 
-                  stroke: '#FFFFFF', 
-                  strokeWidth: 3, 
-                  r: 6,
-                  filter: 'drop-shadow(0 2px 4px rgba(37, 99, 235, 0.3))'
-                }}
+                stroke="#B45309"
+                strokeWidth={2.5}
+                dot={false}
                 activeDot={{ 
-                  r: 8, 
-                  stroke: '#2563EB', 
-                  strokeWidth: 3,
+                  r: 5, 
+                  stroke: '#B45309', 
+                  strokeWidth: 2,
                   fill: '#FFFFFF',
-                  filter: 'drop-shadow(0 4px 8px rgba(37, 99, 235, 0.4))'
                 }}
               />
               
-              {/* Min/Max lines with enhanced visibility */}
+              {/* Average points on the line */}
               <Line
-                type="monotone"
-                dataKey="resistencia_max"
-                stroke="#047857"
-                strokeWidth={3}
-                strokeDasharray="6 3"
-                dot={{ 
-                  fill: '#047857', 
-                  stroke: '#FFFFFF', 
-                  strokeWidth: 3, 
-                  r: 5,
-                  filter: 'drop-shadow(0 3px 6px rgba(4, 120, 87, 0.4))'
-                }}
+                type="linear"
+                dataKey="resistencia"
+                data={chartData as any}
+                stroke="transparent"
+                dot={{ r: 4, fill: '#B45309', stroke: '#FFFFFF', strokeWidth: 2 }}
+                isAnimationActive={false}
               />
-              <Line
-                type="monotone"
-                dataKey="resistencia_min"
-                stroke="#047857"
-                strokeWidth={3}
-                strokeDasharray="6 3"
-                dot={{ 
-                  fill: '#047857', 
-                  stroke: '#FFFFFF', 
-                  strokeWidth: 3, 
-                  r: 5,
-                  filter: 'drop-shadow(0 3px 6px rgba(4, 120, 87, 0.4))'
-                }}
-              />
-            </AreaChart>
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
 
         {/* Chart Legend */}
-        <div className="bg-slate-50 rounded-xl p-4 mt-6 border border-slate-200">
-          <h4 className="text-sm font-semibold text-slate-700 mb-3 text-center">Leyenda del Gráfico</h4>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div className="flex items-center gap-3 justify-center">
-              <div className="w-5 h-5 rounded-full bg-blue-600 border-2 border-white shadow-sm"></div>
-              <span className="text-slate-700 font-medium">Resistencia Promedio</span>
+        <div className="bg-white rounded-lg border border-gray-200 p-4 mt-4">
+          <div className="flex items-center justify-center gap-6 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-full bg-blue-400"></div>
+              <span className="text-gray-700 font-medium">Puntos Individuales</span>
             </div>
-            <div className="flex items-center gap-3 justify-center">
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full bg-green-600 border-2 border-white shadow-sm"></div>
-                <span className="text-slate-700 font-medium">Rango Min-Max</span>
-              </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-0.5 bg-amber-700"></div>
+              <div className="w-3 h-3 rounded-full bg-amber-700"></div>
+              <span className="text-gray-700 font-medium">Promedio</span>
             </div>
-            <div className="flex items-center gap-3 justify-center">
-              <div className="w-5 h-5 rounded-full bg-red-600 border-2 border-white shadow-sm"></div>
-              <span className="text-slate-700 font-medium">Resistencia Objetivo</span>
-            </div>
-          </div>
-          
-          {/* Additional explanation for range */}
-          <div className="mt-4 p-3 bg-green-50 rounded-lg border border-green-200">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-4 h-4 bg-green-600 rounded-full"></div>
-              <span className="text-sm font-medium text-green-800">Rango Min-Max</span>
-            </div>
-            <p className="text-xs text-green-700">
-              El área sombreada verde muestra la variación de resistencia. 
-              La línea superior es el valor máximo y la inferior el mínimo en cada fecha.
-            </p>
-          </div>
-        </div>
-        
-        <div className="text-center mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <Info className="w-4 h-4 text-blue-600" />
-            <span className="text-sm font-medium text-blue-800">Información del Gráfico</span>
-          </div>
-          <p className="text-xs text-blue-700 mb-2">
-            El eje X muestra los días transcurridos desde la fecha de muestreo. 
-            No se agrupa por edad de garantía, sino por tiempo real de evolución.
-          </p>
-          <div className="flex items-center justify-center gap-4 text-xs text-blue-600">
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 bg-blue-600 rounded-full"></div>
-              <span>Línea azul: Promedio</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 bg-green-600 rounded-full"></div>
-              <span>Área verde: Rango</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <div className="w-3 h-3 bg-red-600 rounded-full"></div>
-              <span>Línea roja: Objetivo</span>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-0.5 bg-red-500 border-dashed border-t border-red-500"></div>
+              <span className="text-gray-700 font-medium">Objetivo</span>
             </div>
           </div>
         </div>
