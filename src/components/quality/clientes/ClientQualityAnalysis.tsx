@@ -426,7 +426,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
           <CardTitle>Resumen Estadístico</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-2 gap-4 text-sm">
             <div className="text-center p-3 bg-gray-50 rounded-lg">
               <div className="font-semibold text-gray-800">Media</div>
               <div className="text-lg font-bold text-blue-600">{formatNumber(metrics.mean, 1)} kg/cm²</div>
@@ -435,14 +435,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
               <div className="font-semibold text-gray-800">Desv. Estándar</div>
               <div className="text-lg font-bold text-green-600">{formatNumber(metrics.stdDev, 1)} kg/cm²</div>
             </div>
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <div className="font-semibold text-gray-800">Pedidos ≤ 100 m³ por Ensayo</div>
-              <div className="text-lg font-bold text-purple-600">{formatNumber(ordersMeetingTargetPct, 1)}%</div>
-            </div>
-            <div className="text-center p-3 bg-gray-50 rounded-lg">
-              <div className="font-semibold text-gray-800">Cpk</div>
-              <div className="text-lg font-bold text-orange-600">{formatNumber(metrics.cpk, 2)}</div>
-            </div>
+            {/* Deprecated cards removed to avoid confusing/negative messaging */}
           </div>
         </CardContent>
       </Card>
