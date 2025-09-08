@@ -109,58 +109,63 @@ export class ClientQualityService {
       const orderIds = orderData.map(order => order.id);
       console.log(`[ClientQualityService] Found ${orderIds.length} orders for client ${clientId}`);
 
-      // Now get remisiones for these orders
-      const { data, error } = await supabase
-        .from('remisiones')
-        .select(`
-          id,
-          remision_number,
-          fecha,
-          volumen_fabricado,
-          recipe_id,
-          recipes (
+        // Now get remisiones for these orders
+        const { data, error } = await supabase
+          .from('remisiones')
+          .select(`
             id,
-            recipe_code,
-            strength_fc
-          ),
-          orders (
-            id,
-            construction_site,
-            clients (
+            remision_number,
+            fecha,
+            volumen_fabricado,
+            recipe_id,
+            recipes (
               id,
-              business_name
-            )
-          ),
-          muestreos (
-            id,
-            fecha_muestreo,
-            numero_muestreo,
-            masa_unitaria,
-            temperatura_ambiente,
-            temperatura_concreto,
-            revenimiento_sitio,
-            muestras (
+              recipe_code,
+              strength_fc
+            ),
+            orders (
               id,
-              tipo_muestra,
-              identificacion,
-              fecha_programada_ensayo,
-              ensayos (
+              construction_site,
+              clients (
                 id,
-                fecha_ensayo,
-                carga_kg,
-                resistencia_calculada,
-                porcentaje_cumplimiento,
-                is_edad_garantia,
-                is_ensayo_fuera_tiempo
+                business_name
               )
+            ),
+            muestreos (
+              id,
+              fecha_muestreo,
+              numero_muestreo,
+              masa_unitaria,
+              temperatura_ambiente,
+              temperatura_concreto,
+              revenimiento_sitio,
+              muestras (
+                id,
+                tipo_muestra,
+                identificacion,
+                fecha_programada_ensayo,
+                ensayos (
+                  id,
+                  fecha_ensayo,
+                  carga_kg,
+                  resistencia_calculada,
+                  porcentaje_cumplimiento,
+                  is_edad_garantia,
+                  is_ensayo_fuera_tiempo
+                )
+              )
+            ),
+            remision_materiales (
+              id,
+              material_type,
+              cantidad_real
             )
-          )
-        `)
-        .in('order_id', orderIds)
-        .gte('fecha', fromDate)
-        .lte('fecha', toDate)
-        .not('volumen_fabricado', 'is', null)
-        .order('fecha', { ascending: false });
+          `)
+          .in('order_id', orderIds)
+          .gte('fecha', fromDate)
+          .lte('fecha', toDate)
+          .not('volumen_fabricado', 'is', null)
+          .order('fecha', { ascending: false });
 
       if (error) throw error;
 
@@ -172,36 +177,73 @@ export class ClientQualityService {
       // Transform and calculate compliance for each remision
       return filteredData.map(remision => {
         const muestreos = remision.muestreos || [];
-        const allEnsayos = muestreos.flatMap(muestreo =>
-          muestreo.muestras?.flatMap(muestra => muestra.ensayos || []) || []
+        const allEnsayos = muestreos.flatMap((muestreo: any) =>
+          muestreo.muestras?.flatMap((muestra: any) => muestra.ensayos || []) || []
         );
 
-        const ensayosEdadGarantia = allEnsayos.filter(e => e.is_edad_garantia);
-        const complianceRate = ensayosEdadGarantia.length > 0
-          ? (ensayosEdadGarantia.filter(e => e.porcentaje_cumplimiento >= 100).length / ensayosEdadGarantia.length) * 100
+        // Only consider guarantee age tests that are within the allowed time window
+        const validEnsayos = allEnsayos.filter((e: any) =>
+          e.is_edad_garantia === true &&
+          e.is_ensayo_fuera_tiempo === false &&
+          e.resistencia_calculada > 0 &&
+          e.porcentaje_cumplimiento !== null &&
+          e.porcentaje_cumplimiento !== undefined
+        );
+
+        // Only calculate compliance for remisiones that have been tested
+        const hasQualityData = validEnsayos.length > 0;
+        const complianceRate = hasQualityData
+          ? validEnsayos.reduce((sum: number, e: any) => sum + (e.porcentaje_cumplimiento || 0), 0) / validEnsayos.length
           : 0;
 
-        const avgResistencia = ensayosEdadGarantia.length > 0
-          ? ensayosEdadGarantia.reduce((sum, e) => sum + (e.resistencia_calculada || 0), 0) / ensayosEdadGarantia.length
+        const avgResistencia = hasQualityData
+          ? validEnsayos.reduce((sum: number, e: any) => sum + (e.resistencia_calculada || 0), 0) / validEnsayos.length
           : 0;
 
-        const minResistencia = ensayosEdadGarantia.length > 0
-          ? Math.min(...ensayosEdadGarantia.map(e => e.resistencia_calculada || 0))
+        const minResistencia = hasQualityData
+          ? Math.min(...validEnsayos.map((e: any) => e.resistencia_calculada || 0))
           : 0;
 
-        const maxResistencia = ensayosEdadGarantia.length > 0
-          ? Math.max(...ensayosEdadGarantia.map(e => e.resistencia_calculada || 0))
+        const maxResistencia = hasQualityData
+          ? Math.max(...validEnsayos.map((e: any) => e.resistencia_calculada || 0))
           : 0;
+
+        // Calculate volumetric yield for sampled remisiones
+        let rendimientoVolumetrico = 0;
+        if (muestreos.length > 0 && remision.volumen_fabricado > 0) {
+          // Sum all material quantities (cantidad_real)
+          const totalMaterialQuantity = (remision.remision_materiales || [])
+            .reduce((sum: number, material: any) => sum + (material.cantidad_real || 0), 0);
+          
+          // Get average masa unitaria from muestreos
+          const avgMasaUnitaria = muestreos.length > 0
+            ? muestreos.reduce((sum: number, m: any) => sum + (m.masa_unitaria || 0), 0) / muestreos.length
+            : 0;
+          
+          if (totalMaterialQuantity > 0 && avgMasaUnitaria > 0) {
+            // Rendimiento volumétrico = (total_materiales / masa_unitaria) / volumen_remision * 100 (para porcentaje)
+            rendimientoVolumetrico = ((totalMaterialQuantity / avgMasaUnitaria) / remision.volumen_fabricado) * 100;
+          }
+        }
 
         return {
           id: remision.id,
+          orderId: remision.order_id || remision.orders?.id,
           remisionNumber: remision.remision_number,
           fecha: remision.fecha,
           volume: remision.volumen_fabricado || 0,
           recipeCode: remision.recipes?.recipe_code || '',
           recipeFc: remision.recipes?.strength_fc || 0,
           constructionSite: remision.orders?.construction_site || '',
-          muestreos: muestreos.map(muestreo => ({
+          rendimientoVolumetrico,
+          totalMaterialQuantity: (remision.remision_materiales || [])
+            .reduce((sum: number, material: any) => sum + (material.cantidad_real || 0), 0),
+          materiales: (remision.remision_materiales || []).map((material: any) => ({
+            id: material.id,
+            materialType: material.material_type,
+            cantidadReal: material.cantidad_real || 0
+          })),
+          muestreos: muestreos.map((muestreo: any) => ({
             id: muestreo.id,
             fechaMuestreo: muestreo.fecha_muestreo,
             numeroMuestreo: muestreo.numero_muestreo,
@@ -209,12 +251,12 @@ export class ClientQualityService {
             temperaturaAmbiente: muestreo.temperatura_ambiente || 0,
             temperaturaConcreto: muestreo.temperatura_concreto || 0,
             revenimientoSitio: muestreo.revenimiento_sitio || 0,
-            muestras: muestreo.muestras?.map(muestra => ({
+            muestras: muestreo.muestras?.map((muestra: any) => ({
               id: muestra.id,
               tipoMuestra: muestra.tipo_muestra,
               identificacion: muestra.identificacion,
               fechaProgramadaEnsayo: muestra.fecha_programada_ensayo,
-              ensayos: muestra.ensayos?.map(ensayo => ({
+              ensayos: muestra.ensayos?.map((ensayo: any) => ({
                 id: ensayo.id,
                 fechaEnsayo: ensayo.fecha_ensayo,
                 cargaKg: ensayo.carga_kg,
@@ -289,10 +331,16 @@ export class ClientQualityService {
 
         remision.muestreos.forEach(muestreo => {
           muestreo.muestras.forEach(muestra => {
-            const edadGarantiaEnsayos = muestra.ensayos.filter(e => e.isEdadGarantia);
-            data.ensayos += edadGarantiaEnsayos.length;
+            const validEnsayos = muestra.ensayos.filter(e =>
+              e.isEdadGarantia === true &&
+              e.isEnsayoFueraTiempo === false &&
+              e.resistenciaCalculada > 0 &&
+              e.porcentajeCumplimiento !== null &&
+              e.porcentajeCumplimiento !== undefined
+            );
+            data.ensayos += validEnsayos.length;
 
-            edadGarantiaEnsayos.forEach(ensayo => {
+            validEnsayos.forEach(ensayo => {
               if (ensayo.resistenciaCalculada > 0) {
                 data.totalResistencia += ensayo.resistenciaCalculada;
                 data.resistenciaCount += 1;
@@ -361,10 +409,16 @@ export class ClientQualityService {
 
         remision.muestreos.forEach(muestreo => {
           muestreo.muestras.forEach(muestra => {
-            const edadGarantiaEnsayos = muestra.ensayos.filter(e => e.isEdadGarantia);
-            data.totalTests += edadGarantiaEnsayos.length;
+            const validEnsayos = muestra.ensayos.filter(e =>
+              e.isEdadGarantia === true &&
+              e.isEnsayoFueraTiempo === false &&
+              e.resistenciaCalculada > 0 &&
+              e.porcentajeCumplimiento !== null &&
+              e.porcentajeCumplimiento !== undefined
+            );
+            data.totalTests += validEnsayos.length;
 
-            edadGarantiaEnsayos.forEach(ensayo => {
+            validEnsayos.forEach(ensayo => {
               if (ensayo.resistenciaCalculada > 0) {
                 data.totalResistencia += ensayo.resistenciaCalculada;
                 data.resistenciaCount += 1;
@@ -430,10 +484,16 @@ export class ClientQualityService {
 
         remision.muestreos.forEach(muestreo => {
           muestreo.muestras.forEach(muestra => {
-            const edadGarantiaEnsayos = muestra.ensayos.filter(e => e.isEdadGarantia);
-            data.totalTests += edadGarantiaEnsayos.length;
+            const validEnsayos = muestra.ensayos.filter(e =>
+              e.isEdadGarantia === true &&
+              e.isEnsayoFueraTiempo === false &&
+              e.resistenciaCalculada > 0 &&
+              e.porcentajeCumplimiento !== null &&
+              e.porcentajeCumplimiento !== undefined
+            );
+            data.totalTests += validEnsayos.length;
 
-            edadGarantiaEnsayos.forEach(ensayo => {
+            validEnsayos.forEach(ensayo => {
               if (ensayo.resistenciaCalculada > 0) {
                 data.totalResistencia += ensayo.resistenciaCalculada;
                 data.resistenciaCount += 1;
@@ -468,53 +528,91 @@ export class ClientQualityService {
     toDate: string
   ): Promise<ClientQualitySummary> {
     try {
-      // Calculate totals
+      // Calculate sampling and quality data coverage
+      const remisionesWithMuestreos = remisiones.filter(r => r.muestreos && r.muestreos.length > 0).length;
+      const remisionesWithQualityData = remisiones.filter(r => {
+        const muestreos = r.muestreos || [];
+        const allEnsayos = muestreos.flatMap((muestreo: any) =>
+          muestreo.muestras?.flatMap((muestra: any) => muestra.ensayos || []) || []
+        );
+        const validEnsayos = allEnsayos.filter((e: any) =>
+          e.isEdadGarantia === true &&
+          e.isEnsayoFueraTiempo === false &&
+          e.resistenciaCalculada > 0 &&
+          e.porcentajeCumplimiento !== null &&
+          e.porcentajeCumplimiento !== undefined
+        );
+        return validEnsayos.length > 0;
+      }).length;
+
+      // Calculate totals with proper filtering
       const totals = {
         volume: remisiones.reduce((sum, r) => sum + r.volume, 0),
         remisiones: remisiones.length,
-        muestreos: remisiones.reduce((sum, r) => sum + r.muestreos.length, 0),
-        ensayos: remisiones.reduce((sum, r) =>
-          sum + r.muestreos.reduce((mSum, m) =>
-            mSum + m.muestras.reduce((sSum, s) =>
+        remisionesMuestreadas: remisionesWithMuestreos,
+        remisionesConDatosCalidad: remisionesWithQualityData,
+        porcentajeCoberturaMuestreo: remisiones.length > 0 ? (remisionesWithMuestreos / remisiones.length) * 100 : 0,
+        porcentajeCoberturaCalidad: remisiones.length > 0 ? (remisionesWithQualityData / remisiones.length) * 100 : 0,
+        muestreos: remisiones.reduce((sum: number, r: any) => sum + r.muestreos.length, 0),
+        ensayos: remisiones.reduce((sum: number, r: any) =>
+          sum + r.muestreos.reduce((mSum: number, m: any) =>
+            mSum + m.muestras.reduce((sSum: number, s: any) =>
               sSum + s.ensayos.length, 0
             ), 0
           ), 0
         ),
-        ensayosEdadGarantia: remisiones.reduce((sum, r) =>
-          sum + r.muestreos.reduce((mSum, m) =>
-            mSum + m.muestras.reduce((sSum, s) =>
-              sSum + s.ensayos.filter(e => e.isEdadGarantia).length, 0
+        ensayosEdadGarantia: remisiones.reduce((sum: number, r: any) =>
+          sum + r.muestreos.reduce((mSum: number, m: any) =>
+            mSum + m.muestras.reduce((sSum: number, s: any) =>
+              sSum + s.ensayos.filter((e: any) =>
+                e.isEdadGarantia === true &&
+                e.isEnsayoFueraTiempo === false &&
+                e.resistenciaCalculada > 0 &&
+                e.porcentajeCumplimiento !== null &&
+                e.porcentajeCumplimiento !== undefined
+              ).length, 0
             ), 0
           ), 0
         )
       };
 
-      // Calculate averages
-      const allEnsayosEdadGarantia = remisiones.flatMap(r =>
-        r.muestreos.flatMap(m =>
-          m.muestras.flatMap(s =>
-            s.ensayos.filter(e => e.isEdadGarantia)
+
+      // Calculate averages with proper filtering
+      const allValidEnsayos = remisiones.flatMap((r: any) =>
+        r.muestreos.flatMap((m: any) =>
+          m.muestras.flatMap((s: any) =>
+            s.ensayos.filter((e: any) =>
+              e.isEdadGarantia === true &&
+              e.isEnsayoFueraTiempo === false &&
+              e.resistenciaCalculada > 0 &&
+              e.porcentajeCumplimiento !== null &&
+              e.porcentajeCumplimiento !== undefined
+            )
           )
         )
       );
 
       const averages = {
-        resistencia: allEnsayosEdadGarantia.length > 0
-          ? allEnsayosEdadGarantia.reduce((sum, e) => sum + (e.resistenciaCalculada || 0), 0) / allEnsayosEdadGarantia.length
+        resistencia: allValidEnsayos.length > 0
+          ? allValidEnsayos.reduce((sum: number, e: any) => sum + (e.resistenciaCalculada || 0), 0) / allValidEnsayos.length
           : 0,
-        complianceRate: allEnsayosEdadGarantia.length > 0
-          ? (allEnsayosEdadGarantia.filter(e => e.porcentajeCumplimiento >= 100).length / allEnsayosEdadGarantia.length) * 100
+        complianceRate: allValidEnsayos.length > 0
+          ? allValidEnsayos.reduce((sum: number, e: any) => sum + (e.porcentajeCumplimiento || 0), 0) / allValidEnsayos.length
           : 0,
-        masaUnitaria: remisiones.reduce((sum, r) =>
-          sum + r.muestreos.reduce((mSum, m) => mSum + (m.masaUnitaria || 0), 0), 0
-        ) / totals.muestreos || 0
+        masaUnitaria: remisiones.reduce((sum: number, r: any) =>
+          sum + r.muestreos.reduce((mSum: number, m: any) => mSum + (m.masaUnitaria || 0), 0), 0
+        ) / totals.muestreos || 0,
+        rendimientoVolumetrico: remisiones
+          .filter((r: any) => r.rendimientoVolumetrico && r.rendimientoVolumetrico > 0)
+          .reduce((sum: number, r: any) => sum + (r.rendimientoVolumetrico || 0), 0) / 
+          remisiones.filter((r: any) => r.rendimientoVolumetrico && r.rendimientoVolumetrico > 0).length || 0
       };
 
       // Calculate performance metrics
       const performance = {
         complianceRate: averages.complianceRate,
-        onTimeTestingRate: allEnsayosEdadGarantia.length > 0
-          ? (allEnsayosEdadGarantia.filter(e => !e.isEnsayoFueraTiempo).length / allEnsayosEdadGarantia.length) * 100
+        onTimeTestingRate: allValidEnsayos.length > 0
+          ? (allValidEnsayos.filter(e => !e.isEnsayoFueraTiempo).length / allValidEnsayos.length) * 100
           : 0,
         volumeTrend: 'stable' as const, // Would need historical comparison
         qualityTrend: 'stable' as const  // Would need historical comparison
@@ -547,7 +645,13 @@ export class ClientQualityService {
       return {
         clientInfo,
         period: { from: fromDate, to: toDate },
-        totals,
+        totals: {
+          ...totals,
+          remisionesMuestreadas: totals.remisionesMuestreadas ?? 0,
+          remisionesConDatosCalidad: totals.remisionesConDatosCalidad ?? 0,
+          porcentajeCoberturaMuestreo: totals.porcentajeCoberturaMuestreo ?? 0,
+          porcentajeCoberturaCalidad: totals.porcentajeCoberturaCalidad ?? 0
+        },
         averages,
         performance,
         alerts
@@ -564,6 +668,8 @@ export class ClientQualityService {
    */
   static async getClientsWithQualityData(fromDate: string, toDate: string): Promise<ClientInfo[]> {
     try {
+      // This is a simplified version - in practice, you'd need a more complex query
+      // to find clients that actually have quality data in the specified date range
       const { data, error } = await supabase
         .from('clients')
         .select(`
@@ -572,9 +678,6 @@ export class ClientQualityService {
           client_code,
           rfc
         `)
-        .eq('orders.remisiones.muestreos.muestras.ensayos.resistencia_calculada', 'not.is', null)
-        .gte('orders.remisiones.fecha', fromDate)
-        .lte('orders.remisiones.fecha', toDate)
         .order('business_name');
 
       if (error) throw error;

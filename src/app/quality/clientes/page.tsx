@@ -18,6 +18,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ClientQualityMetrics } from '@/components/quality/clientes/ClientQualityMetrics';
 import { ClientQualityCharts } from '@/components/quality/clientes/ClientQualityCharts';
 import { ClientQualityTable } from '@/components/quality/clientes/ClientQualityTable';
+import ClientMuestreosTable from '@/components/quality/clientes/ClientMuestreosTable';
+import ClientMuestreosCharts from '@/components/quality/clientes/ClientMuestreosCharts';
+import ClientQualityAnalysis from '@/components/quality/clientes/ClientQualityAnalysis';
 import { ClientSelector } from '@/components/quality/clientes/ClientSelector';
 
 // Services and Types
@@ -243,26 +246,21 @@ export default function ClientQualityAnalysisPage() {
       {/* Quality Analysis Content */}
       {selectedClientId && qualityData && summary && !loading && (
         <div className="space-y-6">
-          {/* Summary Cards */}
-          <ClientQualityMetrics
-            summary={summary}
-            loading={loading}
-          />
 
           {/* Detailed Analysis Tabs */}
           <Tabs defaultValue="overview" className="w-full">
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="overview" className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4" />
-                Resumen General
+                Resumen
               </TabsTrigger>
-              <TabsTrigger value="volume" className="flex items-center gap-2">
-                <TrendingUp className="h-4 w-4" />
-                Análisis de Volumen
+              <TabsTrigger value="muestreos" className="flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Muestreos
               </TabsTrigger>
-              <TabsTrigger value="compliance" className="flex items-center gap-2">
+              <TabsTrigger value="analysis" className="flex items-center gap-2">
                 <Target className="h-4 w-4" />
-                Cumplimiento
+                Análisis
               </TabsTrigger>
               <TabsTrigger value="details" className="flex items-center gap-2">
                 <Users className="h-4 w-4" />
@@ -271,26 +269,37 @@ export default function ClientQualityAnalysisPage() {
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">
-              <ClientQualityCharts
-                data={qualityData}
-                summary={summary}
-                chartType="overview"
+              {/* KPIs */}
+              <ClientQualityMetrics summary={summary} />
+
+              {/* Main Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ClientQualityCharts
+                  data={qualityData}
+                  summary={summary}
+                  chartType="volume"
+                />
+                <ClientQualityCharts
+                  data={qualityData}
+                  summary={summary}
+                  chartType="compliance"
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="muestreos" className="space-y-6">
+              <ClientMuestreosCharts
+                remisiones={qualityData.remisiones}
+              />
+              <ClientMuestreosTable
+                remisiones={qualityData.remisiones}
               />
             </TabsContent>
 
-            <TabsContent value="volume" className="space-y-6">
-              <ClientQualityCharts
+            <TabsContent value="analysis" className="space-y-6">
+              <ClientQualityAnalysis
                 data={qualityData}
                 summary={summary}
-                chartType="volume"
-              />
-            </TabsContent>
-
-            <TabsContent value="compliance" className="space-y-6">
-              <ClientQualityCharts
-                data={qualityData}
-                summary={summary}
-                chartType="compliance"
               />
             </TabsContent>
 
