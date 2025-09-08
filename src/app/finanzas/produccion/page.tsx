@@ -1018,15 +1018,23 @@ export default function ProduccionDashboard() {
     };
   }, [filteredProductionData]);
 
-  // Chart data for volume by strength
-  const volumeByStrengthData = useMemo(() => {
-    return {
-      categories: filteredProductionData.map(item => `${item.strength_fc} kg/cm²`),
-      series: [{
-        name: 'Volumen (m³)',
-        data: filteredProductionData.map(item => item.total_volume)
-      }]
-    };
+  // Data for volume by strength as percentage cards
+  const volumeByStrengthCards = useMemo(() => {
+    const totalVolume = filteredProductionData.reduce((sum, item) => sum + item.total_volume, 0);
+    
+    if (totalVolume === 0) return [];
+    
+    const cards = filteredProductionData.map((item, index) => ({
+      id: `${item.recipe_id}-${item.strength_fc}-${index}`, // Unique key using recipe_id and index
+      strength: item.strength_fc,
+      volume: item.total_volume,
+      percentage: (item.total_volume / totalVolume) * 100,
+      remisiones: item.remisiones_count,
+      recipe_code: item.recipe_code
+    }));
+    
+    // Sort by percentage descending to show highest volume first
+    return cards.sort((a, b) => b.percentage - a.percentage);
   }, [filteredProductionData]);
 
   // Chart data for cement consumption trend over the last months
@@ -1154,87 +1162,6 @@ export default function ProduccionDashboard() {
     fetchCementTrendData();
   }, [currentPlant]);
 
-  // Chart options for volume chart
-  const volumeChartOptions: ApexOptions = {
-    chart: {
-      type: 'bar',
-      toolbar: { show: false },
-      background: 'transparent',
-      fontFamily: 'Inter, system-ui, sans-serif'
-    },
-    colors: ['#007AFF'],
-    plotOptions: {
-      bar: {
-        borderRadius: 8,
-        columnWidth: '65%',
-        dataLabels: {
-          position: 'top'
-        }
-      }
-    },
-    xaxis: {
-      categories: volumeByStrengthData.categories,
-      labels: {
-        style: { 
-          fontSize: '12px',
-          fontWeight: 500,
-          colors: '#6B7280'
-        }
-      },
-      axisBorder: {
-        show: false
-      },
-      axisTicks: {
-        show: false
-      }
-    },
-    yaxis: {
-      title: { 
-        text: 'Volumen (m³)',
-        style: {
-          fontSize: '14px',
-          fontWeight: 600,
-          color: '#374151'
-        }
-      },
-      labels: {
-        formatter: (val) => val.toFixed(1),
-        style: {
-          fontSize: '12px',
-          colors: '#6B7280'
-        }
-      }
-    },
-    dataLabels: {
-      enabled: true,
-      formatter: (val: number) => `${val.toFixed(1)}`,
-      style: {
-        fontSize: '12px',
-        fontWeight: 500,
-        colors: ['#ffffff']
-      },
-      background: {
-        enabled: true,
-        foreColor: '#000000',
-        borderRadius: 4,
-        padding: 4
-      }
-    },
-    grid: {
-      borderColor: '#F3F4F6',
-      strokeDashArray: 4,
-      xaxis: {
-        lines: {
-          show: false
-        }
-      }
-    },
-    tooltip: {
-      y: {
-        formatter: (val: number) => `${val.toFixed(1)} m³`
-      }
-    }
-  };
 
   // Chart options for cement consumption trend
   const cementTrendChartOptions: ApexOptions = {
@@ -1961,19 +1888,102 @@ export default function ProduccionDashboard() {
                 <CardDescription>Distribución de la producción por tipo de concreto</CardDescription>
               </CardHeader>
               <CardContent>
-                {typeof window !== 'undefined' && (
-                  <Chart
-                    options={{
-                      ...volumeChartOptions,
-                      chart: {
-                        ...volumeChartOptions.chart,
-                        background: 'transparent'
-                      }
-                    }}
-                    series={volumeByStrengthData.series}
-                    type="bar"
-                    height={320}
-                  />
+                {volumeByStrengthCards.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {volumeByStrengthCards.map((card, index) => {
+                      // Generate color based on percentage for visual hierarchy
+                      const getColorClasses = (percentage: number, index: number) => {
+                        if (index === 0) {
+                          // Highest percentage - primary color
+                          return {
+                            bg: 'bg-blue-50',
+                            border: 'border-blue-200',
+                            text: 'text-blue-900',
+                            accent: 'bg-blue-500'
+                          };
+                        } else if (percentage > 20) {
+                          // High percentage - green
+                          return {
+                            bg: 'bg-green-50',
+                            border: 'border-green-200', 
+                            text: 'text-green-900',
+                            accent: 'bg-green-500'
+                          };
+                        } else if (percentage > 10) {
+                          // Medium percentage - orange
+                          return {
+                            bg: 'bg-orange-50',
+                            border: 'border-orange-200',
+                            text: 'text-orange-900', 
+                            accent: 'bg-orange-500'
+                          };
+                        } else {
+                          // Low percentage - gray
+                          return {
+                            bg: 'bg-gray-50',
+                            border: 'border-gray-200',
+                            text: 'text-gray-900',
+                            accent: 'bg-gray-500'
+                          };
+                        }
+                      };
+
+                      const colors = getColorClasses(card.percentage, index);
+                      
+                      return (
+                        <div 
+                          key={card.id}
+                          className={`relative p-4 rounded-lg border-2 ${colors.bg} ${colors.border} transition-all hover:shadow-md`}
+                        >
+                          {/* Percentage indicator bar */}
+                          <div className="absolute top-0 left-0 right-0 h-1 bg-gray-200 rounded-t-lg overflow-hidden">
+                            <div 
+                              className={`h-full ${colors.accent} transition-all duration-500`}
+                              style={{ width: `${card.percentage}%` }}
+                            />
+                          </div>
+                          
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex flex-col gap-1">
+                              <Badge variant="outline" className={`${colors.text} border-current`}>
+                                {card.strength} kg/cm²
+                              </Badge>
+                              <div className="text-xs text-muted-foreground font-mono">
+                                {card.recipe_code}
+                              </div>
+                            </div>
+                            {index === 0 && (
+                              <div className="flex items-center text-xs text-blue-600 font-medium">
+                                <TrendingUp className="h-3 w-3 mr-1" />
+                                Mayor
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="space-y-1">
+                            <div className={`text-2xl font-bold ${colors.text}`}>
+                              {card.percentage.toFixed(1)}%
+                            </div>
+                            <div className="text-sm text-muted-foreground">
+                              {card.volume.toFixed(1)} m³
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {card.remisiones} remisiones
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center h-80">
+                    <div className="text-center">
+                      <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">
+                        No hay datos de producción para mostrar.
+                      </p>
+                    </div>
+                  </div>
                 )}
               </CardContent>
             </Card>
