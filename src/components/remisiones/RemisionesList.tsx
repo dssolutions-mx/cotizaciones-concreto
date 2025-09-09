@@ -92,78 +92,167 @@ export const formatRemisionesForAccounting = (
   const rows: string[] = [];
   
   // Function to find price for a product type
-  const findProductPrice = (productType: string, remisionOrderId: string): number => {
+  const findProductPrice = (productType: string, remisionOrderId: string, recipeId?: string): number => {
     if (!orderProducts || orderProducts.length === 0) return 0;
     
     // For SER001 (Vacío de Olla)
     if (productType === 'SER001') {
       // First try to find empty truck product in the specific order
       const orderSpecificEmptyTruck = orderProducts.find(p => 
-        (p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge) && 
+        (p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge || p.product_type === 'SER001') && 
         p.order_id === remisionOrderId
       );
       
       if (orderSpecificEmptyTruck) {
-        return orderSpecificEmptyTruck.empty_truck_price || 0;
+        // Prefer explicit empty_truck_price, then unit_price, then quote_details.final_price
+        return (
+          orderSpecificEmptyTruck.empty_truck_price ??
+          orderSpecificEmptyTruck.unit_price ??
+          orderSpecificEmptyTruck.quote_details?.final_price ??
+          0
+        );
       }
       
       // Fallback to any empty truck product
       const emptyTruckProduct = orderProducts.find(p => 
-        p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge
+        p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge || p.product_type === 'SER001'
       );
-      return emptyTruckProduct?.empty_truck_price || 0;
+      return (
+        emptyTruckProduct?.empty_truck_price ??
+        emptyTruckProduct?.unit_price ??
+        emptyTruckProduct?.quote_details?.final_price ??
+        0
+      );
     }
     
     // For SER002 (Bombeo)
     if (productType === 'SER002') {
       // First try to find pump product in the specific order
       const orderSpecificPump = orderProducts.find(p => 
-        p.has_pump_service && p.order_id === remisionOrderId
+        (p.has_pump_service || p.product_type === 'SER002') && p.order_id === remisionOrderId
       );
       
       if (orderSpecificPump) {
-        return orderSpecificPump.pump_price || 0;
+        // Prefer explicit pump_price, then unit_price, then quote_details.final_price
+        return (
+          orderSpecificPump.pump_price ??
+          orderSpecificPump.unit_price ??
+          orderSpecificPump.quote_details?.final_price ??
+          0
+        );
       }
       
       // Fallback to any pump product
-      const pumpProduct = orderProducts.find(p => p.has_pump_service);
-      return pumpProduct?.pump_price || 0;
+      const pumpProduct = orderProducts.find(p => p.has_pump_service || p.product_type === 'SER002');
+      return (
+        pumpProduct?.pump_price ??
+        pumpProduct?.unit_price ??
+        pumpProduct?.quote_details?.final_price ??
+        0
+      );
     }
     
     // For concrete products, first try to find in the specific order
     const orderSpecificProducts = orderProducts.filter(p => p.order_id === remisionOrderId);
     
-    // Find exact match in the specific order
-    let concreteProduct = orderSpecificProducts.find(p => 
-      p.product_type === productType || 
-      (p.recipe_id && p.recipe_id.toString() === productType)
-    );
+    // Normalize recipeId for comparisons
+    const recipeIdStr = recipeId ? String(recipeId) : undefined;
     
-    // If not found in specific order with exact match, try with hyphen removal in specific order
+    // 1) Prefer match via quote_details.recipe_id (quote detail linkage)
+    let concreteProduct = recipeIdStr
+      ? orderSpecificProducts.find(p => {
+          const qdRecipeId = p.quote_details?.recipe_id ? String(p.quote_details.recipe_id) : undefined;
+          return qdRecipeId && qdRecipeId === recipeIdStr;
+        })
+      : undefined;
+    
+    // 2) Try exact match by order_item.recipe_id if provided
+    if (!concreteProduct && recipeIdStr) {
+      concreteProduct = orderSpecificProducts.find(p => p.recipe_id && String(p.recipe_id) === recipeIdStr);
+    }
+    
+    // 3) Try exact match by product_type or recipe_id string
     if (!concreteProduct) {
       concreteProduct = orderSpecificProducts.find(p => 
-        (p.product_type && productType === p.product_type.replace(/-/g, '')) || 
-        (p.recipe_id && productType === p.recipe_id.toString().replace(/-/g, ''))
+        p.product_type === productType || 
+        (p.recipe_id && p.recipe_id.toString() === productType)
       );
     }
     
-    // If still not found, try in all orders
+    // 4) Try with hyphen removal in specific order
+    if (!concreteProduct) {
+      const normalized = productType.replace(/-/g, '');
+      concreteProduct = orderSpecificProducts.find(p => 
+        (p.product_type && normalized === p.product_type.replace(/-/g, '')) || 
+        (p.recipe_id && normalized === p.recipe_id.toString().replace(/-/g, ''))
+      );
+    }
+    
+    // 5) If still not found, try global by quote_details.recipe_id
+    if (!concreteProduct && recipeIdStr) {
+      concreteProduct = orderProducts.find(p => {
+        const qdRecipeId = p.quote_details?.recipe_id ? String(p.quote_details.recipe_id) : undefined;
+        return qdRecipeId && qdRecipeId === recipeIdStr;
+      });
+    }
+
+    // 6) Global fallback by order_item.recipe_id or product_type
     if (!concreteProduct) {
       concreteProduct = orderProducts.find(p => 
         p.product_type === productType || 
         (p.recipe_id && p.recipe_id.toString() === productType)
       );
       
-      // Last attempt with hyphen removal
+      // Last attempt with hyphen removal globally
       if (!concreteProduct) {
+        const normalized = productType.replace(/-/g, '');
         concreteProduct = orderProducts.find(p => 
-          (p.product_type && productType === p.product_type.replace(/-/g, '')) || 
-          (p.recipe_id && productType === p.recipe_id.toString().replace(/-/g, ''))
+          (p.product_type && normalized === p.product_type.replace(/-/g, '')) || 
+          (p.recipe_id && normalized === p.recipe_id.toString().replace(/-/g, ''))
         );
       }
     }
     
-    return concreteProduct?.unit_price || 0;
+    // 7) If we matched a product but its price is zero/undefined, try to salvage a sensible price
+    let price = (
+      concreteProduct?.unit_price ??
+      concreteProduct?.quote_details?.final_price ??
+      0
+    );
+
+    if (!price || price === 0) {
+      // Prefer first non-zero unit_price among order-specific products
+      const nonZeroOrderSpecific = orderSpecificProducts.find(p => (p.unit_price ?? 0) > 0);
+      if (nonZeroOrderSpecific) {
+        price = nonZeroOrderSpecific.unit_price!;
+      }
+    }
+
+    if (!price || price === 0) {
+      // Try non-zero final_price from quote_details in this order
+      const nonZeroFinalPriceInOrder = orderSpecificProducts.find(p => p.quote_details?.final_price && p.quote_details.final_price > 0);
+      if (nonZeroFinalPriceInOrder) {
+        price = nonZeroFinalPriceInOrder.quote_details!.final_price!;
+      }
+    }
+
+    if (!price || price === 0) {
+      // As a very last resort, use any non-zero unit_price in all products
+      const anyNonZero = orderProducts.find(p => (p.unit_price ?? 0) > 0);
+      if (anyNonZero) {
+        price = anyNonZero.unit_price!;
+      }
+    }
+
+    if (!price || price === 0) {
+      // Final fallback to any non-zero final_price globally
+      const anyNonZeroFinal = orderProducts.find(p => p.quote_details?.final_price && p.quote_details.final_price > 0);
+      if (anyNonZeroFinal) {
+        price = anyNonZeroFinal.quote_details!.final_price!;
+      }
+    }
+
+    return price || 0;
   };
   
   // First handle VACIO DE OLLA if any exists (should be assigned first remision number)
@@ -178,7 +267,7 @@ export const formatRemisionesForAccounting = (
     const dateFormatted = formatDateString(firstRemision.fecha);
     
     // Get price for vacío de olla
-    const emptyTruckPrice = findProductPrice('SER001', firstRemision.order_id);
+    const emptyTruckPrice = findProductPrice('SER001', firstRemision.order_id, firstRemision.recipe_id);
     
     // Add row for "VACIO DE OLLA" with code SER001
     rows.push([
@@ -206,8 +295,8 @@ export const formatRemisionesForAccounting = (
     // Remove hyphens for display in accounting software
     const displayProductCode = originalProductCode.replace(/-/g, '');
     
-    // Get price for this product using original product code
-    const productPrice = findProductPrice(originalProductCode, remision.order_id);
+    // Get price for this product using original product code AND recipe_id
+    const productPrice = findProductPrice(originalProductCode, remision.order_id, remision.recipe_id);
     
     rows.push([
       `${prefix}${remision.remision_number}`,
@@ -229,7 +318,7 @@ export const formatRemisionesForAccounting = (
     const dateFormatted = formatDateString(remision.fecha);
     
     // Get price for pump service
-    const pumpPrice = findProductPrice('SER002', remision.order_id);
+    const pumpPrice = findProductPrice('SER002', remision.order_id, remision.recipe_id);
     
     rows.push([
       `${prefix}${remision.remision_number}`,

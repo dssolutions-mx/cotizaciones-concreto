@@ -647,23 +647,23 @@ export default function VentasDashboard() {
                      {/* Edad Promedio de Garantía */}
                     <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-purple-50 to-indigo-100">
                     <CardHeader className="p-4 pb-2">
-                         <CardTitle className="text-center text-2xl font-bold text-purple-800">
+                            <CardTitle className="text-center text-2xl font-bold text-purple-800">
                                        {guaranteeAgeData?.averageGuaranteeAge.toFixed(1) || '0.0'}
-                         </CardTitle>
+                            </CardTitle>
                         <CardDescription className='text-center text-xs font-medium text-purple-600 mb-2'>
                             EDAD DE GARANTÍA
-                        </CardDescription>
+                            </CardDescription>
                         <div className="flex justify-center gap-2 text-xs">
                             <span className="text-purple-700">
                                 📋 {guaranteeAgeData?.totalRecipes || 0} fórmulas
                             </span>
                         </div>
-                    </CardHeader>
+                        </CardHeader>
                     <CardContent className='p-2 pt-0'>
-                        <div className="text-center text-xs text-purple-600">
+                            <div className="text-center text-xs text-purple-600">
                             Promedio de edad de garantía (días)
-                        </div>
-                    </CardContent>
+                            </div>
+                        </CardContent>
                     </Card>
                 </div>
 
