@@ -1,162 +1,67 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { format, subDays, subMonths, isValid, startOfMonth, endOfMonth, addMonths } from 'date-fns';
+import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase/client';
 import { formatCurrency } from '@/lib/utils';
-import { Download, TrendingUp, Package, DollarSign, BarChart3, ArrowUpIcon, ArrowDownIcon, AlertTriangle, CheckCircle2, Search, CheckCircle, Info } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { BarChart3, TrendingUp, Package, DollarSign, ArrowRight, Eye, Download, TrendingDown, Crown } from "lucide-react";
+import * as XLSX from 'xlsx';
 import { Badge } from "@/components/ui/badge";
 import { DateRange } from "react-day-picker";
 import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-with-presets"
-import dynamic from 'next/dynamic';
-import { ApexOptions } from 'apexcharts';
-import * as XLSX from 'xlsx';
-import { usePlantContext } from '@/contexts/PlantContext';
-import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
+import Link from 'next/link';
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ChevronDown, Filter } from "lucide-react";
 
-
-// Dynamically import ApexCharts
-const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
-
-// Types for production data
-interface ProductionData {
-  strength_fc: number;
-  recipe_code: string;
-  recipe_id: string;
+// Types for comparative production data
+interface PlantProductionData {
+  plant_id: string;
+  plant_code: string;
+  plant_name: string;
   total_volume: number;
-  remisiones_count: number;
-  avg_cost_per_m3: number;
   total_material_cost: number;
-  cement_cost: number;
   cement_consumption: number;
-  materials_breakdown: MaterialBreakdown[];
-  avg_selling_price?: number;
-  margin_per_m3?: number;
-}
-
-interface MaterialBreakdown {
-  material_type: string;
-  material_name: string;
-  total_consumption: number;
-  unit: string;
-  total_cost: number;
-  cost_per_unit: number;
-  cost_per_m3: number;
-}
-
-interface RemisionData {
-  id: string;
-  remision_number: string;
-  fecha: string;
-  volumen_fabricado: number;
-  recipe: {
-    id: string;
-    recipe_code: string;
-    strength_fc: number;
-  };
-  order: {
-    client_id: string;
-    clients: {
-      business_name: string;
-    };
-  };
-}
-
-// New interface for investigation data
-interface InvestigationData {
-  remisiones: RemisionData[];
-  materialPrices: MaterialPriceData[];
-  recipeConsumption: RecipeConsumptionData[];
-  missingPrices: MissingPriceData[];
-}
-
-interface MaterialPriceData {
-  material_id: string;
-  material_name: string;
-  material_code: string;
-  category: string;
-  unit_of_measure: string;
-  current_price: number;
-  effective_date: string;
-  plant_id: string | null;
-  has_price: boolean;
-}
-
-interface RecipeConsumptionData {
-  recipe_id: string;
-  recipe_code: string;
-  strength_fc: number;
+  cement_cost_per_m3: number;
+  avg_cost_per_m3: number;
   remisiones_count: number;
-  total_volume: number;
-  materials: MaterialConsumptionDetail[];
+  additive_consumption: number;
+  additive_cost: number;
+  aggregate_consumption: number;
+  aggregate_cost: number;
+  water_consumption: number;
+  fc_ponderada: number;
+  edad_ponderada: number;
 }
 
-interface MaterialConsumptionDetail {
-  material_id: string;
-  material_name: string;
-  material_code: string;
-  category: string;
-  total_consumption: number;
-  unit: string;
-  has_price: boolean;
-  price: number;
-  total_cost: number;
+interface ComparativeData {
+  section1: PlantProductionData[];  // Consumo
+  section2: PlantProductionData[];  // Precios MP
+  section3: PlantProductionData[];  // Costo Total MP
+  section4: PlantProductionData[];  // Rendimientos
 }
 
-interface MissingPriceData {
-  material_id: string;
-  material_name: string;
-  material_code: string;
-  category: string;
-  unit_of_measure: string;
-  last_known_price?: number;
-  last_price_date?: string;
-}
-
-export default function ProduccionDashboard() {
-  const { currentPlant } = usePlantContext();
+export default function ComparativaProduccion() {
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
-  const [productionData, setProductionData] = useState<ProductionData[]>([]);
-  const [remisionesData, setRemisionesData] = useState<RemisionData[]>([]);
-  const [investigationData, setInvestigationData] = useState<InvestigationData | null>(null);
+  const [comparativeData, setComparativeData] = useState<ComparativeData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [strengthFilter, setStrengthFilter] = useState<string>('all');
-  const [availableStrengths, setAvailableStrengths] = useState<number[]>([]);
-  const [investigationLoading, setInvestigationLoading] = useState(false);
-  const [investigationProgress, setInvestigationProgress] = useState<string>('');
-  const [selectedMaterial, setSelectedMaterial] = useState<string>('');
-  const [availableMaterials, setAvailableMaterials] = useState<Array<{
-    id: string;
-    name: string;
-    code: string;
-    category: string;
-    unit: string;
-  }>>([]);
-  const [materialConsumptionData, setMaterialConsumptionData] = useState<any>(null);
-  const [materialAnalysisLoading, setMaterialAnalysisLoading] = useState(false);
-  const [globalMaterialsSummary, setGlobalMaterialsSummary] = useState<any>(null);
-  const [historicalTrends, setHistoricalTrends] = useState<any>(null);
+  const [availablePlants, setAvailablePlants] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [selectedPlants, setSelectedPlants] = useState<string[]>([]);
+  const [previousMonthData, setPreviousMonthData] = useState<PlantProductionData[]>([]);
 
   // Format the dates for display
   const dateRangeText = useMemo(() => {
@@ -164,12 +69,33 @@ export default function ProduccionDashboard() {
     return `${format(startDate, 'dd/MM/yyyy', { locale: es })} - ${format(endDate, 'dd/MM/yyyy', { locale: es })}`;
   }, [startDate, endDate]);
 
-  // Fetch production data
+  // Fetch available plants
   useEffect(() => {
-    async function fetchProductionData() {
-      if (!startDate || !endDate) {
-        setProductionData([]);
-        setRemisionesData([]);
+    async function fetchPlants() {
+      try {
+        const { data: plants, error: plantsError } = await supabase
+          .from('plants')
+          .select('id, code, name')
+          .eq('is_active', true)
+          .order('code');
+
+        if (plantsError) throw plantsError;
+        setAvailablePlants(plants || []);
+        // Select all plants by default
+        setSelectedPlants((plants || []).map(p => p.id));
+      } catch (error) {
+        console.error('Error fetching plants:', error);
+      }
+    }
+
+    fetchPlants();
+  }, []);
+
+  // Fetch comparative production data
+  useEffect(() => {
+    async function fetchComparativeData() {
+      if (!startDate || !endDate || availablePlants.length === 0 || selectedPlants.length === 0) {
+        setComparativeData(null);
         setLoading(false);
         return;
       }
@@ -178,197 +104,206 @@ export default function ProduccionDashboard() {
       setError(null);
 
       try {
-        // Format dates for Supabase query
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
 
-        // Fetch remisiones with recipe and order data
-        let remisionesQuery = supabase
-          .from('remisiones')
-          .select(`
-            id,
-            remision_number,
-            fecha,
-            volumen_fabricado,
-            recipe_id,
-            order_id,
-            recipes!inner(
-              id,
-              recipe_code,
-              strength_fc
-            ),
-            orders!inner(
-              client_id,
-              clients!inner(
-                business_name
-              )
-            )
-          `)
-          .eq('tipo_remision', 'CONCRETO')
-          .gte('fecha', formattedStartDate)
-          .lte('fecha', formattedEndDate);
+        const plantData: PlantProductionData[] = [];
 
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
+        // Fetch data only for selected plants
+        const plantsToProcess = availablePlants.filter(plant => selectedPlants.includes(plant.id));
+        for (const plant of plantsToProcess) {
+          const plantProduction = await fetchPlantProductionData(
+            plant.id,
+            plant.code,
+            plant.name,
+            formattedStartDate,
+            formattedEndDate
+          );
+          if (plantProduction) {
+            plantData.push(plantProduction);
+          }
         }
 
-        const { data: remisiones, error: remisionesError } = await remisionesQuery;
+        // Get previous month data for comparison
+        const prevMonthData = await fetchPreviousMonthData();
+        setPreviousMonthData(prevMonthData);
 
-        if (remisionesError) throw remisionesError;
+        // Organize data into sections like the reference image
+        const comparative: ComparativeData = {
+          section1: plantData, // Consumo (Volume and cement consumption)
+          section2: plantData, // Precios MP (Material prices)
+          section3: plantData, // Costo Total MP (Total material costs)
+          section4: plantData  // Rendimientos (Performance metrics)
+        };
 
-        // Process remisiones data
-        const processedRemisiones: RemisionData[] = remisiones
-          // filter out records without recipe/strength
-          .filter((r: any) => r?.recipes?.strength_fc)
-          .map((r: any) => ({
-            id: r.id,
-            remision_number: r.remision_number,
-            fecha: r.fecha,
-            volumen_fabricado: r.volumen_fabricado,
-            recipe: {
-              id: r.recipes.id,
-              recipe_code: r.recipes.recipe_code,
-              strength_fc: r.recipes.strength_fc
-            },
-            order: {
-              client_id: r.orders?.client_id,
-              clients: {
-                business_name: r.orders?.clients?.business_name || 'Desconocido'
-              }
-            }
-          }));
-
-        setRemisionesData(processedRemisiones);
-
-        // Extract unique strengths for filter
-        const strengths = Array.from(new Set(processedRemisiones.map(r => r.recipe.strength_fc)))
-          .filter(s => s != null)
-          .sort((a, b) => a - b);
-        setAvailableStrengths(strengths);
-
-        // Extract unique materials for material analysis
-        await loadAvailableMaterials(processedRemisiones);
-
-        // Clear material analysis data when dates change
-        setSelectedMaterial('');
-        setMaterialConsumptionData(null);
-
-        // Calculate global materials summary
-        const materialsSummary = await calculateGlobalMaterialsSummary(processedRemisiones);
-        setGlobalMaterialsSummary(materialsSummary);
-
-        // Calculate historical trends
-        const trends = await calculateHistoricalTrends();
-        setHistoricalTrends(trends);
-
-        // Group by recipe and calculate production metrics
-        const productionSummary = await calculateProductionMetrics(processedRemisiones);
-        setProductionData(productionSummary);
+        setComparativeData(comparative);
 
       } catch (error) {
-        console.error('Error fetching production data:', error);
-        setError('Error al cargar los datos de producción. Por favor, intente nuevamente.');
+        console.error('Error fetching comparative data:', error);
+        setError('Error al cargar los datos comparativos. Por favor, intente nuevamente.');
       } finally {
         setLoading(false);
       }
     }
 
-    fetchProductionData();
-  }, [startDate, endDate, currentPlant]);
+    fetchComparativeData();
+  }, [startDate, endDate, availablePlants, selectedPlants]);
 
-  // Calculate production metrics with material costs
-  const calculateProductionMetrics = async (remisiones: RemisionData[]): Promise<ProductionData[]> => {
-    // Group by recipe
-    const recipeGroups = remisiones.reduce((acc, remision) => {
-      const key = `${remision.recipe.id}-${remision.recipe.strength_fc}`;
-      if (!acc[key]) {
-        acc[key] = {
-          recipe_id: remision.recipe.id,
-          recipe_code: remision.recipe.recipe_code,
-          strength_fc: remision.recipe.strength_fc,
-          remisiones: []
-        };
-      }
-      acc[key].remisiones.push(remision);
-      return acc;
-    }, {} as Record<string, any>);
+  // Function to fetch previous month data for comparison
+  const fetchPreviousMonthData = async (): Promise<PlantProductionData[]> => {
+    if (!startDate || selectedPlants.length === 0) return [];
 
-    const productionMetrics: ProductionData[] = [];
+    try {
+      // Calculate previous month date range
+      const prevMonthStart = startOfMonth(subMonths(startDate, 1));
+      const prevMonthEnd = endOfMonth(subMonths(startDate, 1));
+      const formattedPrevStart = format(prevMonthStart, 'yyyy-MM-dd');
+      const formattedPrevEnd = format(prevMonthEnd, 'yyyy-MM-dd');
 
-    // Preload average selling prices per recipe (active prices, filtered by plant when available)
-    const uniqueRecipeIds = Array.from(new Set(Object.values(recipeGroups as any).map((g: any) => g.recipe_id)));
-    let priceMap = new Map<string, number>();
-    if (uniqueRecipeIds.length > 0) {
-      let priceQuery = supabase
-        .from('product_prices')
-        .select('recipe_id, base_price')
-        .eq('is_active', true)
-        .in('recipe_id', uniqueRecipeIds);
-      if (currentPlant?.id) {
-        priceQuery = priceQuery.eq('plant_id', currentPlant.id);
+      const plantData: PlantProductionData[] = [];
+
+      // Fetch data only for selected plants
+      const plantsToProcess = availablePlants.filter(plant => selectedPlants.includes(plant.id));
+      for (const plant of plantsToProcess) {
+        const plantProduction = await fetchPlantProductionData(
+          plant.id,
+          plant.code,
+          plant.name,
+          formattedPrevStart,
+          formattedPrevEnd
+        );
+        if (plantProduction) {
+          plantData.push(plantProduction);
+        }
       }
-      const { data: priceRows, error: priceErr } = await priceQuery;
-      if (!priceErr && priceRows) {
-        const sumCount = new Map<string, { sum: number, count: number }>();
-        priceRows.forEach((row: any) => {
-          const key = row.recipe_id as string;
-          const value = Number(row.base_price) || 0;
-          const entry = sumCount.get(key) || { sum: 0, count: 0 };
-          entry.sum += value;
-          entry.count += 1;
-          sumCount.set(key, entry);
-        });
-        sumCount.forEach((v, k) => {
-          priceMap.set(k, v.count > 0 ? v.sum / v.count : 0);
-        });
-      }
+
+      return plantData;
+    } catch (error) {
+      console.error('Error fetching previous month data:', error);
+      return [];
     }
-
-    for (const [key, group] of Object.entries(recipeGroups)) {
-      const totalVolume = group.remisiones.reduce((sum: number, r: any) => sum + r.volumen_fabricado, 0);
-      
-      // Get material costs from actual remision_materiales rows for this recipe group
-      const remisionIds = group.remisiones.map((r: any) => r.id);
-      const materialCosts = await calculateMaterialCosts(remisionIds, totalVolume);
-
-      const avgSellingPrice = Number(priceMap.get(group.recipe_id)) || 0;
-      const marginPerM3 = avgSellingPrice - materialCosts.costPerM3;
-
-      productionMetrics.push({
-        strength_fc: group.strength_fc,
-        recipe_code: group.recipe_code,
-        recipe_id: group.recipe_id,
-        total_volume: totalVolume,
-        remisiones_count: group.remisiones.length,
-        avg_cost_per_m3: materialCosts.costPerM3,
-        total_material_cost: materialCosts.totalCost,
-        cement_cost: materialCosts.cementCost,
-        cement_consumption: materialCosts.cementConsumption,
-        materials_breakdown: materialCosts.breakdown,
-        avg_selling_price: avgSellingPrice,
-        margin_per_m3: marginPerM3
-      });
-    }
-
-    return productionMetrics.sort((a, b) => a.strength_fc - b.strength_fc);
   };
 
-  // Calculate material costs from actual consumptions in remision_materiales
-  const calculateMaterialCosts = async (remisionIds: string[], totalVolume: number) => {
+  // Fetch production data for a specific plant
+  const fetchPlantProductionData = async (
+    plantId: string,
+    plantCode: string,
+    plantName: string,
+    startDateStr: string,
+    endDateStr: string
+  ): Promise<PlantProductionData | null> => {
+    try {
+      // Fetch remisiones for this plant
+      const { data: remisiones, error: remisionesError } = await supabase
+        .from('remisiones')
+        .select(`
+          id,
+          volumen_fabricado,
+          recipe_id,
+          recipes!inner(
+            id,
+            recipe_code,
+            strength_fc,
+            age_days
+          )
+        `)
+        .eq('tipo_remision', 'CONCRETO')
+        .eq('plant_id', plantId)
+        .gte('fecha', startDateStr)
+        .lte('fecha', endDateStr);
+
+      if (remisionesError) throw remisionesError;
+
+      if (!remisiones || remisiones.length === 0) {
+        return {
+          plant_id: plantId,
+          plant_code: plantCode,
+          plant_name: plantName,
+          total_volume: 0,
+          total_material_cost: 0,
+          cement_consumption: 0,
+          cement_cost_per_m3: 0,
+          avg_cost_per_m3: 0,
+          remisiones_count: 0,
+          additive_consumption: 0,
+          additive_cost: 0,
+          aggregate_consumption: 0,
+          aggregate_cost: 0,
+          water_consumption: 0,
+          fc_ponderada: 0,
+          edad_ponderada: 0
+        };
+      }
+
+      const totalVolume = remisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
+      const remisionIds = remisiones.map(r => r.id);
+
+      // Fetch material costs for these remisiones
+      const materialCosts = await calculateMaterialCosts(remisionIds, totalVolume, plantId);
+
+      // Calculate F'c ponderada and edad ponderada
+      let fcPonderada = 0;
+      let edadPonderada = 0;
+      
+      if (totalVolume > 0) {
+        let sumFcVolume = 0;
+        let sumEdadVolume = 0;
+        
+        remisiones.forEach(remision => {
+          const volume = remision.volumen_fabricado || 0;
+          const fc = remision.recipes?.strength_fc || 0;
+          const edad = remision.recipes?.age_days || 28;
+          
+          sumFcVolume += fc * volume;
+          sumEdadVolume += edad * volume;
+        });
+        
+        fcPonderada = sumFcVolume / totalVolume;
+        edadPonderada = sumEdadVolume / totalVolume;
+      }
+
+      return {
+        plant_id: plantId,
+        plant_code: plantCode,
+        plant_name: plantName,
+        total_volume: totalVolume,
+        total_material_cost: materialCosts.totalCost,
+        cement_consumption: materialCosts.cementConsumption,
+        cement_cost_per_m3: totalVolume > 0 ? materialCosts.cementCost / totalVolume : 0,
+        avg_cost_per_m3: totalVolume > 0 ? materialCosts.totalCost / totalVolume : 0,
+        remisiones_count: remisiones.length,
+        additive_consumption: materialCosts.additiveConsumption,
+        additive_cost: materialCosts.additiveCost,
+        aggregate_consumption: materialCosts.aggregateConsumption,
+        aggregate_cost: materialCosts.aggregateCost,
+        water_consumption: materialCosts.waterConsumption,
+        fc_ponderada: fcPonderada,
+        edad_ponderada: edadPonderada
+      };
+
+    } catch (error) {
+      console.error(`Error fetching data for plant ${plantCode}:`, error);
+      return null;
+    }
+  };
+
+  // Calculate material costs for remisiones using the same logic as detail page
+  const calculateMaterialCosts = async (remisionIds: string[], totalVolume: number, plantId: string) => {
     try {
       if (!remisionIds || remisionIds.length === 0 || totalVolume <= 0) {
         return {
-          costPerM3: 0,
           totalCost: 0,
-          cementCost: 0,
           cementConsumption: 0,
-          breakdown: []
+          cementCost: 0,
+          additiveConsumption: 0,
+          additiveCost: 0,
+          aggregateConsumption: 0,
+          aggregateCost: 0,
+          waterConsumption: 0
         };
       }
 
       // Fetch actual consumptions from remision_materiales with proper material relationships
-      // Note: Large IN() lists can exceed URL limits; chunk requests to avoid 400 errors
       const selectColumns = `
         remision_id,
         material_id,
@@ -402,18 +337,21 @@ export default function ProduccionDashboard() {
 
       if (!materiales || materiales.length === 0) {
         return {
-          costPerM3: 0,
           totalCost: 0,
-          cementCost: 0,
           cementConsumption: 0,
-          breakdown: []
+          cementCost: 0,
+          additiveConsumption: 0,
+          additiveCost: 0,
+          aggregateConsumption: 0,
+          aggregateCost: 0,
+          waterConsumption: 0
         };
       }
 
-      // Aggregate by material_id (skip rows without a valid material_id or material relation)
+      // Aggregate by material_id
       const aggregatedByMaterial = new Map<string, { qty: number, material: any, fallbackType?: string }>();
       materiales.forEach((m: any) => {
-        if (!m.material_id || !m.materials) return; // ensure we only include mapped materials
+        if (!m.material_id || !m.materials) return;
         const materialId = String(m.material_id);
         const qty = Number(m.cantidad_real) || 0;
 
@@ -442,8 +380,8 @@ export default function ProduccionDashboard() {
         .order('effective_date', { ascending: false });
 
       // Prefer plant-specific prices if plant is set
-      if (currentPlant?.id) {
-        pricesQuery = pricesQuery.eq('plant_id', currentPlant.id);
+      if (plantId) {
+        pricesQuery = pricesQuery.eq('plant_id', plantId);
       }
 
       const { data: materialPrices, error: pricesError } = await pricesQuery;
@@ -452,7 +390,7 @@ export default function ProduccionDashboard() {
         console.error('Error fetching material prices:', pricesError);
       }
 
-      // Create price lookup by material_id (first row per material wins as we ordered by effective_date desc)
+      // Create price lookup by material_id
       const priceMap = new Map();
       materialPrices?.forEach((mp: any) => {
         if (!priceMap.has(mp.material_id)) {
@@ -460,2790 +398,851 @@ export default function ProduccionDashboard() {
         }
       });
 
-      // Calculate costs
-      let totalCostPerM3 = 0;
-      let cementCostPerM3 = 0;
-      let cementConsumptionTotal = 0;
-      const breakdown: MaterialBreakdown[] = [];
+      // Calculate costs and categorize materials
+      let totalCost = 0;
+      let cementConsumption = 0;
+      let cementCost = 0;
+      let additiveConsumption = 0;
+      let additiveCost = 0;
+      let aggregateConsumption = 0;
+      let aggregateCost = 0;
+      let waterConsumption = 0;
 
       aggregatedByMaterial.forEach(({ qty, material, fallbackType }, materialId) => {
         const price = Number(priceMap.get(materialId)) || 0;
-        const totalCost = qty * price;
-        const costPerM3 = totalVolume > 0 ? totalCost / totalVolume : 0;
+        const cost = qty * price;
 
-        totalCostPerM3 += costPerM3;
+        totalCost += cost;
 
-        // Check if this is cement based on known fields
+        // Categorize materials based on name and category
         const typeOrName = String(
           material.category || material.material_name || fallbackType || ''
         ).toLowerCase();
-        const isCement = typeOrName.includes('cement') || typeOrName.includes('cemento');
-        
-        if (isCement) {
-          cementCostPerM3 += costPerM3;
-          cementConsumptionTotal += qty;
-        }
 
-        breakdown.push({
-          material_type: (material.category || fallbackType || 'Unknown') as string,
-          material_name: (material.material_name || 'Material Desconocido') as string,
-          total_consumption: qty,
-          unit: (material.unit_of_measure || '') as string,
-          total_cost: totalCost,
-          cost_per_unit: price,
-          cost_per_m3: costPerM3
-        });
+        if (typeOrName.includes('cement') || typeOrName.includes('cemento')) {
+          cementConsumption += qty;
+          cementCost += cost;
+        } else if (typeOrName.includes('aditivo') || typeOrName.includes('additive') || 
+                   typeOrName.includes('plastificante') || typeOrName.includes('superplastificante')) {
+          additiveConsumption += qty;
+          additiveCost += cost;
+        } else if (typeOrName.includes('agregado') || typeOrName.includes('arena') || 
+                   typeOrName.includes('grava') || typeOrName.includes('piedra') ||
+                   typeOrName.includes('aggregate') || typeOrName.includes('sand') ||
+                   typeOrName.includes('gravel') || typeOrName.includes('stone')) {
+          aggregateConsumption += qty;
+          aggregateCost += cost;
+        } else if (typeOrName.includes('agua') || typeOrName.includes('water')) {
+          waterConsumption += qty;
+        }
       });
 
       return {
-        costPerM3: totalCostPerM3,
-        totalCost: totalCostPerM3 * totalVolume,
-        cementCost: cementCostPerM3 * totalVolume,
-        cementConsumption: cementConsumptionTotal,
-        breakdown: breakdown.sort((a, b) => b.cost_per_m3 - a.cost_per_m3)
+        totalCost,
+        cementConsumption,
+        cementCost,
+        additiveConsumption,
+        additiveCost,
+        aggregateConsumption,
+        aggregateCost,
+        waterConsumption
       };
+
     } catch (error) {
       console.error('Error calculating material costs:', error);
       return {
-        costPerM3: 0,
         totalCost: 0,
-        cementCost: 0,
         cementConsumption: 0,
-        breakdown: []
+        cementCost: 0,
+        additiveConsumption: 0,
+        additiveCost: 0,
+        aggregateConsumption: 0,
+        aggregateCost: 0,
+        waterConsumption: 0
       };
     }
   };
 
-  // Load available materials from remision_materiales
-  const loadAvailableMaterials = async (remisiones: RemisionData[]) => {
-    try {
-      if (!remisiones || remisiones.length === 0) {
-        setAvailableMaterials([]);
-        return;
-      }
-
-      const remisionIds = remisiones.map(r => r.id);
-      const chunkSize = 50;
-      const materialesResults: any[] = [];
-
-      // Fetch materials in chunks to avoid URL length limits
-      for (let i = 0; i < remisionIds.length; i += chunkSize) {
-        const chunk = remisionIds.slice(i, i + chunkSize);
-        const { data, error } = await supabase
-          .from('remision_materiales')
-          .select(`
-            material_id,
-            materials!inner(
-              id,
-              material_name,
-              material_code,
-              category,
-              unit_of_measure
-            )
-          `)
-          .in('remision_id', chunk);
-
-        if (error) {
-          console.error('Error fetching materials chunk:', error);
-          continue;
-        }
-        if (data) materialesResults.push(...data);
-      }
-
-      // Extract unique materials
-      const uniqueMaterials = new Map<string, any>();
-      materialesResults.forEach((m: any) => {
-        if (!m.material_id || !m.materials || uniqueMaterials.has(m.material_id)) return;
-
-        uniqueMaterials.set(m.material_id, {
-          id: m.material_id,
-          name: m.materials.material_name,
-          code: m.materials.material_code,
-          category: m.materials.category,
-          unit: m.materials.unit_of_measure
-        });
-      });
-
-      const materialsArray = Array.from(uniqueMaterials.values())
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      setAvailableMaterials(materialsArray);
-    } catch (error) {
-      console.error('Error loading available materials:', error);
-      setAvailableMaterials([]);
-    }
-  };
-
-  // Calculate total consumption for a specific material
-  const calculateMaterialConsumption = async (materialId: string) => {
-    try {
-      if (!remisionesData || remisionesData.length === 0 || !materialId) {
-        return null;
-      }
-
-      const remisionIds = remisionesData.map(r => r.id);
-      const chunkSize = 50;
-      const materialesResults: any[] = [];
-
-      // Fetch material consumption in chunks
-      for (let i = 0; i < remisionIds.length; i += chunkSize) {
-        const chunk = remisionIds.slice(i, i + chunkSize);
-        const { data, error } = await supabase
-          .from('remision_materiales')
-          .select(`
-            remision_id,
-            cantidad_real,
-            materials!inner(
-              material_name,
-              material_code,
-              category,
-              unit_of_measure
-            ),
-            remisiones!inner(
-              recipe_id,
-              recipes!inner(
-                recipe_code,
-                strength_fc
-              )
-            )
-          `)
-          .in('remision_id', chunk)
-          .eq('material_id', materialId);
-
-        if (error) {
-          console.error('Error fetching material consumption chunk:', error);
-          continue;
-        }
-        if (data) materialesResults.push(...data);
-      }
-
-      if (materialesResults.length === 0) return null;
-
-      // Get material price
-      const currentDate = format(new Date(), 'yyyy-MM-dd');
-      let priceQuery = supabase
-        .from('material_prices')
-        .select('price_per_unit, effective_date, end_date, plant_id')
-        .eq('material_id', materialId)
-        .lte('effective_date', currentDate)
-        .or(`end_date.is.null,end_date.gte.${currentDate}`)
-        .order('effective_date', { ascending: false });
-
-      if (currentPlant?.id) {
-        priceQuery = priceQuery.eq('plant_id', currentPlant.id);
-      }
-
-      const { data: priceData, error: priceError } = await priceQuery;
-      const materialPrice = priceData && priceData.length > 0 ? priceData[0].price_per_unit : 0;
-
-      // Aggregate consumption by recipe/strength
-      const consumptionByRecipe = new Map<string, {
-        recipe_code: string;
-        strength_fc: number;
-        total_consumption: number;
-        remisiones_count: number;
-        total_volume: number;
-      }>();
-
-      let totalConsumption = 0;
-      let totalVolume = 0;
-      let remisionesCount = new Set<string>();
-
-      materialesResults.forEach((m: any) => {
-        const consumption = Number(m.cantidad_real) || 0;
-        const remision = m.remisiones;
-        const recipe = remision?.recipes;
-
-        if (!recipe) return;
-
-        const recipeKey = `${recipe.recipe_code}-${recipe.strength_fc}`;
-        const remisionData = remisionesData.find(r => r.id === m.remision_id);
-
-        totalConsumption += consumption;
-        if (remisionData) {
-          totalVolume += remisionData.volumen_fabricado;
-          remisionesCount.add(m.remision_id);
-        }
-
-        if (consumptionByRecipe.has(recipeKey)) {
-          const existing = consumptionByRecipe.get(recipeKey)!;
-          existing.total_consumption += consumption;
-          existing.remisiones_count += 1;
-          if (remisionData) {
-            existing.total_volume += remisionData.volumen_fabricado;
-          }
-        } else {
-          consumptionByRecipe.set(recipeKey, {
-            recipe_code: recipe.recipe_code,
-            strength_fc: recipe.strength_fc,
-            total_consumption: consumption,
-            remisiones_count: 1,
-            total_volume: remisionData ? remisionData.volumen_fabricado : 0
-          });
-        }
-      });
-
-      const material = materialesResults[0]?.materials;
-      const totalCost = totalConsumption * materialPrice;
-      const costPerM3 = totalVolume > 0 ? totalCost / totalVolume : 0;
-      const consumptionPerM3 = totalVolume > 0 ? totalConsumption / totalVolume : 0;
-
-      return {
-        material: {
-          id: materialId,
-          name: material?.material_name || 'Material Desconocido',
-          code: material?.material_code || '',
-          category: material?.category || '',
-          unit: material?.unit_of_measure || ''
-        },
-        totalConsumption,
-        totalVolume,
-        totalCost,
-        costPerM3,
-        consumptionPerM3,
-        remisionesCount: remisionesCount.size,
-        pricePerUnit: materialPrice,
-        hasPrice: materialPrice > 0,
-        consumptionByRecipe: Array.from(consumptionByRecipe.values())
-          .sort((a, b) => b.total_consumption - a.total_consumption)
-      };
-    } catch (error) {
-      console.error('Error calculating material consumption:', error);
-      return null;
-    }
-  };
-
-  // Handle material selection change
-  const handleMaterialChange = async (materialId: string) => {
-    setSelectedMaterial(materialId);
-    if (!materialId) {
-      setMaterialConsumptionData(null);
+  // Export data to Excel
+  const exportToExcel = () => {
+    if (!comparativeData || comparativeData.section1.length === 0) {
+      alert('No hay datos para exportar');
       return;
     }
 
-    setMaterialAnalysisLoading(true);
-    try {
-      const data = await calculateMaterialConsumption(materialId);
-      setMaterialConsumptionData(data);
-    } catch (error) {
-      console.error('Error loading material consumption data:', error);
-      setMaterialConsumptionData(null);
-    } finally {
-      setMaterialAnalysisLoading(false);
-    }
-  };
+    const workbook = XLSX.utils.book_new();
 
-  // Material performance evaluation functions
-  const getConsumptionStatus = (consumptionPerM3: number) => {
-    // These thresholds would be configurable based on material type and historical data
-    if (consumptionPerM3 <= 100) return "Óptimo";
-    if (consumptionPerM3 <= 150) return "Bueno";
-    if (consumptionPerM3 <= 200) return "Regular";
-    return "Alto";
-  };
-
-  const getCostStatus = (costPerM3: number) => {
-    if (costPerM3 <= 50) return "Económico";
-    if (costPerM3 <= 100) return "Moderado";
-    if (costPerM3 <= 150) return "Elevado";
-    return "Muy Alto";
-  };
-
-  const getEfficiencyStatus = (consumptionPerM3: number) => {
-    // Efficiency based on consistency of usage across recipes
-    if (consumptionPerM3 <= 120) return "Alta";
-    if (consumptionPerM3 <= 180) return "Media";
-    return "Baja";
-  };
-
-  const getConsumptionStatusBadge = (consumption: number) => {
-    const status = getConsumptionStatus(consumption);
-    switch (status) {
-      case "Óptimo": return "bg-green-50 text-green-700 border-green-200";
-      case "Bueno": return "bg-blue-50 text-blue-700 border-blue-200";
-      case "Regular": return "bg-orange-50 text-orange-700 border-orange-200";
-      case "Alto": return "bg-red-50 text-red-700 border-red-200";
-      default: return "bg-gray-50 text-gray-700 border-gray-200";
-    }
-  };
-
-  const getCostStatusBadge = (cost: number) => {
-    const status = getCostStatus(cost);
-    switch (status) {
-      case "Económico": return "bg-green-50 text-green-700 border-green-200";
-      case "Moderado": return "bg-blue-50 text-blue-700 border-blue-200";
-      case "Elevado": return "bg-orange-50 text-orange-700 border-orange-200";
-      case "Muy Alto": return "bg-red-50 text-red-700 border-red-200";
-      default: return "bg-gray-50 text-gray-700 border-gray-200";
-    }
-  };
-
-  const getEfficiencyStatusBadge = (consumption: number) => {
-    const status = getEfficiencyStatus(consumption);
-    switch (status) {
-      case "Alta": return "bg-green-50 text-green-700 border-green-200";
-      case "Media": return "bg-blue-50 text-blue-700 border-blue-200";
-      case "Baja": return "bg-orange-50 text-orange-700 border-orange-200";
-      default: return "bg-gray-50 text-gray-700 border-gray-200";
-    }
-  };
-
-  // Calculate global materials summary
-  const calculateGlobalMaterialsSummary = async (remisiones: RemisionData[]) => {
-    try {
-      if (!remisiones || remisiones.length === 0) return null;
-
-      const remisionIds = remisiones.map(r => r.id);
-      const chunkSize = 50;
-      const materialesResults: any[] = [];
-
-      // Fetch all material consumptions
-      for (let i = 0; i < remisionIds.length; i += chunkSize) {
-        const chunk = remisionIds.slice(i, i + chunkSize);
-        const { data, error } = await supabase
-          .from('remision_materiales')
-          .select(`
-            material_id,
-            cantidad_real,
-            materials!inner(
-              material_name,
-              material_code,
-              category,
-              unit_of_measure
-            )
-          `)
-          .in('remision_id', chunk);
-
-        if (error) continue;
-        if (data) materialesResults.push(...data);
-      }
-
-      // Get material prices
-      const materialIds = Array.from(new Set(materialesResults.map((m: any) => m.material_id)));
-      const currentDate = format(new Date(), 'yyyy-MM-dd');
-
-      let pricesQuery = supabase
-        .from('material_prices')
-        .select('material_id, price_per_unit')
-        .in('material_id', materialIds)
-        .lte('effective_date', currentDate)
-        .or(`end_date.is.null,end_date.gte.${currentDate}`)
-        .order('effective_date', { ascending: false });
-
-      if (currentPlant?.id) {
-        pricesQuery = pricesQuery.eq('plant_id', currentPlant.id);
-      }
-
-      const { data: prices } = await pricesQuery;
-      const priceMap = new Map();
-      prices?.forEach((p: any) => {
-        if (!priceMap.has(p.material_id)) {
-          priceMap.set(p.material_id, p.price_per_unit);
-        }
-      });
-
-      // Aggregate by material
-      const materialSummary = new Map<string, any>();
-      materialesResults.forEach((material: any) => {
-        const key = material.material_id;
-        const quantity = Number(material.cantidad_real) || 0;
-        const price = priceMap.get(material.material_id) || 0;
-
-        if (materialSummary.has(key)) {
-          const existing = materialSummary.get(key)!;
-          existing.totalConsumption += quantity;
-          existing.totalCost += quantity * price;
-        } else {
-          materialSummary.set(key, {
-            material_id: key,
-            material_name: material.materials.material_name,
-            material_code: material.materials.material_code,
-            category: material.materials.category,
-            unit: material.materials.unit_of_measure,
-            totalConsumption: quantity,
-            totalCost: quantity * price,
-            hasPrice: price > 0,
-            pricePerUnit: price
-          });
-        }
-      });
-
-      // Convert to array and sort by total cost
-      const materialsArray = Array.from(materialSummary.values())
-        .sort((a, b) => b.totalCost - a.totalCost);
-
-      const totalMaterialsCost = materialsArray.reduce((sum, m) => sum + m.totalCost, 0);
-      const materialsWithPrices = materialsArray.filter(m => m.hasPrice);
-      const materialsWithoutPrices = materialsArray.filter(m => !m.hasPrice);
-
-      return {
-        topMaterials: materialsArray.slice(0, 5),
-        totalMaterialsCost,
-        materialsWithPrices: materialsWithPrices.length,
-        materialsWithoutPrices: materialsWithoutPrices.length,
-        totalUniqueMaterials: materialsArray.length,
-        materialsByCategory: materialsArray.reduce((acc, material) => {
-          const category = material.category || 'Sin Categoría';
-          if (!acc[category]) acc[category] = { count: 0, totalCost: 0 };
-          acc[category].count++;
-          acc[category].totalCost += material.totalCost;
-          return acc;
-        }, {} as Record<string, { count: number; totalCost: number }>)
-      };
-    } catch (error) {
-      console.error('Error calculating global materials summary:', error);
-      return null;
-    }
-  };
-
-  // Calculate historical trends (comparing with previous periods)
-  const calculateHistoricalTrends = async () => {
-    try {
-      if (!startDate || !endDate) return null;
-
-      const currentPeriodDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-      const previousPeriodStart = new Date(startDate);
-      previousPeriodStart.setDate(previousPeriodStart.getDate() - currentPeriodDays);
-
-      // Get previous period data
-      const { data: previousRemisiones } = await supabase
-        .from('remisiones')
-        .select('id')
-        .eq('tipo_remision', 'CONCRETO')
-        .gte('fecha', format(previousPeriodStart, 'yyyy-MM-dd'))
-        .lt('fecha', format(startDate, 'yyyy-MM-dd'));
-
-      if (!previousRemisiones || previousRemisiones.length === 0) {
-        return {
-          comparisonAvailable: false,
-          message: 'No hay datos suficientes del período anterior para comparación'
-        };
-      }
-
-      // Get current period material costs
-      const currentPeriodMaterials = await calculateGlobalMaterialsSummary(remisionesData);
-
-      // Get previous period material costs (simplified)
-      const previousRemisionIds = previousRemisiones.map(r => r.id);
-      const chunkSize = 50;
-      let previousTotalCost = 0;
-
-      for (let i = 0; i < previousRemisionIds.length; i += chunkSize) {
-        const chunk = previousRemisionIds.slice(i, i + chunkSize);
-        const { data: materials } = await supabase
-          .from('remision_materiales')
-          .select(`
-            material_id,
-            cantidad_real,
-            material_prices!inner(price_per_unit)
-          `)
-          .in('remision_id', chunk);
-
-        if (materials) {
-          materials.forEach((m: any) => {
-            previousTotalCost += (Number(m.cantidad_real) || 0) * (Number(m.material_prices?.price_per_unit) || 0);
-          });
-        }
-      }
-
-      if (currentPeriodMaterials && previousTotalCost > 0) {
-        const currentCost = currentPeriodMaterials.totalMaterialsCost;
-        const costChange = ((currentCost - previousTotalCost) / previousTotalCost) * 100;
-
-        return {
-          comparisonAvailable: true,
-          currentPeriod: {
-            cost: currentCost,
-            materials: currentPeriodMaterials.totalUniqueMaterials
-          },
-          previousPeriod: {
-            cost: previousTotalCost,
-            materials: previousRemisiones.length
-          },
-          costChange,
-          costChangeStatus: costChange > 0 ? 'increase' : costChange < 0 ? 'decrease' : 'stable'
-        };
-      }
-
-      return {
-        comparisonAvailable: false,
-        message: 'Datos insuficientes para análisis de tendencias'
-      };
-    } catch (error) {
-      console.error('Error calculating historical trends:', error);
-      return {
-        comparisonAvailable: false,
-        message: 'Error al calcular tendencias históricas'
-      };
-    }
-  };
-
-  // Filter production data
-  const filteredProductionData = useMemo(() => {
-    let filtered = [...productionData];
-    
-    // Apply strength filter
-    if (strengthFilter !== 'all') {
-      filtered = filtered.filter(item => item.strength_fc.toString() === strengthFilter);
-    }
-    
-    // Apply search filter
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(item => 
-        item.recipe_code.toLowerCase().includes(term)
-      );
-    }
-    
-    return filtered;
-  }, [productionData, strengthFilter, searchTerm]);
-
-  // Calculate summary metrics
-  const summaryMetrics = useMemo(() => {
-    const totalVolume = filteredProductionData.reduce((sum, item) => sum + item.total_volume, 0);
-    const totalMaterialCost = filteredProductionData.reduce((sum, item) => sum + item.total_material_cost, 0);
-    const totalCementCost = filteredProductionData.reduce((sum, item) => sum + item.cement_cost, 0);
-    const totalCementConsumption = filteredProductionData.reduce((sum, item) => sum + item.cement_consumption, 0);
-    const weightedAvgCostPerM3 = totalVolume > 0 ? totalMaterialCost / totalVolume : 0;
-    const avgCementConsumptionPerM3 = totalVolume > 0 ? totalCementConsumption / totalVolume : 0;
-
-    return {
-      totalVolume,
-      totalMaterialCost,
-      totalCementCost,
-      totalCementConsumption,
-      weightedAvgCostPerM3,
-      avgCementConsumptionPerM3,
-      cementCostPercentage: totalMaterialCost > 0 ? (totalCementCost / totalMaterialCost) * 100 : 0
-    };
-  }, [filteredProductionData]);
-
-  // Data for volume by strength as percentage cards
-  const volumeByStrengthCards = useMemo(() => {
-    const totalVolume = filteredProductionData.reduce((sum, item) => sum + item.total_volume, 0);
-    
-    if (totalVolume === 0) return [];
-    
-    const cards = filteredProductionData.map((item, index) => ({
-      id: `${item.recipe_id}-${item.strength_fc}-${index}`, // Unique key using recipe_id and index
-      strength: item.strength_fc,
-      volume: item.total_volume,
-      percentage: (item.total_volume / totalVolume) * 100,
-      remisiones: item.remisiones_count,
-      recipe_code: item.recipe_code
+    // Create data for each section
+    const section1Data = comparativeData.section1.map(plant => ({
+      'Planta': plant.plant_code,
+      'Nombre': plant.plant_name,
+      'Volumen Total (m³)': plant.total_volume.toFixed(2),
+      'Cemento (kg)': plant.cement_consumption.toFixed(2),
+      'Aditivo (kg)': plant.additive_consumption.toFixed(2),
+      'Agua (L)': plant.water_consumption.toFixed(2)
     }));
+
+    const section2Data = comparativeData.section2.map(plant => ({
+      'Planta': plant.plant_code,
+      'Volumen Total (m³)': plant.total_volume.toFixed(2),
+      'Cemento ($/m³)': plant.cement_cost_per_m3.toFixed(2),
+      'Agregado ($/m³)': (plant.total_volume > 0 ? plant.aggregate_cost / plant.total_volume : 0).toFixed(2),
+      'Aditivo ($/m³)': (plant.total_volume > 0 ? plant.additive_cost / plant.total_volume : 0).toFixed(2)
+    }));
+
+    const section3Data = comparativeData.section3.map(plant => ({
+      'Planta': plant.plant_code,
+      'Volumen Total (m³)': plant.total_volume.toFixed(2),
+      'Cemento ($)': plant.total_material_cost.toFixed(2),
+      'Agregado ($)': plant.aggregate_cost.toFixed(2),
+      'Aditivo ($)': plant.additive_cost.toFixed(2)
+    }));
+
+    const section4Data = comparativeData.section4.map(plant => ({
+      'Planta': plant.plant_code,
+      'Total $ Materia Prima': plant.total_material_cost.toFixed(2),
+      'Total $ Materia Prima / m³': plant.avg_cost_per_m3.toFixed(2),
+      'F\'c Ponderada (kg/cm²)': plant.fc_ponderada.toFixed(0),
+      'Edad Ponderada (días)': plant.edad_ponderada.toFixed(0),
+      'Cemento / m³ (kg)': (plant.total_volume > 0 ? plant.cement_consumption / plant.total_volume : 0).toFixed(2),
+      '$ Cemento / m³': plant.cement_cost_per_m3.toFixed(2)
+    }));
+
+    // Add worksheets
+    const ws1 = XLSX.utils.json_to_sheet(section1Data);
+    const ws2 = XLSX.utils.json_to_sheet(section2Data);
+    const ws3 = XLSX.utils.json_to_sheet(section3Data);
+    const ws4 = XLSX.utils.json_to_sheet(section4Data);
+
+    XLSX.utils.book_append_sheet(workbook, ws4, 'Rendimientos');
+    XLSX.utils.book_append_sheet(workbook, ws1, 'Consumo');
+    XLSX.utils.book_append_sheet(workbook, ws2, 'Precios MP');
+    XLSX.utils.book_append_sheet(workbook, ws3, 'Costo Total MP');
+
+    // Save file
+    const fileName = `Comparativo_Plantas_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+  };
+
+  const handleDateRangeChange = (range: DateRange | undefined) => {
+    if (range?.from && range?.to) {
+      setStartDate(range.from);
+      setEndDate(range.to);
+    }
+  };
+
+  // Handle plant selection
+  const handlePlantToggle = (plantId: string) => {
+    setSelectedPlants(prev => {
+      if (prev.includes(plantId)) {
+        return prev.filter(id => id !== plantId);
+      } else {
+        return [...prev, plantId];
+      }
+    });
+  };
+
+  const handleSelectAllPlants = () => {
+    setSelectedPlants(availablePlants.map(p => p.id));
+  };
+
+  const handleDeselectAllPlants = () => {
+    setSelectedPlants([]);
+  };
+
+  // Helper function for ranking indicators (for volume columns)
+  const getRankingIndicator = (position: number, currentValue: number, previousValue: number | null) => {
+    const ranking = position + 1;
+    let percentage = 0;
     
-    // Sort by percentage descending to show highest volume first
-    return cards.sort((a, b) => b.percentage - a.percentage);
-  }, [filteredProductionData]);
-
-  // Chart data for cement consumption trend over the last months
-  const [cementTrendData, setCementTrendData] = useState<{
-    categories: string[];
-    series: { name: string; data: number[] }[];
-  }>({ categories: [], series: [] });
-  const [trendLoading, setTrendLoading] = useState(false);
-
-  // Fetch cement consumption trend data
-  const fetchCementTrendData = async () => {
-    if (!currentPlant?.id) return;
+    if (position > 0 && previousValue && previousValue > 0) {
+      percentage = Math.round(((previousValue - currentValue) / previousValue) * 100);
+    }
     
-    setTrendLoading(true);
-    try {
-      const monthsToShow = 6; // Show last 6 months including current
-      const trendData: { month: string; consumption: number }[] = [];
-      
-      for (let i = monthsToShow - 1; i >= 0; i--) {
-        const targetDate = subMonths(new Date(), i);
-        const monthStart = startOfMonth(targetDate);
-        const monthEnd = endOfMonth(targetDate);
-        
-        const formattedStartDate = format(monthStart, 'yyyy-MM-dd');
-        const formattedEndDate = format(monthEnd, 'yyyy-MM-dd');
-        
-        // Fetch remisiones for this month
-        const { data: remisiones, error } = await supabase
-          .from('remisiones')
-          .select(`
-            id,
-            volumen_fabricado,
-            recipe_id,
-            recipes!inner(
-              id,
-              strength_fc
-            )
-          `)
-          .eq('tipo_remision', 'CONCRETO')
-          .eq('plant_id', currentPlant.id)
-          .gte('fecha', formattedStartDate)
-          .lte('fecha', formattedEndDate)
-          .not('recipes.strength_fc', 'is', null);
-
-        if (error) {
-          console.error('Error fetching trend data for month:', targetDate, error);
-          continue;
-        }
-
-        if (!remisiones || remisiones.length === 0) {
-          trendData.push({
-            month: format(targetDate, 'MMM yyyy', { locale: es }),
-            consumption: 0
-          });
-          continue;
-        }
-
-        // Calculate cement consumption for this month
-        const remisionIds = remisiones.map(r => r.id);
-        let totalVolume = remisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
-        let totalCementConsumption = 0;
-
-        if (remisionIds.length > 0 && totalVolume > 0) {
-          // Fetch material consumption in chunks
-          const chunkSize = 50;
-          const materialesResults: any[] = [];
-          
-          for (let j = 0; j < remisionIds.length; j += chunkSize) {
-            const chunk = remisionIds.slice(j, j + chunkSize);
-            const { data: materiales } = await supabase
-              .from('remision_materiales')
-              .select(`
-                material_id,
-                cantidad_real,
-                materials!inner(
-                  material_name,
-                  category
-                )
-              `)
-              .in('remision_id', chunk);
-            
-            if (materiales) materialesResults.push(...materiales);
-          }
-
-          // Calculate cement consumption
-          materialesResults.forEach(material => {
-            if (material.materials) {
-              const typeOrName = String(
-                material.materials.category || material.materials.material_name || ''
-              ).toLowerCase();
-              const isCement = typeOrName.includes('cement') || typeOrName.includes('cemento');
-              
-              if (isCement) {
-                totalCementConsumption += Number(material.cantidad_real) || 0;
-              }
-            }
-          });
-        }
-
-        const cementPerM3 = totalVolume > 0 ? totalCementConsumption / totalVolume : 0;
-        
-        trendData.push({
-          month: format(targetDate, 'MMM yyyy', { locale: es }),
-          consumption: cementPerM3
-        });
-      }
-
-      setCementTrendData({
-        categories: trendData.map(d => d.month),
-        series: [{
-          name: 'Consumo Cemento (kg/m³)',
-          data: trendData.map(d => d.consumption)
-        }]
-      });
-
-    } catch (error) {
-      console.error('Error fetching cement trend data:', error);
-    } finally {
-      setTrendLoading(false);
-    }
+    return {
+      position: ranking,
+      percentage: percentage,
+      isFirst: position === 0
+    };
   };
 
-  // Fetch trend data when component mounts or plant changes
-  useEffect(() => {
-    fetchCementTrendData();
-  }, [currentPlant]);
 
-
-  // Chart options for cement consumption trend
-  const cementTrendChartOptions: ApexOptions = {
-    chart: {
-      type: 'line',
-      toolbar: { show: false },
-      background: 'transparent',
-      fontFamily: 'Inter, system-ui, sans-serif'
-    },
-    colors: ['#FF6B35'],
-    stroke: {
-      width: 3,
-      curve: 'smooth'
-    },
-    markers: {
-      size: 6,
-      colors: ['#FF6B35'],
-      strokeColors: '#ffffff',
-      strokeWidth: 2,
-      hover: {
-        size: 8
-      }
-    },
-    xaxis: {
-      categories: cementTrendData.categories,
-      labels: {
-        style: {
-          fontSize: '12px',
-          fontWeight: 500,
-          colors: '#6B7280'
-        }
-      },
-      axisBorder: { show: false },
-      axisTicks: { show: false }
-    },
-    yaxis: {
-      title: {
-        text: 'Consumo de Cemento (kg/m³)',
-        style: {
-          fontSize: '14px',
-          fontWeight: 600,
-          color: '#374151'
-        }
-      },
-      labels: {
-        formatter: (val: number) => `${val.toFixed(1)}`,
-        style: {
-          fontSize: '12px',
-          colors: '#6B7280'
-        }
-      }
-    },
-    grid: {
-      borderColor: '#F3F4F6',
-      strokeDashArray: 4,
-      xaxis: { lines: { show: false } }
-    },
-    tooltip: {
-      y: {
-        formatter: (val: number) => `${val.toFixed(2)} kg/m³`
-      },
-      style: { fontSize: '12px' }
-    },
-    dataLabels: {
-      enabled: true,
-      formatter: (val: number) => `${val.toFixed(1)}`,
-      style: {
-        fontSize: '11px',
-        fontWeight: 500,
-        colors: ['#FF6B35']
-      },
-      background: {
-        enabled: true,
-        foreColor: '#ffffff',
-        borderRadius: 4,
-        padding: 4,
-        opacity: 0.9
-      },
-      offsetY: -10
-    }
+  // Helper function to render normal cell without indicators
+  const renderNormalCell = (formattedValue: string) => {
+    return <TableCell>{formattedValue}</TableCell>;
   };
 
-  // Export to Excel function
-  const exportToExcel = () => {
-    try {
-      // Prepare data for export
-      const excelData = filteredProductionData.map((item, index) => ({
-        'Resistencia (kg/cm²)': item.strength_fc,
-        'Código Receta': item.recipe_code,
-        'Volumen Total (m³)': item.total_volume,
-        'Número de Remisiones': item.remisiones_count,
-        'Costo Promedio por m³': item.avg_cost_per_m3,
-        'Costo Total Materiales': item.total_material_cost,
-        'Costo Cemento': item.cement_cost,
-        'Consumo Cemento (kg)': item.cement_consumption,
-        'Cemento por m³ (kg/m³)': (item.cement_consumption / item.total_volume).toFixed(2)
-      }));
+  // Helper function to render volume cell with ranking indicator
+  const renderVolumeCell = (position: number, currentValue: number, previousValue: number | null, formattedValue: string) => {
+    const indicator = getRankingIndicator(position, currentValue, previousValue);
+    
+    const getBadgeColor = () => {
+      switch (indicator.position) {
+        case 1: return 'bg-green-100 text-green-800 border-green-200'; // Green for Top 1 (best)
+        case 2: return 'bg-green-50 text-green-700 border-green-200'; // Light green for Top 2
+        case 3: return 'bg-yellow-100 text-yellow-800 border-yellow-200'; // Yellow for Top 3 (warning)
+        default: return 'bg-red-100 text-red-700 border-red-200'; // Red for others (poor performance)
+      }
+    };
 
-      // Add summary row
-      const summaryRow = {
-        'Resistencia (kg/cm²)': 0,
-        'Código Receta': '',
-        'Volumen Total (m³)': summaryMetrics.totalVolume,
-        'Número de Remisiones': filteredProductionData.reduce((sum, item) => sum + item.remisiones_count, 0),
-        'Costo Promedio por m³': summaryMetrics.weightedAvgCostPerM3,
-        'Costo Total Materiales': summaryMetrics.totalMaterialCost,
-        'Costo Cemento': summaryMetrics.totalCementCost,
-        'Consumo Cemento (kg)': summaryMetrics.totalCementConsumption,
-        'Cemento por m³ (kg/m³)': summaryMetrics.avgCementConsumptionPerM3.toFixed(2)
-      };
+    const getRankText = () => {
+      if (indicator.isFirst) {
+        return `Top ${indicator.position}`;
+      } else {
+        return `Top ${indicator.position} (-${indicator.percentage}%)`;
+      }
+    };
 
-      excelData.push(summaryRow);
-
-      // Create workbook and worksheet
-      const workbook = XLSX.utils.book_new();
-      const worksheet = XLSX.utils.json_to_sheet(excelData);
-
-      // Set column widths
-      const columnWidths = [
-        { wch: 20 }, // Resistencia
-        { wch: 15 }, // Código Receta
-        { wch: 18 }, // Volumen Total
-        { wch: 20 }, // Número de Remisiones
-        { wch: 22 }, // Costo Promedio por m³
-        { wch: 22 }, // Costo Total Materiales
-        { wch: 18 }, // Costo Cemento
-        { wch: 20 }, // Consumo Cemento
-        { wch: 20 }  // Cemento por m³
-      ];
-      worksheet['!cols'] = columnWidths;
-
-      // Add worksheet to workbook
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte de Producción');
-
-      // Generate filename with date range
-      const startDateStr = startDate ? format(startDate, 'dd-MM-yyyy') : 'fecha';
-      const endDateStr = endDate ? format(endDate, 'dd-MM-yyyy') : 'fecha';
-      const filename = `Reporte_Produccion_${startDateStr}_${endDateStr}.xlsx`;
-
-      XLSX.writeFile(workbook, filename);
-    } catch (error) {
-      console.error('Error exporting to Excel:', error);
-    }
+    return (
+      <TableCell>
+        <div className="flex items-center gap-2">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            <TrendingDown className="h-3 w-3" />
+            <span>{getRankText()}</span>
+          </div>
+        </div>
+      </TableCell>
+    );
   };
 
-  // Fetch investigation data
-  const fetchInvestigationData = async () => {
-    if (!startDate || !endDate) return;
-
-    setInvestigationLoading(true);
-    try {
-      const formattedStartDate = format(startDate, 'yyyy-MM-dd');
-      const formattedEndDate = format(endDate, 'yyyy-MM-dd');
-
-      // 1. Fetch all remisiones with detailed material consumption
-      let remisionesQuery = supabase
-        .from('remisiones')
-        .select(`
-          id,
-          remision_number,
-          fecha,
-          volumen_fabricado,
-          recipe_id,
-          order_id,
-          plant_id,
-          recipes!inner(
-            id,
-            recipe_code,
-            strength_fc
-          ),
-          orders!inner(
-            client_id,
-            clients!inner(
-              business_name
-            )
-          )
-        `)
-        .eq('tipo_remision', 'CONCRETO')
-        .gte('fecha', formattedStartDate)
-        .lte('fecha', formattedEndDate);
-
-      if (currentPlant?.id) {
-        remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
-      }
-
-      const { data: remisiones, error: remisionesError } = await remisionesQuery;
-      if (remisionesError) throw remisionesError;
-
-      // 2. Fetch material consumption details - chunked to avoid URL length limits
-      const remisionIds = remisiones.map((r: any) => r.id);
-      const chunkSize = 50; // Supabase has URL length limits, so we chunk the requests
-      const materialesResults: any[] = [];
-      
-      console.log(`Fetching material consumption data for ${remisionIds.length} remisiones in chunks of ${chunkSize}`);
-      
-      for (let i = 0; i < remisionIds.length; i += chunkSize) {
-        const chunk = remisionIds.slice(i, i + chunkSize);
-        const currentChunk = Math.floor(i / chunkSize) + 1;
-        const totalChunks = Math.ceil(remisionIds.length / chunkSize);
-        
-        setInvestigationProgress(`Procesando chunk ${currentChunk}/${totalChunks} - ${chunk.length} remisiones`);
-        console.log(`Processing chunk ${currentChunk}/${totalChunks}`);
-        
-        const { data, error } = await supabase
-          .from('remision_materiales')
-          .select(`
-            remision_id,
-            material_id,
-            cantidad_real,
-            materials!inner(
-              id,
-              material_name,
-              material_code,
-              category,
-              unit_of_measure
-            )
-          `)
-          .in('remision_id', chunk);
-        
-        if (error) {
-          console.error(`Error fetching remision_materiales chunk ${currentChunk}:`, error);
-          
-          // Try to retry the chunk once
-          console.log(`Retrying chunk ${currentChunk}...`);
-          const retryResult = await supabase
-            .from('remision_materiales')
-            .select(`
-              remision_id,
-              material_id,
-              cantidad_real,
-              materials!inner(
-                id,
-                material_name,
-                material_code,
-                category,
-                unit_of_measure
-              )
-            `)
-            .in('remision_id', chunk);
-          
-          if (retryResult.error) {
-            console.error(`Retry failed for chunk ${currentChunk}:`, retryResult.error);
-            continue; // Continue with other chunks even if retry fails
-          }
-          
-          if (retryResult.data) {
-            materialesResults.push(...retryResult.data);
-            console.log(`Retry successful for chunk ${currentChunk}`);
-          }
-        }
-        
-        if (data) {
-          materialesResults.push(...data);
-        }
-      }
-      
-      const materiales = materialesResults;
-      const totalChunks = Math.ceil(remisionIds.length / chunkSize);
-      console.log(`Successfully fetched material consumption data for ${materiales.length} records from ${totalChunks} chunks`);
-
-      // 3. Fetch all material prices
-      const materialIds = Array.from(new Set(materiales.map((m: any) => m.material_id)));
-      const currentDate = format(new Date(), 'yyyy-MM-dd');
-      
-      let pricesQuery = supabase
-        .from('material_prices')
-        .select('material_id, price_per_unit, effective_date, end_date, plant_id')
-        .in('material_id', materialIds)
-        .lte('effective_date', currentDate)
-        .or(`end_date.is.null,end_date.gte.${currentDate}`)
-        .order('effective_date', { ascending: false });
-
-      if (currentPlant?.id) {
-        pricesQuery = pricesQuery.eq('plant_id', currentPlant.id);
-      }
-
-      const { data: materialPrices, error: pricesError } = await pricesQuery;
-      if (pricesError) throw pricesError;
-
-      // 4. Create price lookup map
-      const priceMap = new Map();
-      materialPrices?.forEach((mp: any) => {
-        if (!priceMap.has(mp.material_id)) {
-          priceMap.set(mp.material_id, mp.price_per_unit);
-        }
-      });
-
-      // 5. Process recipe consumption data
-      const recipeConsumption = new Map<string, RecipeConsumptionData>();
-      const materialConsumptionMap = new Map<string, MaterialConsumptionDetail>();
-
-      // Group by recipe
-      remisiones.forEach((remision: any) => {
-        const recipeKey = remision.recipe_id;
-        if (!recipeConsumption.has(recipeKey)) {
-          recipeConsumption.set(recipeKey, {
-            recipe_id: remision.recipe_id,
-            recipe_code: remision.recipes.recipe_code,
-            strength_fc: remision.recipes.strength_fc,
-            remisiones_count: 0,
-            total_volume: 0,
-            materials: []
-          });
-        }
-
-        const recipe = recipeConsumption.get(recipeKey)!;
-        recipe.remisiones_count++;
-        recipe.total_volume += remision.volumen_fabricado;
-      });
-
-      // Process material consumption
-      materiales.forEach((material: any) => {
-        const materialKey = `${material.material_id}-${material.materials.material_name}`;
-        if (!materialConsumptionMap.has(materialKey)) {
-          materialConsumptionMap.set(materialKey, {
-            material_id: material.material_id,
-            material_name: material.materials.material_name,
-            material_code: material.materials.material_code,
-            category: material.materials.category,
-            total_consumption: 0,
-            unit: material.materials.unit_of_measure,
-            has_price: priceMap.has(material.material_id),
-            price: priceMap.get(material.material_id) || 0,
-            total_cost: 0
-          });
-        }
-
-        const mat = materialConsumptionMap.get(materialKey)!;
-        mat.total_consumption += material.cantidad_real;
-        mat.total_cost = mat.total_consumption * mat.price;
-      });
-
-      // Add materials to recipes
-      recipeConsumption.forEach((recipe) => {
-        recipe.materials = Array.from(materialConsumptionMap.values());
-      });
-
-      // 6. Identify materials without prices
-      const missingPrices: MissingPriceData[] = [];
-      materialConsumptionMap.forEach((material) => {
-        if (!material.has_price) {
-          missingPrices.push({
-            material_id: material.material_id,
-            material_name: material.material_name,
-            material_code: material.material_code,
-            category: material.category,
-            unit_of_measure: material.unit
-          });
-        }
-      });
-
-      // 7. Create material prices summary
-      const materialPricesSummary: MaterialPriceData[] = Array.from(materialConsumptionMap.values()).map(material => ({
-        material_id: material.material_id,
-        material_name: material.material_name,
-        material_code: material.material_code,
-        category: material.category,
-        unit_of_measure: material.unit,
-        current_price: material.price,
-        effective_date: material.has_price ? 'Current' : 'N/A',
-        plant_id: currentPlant?.id || null,
-        has_price: material.has_price
-      }));
-
-      setInvestigationData({
-        remisiones: remisiones.map((r: any) => ({
-          id: r.id,
-          remision_number: r.remision_number,
-          fecha: r.fecha,
-          volumen_fabricado: r.volumen_fabricado,
-          recipe: {
-            id: r.recipes.id,
-            recipe_code: r.recipes.recipe_code,
-            strength_fc: r.recipes.strength_fc
-          },
-          order: {
-            client_id: r.orders?.client_id,
-            clients: {
-              business_name: r.orders?.clients?.business_name || 'Desconocido'
-            }
-          }
-        })),
-        materialPrices: materialPricesSummary,
-        recipeConsumption: Array.from(recipeConsumption.values()),
-        missingPrices
-      });
-
-      setInvestigationProgress(''); // Clear progress when complete
-
-    } catch (error) {
-      console.error('Error fetching investigation data:', error);
-      setError('Error al cargar datos de investigación');
-    } finally {
-      setInvestigationLoading(false);
-    }
+  // Helper functions for sorting data
+  const getSortedDataByVolume = (data: PlantProductionData[]) => {
+    return [...data].sort((a, b) => b.total_volume - a.total_volume); // Descending (mayor a menor)
   };
+
+  const getSortedDataByCementPerM3 = (data: PlantProductionData[]) => {
+    return [...data].sort((a, b) => {
+      const aCementPerM3 = a.total_volume > 0 ? a.cement_consumption / a.total_volume : 0;
+      const bCementPerM3 = b.total_volume > 0 ? b.cement_consumption / b.total_volume : 0;
+      return aCementPerM3 - bCementPerM3; // Ascending (menor a mayor)
+    });
+  };
+
+  // Helper function to render cement consumption cell with monthly comparison
+  const renderCementConsumptionCell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevMonthPlant.total_volume > 0 && plant.total_volume > 0) {
+      const currentCementPerM3 = plant.cement_consumption / plant.total_volume;
+      const prevCementPerM3 = prevMonthPlant.cement_consumption / prevMonthPlant.total_volume;
+      
+      if (prevCementPerM3 > 0) {
+        monthlyChange = Math.round(((currentCementPerM3 - prevCementPerM3) / prevCementPerM3) * 100);
+        hasComparison = true;
+      }
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange < 0) return 'bg-green-100 text-green-800 border-green-200'; // Improvement (less cement)
+      if (monthlyChange > 0) return 'bg-red-100 text-red-700 border-red-200'; // Worse (more cement)
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getChangeText = () => {
+      if (!hasComparison) return 'Sin datos';
+      
+      const prevCementPerM3 = prevMonthPlant && prevMonthPlant.total_volume > 0 
+        ? prevMonthPlant.cement_consumption / prevMonthPlant.total_volume 
+        : 0;
+      
+      const prevValueFormatted = prevCementPerM3.toLocaleString('es-MX', { 
+        minimumFractionDigits: 2, 
+        maximumFractionDigits: 2 
+      });
+      
+      if (monthlyChange === 0) return `0% (${prevValueFormatted})`;
+      if (monthlyChange > 0) return `+${monthlyChange}% (${prevValueFormatted})`;
+      return `${monthlyChange}% (${prevValueFormatted})`;
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up for improvement
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3" />; // Arrow down for worse
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {(prevMonthPlant && prevMonthPlant.total_volume > 0 
+                    ? (prevMonthPlant.cement_consumption / prevMonthPlant.total_volume).toLocaleString('es-MX', { 
+                        minimumFractionDigits: 2, 
+                        maximumFractionDigits: 2 
+                      })
+                    : '0.00'
+                  )} kg/m³
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
+  // Helper function to render cement cost cell with monthly comparison
+  const renderCementCostCell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevMonthPlant.cement_cost_per_m3 > 0 && plant.cement_cost_per_m3 > 0) {
+      monthlyChange = Math.round(((plant.cement_cost_per_m3 - prevMonthPlant.cement_cost_per_m3) / prevMonthPlant.cement_cost_per_m3) * 100);
+      hasComparison = true;
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange < 0) return 'bg-green-100 text-green-800 border-green-200'; // Improvement (lower cost)
+      if (monthlyChange > 0) return 'bg-red-100 text-red-700 border-red-200'; // Worse (higher cost)
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up for improvement (lower cost)
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3" />; // Arrow down for worse (higher cost)
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: ${prevMonthPlant.cement_cost_per_m3.toLocaleString('es-MX', { 
+                    minimumFractionDigits: 2, 
+                    maximumFractionDigits: 2 
+                  })}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
+  // Helper function to render F'c ponderada cell with monthly comparison
+  const renderFcPonderadaCell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevMonthPlant.fc_ponderada > 0 && plant.fc_ponderada > 0) {
+      monthlyChange = Math.round(((plant.fc_ponderada - prevMonthPlant.fc_ponderada) / prevMonthPlant.fc_ponderada) * 100);
+      hasComparison = true;
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange > 0) return 'bg-blue-100 text-blue-700 border-blue-200'; // Higher F'c
+      if (monthlyChange < 0) return 'bg-blue-100 text-blue-700 border-blue-200'; // Lower F'c
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up for improvement
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3" />; // Arrow down for worse
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {prevMonthPlant.fc_ponderada.toLocaleString('es-MX', { 
+                    minimumFractionDigits: 0, 
+                    maximumFractionDigits: 0 
+                  })} kg/cm²
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
+  // Helper function to render edad ponderada cell with monthly comparison
+  const renderEdadPonderadaCell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevMonthPlant.edad_ponderada > 0 && plant.edad_ponderada > 0) {
+      monthlyChange = Math.round(((plant.edad_ponderada - prevMonthPlant.edad_ponderada) / prevMonthPlant.edad_ponderada) * 100);
+      hasComparison = true;
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange > 0) return 'bg-blue-100 text-blue-700 border-blue-200'; // Higher age could be neutral
+      if (monthlyChange < 0) return 'bg-blue-100 text-blue-700 border-blue-200'; // Lower age could be neutral
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3" />; // Arrow down
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {prevMonthPlant.edad_ponderada.toLocaleString('es-MX', { 
+                    minimumFractionDigits: 0, 
+                    maximumFractionDigits: 0 
+                  })} días
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="space-y-6">
+          <Skeleton className="h-8 w-64" />
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            {Array(4).fill(0).map((_, i) => (
+              <Skeleton key={i} className="h-64" />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto p-6">
-      {/* Header Section */}
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5" />
-            Reporte de Producción
-          </CardTitle>
-          <CardDescription>
-            Análisis de costos de materiales y producción - {dateRangeText}
-          </CardDescription>
-        </CardHeader>
-      </Card>
-
-      {/* Filters */}
-      <Card className="mb-6 overflow-visible">
-        <CardHeader>
-          <CardTitle>Filtros</CardTitle>
-          <CardDescription>Personaliza tu análisis de producción</CardDescription>
-        </CardHeader>
-        <CardContent className="overflow-visible">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 overflow-visible">
-            {/* Plant Context */}
-            <div className="space-y-2 relative z-[9999]">
-              <Label>Planta</Label>
-              <PlantContextDisplay showLabel={false} />
-            </div>
-
-            {/* Date Range */}
-            <div className="space-y-2 relative z-40">
-              <Label>Rango de Fechas</Label>
-              <DateRangePickerWithPresets
-                dateRange={{
-                  from: startDate || new Date(),
-                  to: endDate || new Date()
-                }}
-                onDateRangeChange={(range: DateRange | undefined) => {
-                  if (range?.from) setStartDate(range.from);
-                  if (range?.to) setEndDate(range.to);
-                }}
-              />
-            </div>
-
-            {/* Strength Filter */}
-            <div className="space-y-2 relative z-30">
-              <Label>Resistencia</Label>
-              <Select value={strengthFilter} onValueChange={setStrengthFilter}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Todas las resistencias" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las resistencias</SelectItem>
-                  {availableStrengths.map(strength => (
-                    <SelectItem key={strength} value={strength.toString()}>
-                      {strength} kg/cm²
-                    </SelectItem>
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Análisis Comparativo de Plantas</h1>
+          <p className="text-muted-foreground mt-2">
+            Comparación de rendimiento y costos entre plantas - {dateRangeText}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Plant Filter */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Filter className="h-4 w-4" />
+                Plantas ({selectedPlants.length})
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80" align="end">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium">Seleccionar Plantas</h4>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleSelectAllPlants}
+                      className="h-6 px-2 text-xs"
+                    >
+                      Todas
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleDeselectAllPlants}
+                      className="h-6 px-2 text-xs"
+                    >
+                      Ninguna
+                    </Button>
+                  </div>
+                </div>
+                <Separator />
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {availablePlants.map((plant) => (
+                    <div key={plant.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={plant.id}
+                        checked={selectedPlants.includes(plant.id)}
+                        onCheckedChange={() => handlePlantToggle(plant.id)}
+                      />
+                      <Label
+                        htmlFor={plant.id}
+                        className="text-sm font-normal cursor-pointer flex-1"
+                      >
+                        <span className="font-medium">{plant.code}</span> - {plant.name}
+                      </Label>
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
 
-            {/* Search */}
-            <div className="space-y-2 relative z-20">
-              <Label>Buscar</Label>
-              <Input
-                placeholder="Código de receta..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+          <Button 
+            onClick={exportToExcel} 
+            variant="outline" 
+            className="gap-2"
+            disabled={!comparativeData || comparativeData.section1.length === 0}
+          >
+            <Download className="h-4 w-4" />
+            Exportar Excel
+          </Button>
+          <DateRangePickerWithPresets
+            dateRange={{ from: startDate, to: endDate }}
+            onDateRangeChange={handleDateRangeChange}
+          />
+        </div>
+      </div>
+
+      {error && (
+        <Alert className="mb-6">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Quick access to detailed analysis */}
+      <Card className="mb-6">
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">Análisis Detallado por Planta</h3>
+              <p className="text-sm text-muted-foreground">
+                Accede al análisis completo con desglose de materiales y tendencias
+              </p>
             </div>
+            <Link href="/finanzas/produccion/detalle">
+              <Button variant="outline" className="gap-2">
+                <Eye className="h-4 w-4" />
+                Ver Análisis Detallado
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>
 
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-32" />
-          ))}
-        </div>
-      ) : (
-        <>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Volumen Total</CardTitle>
-                <Package className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{summaryMetrics.totalVolume.toFixed(1)} m³</div>
-                <p className="text-xs text-muted-foreground">
-                  Concreto producido en el período
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Costo Total de Materiales</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(summaryMetrics.totalMaterialCost)}</div>
-                <p className="text-xs text-muted-foreground">
-                  Inversión en materias primas
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Costo Promedio</CardTitle>
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(summaryMetrics.weightedAvgCostPerM3)}</div>
-                <p className="text-xs text-muted-foreground">
-                  por m³ (costo ponderado)
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Consumo Cemento</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{(summaryMetrics.totalCementConsumption / 1000).toFixed(1)} t</div>
-                <p className="text-xs text-muted-foreground">
-                  Total de cemento utilizado
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Cemento por m³</CardTitle>
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{summaryMetrics.avgCementConsumptionPerM3.toFixed(1)} kg/m³</div>
-                <p className="text-xs text-muted-foreground">
-                  Consumo promedio por m³
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Global Materials Summary */}
-          {globalMaterialsSummary && (
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Package className="h-5 w-5" />
-                  Resumen Global de Materiales
-                </CardTitle>
-                <CardDescription>
-                  Análisis rápido del estado general de consumo y costos de materiales
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                  {/* Total Materials Cost */}
-                  <div className="flex items-center space-x-3 p-4 border rounded-lg">
-                    <div className="flex-shrink-0">
-                      <DollarSign className="h-8 w-8 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Costo Total Materiales</p>
-                      <p className="text-2xl font-bold">{formatCurrency(globalMaterialsSummary.totalMaterialsCost)}</p>
-                    </div>
-                  </div>
-
-                  {/* Materials with/without prices */}
-                  <div className="flex items-center space-x-3 p-4 border rounded-lg">
-                    <div className="flex-shrink-0">
-                      {globalMaterialsSummary.materialsWithoutPrices > 0 ? (
-                        <AlertTriangle className="h-8 w-8 text-orange-500" />
-                      ) : (
-                        <CheckCircle2 className="h-8 w-8 text-green-600" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Materiales con Precio</p>
-                      <p className="text-2xl font-bold">
-                        {globalMaterialsSummary.materialsWithPrices}/{globalMaterialsSummary.totalUniqueMaterials}
-                      </p>
-                      {globalMaterialsSummary.materialsWithoutPrices > 0 && (
-                        <p className="text-xs text-orange-600">
-                          {globalMaterialsSummary.materialsWithoutPrices} sin precio
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Top Material */}
-                  <div className="flex items-center space-x-3 p-4 border rounded-lg">
-                    <div className="flex-shrink-0">
-                      <TrendingUp className="h-8 w-8 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Material Principal</p>
-                      <p className="text-lg font-bold truncate max-w-[150px]">
-                        {globalMaterialsSummary.topMaterials[0]?.material_name || 'N/A'}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {formatCurrency(globalMaterialsSummary.topMaterials[0]?.totalCost || 0)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Historical Trend */}
-                  <div className="flex items-center space-x-3 p-4 border rounded-lg">
-                    <div className="flex-shrink-0">
-                      {historicalTrends?.costChangeStatus === 'increase' ? (
-                        <ArrowUpIcon className="h-8 w-8 text-red-500" />
-                      ) : historicalTrends?.costChangeStatus === 'decrease' ? (
-                        <ArrowDownIcon className="h-8 w-8 text-green-500" />
-                      ) : (
-                        <TrendingUp className="h-8 w-8 text-gray-500" />
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Tendencia vs Período Anterior</p>
-                      {historicalTrends?.comparisonAvailable ? (
-                        <>
-                          <p className={`text-2xl font-bold ${
-                            historicalTrends.costChangeStatus === 'increase' ? 'text-red-600' :
-                            historicalTrends.costChangeStatus === 'decrease' ? 'text-green-600' :
-                            'text-gray-600'
-                          }`}>
-                            {historicalTrends.costChange >= 0 ? '+' : ''}{historicalTrends.costChange.toFixed(1)}%
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Cambio en costo de materiales
-                          </p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-lg font-bold text-gray-500">N/A</p>
-                          <p className="text-xs text-muted-foreground">
-                            {historicalTrends?.message || 'Datos insuficientes'}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Top Materials Table */}
-                <div className="mb-4">
-                  <h4 className="text-lg font-semibold mb-3">Top 5 Materiales por Costo</h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b">
-                          <th className="text-left py-2">Material</th>
-                          <th className="text-left py-2">Código</th>
-                          <th className="text-left py-2">Categoría</th>
-                          <th className="text-right py-2">Consumo Total</th>
-                          <th className="text-right py-2">Costo Total</th>
-                          <th className="text-center py-2">Estado</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {globalMaterialsSummary.topMaterials.slice(0, 5).map((material: any, index: number) => (
-                          <tr key={material.material_id} className="border-b hover:bg-gray-50">
-                            <td className="py-2 font-medium">{material.material_name}</td>
-                            <td className="py-2 font-mono text-sm">{material.material_code}</td>
-                            <td className="py-2">
-                              <Badge variant="outline" className="text-xs">
-                                {material.category}
-                              </Badge>
-                            </td>
-                            <td className="py-2 text-right">
-                              {material.totalConsumption.toFixed(2)} {material.unit}
-                            </td>
-                            <td className="py-2 text-right font-medium">
-                              {formatCurrency(material.totalCost)}
-                            </td>
-                            <td className="py-2 text-center">
-                              {material.hasPrice ? (
-                                <CheckCircle2 className="h-4 w-4 text-green-600 mx-auto" />
-                              ) : (
-                                <AlertTriangle className="h-4 w-4 text-orange-600 mx-auto" />
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Materials by Category */}
-                <div>
-                  <h4 className="text-lg font-semibold mb-3">Materiales por Categoría</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {Object.entries(globalMaterialsSummary.materialsByCategory).map(([category, data]: [string, any]) => (
-                      <div key={category} className="p-4 border rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <h5 className="font-medium">{category}</h5>
-                          <Badge variant="secondary">{data.count} materiales</Badge>
-                        </div>
-                        <p className="text-2xl font-bold text-blue-600">
-                          {formatCurrency(data.totalCost)}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Costo total de la categoría
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Charts */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Volumen por Resistencia</CardTitle>
-                <CardDescription>Distribución de la producción por tipo de concreto</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {volumeByStrengthCards.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {volumeByStrengthCards.map((card, index) => {
-                      // Generate color based on percentage for visual hierarchy
-                      const getColorClasses = (percentage: number, index: number) => {
-                        if (index === 0) {
-                          // Highest percentage - primary color
-                          return {
-                            bg: 'bg-blue-50',
-                            border: 'border-blue-200',
-                            text: 'text-blue-900',
-                            accent: 'bg-blue-500'
-                          };
-                        } else if (percentage > 20) {
-                          // High percentage - green
-                          return {
-                            bg: 'bg-green-50',
-                            border: 'border-green-200', 
-                            text: 'text-green-900',
-                            accent: 'bg-green-500'
-                          };
-                        } else if (percentage > 10) {
-                          // Medium percentage - orange
-                          return {
-                            bg: 'bg-orange-50',
-                            border: 'border-orange-200',
-                            text: 'text-orange-900', 
-                            accent: 'bg-orange-500'
-                          };
-                        } else {
-                          // Low percentage - gray
-                          return {
-                            bg: 'bg-gray-50',
-                            border: 'border-gray-200',
-                            text: 'text-gray-900',
-                            accent: 'bg-gray-500'
-                          };
-                        }
-                      };
-
-                      const colors = getColorClasses(card.percentage, index);
-                      
-                      return (
-                        <div 
-                          key={card.id}
-                          className={`relative p-4 rounded-lg border-2 ${colors.bg} ${colors.border} transition-all hover:shadow-md`}
-                        >
-                          {/* Percentage indicator bar */}
-                          <div className="absolute top-0 left-0 right-0 h-1 bg-gray-200 rounded-t-lg overflow-hidden">
-                            <div 
-                              className={`h-full ${colors.accent} transition-all duration-500`}
-                              style={{ width: `${card.percentage}%` }}
-                            />
-                          </div>
-                          
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex flex-col gap-1">
-                              <Badge variant="outline" className={`${colors.text} border-current`}>
-                                {card.strength} kg/cm²
-                              </Badge>
-                              <div className="text-xs text-muted-foreground font-mono">
-                                {card.recipe_code}
-                              </div>
-                            </div>
-                            {index === 0 && (
-                              <div className="flex items-center text-xs text-blue-600 font-medium">
-                                <TrendingUp className="h-3 w-3 mr-1" />
-                                Mayor
-                              </div>
-                            )}
-                          </div>
-                          
-                          <div className="space-y-1">
-                            <div className={`text-2xl font-bold ${colors.text}`}>
-                              {card.percentage.toFixed(1)}%
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {card.volume.toFixed(1)} m³
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {card.remisiones} remisiones
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center h-80">
-                    <div className="text-center">
-                      <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">
-                        No hay datos de producción para mostrar.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5" />
-                  Tendencia de Consumo de Cemento por m³
-                </CardTitle>
-                <CardDescription>
-                  Evolución del consumo de cemento por metro cúbico en los últimos meses
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {trendLoading ? (
-                  <div className="flex items-center justify-center h-80">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                    <span className="ml-2 text-muted-foreground">Cargando datos de tendencia...</span>
-                  </div>
-                ) : cementTrendData.categories.length > 0 ? (
-                  typeof window !== 'undefined' && (
-                    <Chart
-                      options={{
-                        ...cementTrendChartOptions,
-                        chart: {
-                          ...cementTrendChartOptions.chart,
-                          background: 'transparent'
-                        }
-                      }}
-                      series={cementTrendData.series}
-                      type="line"
-                      height={320}
-                    />
-                  )
-                ) : (
-                  <div className="flex items-center justify-center h-80">
-                    <div className="text-center">
-                      <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">
-                        No hay datos suficientes para mostrar la tendencia.
-                      </p>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        Asegúrate de tener una planta seleccionada y datos de producción disponibles.
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Data Table */}
+      {comparativeData && (
+        <div className="space-y-8">
+          {/* Sección 1: Rendimientos */}
           <Card>
             <CardHeader>
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <CardTitle>Análisis Detallado</CardTitle>
-                  <CardDescription>Datos completos de producción y costos</CardDescription>
-                </div>
-                <Button 
-                  onClick={exportToExcel}
-                  variant="outline"
-                  size="sm"
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Exportar Excel
-                </Button>
-              </div>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5" />
+                Rendimientos
+              </CardTitle>
+              <CardDescription>
+                Métricas de rendimiento y eficiencia por planta
+              </CardDescription>
             </CardHeader>
-
             <CardContent>
-              <Tabs defaultValue="summary" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="summary">
-                    Resumen por Resistencia
-                  </TabsTrigger>
-                  <TabsTrigger value="materials">
-                    Desglose de Materiales por Resistencia
-                  </TabsTrigger>
-                  <TabsTrigger value="material-analysis">
-                    Análisis por Material
-                  </TabsTrigger>
-                  <TabsTrigger value="investigation">
-                    Herramienta de Investigación
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="summary">
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Resistencia</TableHead>
-                          <TableHead>Código Receta</TableHead>
-                          <TableHead className="text-right">Volumen (m³)</TableHead>
-                          <TableHead className="text-right">Remisiones</TableHead>
-                          <TableHead className="text-right">Costo por m³</TableHead>
-                          <TableHead className="text-right">Costo Total</TableHead>
-                          <TableHead className="text-right">Precio Promedio</TableHead>
-                          <TableHead className="text-right">Margen por m³</TableHead>
-                          <TableHead className="text-right">% Cemento</TableHead>
-                          <TableHead className="text-right">Cemento por m³</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredProductionData.map((item, index) => (
-                          <TableRow key={index}>
-                            <TableCell>
-                              <Badge variant="outline">
-                                {item.strength_fc} kg/cm²
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-medium">
-                              {item.recipe_code}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {item.total_volume.toFixed(2)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {item.remisiones_count}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(item.avg_cost_per_m3)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(item.total_material_cost)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(item.avg_selling_price || 0)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(item.margin_per_m3 || 0)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800 text-sm font-medium">
-                                {((item.cement_cost / item.total_material_cost) * 100).toFixed(1)}%
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 text-sm font-medium">
-                                {(item.cement_consumption / item.total_volume).toFixed(1)} kg/m³
-                              </span>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        {filteredProductionData.length > 0 && (
-                          <TableRow>
-                            <TableCell colSpan={2} className="font-bold">TOTAL</TableCell>
-                            <TableCell className="text-right font-bold">
-                              {summaryMetrics.totalVolume.toFixed(2)}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {filteredProductionData.reduce((sum, item) => sum + item.remisiones_count, 0)}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {formatCurrency(summaryMetrics.weightedAvgCostPerM3)}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {formatCurrency(summaryMetrics.totalMaterialCost)}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {formatCurrency((() => {
-                                const vols = filteredProductionData.reduce((acc, i) => acc + i.total_volume, 0);
-                                const rev = filteredProductionData.reduce((acc, i) => acc + (i.avg_selling_price || 0) * i.total_volume, 0);
-                                return vols > 0 ? rev / vols : 0;
-                              })())}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {formatCurrency((() => {
-                                const vols = filteredProductionData.reduce((acc, i) => acc + i.total_volume, 0);
-                                const rev = filteredProductionData.reduce((acc, i) => acc + (i.avg_selling_price || 0) * i.total_volume, 0);
-                                return vols > 0 ? (rev / vols) - summaryMetrics.weightedAvgCostPerM3 : 0;
-                              })())}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-orange-200 text-orange-900 text-sm font-bold">
-                                {summaryMetrics.cementCostPercentage.toFixed(1)}%
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-200 text-blue-900 text-sm font-bold">
-                                {summaryMetrics.avgCementConsumptionPerM3.toFixed(1)} kg/m³
-                              </span>
-                            </TableCell>
-                          </TableRow>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Planta</TableHead>
+                    <TableHead>Total $ Materia Prima</TableHead>
+                    <TableHead>Total $ Materia Prima / m³</TableHead>
+                    <TableHead>F'c Ponderada</TableHead>
+                    <TableHead>Edad Ponderada</TableHead>
+                    <TableHead>Cemento / m³</TableHead>
+                    <TableHead>$ Cemento / m³</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {getSortedDataByCementPerM3(comparativeData.section4).map((plant) => {
+                    return (
+                      <TableRow key={plant.plant_id}>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{plant.plant_code}</div>
+                          </div>
+                        </TableCell>
+                        {renderNormalCell(formatCurrency(plant.total_material_cost))}
+                        {renderNormalCell(formatCurrency(plant.avg_cost_per_m3))}
+                        {renderFcPonderadaCell(
+                          plant,
+                          `${plant.fc_ponderada.toLocaleString('es-MX', { 
+                            minimumFractionDigits: 0, 
+                            maximumFractionDigits: 0 
+                          })} kg/cm²`
                         )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="materials">
-                  <div className="space-y-6">
-                    {/* Aggregate materials by strength across recipes */}
-                    {Array.from(
-                      filteredProductionData.reduce((map, item) => {
-                        const key = item.strength_fc;
-                        const existing = map.get(key) || {
-                          strength_fc: key,
-                          total_volume: 0,
-                          total_cost: 0,
-                          breakdown: new Map<string, MaterialBreakdown>()
-                        };
-                        existing.total_volume += item.total_volume;
-                        existing.total_cost += item.total_material_cost;
-                        item.materials_breakdown.forEach(mb => {
-                          const b = existing.breakdown.get(mb.material_name) || {
-                            material_type: mb.material_type,
-                            material_name: mb.material_name,
-                            total_consumption: 0,
-                            unit: mb.unit,
-                            total_cost: 0,
-                            cost_per_unit: mb.cost_per_unit,
-                            cost_per_m3: 0
-                          };
-                          b.total_consumption += mb.total_consumption;
-                          b.total_cost += mb.total_cost;
-                          existing.breakdown.set(mb.material_name, b);
-                        });
-                        map.set(key, existing);
-                        return map;
-                      }, new Map<number, any>())
-                    ).sort((a, b) => a[0] - b[0]).map(([strength, agg]: any, idx: number) => (
-                      <Card key={idx}>
-                        <CardHeader>
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="text-lg font-semibold mb-1">
-                                Resistencia {strength} kg/cm²
-                              </h4>
-                              <div className="flex items-center gap-3">
-                                <Badge variant="outline">
-                                  {strength} kg/cm²
-                                </Badge>
-                                <span className="text-sm text-muted-foreground">
-                                  Volumen total: {agg.total_volume.toFixed(2)} m³
-                                </span>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-2xl font-bold">
-                                {formatCurrency(agg.total_cost)}
-                              </div>
-                              <div className="text-sm text-muted-foreground">Costo total</div>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        
-                        <CardContent>
-                          <div className="overflow-x-auto">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Material</TableHead>
-                                  <TableHead className="text-right">Consumo Total</TableHead>
-                                  <TableHead className="text-right">Unidad</TableHead>
-                                  <TableHead className="text-right">Precio Unitario</TableHead>
-                                  <TableHead className="text-right">Costo por m³</TableHead>
-                                  <TableHead className="text-right">Costo Total</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {Array.from(agg.breakdown.values()).sort((a: any, b: any) => b.total_cost - a.total_cost).map((material: any, materialIndex: number) => {
-                                  const costPerM3 = agg.total_volume > 0 ? material.total_cost / agg.total_volume : 0;
-                                  return (
-                                    <TableRow key={materialIndex}>
-                                      <TableCell className="font-medium">
-                                        {material.material_name}
-                                      </TableCell>
-                                      <TableCell className="text-right">
-                                        {material.total_consumption.toFixed(2)}
-                                      </TableCell>
-                                      <TableCell className="text-right text-muted-foreground">
-                                        {material.unit}
-                                      </TableCell>
-                                      <TableCell className="text-right font-medium">
-                                        {formatCurrency(material.cost_per_unit)}
-                                      </TableCell>
-                                      <TableCell className="text-right font-medium">
-                                        {formatCurrency(costPerM3)}
-                                      </TableCell>
-                                      <TableCell className="text-right font-bold">
-                                        {formatCurrency(material.total_cost)}
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="material-analysis">
-                  <div className="space-y-6">
-                    {/* Material Selection */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Package className="h-5 w-5" />
-                          Análisis de Consumo por Material
-                        </CardTitle>
-                        <CardDescription>
-                          Selecciona un material para analizar su consumo total en el período
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <div className="space-y-2">
-                            <Label>Seleccionar Material</Label>
-                            <Select value={selectedMaterial} onValueChange={handleMaterialChange}>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Selecciona un material..." />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableMaterials.map(material => (
-                                  <SelectItem key={material.id} value={material.id}>
-                                    {material.name} ({material.code}) - {material.category}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-
-                          {materialAnalysisLoading && (
-                            <div className="flex items-center justify-center py-8">
-                              <div className="text-center">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                                <p className="text-muted-foreground">Analizando consumo del material...</p>
-                                <p className="text-xs text-muted-foreground mt-2">Esto puede tomar unos segundos</p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    {/* Material Consumption Summary - Enhanced KPI Cards */}
-                    {materialConsumptionData && !materialAnalysisLoading && (
-                      <>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                          <Card className="relative overflow-hidden hover:shadow-lg transition-shadow">
-                            <div className="absolute top-0 left-0 w-full h-1 bg-blue-500" />
-                            <CardHeader className="pb-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                  <Package className="h-5 w-5 text-blue-600" />
-                                  <CardTitle className="text-lg font-bold">Consumo Total</CardTitle>
-                                </div>
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                  {getConsumptionStatus(materialConsumptionData.consumptionPerM3)}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-muted-foreground">Material utilizado en el período</p>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-2xl font-bold text-blue-600">
-                                {materialConsumptionData.totalConsumption.toFixed(2)}
-                                <span className="text-sm font-normal text-muted-foreground ml-1">
-                                  {materialConsumptionData.material.unit}
-                                </span>
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Promedio: {materialConsumptionData.consumptionPerM3.toFixed(3)} {materialConsumptionData.material.unit}/m³
-                              </p>
-                            </CardContent>
-                          </Card>
-
-                          <Card className="relative overflow-hidden hover:shadow-lg transition-shadow">
-                            <div className="absolute top-0 left-0 w-full h-1 bg-green-500" />
-                            <CardHeader className="pb-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                  <DollarSign className="h-5 w-5 text-green-600" />
-                                  <CardTitle className="text-lg font-bold">Costo Total</CardTitle>
-                                </div>
-                                <Badge variant="outline" className={getCostStatusBadge(materialConsumptionData.costPerM3)}>
-                                  {getCostStatus(materialConsumptionData.costPerM3)}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-muted-foreground">Inversión en material</p>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-2xl font-bold text-green-600">
-                                {materialConsumptionData.hasPrice ? formatCurrency(materialConsumptionData.totalCost) : 'N/A'}
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {materialConsumptionData.hasPrice
-                                  ? `${formatCurrency(materialConsumptionData.costPerM3)}/m³`
-                                  : 'Precio no configurado'
-                                }
-                              </p>
-                            </CardContent>
-                          </Card>
-
-                          <Card className="relative overflow-hidden hover:shadow-lg transition-shadow">
-                            <div className="absolute top-0 left-0 w-full h-1 bg-purple-500" />
-                            <CardHeader className="pb-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                  <TrendingUp className="h-5 w-5 text-purple-600" />
-                                  <CardTitle className="text-lg font-bold">Eficiencia</CardTitle>
-                                </div>
-                                <Badge variant="outline" className={getEfficiencyStatusBadge(materialConsumptionData.consumptionPerM3)}>
-                                  {getEfficiencyStatus(materialConsumptionData.consumptionPerM3)}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-muted-foreground">Rendimiento operativo</p>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-2xl font-bold text-purple-600">
-                                {materialConsumptionData.totalVolume.toFixed(1)} m³
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                {materialConsumptionData.remisionesCount} remisiones procesadas
-                              </p>
-                            </CardContent>
-                          </Card>
-
-                          <Card className="relative overflow-hidden hover:shadow-lg transition-shadow">
-                            <div className="absolute top-0 left-0 w-full h-1 bg-orange-500" />
-                            <CardHeader className="pb-3">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-2">
-                                  <BarChart3 className="h-5 w-5 text-orange-600" />
-                                  <CardTitle className="text-lg font-bold">Distribución</CardTitle>
-                                </div>
-                                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                                  {materialConsumptionData.consumptionByRecipe.length} tipos
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-muted-foreground">Variedad de aplicaciones</p>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="text-2xl font-bold text-orange-600">
-                                {materialConsumptionData.consumptionByRecipe.length}
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-1">
-                                Recetas que lo utilizan
-                              </p>
-                            </CardContent>
-                          </Card>
-                        </div>
-
-                        {/* Material Details */}
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Información del Material</CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <div className="flex justify-between">
-                                  <span className="font-medium">Nombre:</span>
-                                  <span>{materialConsumptionData.material.name}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="font-medium">Código:</span>
-                                  <span className="font-mono">{materialConsumptionData.material.code}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="font-medium">Categoría:</span>
-                                  <Badge variant="outline">{materialConsumptionData.material.category}</Badge>
-                                </div>
-                              </div>
-                              <div className="space-y-2">
-                                <div className="flex justify-between">
-                                  <span className="font-medium">Unidad:</span>
-                                  <span>{materialConsumptionData.material.unit}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="font-medium">Precio Unitario:</span>
-                                  <span className={materialConsumptionData.hasPrice ? "font-medium" : "text-red-600"}>
-                                    {materialConsumptionData.hasPrice ? formatCurrency(materialConsumptionData.pricePerUnit) : 'Sin precio'}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="font-medium">Costo por m³:</span>
-                                  <span className="font-medium">
-                                    {materialConsumptionData.hasPrice ? formatCurrency(materialConsumptionData.costPerM3) : 'N/A'}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        {/* Enhanced Visualizations */}
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-                          {/* Consumption by Recipe Chart */}
-                          <Card>
-                            <CardHeader>
-                              <CardTitle className="flex items-center gap-2">
-                                <BarChart3 className="h-5 w-5" />
-                                Consumo por Resistencia
-                              </CardTitle>
-                              <CardDescription>
-                                Distribución del material por tipo de concreto
-                              </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                              {typeof window !== 'undefined' && (
-                                <Chart
-                                  options={{
-                                    chart: {
-                                      type: 'bar',
-                                      toolbar: { show: false },
-                                      background: 'transparent',
-                                      fontFamily: 'Inter, system-ui, sans-serif'
-                                    },
-                                    colors: ['#3b82f6'],
-                                    plotOptions: {
-                                      bar: {
-                                        borderRadius: 8,
-                                        columnWidth: '60%',
-                                        dataLabels: { position: 'top' }
-                                      }
-                                    },
-                                    xaxis: {
-                                      categories: materialConsumptionData.consumptionByRecipe.map(r => `${r.strength_fc} kg/cm²`),
-                                      labels: {
-                                        style: {
-                                          fontSize: '12px',
-                                          fontWeight: 500,
-                                          colors: '#6B7280'
-                                        }
-                                      }
-                                    },
-                                    yaxis: {
-                                      title: {
-                                        text: `Consumo (${materialConsumptionData.material.unit})`,
-                                        style: {
-                                          fontSize: '14px',
-                                          fontWeight: 600,
-                                          color: '#374151'
-                                        }
-                                      },
-                                      labels: {
-                                        formatter: (val: number) => val.toFixed(1),
-                                        style: {
-                                          fontSize: '12px',
-                                          colors: '#6B7280'
-                                        }
-                                      }
-                                    },
-                                    tooltip: {
-                                      y: {
-                                        formatter: (val: number) => `${val.toFixed(2)} ${materialConsumptionData.material.unit}`
-                                      }
-                                    },
-                                    dataLabels: {
-                                      enabled: true,
-                                      formatter: (val: number) => val.toFixed(1),
-                                      style: {
-                                        fontSize: '12px',
-                                        fontWeight: 500,
-                                        colors: ['#ffffff']
-                                      },
-                                      background: {
-                                        enabled: true,
-                                        foreColor: '#000000',
-                                        borderRadius: 4,
-                                        padding: 4
-                                      }
-                                    }
-                                  }}
-                                  series={[{
-                                    name: 'Consumo Total',
-                                    data: materialConsumptionData.consumptionByRecipe.map(r => r.total_consumption)
-                                  }]}
-                                  type="bar"
-                                  height={300}
-                                />
-                              )}
-                            </CardContent>
-                          </Card>
-
-                          {/* Efficiency Analysis Chart */}
-                          <Card>
-                            <CardHeader>
-                              <CardTitle className="flex items-center gap-2">
-                                <TrendingUp className="h-5 w-5" />
-                                Eficiencia por Receta
-                              </CardTitle>
-                              <CardDescription>
-                                Consumo por metro cúbico según resistencia
-                              </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                              {typeof window !== 'undefined' && (
-                                <Chart
-                                  options={{
-                                    chart: {
-                                      type: 'line',
-                                      toolbar: { show: false },
-                                      background: 'transparent',
-                                      fontFamily: 'Inter, system-ui, sans-serif'
-                                    },
-                                    colors: ['#10b981', '#f59e0b'],
-                                    stroke: {
-                                      curve: 'smooth',
-                                      width: [3, 3]
-                                    },
-                                    markers: {
-                                      size: 6,
-                                      colors: ['#10b981', '#f59e0b'],
-                                      strokeColors: '#ffffff',
-                                      strokeWidth: 2
-                                    },
-                                    xaxis: {
-                                      categories: materialConsumptionData.consumptionByRecipe.map(r => `${r.strength_fc}`),
-                                      labels: {
-                                        style: {
-                                          fontSize: '12px',
-                                          fontWeight: 500,
-                                          colors: '#6B7280'
-                                        }
-                                      },
-                                      title: {
-                                        text: 'Resistencia (kg/cm²)',
-                                        style: {
-                                          fontSize: '14px',
-                                          fontWeight: 600,
-                                          color: '#374151'
-                                        }
-                                      }
-                                    },
-                                    yaxis: {
-                                      title: {
-                                        text: `${materialConsumptionData.material.unit}/m³`,
-                                        style: {
-                                          fontSize: '14px',
-                                          fontWeight: 600,
-                                          color: '#374151'
-                                        }
-                                      },
-                                      labels: {
-                                        formatter: (val: number) => val.toFixed(2),
-                                        style: {
-                                          fontSize: '12px',
-                                          colors: '#6B7280'
-                                        }
-                                      }
-                                    },
-                                    tooltip: {
-                                      shared: true,
-                                      intersect: false,
-                                      y: {
-                                        formatter: (val: number) => `${val.toFixed(3)} ${materialConsumptionData.material.unit}/m³`
-                                      }
-                                    },
-                                    legend: {
-                                      position: 'top',
-                                      horizontalAlign: 'left',
-                                      fontSize: '14px'
-                                    }
-                                  }}
-                                  series={[
-                                    {
-                                      name: 'Consumo por m³',
-                                      data: materialConsumptionData.consumptionByRecipe.map(r =>
-                                        r.total_volume > 0 ? r.total_consumption / r.total_volume : 0
-                                      )
-                                    },
-                                    {
-                                      name: 'Línea Base',
-                                      data: materialConsumptionData.consumptionByRecipe.map(() => materialConsumptionData.consumptionPerM3)
-                                    }
-                                  ]}
-                                  type="line"
-                                  height={300}
-                                />
-                              )}
-                            </CardContent>
-                          </Card>
-                        </div>
-
-                        {/* Consumption by Recipe Table */}
-                        <Card>
-                          <CardHeader>
-                            <CardTitle>Consumo por Receta - Detalles</CardTitle>
-                            <CardDescription>
-                              Análisis detallado del consumo del material por tipo de concreto
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="overflow-x-auto">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead>Receta</TableHead>
-                                    <TableHead>Resistencia</TableHead>
-                                    <TableHead className="text-right">Consumo Total</TableHead>
-                                    <TableHead className="text-right">Remisiones</TableHead>
-                                    <TableHead className="text-right">Volumen (m³)</TableHead>
-                                    <TableHead className="text-right">Consumo/m³</TableHead>
-                                    <TableHead className="text-right">Eficiencia</TableHead>
-                                    {materialConsumptionData.hasPrice && (
-                                      <TableHead className="text-right">Costo</TableHead>
-                                    )}
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {materialConsumptionData.consumptionByRecipe.map((recipe: any, index: number) => {
-                                    const consumptionPerM3 = recipe.total_volume > 0 ? recipe.total_consumption / recipe.total_volume : 0;
-                                    const efficiency = consumptionPerM3 / materialConsumptionData.consumptionPerM3;
-                                    const efficiencyStatus = efficiency <= 0.9 ? "Excelente" : efficiency <= 1.1 ? "Normal" : "Ineficiente";
-
-                                    return (
-                                      <TableRow key={index}>
-                                        <TableCell className="font-medium">
-                                          {recipe.recipe_code}
-                                        </TableCell>
-                                        <TableCell>
-                                          <Badge variant="outline">
-                                            {recipe.strength_fc} kg/cm²
-                                          </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right font-medium">
-                                          {recipe.total_consumption.toFixed(2)} {materialConsumptionData.material.unit}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {recipe.remisiones_count}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {recipe.total_volume.toFixed(2)}
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          {consumptionPerM3.toFixed(3)} {materialConsumptionData.material.unit}/m³
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                          <Badge variant="outline" className={
-                                            efficiencyStatus === "Excelente" ? "bg-green-50 text-green-700 border-green-200" :
-                                            efficiencyStatus === "Normal" ? "bg-blue-50 text-blue-700 border-blue-200" :
-                                            "bg-orange-50 text-orange-700 border-orange-200"
-                                          }>
-                                            {efficiencyStatus}
-                                          </Badge>
-                                        </TableCell>
-                                        {materialConsumptionData.hasPrice && (
-                                          <TableCell className="text-right font-medium">
-                                            {formatCurrency(recipe.total_consumption * materialConsumptionData.pricePerUnit)}
-                                          </TableCell>
-                                        )}
-                                      </TableRow>
-                                    );
-                                  })}
-                                </TableBody>
-                              </Table>
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        {/* Export and Actions */}
-                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                          <div className="flex gap-2">
-                            <Button
-                              onClick={() => {
-                                if (!materialConsumptionData) return;
-
-                                const workbook = XLSX.utils.book_new();
-
-                                // Summary sheet
-                                const summaryData = [{
-                                  'Material': materialConsumptionData.material.name,
-                                  'Código': materialConsumptionData.material.code,
-                                  'Categoría': materialConsumptionData.material.category,
-                                  'Unidad': materialConsumptionData.material.unit,
-                                  'Consumo Total': materialConsumptionData.totalConsumption,
-                                  'Consumo por m³': materialConsumptionData.consumptionPerM3,
-                                  'Costo Total': materialConsumptionData.hasPrice ? materialConsumptionData.totalCost : 'N/A',
-                                  'Precio Unitario': materialConsumptionData.hasPrice ? materialConsumptionData.pricePerUnit : 'N/A',
-                                  'Remisiones': materialConsumptionData.remisionesCount,
-                                  'Volumen Total (m³)': materialConsumptionData.totalVolume
-                                }];
-
-                                // Recipe breakdown sheet
-                                const recipeData = materialConsumptionData.consumptionByRecipe.map((recipe: any) => ({
-                                  'Receta': recipe.recipe_code,
-                                  'Resistencia (kg/cm²)': recipe.strength_fc,
-                                  'Consumo Total': recipe.total_consumption,
-                                  'Remisiones': recipe.remisiones_count,
-                                  'Volumen (m³)': recipe.total_volume,
-                                  'Consumo por m³': recipe.total_volume > 0 ? recipe.total_consumption / recipe.total_volume : 0,
-                                  'Costo': materialConsumptionData.hasPrice ? recipe.total_consumption * materialConsumptionData.pricePerUnit : 'N/A'
-                                }));
-
-                                XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(summaryData), 'Resumen');
-                                XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(recipeData), 'Por Receta');
-
-                                const filename = `Analisis_Material_${materialConsumptionData.material.code}_${format(startDate!, 'dd-MM-yyyy')}_${format(endDate!, 'dd-MM-yyyy')}.xlsx`;
-                                XLSX.writeFile(workbook, filename);
-                              }}
-                              variant="outline"
-                              size="sm"
-                            >
-                              <Download className="h-4 w-4 mr-2" />
-                              Exportar Excel
-                            </Button>
-
-                            <Button
-                              onClick={() => setSelectedMaterial('')}
-                              variant="outline"
-                              size="sm"
-                            >
-                              <Package className="h-4 w-4 mr-2" />
-                              Cambiar Material
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* Interpretation Guide */}
-                        <Card className="mt-6">
-                          <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                              <Info className="h-5 w-5" />
-                              Guía de Interpretación
-                            </CardTitle>
-                            <CardDescription>
-                              Cómo interpretar los indicadores y gráficos del análisis de materiales
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <div className="space-y-4">
-                                <div>
-                                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-                                    Estados de Consumo
-                                  </h4>
-                                  <ul className="text-sm text-muted-foreground space-y-1">
-                                    <li><strong>Óptimo:</strong> Consumo eficiente y controlado</li>
-                                    <li><strong>Bueno:</strong> Consumo dentro de rangos normales</li>
-                                    <li><strong>Regular:</strong> Consumo elevado, requiere atención</li>
-                                    <li><strong>Alto:</strong> Consumo excesivo, acción inmediata</li>
-                                  </ul>
-                                </div>
-
-                                <div>
-                                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                                    Estados de Costo
-                                  </h4>
-                                  <ul className="text-sm text-muted-foreground space-y-1">
-                                    <li><strong>Económico:</strong> Costo por debajo del promedio</li>
-                                    <li><strong>Moderado:</strong> Costo dentro de lo esperado</li>
-                                    <li><strong>Elevado:</strong> Costo superior al promedio</li>
-                                    <li><strong>Muy Alto:</strong> Costo crítico, revisar precios</li>
-                                  </ul>
-                                </div>
-                              </div>
-
-                              <div className="space-y-4">
-                                <div>
-                                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                                    <div className="w-3 h-3 bg-purple-500 rounded-full"></div>
-                                    Eficiencia por Receta
-                                  </h4>
-                                  <ul className="text-sm text-muted-foreground space-y-1">
-                                    <li><strong>Excelente:</strong> ≤90% del promedio (muy eficiente)</li>
-                                    <li><strong>Normal:</strong> 90-110% del promedio (óptimo)</li>
-                                    <li><strong>Ineficiente:</strong> >110% del promedio (revisar)</li>
-                                  </ul>
-                                </div>
-
-                                <div>
-                                  <h4 className="font-semibold text-sm mb-2">Recomendaciones</h4>
-                                  <ul className="text-sm text-muted-foreground space-y-1">
-                                    <li>• Compare con datos históricos para tendencias</li>
-                                    <li>• Revise precios cuando estado sea "Muy Alto"</li>
-                                    <li>• Optimice recetas con eficiencia "Ineficiente"</li>
-                                    <li>• Monitoree materiales sin precios configurados</li>
-                                  </ul>
-                                </div>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </>
-                    )}
-
-                    {!selectedMaterial && !materialAnalysisLoading && (
-                      <Alert>
-                        <Info className="h-4 w-4" />
-                        <AlertDescription>
-                          Selecciona un material del listado para ver su análisis de consumo detallado.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="investigation">
-                  <div className="space-y-6">
-                    {/* Investigation Controls */}
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Search className="h-5 w-5" />
-                          Herramienta de Investigación
-                        </CardTitle>
-                        <CardDescription>
-                          Analiza datos detallados de remisiones, consumo de materiales y precios para validación.
-                          <br />
-                          <span className="text-sm text-amber-600 font-medium">
-                            💡 Para períodos largos, considera usar rangos de fechas más pequeños para mejor rendimiento.
-                          </span>
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex gap-4 mb-4">
-                          <Button 
-                            onClick={fetchInvestigationData}
-                            disabled={investigationLoading}
-                            variant="outline"
-                          >
-                            {investigationLoading ? (
-                              <>
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current mr-2"></div>
-                                Procesando...
-                              </>
-                            ) : (
-                              'Cargar Datos de Investigación'
-                            )}
-                          </Button>
-                          {investigationData && (
-                            <Button 
-                              onClick={() => {
-                                // Export investigation data to Excel
-                                const workbook = XLSX.utils.book_new();
-                                
-                                // Export remisiones
-                                const remisionesSheet = XLSX.utils.json_to_sheet(
-                                  investigationData.remisiones.map(r => ({
-                                    'UUID': r.id,
-                                    'Número Remisión': r.remision_number,
-                                    'Fecha': r.fecha,
-                                    'Volumen (m³)': r.volumen_fabricado,
-                                    'Código Receta': r.recipe.recipe_code,
-                                    'Resistencia (kg/cm²)': r.recipe.strength_fc,
-                                    'Cliente': r.order.clients.business_name
-                                  }))
-                                );
-                                XLSX.utils.book_append_sheet(workbook, remisionesSheet, 'Remisiones');
-                                
-                                // Export material prices
-                                const pricesSheet = XLSX.utils.json_to_sheet(
-                                  investigationData.materialPrices.map(m => ({
-                                    'ID Material': m.material_id,
-                                    'Nombre': m.material_name,
-                                    'Código': m.material_code,
-                                    'Categoría': m.category,
-                                    'Unidad': m.unit_of_measure,
-                                    'Precio Actual': m.current_price,
-                                    'Tiene Precio': m.has_price ? 'Sí' : 'No'
-                                  }))
-                                );
-                                XLSX.utils.book_append_sheet(workbook, pricesSheet, 'Precios Materiales');
-                                
-                                XLSX.writeFile(workbook, `Investigacion_Produccion_${format(startDate!, 'dd-MM-yyyy')}_${format(endDate!, 'dd-MM-yyyy')}.xlsx`);
-                              }}
-                              variant="outline"
-                            >
-                              <Download className="h-4 w-4 mr-2" />
-                              Exportar Datos
-                            </Button>
-                          )}
-                        </div>
-
-                        {investigationData && (
-                          <div className="space-y-6">
-                            {/* Summary Cards */}
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                              <Card>
-                                <CardContent className="p-4">
-                                  <div className="text-2xl font-bold text-blue-600">
-                                    {investigationData.remisiones.length}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Total Remisiones</div>
-                                </CardContent>
-                              </Card>
-                              <Card>
-                                <CardContent className="p-4">
-                                  <div className="text-2xl font-bold text-green-600">
-                                    {investigationData.recipeConsumption.length}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Recetas Utilizadas</div>
-                                </CardContent>
-                              </Card>
-                              <Card>
-                                <CardContent className="p-4">
-                                  <div className="text-2xl font-bold text-orange-600">
-                                    {investigationData.materialPrices.length}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Materiales Totales</div>
-                                </CardContent>
-                              </Card>
-                              <Card>
-                                <CardContent className="p-4">
-                                  <div className="text-2xl font-bold text-red-600">
-                                    {investigationData.missingPrices.length}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Sin Precios</div>
-                                </CardContent>
-                              </Card>
-                            </div>
-
-                            {/* Missing Prices Alert */}
-                            {investigationData.missingPrices.length > 0 && (
-                              <Alert className="border-red-200 bg-red-50">
-                                <AlertTriangle className="h-4 w-4 text-red-600" />
-                                <AlertDescription className="text-red-800">
-                                  <strong>¡Atención!</strong> Se encontraron {investigationData.missingPrices.length} materiales sin precios configurados. 
-                                  Esto puede afectar los cálculos de costos.
-                                </AlertDescription>
-                              </Alert>
-                            )}
-
-                            {/* Remisiones with UUIDs */}
-                            <Card>
-                              <CardHeader>
-                                <CardTitle>Remisiones Detalladas (con UUIDs)</CardTitle>
-                                <CardDescription>
-                                  Lista completa de remisiones con identificadores únicos para investigación en base de datos
-                                </CardDescription>
-                              </CardHeader>
-                              <CardContent>
-                                <ScrollArea className="h-96">
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow>
-                                        <TableHead>UUID</TableHead>
-                                        <TableHead>Número</TableHead>
-                                        <TableHead>Fecha</TableHead>
-                                        <TableHead>Volumen (m³)</TableHead>
-                                        <TableHead>Receta</TableHead>
-                                        <TableHead>Resistencia</TableHead>
-                                        <TableHead>Cliente</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {investigationData.remisiones.map((remision) => (
-                                        <TableRow key={remision.id}>
-                                          <TableCell className="font-mono text-xs text-muted-foreground">
-                                            {remision.id}
-                                          </TableCell>
-                                          <TableCell className="font-medium">
-                                            {remision.remision_number}
-                                          </TableCell>
-                                          <TableCell>
-                                            {format(new Date(remision.fecha), 'dd/MM/yyyy')}
-                                          </TableCell>
-                                          <TableCell className="text-right">
-                                            {remision.volumen_fabricado.toFixed(2)}
-                                          </TableCell>
-                                          <TableCell className="font-medium">
-                                            {remision.recipe.recipe_code}
-                                          </TableCell>
-                                          <TableCell>
-                                            <Badge variant="outline">
-                                              {remision.recipe.strength_fc} kg/cm²
-                                            </Badge>
-                                          </TableCell>
-                                          <TableCell className="max-w-[200px] truncate">
-                                            {remision.order.clients.business_name}
-                                          </TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </ScrollArea>
-                              </CardContent>
-                            </Card>
-
-                            {/* Material Prices Validation */}
-                            <Card>
-                              <CardHeader>
-                                <CardTitle>Validación de Precios de Materiales</CardTitle>
-                                <CardDescription>
-                                  Estado de precios para todos los materiales utilizados en el período
-                                </CardDescription>
-                              </CardHeader>
-                              <CardContent>
-                                <ScrollArea className="h-96">
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow>
-                                        <TableHead>ID</TableHead>
-                                        <TableHead>Material</TableHead>
-                                        <TableHead>Código</TableHead>
-                                        <TableHead>Categoría</TableHead>
-                                        <TableHead>Unidad</TableHead>
-                                        <TableHead className="text-right">Precio</TableHead>
-                                        <TableHead>Estado</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {investigationData.materialPrices.map((material) => (
-                                        <TableRow key={material.material_id}>
-                                          <TableCell className="font-mono text-xs text-muted-foreground">
-                                            {material.material_id}
-                                          </TableCell>
-                                          <TableCell className="font-medium">
-                                            {material.material_name}
-                                          </TableCell>
-                                          <TableCell className="font-mono text-sm">
-                                            {material.material_code}
-                                          </TableCell>
-                                          <TableCell>
-                                            <Badge variant="outline" className="text-xs">
-                                              {material.category}
-                                            </Badge>
-                                          </TableCell>
-                                          <TableCell className="text-sm text-muted-foreground">
-                                            {material.unit_of_measure}
-                                          </TableCell>
-                                          <TableCell className="text-right font-medium">
-                                            {material.has_price ? formatCurrency(material.current_price) : 'N/A'}
-                                          </TableCell>
-                                          <TableCell>
-                                            {material.has_price ? (
-                                              <div className="flex items-center gap-2 text-green-600">
-                                                <CheckCircle className="h-4 w-4" />
-                                                <span className="text-sm">Configurado</span>
-                                              </div>
-                                            ) : (
-                                              <div className="flex items-center gap-2 text-red-600">
-                                                <AlertTriangle className="h-4 w-4" />
-                                                <span className="text-sm">Sin Precio</span>
-                                              </div>
-                                            )}
-                                          </TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </ScrollArea>
-                              </CardContent>
-                            </Card>
-
-                            {/* Recipe Consumption Analysis */}
-                            <Card>
-                              <CardHeader>
-                                <CardTitle>Análisis de Consumo por Receta</CardTitle>
-                                <CardDescription>
-                                  Consumo detallado de materiales por receta con validación de precios
-                                </CardDescription>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="space-y-4">
-                                  {investigationData.recipeConsumption.map((recipe) => (
-                                    <div key={recipe.recipe_id} className="border rounded-lg p-4">
-                                      <div className="flex items-center justify-between mb-3">
-                                        <div>
-                                          <h4 className="text-lg font-semibold">
-                                            {recipe.recipe_code}
-                                          </h4>
-                                          <div className="flex items-center gap-3">
-                                            <Badge variant="outline">
-                                              {recipe.strength_fc} kg/cm²
-                                            </Badge>
-                                            <span className="text-sm text-muted-foreground">
-                                              {recipe.remisiones_count} remisiones
-                                            </span>
-                                            <span className="text-sm text-muted-foreground">
-                                              {recipe.total_volume.toFixed(2)} m³ total
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                      
-                                      <div className="overflow-x-auto">
-                                        <Table>
-                                          <TableHeader>
-                                            <TableRow>
-                                              <TableHead>Material</TableHead>
-                                              <TableHead>Código</TableHead>
-                                              <TableHead className="text-right">Consumo Total</TableHead>
-                                              <TableHead className="text-right">Unidad</TableHead>
-                                              <TableHead className="text-right">Precio Unitario</TableHead>
-                                              <TableHead className="text-right">Costo Total</TableHead>
-                                              <TableHead>Estado Precio</TableHead>
-                                            </TableRow>
-                                          </TableHeader>
-                                          <TableBody>
-                                            {recipe.materials.map((material, idx) => (
-                                              <TableRow key={`${recipe.recipe_id}-${material.material_id}-${idx}`}>
-                                                <TableCell className="font-medium">
-                                                  {material.material_name}
-                                                </TableCell>
-                                                <TableCell className="font-mono text-sm">
-                                                  {material.material_code}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                  {material.total_consumption.toFixed(2)}
-                                                </TableCell>
-                                                <TableCell className="text-right text-muted-foreground">
-                                                  {material.unit}
-                                                </TableCell>
-                                                <TableCell className="text-right font-medium">
-                                                  {material.has_price ? formatCurrency(material.price) : 'N/A'}
-                                                </TableCell>
-                                                <TableCell className="text-right font-bold">
-                                                  {material.has_price ? formatCurrency(material.total_cost) : 'N/A'}
-                                                </TableCell>
-                                                <TableCell>
-                                                  {material.has_price ? (
-                                                    <div className="flex items-center gap-2 text-green-600">
-                                                      <CheckCircle className="h-4 w-4" />
-                                                      <span className="text-xs">OK</span>
-                                                    </div>
-                                                  ) : (
-                                                    <div className="flex items-center gap-2 text-red-600">
-                                                      <AlertTriangle className="h-4 w-4" />
-                                                      <span className="text-xs">Sin Precio</span>
-                                                    </div>
-                                                  )}
-                                                </TableCell>
-                                              </TableRow>
-                                            ))}
-                                          </TableBody>
-                                        </Table>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </CardContent>
-                            </Card>
-                          </div>
+                        {renderEdadPonderadaCell(
+                          plant,
+                          `${plant.edad_ponderada.toLocaleString('es-MX', { 
+                            minimumFractionDigits: 0, 
+                            maximumFractionDigits: 0 
+                          })} días`
                         )}
-
-                        {investigationLoading && investigationProgress && (
-                          <Alert className="border-blue-200 bg-blue-50">
-                            <Info className="h-4 w-4 text-blue-600" />
-                            <AlertDescription className="text-blue-800">
-                              {investigationProgress}
-                            </AlertDescription>
-                          </Alert>
+                        {renderCementConsumptionCell(
+                          plant,
+                          `${plant.total_volume > 0 
+                            ? (plant.cement_consumption / plant.total_volume).toLocaleString('es-MX', { 
+                                minimumFractionDigits: 2, 
+                                maximumFractionDigits: 2 
+                              })
+                            : '0.00'
+                          } kg/m³`
                         )}
-
-                        {!investigationData && !investigationLoading && (
-                          <Alert>
-                            <Info className="h-4 w-4" />
-                            <AlertDescription>
-                              Haz clic en "Cargar Datos de Investigación" para analizar los datos del período seleccionado.
-                            </AlertDescription>
-                          </Alert>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </div>
-                </TabsContent>
-              </Tabs>
+                        {renderCementCostCell(plant, formatCurrency(plant.cement_cost_per_m3))}
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             </CardContent>
           </Card>
-        </>
+
+          {/* Sección 2: Consumo */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Package className="h-5 w-5" />
+                Consumo
+              </CardTitle>
+              <CardDescription>
+                Volumen total producido y consumo de cemento por planta
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Planta</TableHead>
+                    <TableHead>Volumen Total (m³)</TableHead>
+                    <TableHead>Cemento (kg)</TableHead>
+                    <TableHead>Agregado (kg)</TableHead>
+                    <TableHead>Aditivo (kg)</TableHead>
+                    <TableHead>Agua (L)</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {getSortedDataByVolume(comparativeData.section1).map((plant, index) => {
+                    const sortedData = getSortedDataByVolume(comparativeData.section1);
+                    const previousPlant = index > 0 ? sortedData[index - 1] : null;
+
+                    return (
+                      <TableRow key={plant.plant_id}>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{plant.plant_code}</div>
+                            <div className="text-sm text-muted-foreground">{plant.plant_name}</div>
+                          </div>
+                        </TableCell>
+                        {renderVolumeCell(
+                          index,
+                          plant.total_volume,
+                          previousPlant?.total_volume || null,
+                          plant.total_volume.toLocaleString('es-MX', { 
+                            minimumFractionDigits: 2, 
+                            maximumFractionDigits: 2 
+                          })
+                        )}
+                        {renderNormalCell(plant.cement_consumption.toLocaleString('es-MX'))}
+                        {renderNormalCell(plant.aggregate_consumption.toLocaleString('es-MX'))}
+                        {renderNormalCell(plant.additive_consumption.toLocaleString('es-MX'))}
+                        {renderNormalCell(plant.water_consumption.toLocaleString('es-MX'))}
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Sección 3: Precios MP */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5" />
+                Precios MP
+              </CardTitle>
+              <CardDescription>
+                Precios promedio de materias primas por planta
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Planta</TableHead>
+                    <TableHead>Volumen Total (m³)</TableHead>
+                    <TableHead>Cemento</TableHead>
+                    <TableHead>Agregado</TableHead>
+                    <TableHead>Aditivo</TableHead>
+                    <TableHead>Agua</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {getSortedDataByVolume(comparativeData.section2).map((plant, index) => {
+                    const sortedData = getSortedDataByVolume(comparativeData.section2);
+                    const previousPlant = index > 0 ? sortedData[index - 1] : null;
+
+                    return (
+                      <TableRow key={plant.plant_id}>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{plant.plant_code}</div>
+                          </div>
+                        </TableCell>
+                        {renderVolumeCell(
+                          index,
+                          plant.total_volume,
+                          previousPlant?.total_volume || null,
+                          plant.total_volume.toLocaleString('es-MX', { 
+                            minimumFractionDigits: 2, 
+                            maximumFractionDigits: 2 
+                          })
+                        )}
+                        {renderNormalCell(formatCurrency(plant.cement_cost_per_m3))}
+                        {renderNormalCell(formatCurrency(plant.total_volume > 0 ? plant.aggregate_cost / plant.total_volume : 0))}
+                        {renderNormalCell(formatCurrency(plant.total_volume > 0 ? plant.additive_cost / plant.total_volume : 0))}
+                        <TableCell>
+                          {plant.water_consumption > 0 ? '$0.00' : '-'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          {/* Sección 4: Costo Total MP */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Costo Total MP
+              </CardTitle>
+              <CardDescription>
+                Costo total de materias primas por planta
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Planta</TableHead>
+                    <TableHead>Volumen Total (m³)</TableHead>
+                    <TableHead>Cemento</TableHead>
+                    <TableHead>Agregado</TableHead>
+                    <TableHead>Aditivo</TableHead>
+                    <TableHead>Agua</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {getSortedDataByVolume(comparativeData.section3).map((plant, index) => {
+                    const sortedData = getSortedDataByVolume(comparativeData.section3);
+                    const previousPlant = index > 0 ? sortedData[index - 1] : null;
+
+                    return (
+                      <TableRow key={plant.plant_id}>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{plant.plant_code}</div>
+                          </div>
+                        </TableCell>
+                        {renderVolumeCell(
+                          index,
+                          plant.total_volume,
+                          previousPlant?.total_volume || null,
+                          plant.total_volume.toLocaleString('es-MX', { 
+                            minimumFractionDigits: 2, 
+                            maximumFractionDigits: 2 
+                          })
+                        )}
+                        {renderNormalCell(formatCurrency(plant.total_material_cost))}
+                        {renderNormalCell(formatCurrency(plant.aggregate_cost))}
+                        {renderNormalCell(formatCurrency(plant.additive_cost))}
+                        <TableCell>
+                          {plant.water_consumption > 0 ? '$0.00' : '-'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {(!comparativeData || comparativeData.section1.length === 0) && !loading && (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-center">
+              <Package className="mx-auto h-12 w-12 text-muted-foreground" />
+              <h3 className="mt-2 text-sm font-semibold text-gray-900">Sin datos de producción</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                No se encontraron datos de producción para el rango de fechas seleccionado.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
