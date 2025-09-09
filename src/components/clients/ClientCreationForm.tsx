@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { clientService } from '@/lib/supabase/clients';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { authService } from '@/lib/supabase/auth';
 
 interface ClientCreationFormProps {
   onClientCreated: (clientId: string, clientName: string) => void;
@@ -32,16 +33,7 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
     // Cargar usuarios para asignación
     const loadUsers = async () => {
       try {
-        const supabaseModule = await import('@/lib/supabase/client');
-        const supabase = supabaseModule.supabase;
-        if (!supabase) return;
-        const { data, error } = await supabase
-          .from('user_profiles')
-          .select('id, first_name, last_name, email, role')
-          .order('first_name', { ascending: true })
-          .order('last_name', { ascending: true })
-          .order('email', { ascending: true });
-        if (error) return;
+        const data = await authService.getAllUsers();
         const list = (data || []).map((u: any) => ({
           id: u.id,
           name: (u.first_name || u.last_name) ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : (u.email || 'Usuario')
@@ -209,17 +201,26 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
               id="assigned_user_id"
               name="assigned_user_id"
               value={formData.assigned_user_id || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, assigned_user_id: e.target.value || '' }))}
+              onChange={(e) => {
+                const value = e.target.value;
+                setFormData(prev => ({ 
+                  ...prev, 
+                  assigned_user_id: value || '' ,
+                  client_type: value ? 'asignado' : prev.client_type
+                }));
+              }}
               className="w-full p-2 border border-gray-300 rounded-md"
-              disabled={formData.client_type !== 'asignado'}
             >
               <option value="">Sin asignar</option>
               {users.map(u => (
                 <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </select>
-            {formData.client_type === 'asignado' && users.length === 0 && (
+            {users.length === 0 && (
               <p className="mt-1 text-xs text-gray-500">No hay usuarios disponibles para asignar.</p>
+            )}
+            {users.length > 0 && (
+              <p className="mt-1 text-xs text-gray-400">Usuarios disponibles: {users.length}</p>
             )}
           </div>
         </div>
