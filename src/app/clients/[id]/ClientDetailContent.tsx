@@ -39,6 +39,7 @@ import dynamic from 'next/dynamic';
 import { Badge } from "@/components/ui/badge";
 // Import icons
 import { Pencil, Trash2, Plus, X, Save, Map } from "lucide-react";
+import { authService } from '@/lib/supabase/auth';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -1333,26 +1334,14 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   useEffect(() => {
     const loadUsers = async () => {
       try {
-        const supabaseModule = await import('@/lib/supabase/client');
-        const supabase = supabaseModule.supabase;
-        if (!supabase) return;
-        const { data, error } = await supabase
-          .from('user_profiles')
-          .select('id, first_name, last_name, email, role')
-          .order('first_name', { ascending: true })
-          .order('last_name', { ascending: true })
-          .order('email', { ascending: true });
-        if (error) {
-          console.warn('No fue posible cargar usuarios:', error.message);
-          return;
-        }
+        const data = await authService.getAllUsers();
         const list = (data || []).map((u: any) => ({
           id: u.id,
           name: (u.first_name || u.last_name) ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : (u.email || 'Usuario')
         }));
         setUserOptions(list);
       } catch (e) {
-        console.warn('Error inesperado cargando usuarios', e);
+        console.warn('No fue posible cargar usuarios mediante authService:', e);
       }
     };
     loadUsers();
@@ -1562,14 +1551,24 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Usuario asignado</label>
-                  <select name="assigned_user_id" value={editForm.assigned_user_id || ''} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" disabled={editForm.client_type !== 'asignado'}>
+                  <select name="assigned_user_id" value={editForm.assigned_user_id || ''} onChange={(e) => {
+                    const value = e.target.value;
+                    setEditForm((prev: any) => ({
+                      ...prev,
+                      assigned_user_id: value || '',
+                      client_type: value ? 'asignado' : prev.client_type,
+                    }));
+                  }} className="w-full p-2 border border-gray-300 rounded-md">
                     <option value="">Sin asignar</option>
                     {userOptions.map(u => (
                       <option key={u.id} value={u.id}>{u.name}</option>
                     ))}
                   </select>
-                  {editForm.client_type === 'asignado' && userOptions.length === 0 && (
+                  {userOptions.length === 0 && (
                     <p className="mt-1 text-xs text-gray-500">No hay usuarios disponibles para asignar.</p>
+                  )}
+                  {userOptions.length > 0 && (
+                    <p className="mt-1 text-xs text-gray-400">Usuarios disponibles: {userOptions.length}</p>
                   )}
                 </div>
               </div>

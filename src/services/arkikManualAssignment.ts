@@ -9,6 +9,7 @@ export interface CompatibleOrder {
   construction_site: string;
   construction_site_id: string;
   delivery_date: string;
+  delivery_time?: string;
   order_status: string;
   credit_status: string;
   total_amount: number;
@@ -116,20 +117,33 @@ export class ArkikManualAssignmentService {
       return [];
     }
 
-    // Define broader date range for manual assignment (±30 days for more flexibility)
+    // Define strict search first (same day), then fallback ranges (±3 days, then ±14 days)
     const baseDate = remision.fecha;
-    const startDate = new Date(baseDate);
-    startDate.setDate(startDate.getDate() - 30);
-    const endDate = new Date(baseDate);
-    endDate.setDate(endDate.getDate() + 30);
+    const sameDayStart = new Date(baseDate);
+    const sameDayEnd = new Date(baseDate);
+    // Normalize to YYYY-MM-DD boundaries in local time
+    const toYmd = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+      .toISOString().split('T')[0];
+    const sameDay = toYmd(baseDate as unknown as Date);
+    const range3Start = new Date(baseDate);
+    range3Start.setDate(range3Start.getDate() - 3);
+    const range3End = new Date(baseDate);
+    range3End.setDate(range3End.getDate() + 3);
+    const range14Start = new Date(baseDate);
+    range14Start.setDate(range14Start.getDate() - 14);
+    const range14End = new Date(baseDate);
+    range14End.setDate(range14End.getDate() + 14);
 
     try {
       console.log('[ManualAssignment] Searching orders for remision:', remision.remision_number, {
         client_id: remision.client_id,
         recipe_id: remision.recipe_id,
-        date_range: [startDate.toISOString().split('T')[0], endDate.toISOString().split('T')[0]]
+        same_day: sameDay,
+        range_3_days: [toYmd(range3Start), toYmd(range3End)],
+        range_14_days: [toYmd(range14Start), toYmd(range14End)]
       });
 
+      // Strict search: same client, same delivery_date
       let { data: orders, error } = await supabase
         .from('orders')
         .select(`
@@ -139,6 +153,7 @@ export class ArkikManualAssignmentService {
           construction_site,
           construction_site_id,
           delivery_date,
+          delivery_time,
           order_status,
           credit_status,
           total_amount,
@@ -160,8 +175,7 @@ export class ArkikManualAssignmentService {
           )
         `)
         .eq('client_id', remision.client_id)
-        .gte('delivery_date', startDate.toISOString().split('T')[0])
-        .lte('delivery_date', endDate.toISOString().split('T')[0])
+        .eq('delivery_date', sameDay)
         .in('order_status', ['created', 'validated', 'scheduled']) // Only orders that can be updated
         .eq('plant_id', this.plantId)
         .limit(50); // Limit results for performance
@@ -170,9 +184,9 @@ export class ArkikManualAssignmentService {
         console.error('[ManualAssignment] Error fetching orders (same client):', error);
       }
 
-      // If no orders found for same client, try broader search (same plant, similar timeframe)
+      // If no orders found for same client on same day, try broader search (±3 days), then plant-wide
       if (!orders || orders.length === 0) {
-        console.log('[ManualAssignment] No orders found for same client, trying broader search...');
+        console.log('[ManualAssignment] No orders found same-day, trying ±3 days for same client...');
         
         const { data: broadOrders, error: broadError } = await supabase
           .from('orders')
@@ -183,6 +197,7 @@ export class ArkikManualAssignmentService {
             construction_site,
             construction_site_id,
             delivery_date,
+            delivery_time,
             order_status,
             credit_status,
             total_amount,
@@ -203,8 +218,8 @@ export class ArkikManualAssignmentService {
               )
             )
           `)
-          .gte('delivery_date', startDate.toISOString().split('T')[0])
-          .lte('delivery_date', endDate.toISOString().split('T')[0])
+          .gte('delivery_date', toYmd(range3Start))
+          .lte('delivery_date', toYmd(range3End))
           .in('order_status', ['created', 'validated', 'scheduled'])
           .eq('plant_id', this.plantId)
           .limit(30); // Smaller limit for broader search
@@ -215,6 +230,50 @@ export class ArkikManualAssignmentService {
         }
 
         orders = broadOrders;
+      }
+
+      // Final fallback: plant-wide ±14 days regardless of client
+      if (!orders || orders.length === 0) {
+        console.log('[ManualAssignment] No orders found for same client ±3 days, trying plant-wide ±14 days');
+        const { data: plantWideOrders, error: plantWideError } = await supabase
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            client_id,
+            construction_site,
+            construction_site_id,
+            delivery_date,
+            delivery_time,
+            order_status,
+            credit_status,
+            total_amount,
+            clients!inner (
+              id,
+              business_name
+            ),
+            order_items (
+              id,
+              recipe_id,
+              volume,
+              unit_price,
+              quote_detail_id,
+              recipes!inner (
+                id,
+                recipe_code,
+                arkik_long_code
+              )
+            )
+          `)
+          .gte('delivery_date', toYmd(range14Start))
+          .lte('delivery_date', toYmd(range14End))
+          .in('order_status', ['created', 'validated', 'scheduled'])
+          .eq('plant_id', this.plantId)
+          .limit(30);
+
+        if (!plantWideError && plantWideOrders) {
+          orders = plantWideOrders;
+        }
       }
 
       if (!orders || orders.length === 0) {
@@ -238,6 +297,7 @@ export class ArkikManualAssignmentService {
             construction_site: order.construction_site,
             construction_site_id: order.construction_site_id,
             delivery_date: order.delivery_date,
+            delivery_time: (order as any).delivery_time || undefined,
             order_status: order.order_status,
             credit_status: order.credit_status,
             total_amount: order.total_amount,
