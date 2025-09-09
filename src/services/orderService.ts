@@ -567,6 +567,12 @@ export async function updateOrder(id: string, orderData: {
   delivery_time?: string;
   requires_invoice?: boolean;
   special_requirements?: string | null;
+  // Optional coordinates and maps URL
+  delivery_latitude?: number | null;
+  delivery_longitude?: number | null;
+  delivery_google_maps_url?: string | null;
+  // Optionally update the linked quote
+  quote_id?: string | null;
 }) {
   try {
     const { data, error } = await supabase
@@ -591,6 +597,7 @@ export async function updateOrderItem(id: string, itemData: {
   recipe_id?: string;
   product_type?: string;
   unit_price?: number;
+  quote_detail_id?: string | null;
 }) {
   try {
     const { data, error } = await supabase
