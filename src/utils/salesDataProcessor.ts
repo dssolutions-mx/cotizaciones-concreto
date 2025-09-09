@@ -92,11 +92,176 @@ export interface VirtualRemision {
 
 const VAT_RATE = 0.16;
 
+// Shared sophisticated price finding utility (extracted from remisiones page)
+export const findProductPrice = (productType: string, remisionOrderId: string, recipeId?: string, orderItems?: any[]): number => {
+  if (!orderItems || orderItems.length === 0) return 0;
+  
+  // For SER001 (Vacío de Olla)
+  if (productType === 'SER001') {
+    // First try to find empty truck product in the specific order
+    const orderSpecificEmptyTruck = orderItems.find(p => 
+      (p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge || p.product_type === 'SER001') && 
+      p.order_id === remisionOrderId
+    );
+    
+    if (orderSpecificEmptyTruck) {
+      // Prefer explicit empty_truck_price, then unit_price, then quote_details.final_price
+      return (
+        orderSpecificEmptyTruck.empty_truck_price ??
+        orderSpecificEmptyTruck.unit_price ??
+        orderSpecificEmptyTruck.quote_details?.final_price ??
+        0
+      );
+    }
+    
+    // Fallback to any empty truck product
+    const emptyTruckProduct = orderItems.find(p => 
+      p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge || p.product_type === 'SER001'
+    );
+    return (
+      emptyTruckProduct?.empty_truck_price ??
+      emptyTruckProduct?.unit_price ??
+      emptyTruckProduct?.quote_details?.final_price ??
+      0
+    );
+  }
+  
+  // For SER002 (Bombeo)
+  if (productType === 'SER002') {
+    // First try to find pump product in the specific order
+    const orderSpecificPump = orderItems.find(p => 
+      (p.has_pump_service || p.product_type === 'SER002') && p.order_id === remisionOrderId
+    );
+    
+    if (orderSpecificPump) {
+      // Prefer explicit pump_price, then unit_price, then quote_details.final_price
+      return (
+        orderSpecificPump.pump_price ??
+        orderSpecificPump.unit_price ??
+        orderSpecificPump.quote_details?.final_price ??
+        0
+      );
+    }
+    
+    // Fallback to any pump product
+    const pumpProduct = orderItems.find(p => p.has_pump_service || p.product_type === 'SER002');
+    return (
+      pumpProduct?.pump_price ??
+      pumpProduct?.unit_price ??
+      pumpProduct?.quote_details?.final_price ??
+      0
+    );
+  }
+  
+  // For concrete products, first try to find in the specific order
+  const orderSpecificProducts = orderItems.filter(p => p.order_id === remisionOrderId);
+  
+  // Normalize recipeId for comparisons
+  const recipeIdStr = recipeId ? String(recipeId) : undefined;
+  
+  // 1) Prefer match via quote_details.recipe_id (quote detail linkage)
+  let concreteProduct = recipeIdStr
+    ? orderSpecificProducts.find(p => {
+        const qdRecipeId = p.quote_details?.recipe_id ? String(p.quote_details.recipe_id) : undefined;
+        return qdRecipeId && qdRecipeId === recipeIdStr;
+      })
+    : undefined;
+  
+  // 2) Try exact match by order_item.recipe_id if provided
+  if (!concreteProduct && recipeIdStr) {
+    concreteProduct = orderSpecificProducts.find(p => p.recipe_id && String(p.recipe_id) === recipeIdStr);
+  }
+  
+  // 3) Try exact match by product_type or recipe_id string
+  if (!concreteProduct) {
+    concreteProduct = orderSpecificProducts.find(p => 
+      p.product_type === productType || 
+      (p.recipe_id && p.recipe_id.toString() === productType)
+    );
+  }
+  
+  // 4) Try with hyphen removal in specific order
+  if (!concreteProduct) {
+    const normalized = productType.replace(/-/g, '');
+    concreteProduct = orderSpecificProducts.find(p => 
+      (p.product_type && normalized === p.product_type.replace(/-/g, '')) || 
+      (p.recipe_id && normalized === p.recipe_id.toString().replace(/-/g, ''))
+    );
+  }
+  
+  // 5) If still not found, try global by quote_details.recipe_id
+  if (!concreteProduct && recipeIdStr) {
+    concreteProduct = orderItems.find(p => {
+      const qdRecipeId = p.quote_details?.recipe_id ? String(p.quote_details.recipe_id) : undefined;
+      return qdRecipeId && qdRecipeId === recipeIdStr;
+    });
+  }
+
+  // 6) Global fallback by order_item.recipe_id or product_type
+  if (!concreteProduct) {
+    concreteProduct = orderItems.find(p => 
+      p.product_type === productType || 
+      (p.recipe_id && p.recipe_id.toString() === productType)
+    );
+    
+    // Last attempt with hyphen removal globally
+    if (!concreteProduct) {
+      const normalized = productType.replace(/-/g, '');
+      concreteProduct = orderItems.find(p => 
+        (p.product_type && normalized === p.product_type.replace(/-/g, '')) || 
+        (p.recipe_id && normalized === p.recipe_id.toString().replace(/-/g, ''))
+      );
+    }
+  }
+  
+  // 7) If we matched a product but its price is zero/undefined, try to salvage a sensible price
+  let price = (
+    concreteProduct?.unit_price ??
+    concreteProduct?.quote_details?.final_price ??
+    0
+  );
+
+  if (!price || price === 0) {
+    // Prefer first non-zero unit_price among order-specific products
+    const nonZeroOrderSpecific = orderSpecificProducts.find(p => (p.unit_price ?? 0) > 0);
+    if (nonZeroOrderSpecific) {
+      price = nonZeroOrderSpecific.unit_price!;
+    }
+  }
+
+  if (!price || price === 0) {
+    // Try non-zero final_price from quote_details in this order
+    const nonZeroFinalPriceInOrder = orderSpecificProducts.find(p => p.quote_details?.final_price && p.quote_details.final_price > 0);
+    if (nonZeroFinalPriceInOrder) {
+      price = nonZeroFinalPriceInOrder.quote_details!.final_price!;
+    }
+  }
+
+  if (!price || price === 0) {
+    // As a very last resort, use any non-zero unit_price in all products
+    const anyNonZero = orderItems.find(p => (p.unit_price ?? 0) > 0);
+    if (anyNonZero) {
+      price = anyNonZero.unit_price!;
+    }
+  }
+
+  if (!price || price === 0) {
+    // Final fallback to any non-zero final_price globally
+    const anyNonZeroFinal = orderItems.find(p => p.quote_details?.final_price && p.quote_details.final_price > 0);
+    if (anyNonZeroFinal) {
+      price = anyNonZeroFinal.quote_details!.final_price!;
+    }
+  }
+
+  return price || 0;
+};
+
 export class SalesDataProcessor {
   static calculateSummaryMetrics(
     remisiones: Remision[],
     salesData: Order[],
-    clientFilter: string
+    clientFilter: string,
+    allOrderItems?: any[] // Add order items parameter for sophisticated price matching
   ): SummaryMetrics {
     const result: SummaryMetrics = {
       concreteVolume: 0,
@@ -122,108 +287,71 @@ export class SalesDataProcessor {
       weightedEmptyTruckPriceWithVAT: 0
     };
 
-    // Helper function to find the correct order item for a remision
-    const findOrderItemForRemision = (order: Order, remision: Remision) => {
-      if (!order?.items) return null;
-
-      const recipeCode = remision.recipe?.recipe_code;
-
-      // For BOMBEO, find item with pump service
-      if (remision.tipo_remision === 'BOMBEO') {
-        return order.items.find((item: any) => item.has_pump_service === true);
-      }
-
-      // For VACÍO DE OLLA, find empty truck item
-      if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
-        return order.items.find((item: any) =>
-          item.product_type === 'VACÍO DE OLLA' ||
-          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
-          item.has_empty_truck_charge === true ||
-          item.product_type === 'SER001'
-        );
-      }
-
-      // For concrete - simplified matching, prioritize product_type match
-      if (recipeCode) {
-        // Primary match: product_type equals recipe_code
-        const primaryMatch = order.items.find((item: any) =>
-          item.product_type === recipeCode
-        );
-        if (primaryMatch) return primaryMatch;
-
-        // Fallback: try recipe_id match if available
-        if (remision.recipe?.id) {
-          const fallbackMatch = order.items.find((item: any) =>
-            item.recipe_id === remision.recipe.id
-          );
-          if (fallbackMatch) return fallbackMatch;
-        }
-      }
-
-      // Last resort: if no recipe code, try to find any concrete item for this order
-      return order.items.find((item: any) =>
-        !item.has_pump_service &&
-        !item.has_empty_truck_charge &&
-        item.product_type !== 'VACÍO DE OLLA' &&
-        item.product_type !== 'EMPTY_TRUCK_CHARGE' &&
-        item.product_type !== 'SER001'
-      );
-    };
-
-    // Process each remision individually for accurate calculations
+    // STEP 1: Calculate volumes using the simple, accurate approach (same as daily sales)
     remisiones.forEach(remision => {
       const volume = remision.volumen_fabricado || 0;
       const recipeCode = remision.recipe?.recipe_code;
 
       if (volume <= 0) return; // Skip zero volume remisiones
 
-      // Find the corresponding order and order item
-      const order = salesData.find(o => o.id === remision.order_id);
-      if (!order) return;
-
-      const orderItem = findOrderItemForRemision(order, remision);
-      if (!orderItem) return;
-
-      // Extract prices based on remision type
-      let unitPrice = 0;
-      let calculatedAmount = 0;
-
+      // Simple direct volume aggregation (matching daily sales logic)
       if (remision.tipo_remision === 'BOMBEO') {
-        // Pump service
-        unitPrice = parseFloat(orderItem.pump_price?.toString() || '0');
-        calculatedAmount = unitPrice * volume;
         result.pumpVolume += volume;
-        result.pumpAmount += calculatedAmount;
-
-      } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
-        // Empty truck charge - use unit count (typically 1) not volume
-        const unitCount = parseFloat(orderItem.empty_truck_volume?.toString() || '') || parseFloat(orderItem.volume?.toString() || '') || 1;
-
-        if (orderItem.total_price) {
-          calculatedAmount = parseFloat(orderItem.total_price.toString());
-        } else {
-          unitPrice = parseFloat(orderItem.unit_price?.toString() || '') || parseFloat(orderItem.empty_truck_price?.toString() || '') || 0;
-          calculatedAmount = unitPrice * unitCount;
-        }
-
-        result.emptyTruckVolume += unitCount;
-        result.emptyTruckAmount += calculatedAmount;
-
+      } else if (remision.tipo_remision === 'VACÍO DE OLLA') {
+        result.emptyTruckVolume += volume || 1; // usually 1 m³ equivalent
       } else {
-        // Regular concrete
-        unitPrice = parseFloat(orderItem.unit_price?.toString() || '0');
-        calculatedAmount = unitPrice * volume;
-        result.concreteVolume += volume;
-        result.concreteAmount += calculatedAmount;
-      }
-
-      // Separate cash vs invoice amounts (before VAT)
-      if (order.requires_invoice) {
-        result.invoiceAmount += calculatedAmount;
-      } else {
-        result.cashAmount += calculatedAmount;
+        result.concreteVolume += volume; // All other types are concrete
       }
     });
+
+    // Use the shared sophisticated price finding utility
+
+    // STEP 2: Calculate amounts using sophisticated price matching (from remisiones page)
+    if (allOrderItems && allOrderItems.length > 0) {
+      remisiones.forEach(remision => {
+        const volume = remision.volumen_fabricado || 0;
+        const recipeCode = remision.recipe?.recipe_code;
+        const recipeId = (remision as any).recipe_id;
+
+        if (volume <= 0) return; // Skip zero volume remisiones
+
+        // Find the corresponding order
+        const order = salesData.find(o => o.id === remision.order_id);
+        if (!order) return;
+
+        // Use sophisticated price finding
+        let unitPrice = 0;
+        let calculatedAmount = 0;
+
+        if (remision.tipo_remision === 'BOMBEO') {
+          // Pump service - use SER002 code
+          unitPrice = findProductPrice('SER002', remision.order_id, recipeId, allOrderItems);
+          calculatedAmount = unitPrice * volume;
+          result.pumpAmount += calculatedAmount;
+
+        } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
+          // Empty truck charge - use SER001 code, typically volume is 1
+          const unitCount = volume || 1;
+          unitPrice = findProductPrice('SER001', remision.order_id, recipeId, allOrderItems);
+          calculatedAmount = unitPrice * unitCount;
+          result.emptyTruckAmount += calculatedAmount;
+
+        } else {
+          // Regular concrete - use recipe code for sophisticated matching
+          const productCode = recipeCode || 'PRODUCTO';
+          unitPrice = findProductPrice(productCode, remision.order_id, recipeId, allOrderItems);
+          calculatedAmount = unitPrice * volume;
+          result.concreteAmount += calculatedAmount;
+        }
+
+        // Separate cash vs invoice amounts (before VAT)
+        if (order.requires_invoice) {
+          result.invoiceAmount += calculatedAmount;
+        } else {
+          result.cashAmount += calculatedAmount;
+        }
+      });
+    }
 
     // Process "Vacío de Olla" items that don't have corresponding remisiones
     let filteredOrders = [...salesData];

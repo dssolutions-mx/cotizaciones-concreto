@@ -93,7 +93,8 @@ export default function VentasDashboard() {
     tipos,
     productCodes,
     loading,
-    error
+    error,
+    orderItems // Add order items for sophisticated price matching
   } = useSalesData({
     startDate,
     endDate,
@@ -151,11 +152,11 @@ export default function VentasDashboard() {
     return filtered;
   }, [remisionesData, clientFilter, searchTerm, layoutType, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, salesData]);
   
-  // Calculate summary metrics using the utility
+  // Calculate summary metrics using the utility with sophisticated price matching
   useMemo(() => {
-    const metrics = SalesDataProcessor.calculateSummaryMetrics(filteredRemisiones, salesData, clientFilter);
+    const metrics = SalesDataProcessor.calculateSummaryMetrics(filteredRemisiones, salesData, clientFilter, orderItems);
     setSummaryMetrics(metrics);
-  }, [filteredRemisiones, salesData, clientFilter]);
+  }, [filteredRemisiones, salesData, clientFilter, orderItems]);
 
   // Calculate concrete by recipe using the utility
   useMemo(() => {
@@ -607,6 +608,34 @@ export default function VentasDashboard() {
                 </div>
              </CardHeader>
             <CardContent>
+                {/* Sales Filters - Also visible in PowerBI view */}
+                <div className="mb-4">
+                  <SalesFilters
+                    currentPlant={currentPlant}
+                    startDate={startDate}
+                    endDate={endDate}
+                    clientFilter={clientFilter}
+                    searchTerm={searchTerm}
+                    clients={clients}
+                    onDateRangeChange={handleDateRangeChange}
+                    onClientFilterChange={handleClientFilterChange}
+                    onSearchChange={handleSearchChange}
+                    layoutType={layoutType}
+                    resistanceFilter={resistanceFilter}
+                    efectivoFiscalFilter={efectivoFiscalFilter}
+                    tipoFilter={tipoFilter}
+                    codigoProductoFilter={codigoProductoFilter}
+                    resistances={resistances}
+                    tipos={tipos}
+                    productCodes={productCodes}
+                    onResistanceFilterChange={handleResistanceFilterChange}
+                    onEfectivoFiscalFilterChange={handleEfectivoFiscalFilterChange}
+                    onTipoFilterChange={handleTipoFilterChange}
+                    onCodigoProductoFilterChange={handleCodigoProductoFilterChange}
+                    includeVAT={includeVAT}
+                    onIncludeVATChange={handleIncludeVATChange}
+                  />
+                </div>
                  {/* Top Summary Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     {/* Total de Ventas */}

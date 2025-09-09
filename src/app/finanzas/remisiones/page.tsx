@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
 import { clientService } from '@/lib/supabase/clients';
 import { formatCurrency } from '@/lib/utils';
+import { findProductPrice } from '@/utils/salesDataProcessor';
 import EditRemisionModal from '@/components/remisiones/EditRemisionModal';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import { 
@@ -318,67 +319,33 @@ export default function RemisionesPorCliente() {
       setTotalVolume(volume);
       
       // Calculate total amount based on order_items prices
-      // Enhanced price matching logic similar to ventas page
-      let amount = 0;
-      enrichedRemisiones.forEach(remision => {
-        const recipeCode = remision.recipe?.recipe_code;
-        const recipeId = remision.recipe_id;
+        // Enhanced price matching using shared sophisticated utility
+        let amount = 0;
+        enrichedRemisiones.forEach(remision => {
+          const recipeCode = remision.recipe?.recipe_code;
+          const recipeId = remision.recipe_id;
+          const volume = remision.volumen_fabricado || 0;
 
-        // Find products specifically for this remision's order
-        const orderSpecificProducts = products?.filter(p => p.order_id === remision.order_id);
-
-        let price = 0;
-        let product = null;
-
-        // 1. Try exact match by product_type (most reliable for concrete)
-        if (recipeCode) {
-          product = orderSpecificProducts?.find(p =>
-            p.product_type === recipeCode
-          );
-        }
-
-      // 2. Try match by recipe_id if no product_type match
-      if (!product && recipeId) {
-        product = orderSpecificProducts?.find(p =>
-          p.recipe_id === recipeId
-        );
-      }
-
-      // 3. Try quote_details fallback if available
-      if (!product && orderSpecificProducts) {
-        product = orderSpecificProducts.find(p =>
-          (p.quote_details?.recipe_id === recipeId) ||
-          (p.quote_details?.product_type === recipeCode)
-        );
-      }
-
-      // 4. Use the price from the found product
-      if (product) {
-        // Priority: order_item.unit_price > quote_details.final_price
-        price = product.unit_price || (product.quote_details ? product.quote_details.final_price : 0) || 0;
+          let price = 0;
+          if (remision.tipo_remision === 'BOMBEO') {
+            // Pump service - use SER002 code
+            price = findProductPrice('SER002', remision.order_id, recipeId, products);
+          } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
+            // Empty truck charge - use SER001 code
+            price = findProductPrice('SER001', remision.order_id, recipeId, products);
+          } else {
+            // Regular concrete - use recipe code
+            const productCode = recipeCode || 'PRODUCTO';
+            price = findProductPrice(productCode, remision.order_id, recipeId, products);
+          }
 
           // Debug logging for price matching issues
           if (price === 0) {
-            console.warn(`No price found for remision ${remision.remision_number}, recipe: ${recipeCode}, recipe_id: ${recipeId}`);
+            console.warn(`No price found for remision ${remision.remision_number}, recipe: ${recipeCode}, recipe_id: ${recipeId}, type: ${remision.tipo_remision}`);
           }
-        } else {
-          // Fallback: search in all products (less efficient but might catch edge cases)
-          const fallbackProduct = products?.find(p =>
-            p.product_type === recipeCode ||
-            (p.recipe_id && p.recipe_id.toString() === recipeCode) ||
-            p.quote_details?.recipe_id === recipeId
-          );
 
-          if (fallbackProduct) {
-            price = fallbackProduct.unit_price || (fallbackProduct.quote_details ? fallbackProduct.quote_details.final_price : 0) || 0;
-            console.warn(`Using fallback price match for remision ${remision.remision_number}`);
-          } else {
-            console.error(`No price found for remision ${remision.remision_number} with recipe ${recipeCode}`);
-          }
-        }
-
-        amount += price * (remision.volumen_fabricado || 0);
-      });
+          amount += price * volume;
+        });
       setTotalAmount(amount);
       
       // Apply initial site filter if needed
@@ -421,52 +388,22 @@ export default function RemisionesPorCliente() {
     filtered.forEach(remision => {
       const recipeCode = remision.recipe?.recipe_code;
       const recipeId = remision.recipe_id;
-
-      // Find products specifically for this remision's order
-      const orderSpecificProducts = orderProducts?.filter(p => p.order_id === remision.order_id);
+      const volume = remision.volumen_fabricado || 0;
 
       let price = 0;
-      let product = null;
-
-      // 1. Try exact match by product_type (most reliable for concrete)
-      if (recipeCode) {
-        product = orderSpecificProducts?.find(p =>
-          p.product_type === recipeCode
-        );
-      }
-
-      // 2. Try match by recipe_id if no product_type match
-      if (!product && recipeId) {
-        product = orderSpecificProducts?.find(p =>
-          p.recipe_id === recipeId
-        );
-      }
-
-      // 3. Try quote_details fallback if available
-      if (!product && orderSpecificProducts) {
-        product = orderSpecificProducts.find(p =>
-          p.quote_details?.recipe_id === recipeId
-        );
-      }
-
-      // 4. Use the price from the found product
-      if (product) {
-        // Priority: order_item.unit_price > quote_details.final_price
-        price = product.unit_price || (product.quote_details ? product.quote_details.final_price : 0) || 0;
+      if (remision.tipo_remision === 'BOMBEO') {
+        // Pump service - use SER002 code
+        price = findProductPrice('SER002', remision.order_id, recipeId, orderProducts);
+      } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
+        // Empty truck charge - use SER001 code
+        price = findProductPrice('SER001', remision.order_id, recipeId, orderProducts);
       } else {
-        // Fallback: search in all products (less efficient but might catch edge cases)
-        const fallbackProduct = orderProducts?.find(p =>
-          p.product_type === recipeCode ||
-          (p.recipe_id && p.recipe_id.toString() === recipeCode) ||
-          p.quote_details?.recipe_id === recipeId
-        );
-
-        if (fallbackProduct) {
-          price = fallbackProduct.unit_price || (fallbackProduct.quote_details ? fallbackProduct.quote_details.final_price : 0) || 0;
-        }
+        // Regular concrete - use recipe code
+        const productCode = recipeCode || 'PRODUCTO';
+        price = findProductPrice(productCode, remision.order_id, recipeId, orderProducts);
       }
 
-      amount += price * (remision.volumen_fabricado || 0);
+      amount += price * volume;
     });
     setTotalAmount(amount);
   };

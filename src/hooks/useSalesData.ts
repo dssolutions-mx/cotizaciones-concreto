@@ -11,6 +11,7 @@ interface UseSalesDataProps {
 export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataProps) => {
   const [salesData, setSalesData] = useState<any[]>([]);
   const [remisionesData, setRemisionesData] = useState<any[]>([]);
+  const [orderItems, setOrderItems] = useState<any[]>([]); // Add order items for sophisticated price matching
   const [clients, setClients] = useState<{id: string, name: string}[]>([]);
   const [resistances, setResistances] = useState<string[]>([]);
   const [tipos, setTipos] = useState<string[]>([]);
@@ -24,6 +25,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
         // Set default empty data
         setSalesData([]);
         setRemisionesData([]);
+        setOrderItems([]);
         setLoading(false);
         return;
       }
@@ -41,7 +43,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
           .from('remisiones')
           .select(`
             *,
-            recipe:recipes(recipe_code, strength_fc),
+            recipe:recipes(id, recipe_code, strength_fc),
             order:orders(
               id,
               order_number,
@@ -71,6 +73,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
         if (uniqueOrderIds.length === 0) {
           setSalesData([]);
           setRemisionesData([]);
+          setOrderItems([]);
           setClients([]);
           setResistances([]);
           setTipos([]);
@@ -106,6 +109,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
         if (!orders || orders.length === 0) {
           setSalesData([]);
           setRemisionesData([]);
+          setOrderItems([]);
           setClients([]);
           setResistances([]);
           setTipos([]);
@@ -134,16 +138,43 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
         uniqueClients.sort((a, b) => a.name.localeCompare(b.name));
         setClients(uniqueClients);
 
-        // 3. Fetch order items (products) for these orders
+        // 3. Fetch order items (products) for these orders with sophisticated price matching support
         const orderIds = orders.map(order => order.id);
-        const orderItemsQuery = supabase
-          .from('order_items')
-          .select('*')
-          .in('order_id', orderIds);
+        let orderItemsQuery;
+        let orderItems;
+        let itemsError;
 
-        const { data: orderItems, error: itemsError } = await orderItemsQuery;
+        try {
+          // Try to fetch with quote_details relationship for sophisticated price matching
+          const result = await supabase
+            .from('order_items')
+            .select(`
+              *,
+              quote_details (
+                final_price,
+                recipe_id
+              )
+            `)
+            .in('order_id', orderIds);
+
+          orderItems = result.data;
+          itemsError = result.error;
+        } catch (relationshipError) {
+          console.warn('Quote details relationship failed, falling back to basic query:', relationshipError);
+          // Fallback to basic query without relationship
+          const fallbackResult = await supabase
+            .from('order_items')
+            .select('*')
+            .in('order_id', orderIds);
+
+          orderItems = fallbackResult.data;
+          itemsError = fallbackResult.error;
+        }
 
         if (itemsError) throw itemsError;
+
+        // Store order items for sophisticated price matching
+        setOrderItems(orderItems || []);
 
         // Extract unique values for filters from remisiones
         const uniqueResistances = Array.from(new Set(remisiones?.map(r => r.recipe?.strength_fc?.toString()).filter(Boolean) as string[] || [])).sort();
@@ -191,6 +222,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
   return {
     salesData,
     remisionesData,
+    orderItems, // Add order items for sophisticated price matching
     clients,
     resistances,
     tipos,
@@ -226,7 +258,7 @@ export const useHistoricalSalesData = (currentPlant: any) => {
           .from('remisiones')
           .select(`
             *,
-            recipe:recipes(recipe_code, strength_fc),
+            recipe:recipes(id, recipe_code, strength_fc),
             order:orders(
               id,
               order_number,
