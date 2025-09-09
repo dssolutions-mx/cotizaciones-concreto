@@ -9,7 +9,7 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import Link from 'next/link';
 
-type AmountFilter = 'all' | 'final' | 'preliminary';
+type DeliveredFilter = 'all' | 'delivered' | 'pending';
 
 interface OrdersListProps {
   filterStatus?: string;
@@ -130,7 +130,7 @@ function formatDate(dateString: string) {
 }
 
 // Define a basic OrderCard component
-function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onClick: () => void; groupKey: string }) {
+function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWithClient; onClick: () => void; groupKey: string; isDosificador?: boolean }) {
 
   function handleContextMenu(e: React.MouseEvent) {
     // Allow the default browser context menu to appear
@@ -146,26 +146,60 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
     }
   }
 
-  // Determinar el monto a mostrar (final o preliminar)
-  const finalAmount = order.final_amount || (order as any).final_amount;
-  const preliminaryAmount = order.preliminary_amount || (order as any).preliminary_amount;
-  
-  // Verificar si hay un monto final registrado
-  const hasFinalAmount = finalAmount !== undefined && finalAmount !== null;
-  
-  // Usar monto final si está disponible, de lo contrario usar monto preliminar
-  const amountToShow = hasFinalAmount ? finalAmount : preliminaryAmount;
-  
-  // Format order amount
-  const formattedAmount = amountToShow !== undefined 
-    ? (typeof amountToShow === 'number' 
-        ? amountToShow.toLocaleString('es-MX', { 
-            style: 'currency', 
-            currency: 'MXN',
-            minimumFractionDigits: 2
-          })
-        : 'N/A') 
+  // Determinar los volúmenes y estado de entrega
+  const concreteVolumeDelivered = (order as any).concreteVolumeDelivered as number | undefined;
+  const concreteVolumePlanned = (order as any).concreteVolumePlanned as number | undefined;
+  const pumpVolumeDelivered = (order as any).pumpVolumeDelivered as number | undefined;
+  const pumpVolumePlanned = (order as any).pumpVolumePlanned as number | undefined;
+  const hasPumpService = !!(order as any).hasPumpService;
+  const hasDeliveredConcrete = !!(order as any).hasDeliveredConcrete;
+  const concreteDelivered = Number((order as any).concreteVolumeDelivered) || 0;
+  const pumpDelivered = Number((order as any).pumpVolumeDelivered) || 0;
+
+  // Elegir volumen a mostrar (priorizar entregado, si no mostrar planificado)
+  const displayConcrete = typeof concreteVolumeDelivered === 'number' ? concreteVolumeDelivered : concreteVolumePlanned;
+  const displayPump = typeof pumpVolumeDelivered === 'number' ? pumpVolumeDelivered : pumpVolumePlanned;
+
+  // Formatear volúmenes a m³
+  const formattedConcrete = typeof displayConcrete === 'number'
+    ? `${displayConcrete.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³`
     : 'N/A';
+  const formattedPump = typeof displayPump === 'number'
+    ? `${displayPump.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³`
+    : undefined;
+
+  // Precios unitarios
+  const concreteUnitPrice = (order as any).concreteUnitPrice as number | undefined;
+  const pumpUnitPrice = (order as any).pumpUnitPrice as number | undefined;
+  const formattedConcretePU = typeof concreteUnitPrice === 'number' ? concreteUnitPrice.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : undefined;
+  const formattedPumpPU = typeof pumpUnitPrice === 'number' ? pumpUnitPrice.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : undefined;
+
+  // Iniciales del creador
+  const creator = (order as any).creator as { first_name?: string | null; last_name?: string | null; email?: string | null } | undefined;
+  const creatorFirst = (creator?.first_name || '').trim();
+  const creatorLast = (creator?.last_name || '').trim();
+  const creatorEmail = (creator?.email || '').trim();
+  const initials = (creatorFirst || creatorLast)
+    ? `${creatorFirst.charAt(0)}${creatorLast.charAt(0)}`.toUpperCase()
+    : (creatorEmail ? creatorEmail.charAt(0).toUpperCase() : '');
+
+  // Extraer especificaciones del producto (tipos de producto de concreto)
+  const productSpecs: string[] = Array.from(
+    new Set(
+      ((order as any).order_items || [])
+        .filter((item: any) => {
+          const productType = (item.product_type || '').toString();
+          const isEmptyTruckCharge = item.has_empty_truck_charge ||
+            productType === 'VACÍO DE OLLA' ||
+            productType === 'EMPTY_TRUCK_CHARGE';
+          const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+            productType.toLowerCase().includes('bombeo') ||
+            productType.toLowerCase().includes('pump');
+          return !isEmptyTruckCharge && !isPumpService && productType.trim().length > 0;
+        })
+        .map((item: any) => (item.product_type || '').toString().trim())
+    )
+  );
 
   const isPastOrder = groupKey === 'pasado' || groupKey === 'anteayer' || groupKey === 'ayer';
   const requiresInvoice = order.requires_invoice;
@@ -188,6 +222,11 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
               {order.clients?.business_name || 'Cliente no disponible'}
             </h3>
             <span className="ml-2 text-sm text-gray-500">#{order.order_number}</span>
+            {initials && (
+              <span className="ml-3 inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold" title="Creador del pedido">
+                {initials}
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap gap-2 mt-1 mb-2">
             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(order.order_status)}`}>
@@ -239,13 +278,31 @@ function OrderCard({ order, onClick, groupKey }: { order: OrderWithClient; onCli
         </div>
         <div className="flex flex-col md:items-end mt-2 md:mt-0 space-y-2">
           <div className="flex flex-col items-end">
-            <p className={`text-lg font-bold ${hasFinalAmount ? 'text-green-700' : 'text-gray-900'}`}>
-              {formattedAmount}
+            <p className="text-lg font-bold">
+              <span className={`${concreteDelivered > 0 ? 'text-green-700' : 'text-gray-900'}`}>{formattedConcrete}</span>
+              {hasPumpService && formattedPump ? (
+                <span className={`ml-2 ${pumpDelivered > 0 ? 'text-green-700' : 'text-gray-700'}`}>Bombeo: {formattedPump}</span>
+              ) : null}
             </p>
-            {hasFinalAmount ? (
-              <p className="text-xs text-green-600 font-medium">Monto final registrado</p>
+            {productSpecs.length > 0 && (
+              <p className="text-xs text-gray-600 max-w-[260px] text-right truncate" title={productSpecs.join(', ')}>
+                {productSpecs.join(', ')}
+              </p>
+            )}
+            {(!isDosificador) && (
+              <div className="mt-1 text-xs text-gray-600 flex flex-col items-end">
+                {formattedConcretePU && (
+                  <div>PU Concreto: <span className="font-medium">{formattedConcretePU}</span></div>
+                )}
+                {hasPumpService && formattedPumpPU && (
+                  <div>PU Bombeo: <span className="font-medium">{formattedPumpPU}</span></div>
+                )}
+              </div>
+            )}
+            {hasDeliveredConcrete ? (
+              <p className="text-xs text-green-600 font-medium">Entregado</p>
             ) : (
-              <p className="text-xs text-gray-500">Monto preliminar</p>
+              <p className="text-xs text-gray-500">Planificado</p>
             )}
           </div>
           <button
@@ -274,7 +331,7 @@ export default function OrdersList({
 }: OrdersListProps) {
   // Estados para los filtros
   const [searchQuery, setSearchQuery] = useState(clientFilter || '');
-  const [amountFilter, setAmountFilter] = useState<AmountFilter>('all');
+  const [deliveredFilter, setDeliveredFilter] = useState<DeliveredFilter>('all');
   
   const router = useRouter();
   const { profile } = useAuthBridge();
@@ -303,7 +360,99 @@ export default function OrdersList({
       if (isDosificador) {
         const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
         const data = await getOrdersForDosificador();
-        setOrders(data);
+        const { supabase } = await import('@/lib/supabase/client');
+
+        // Compute volumes/prices consistently for DOSIFICADOR
+        const processedDataBase = (data || []).map((order: any) => {
+          const orderItems = order.order_items || [];
+          let concreteVolumePlanned = 0;
+          let concreteVolumeDelivered = 0;
+          let pumpVolumePlanned = 0;
+          let pumpVolumeDelivered = 0;
+          let hasPumpService = false;
+          let hasDeliveredConcrete = false;
+          let concreteUnitPrice: number | undefined = undefined;
+          let pumpUnitPrice: number | undefined = undefined;
+
+          if (orderItems.length > 0) {
+            orderItems.forEach((item: any) => {
+              const productType = (item.product_type || '').toString();
+              const volume = Number(item.volume) || 0;
+              const pumpVolumeItem = Number(item.pump_volume) || 0;
+              const pumpDelivered = Number(item.pump_volume_delivered) || 0;
+              const concreteDelivered = Number(item.concrete_volume_delivered) || 0;
+              const unitPrice = item.unit_price != null ? Number(item.unit_price) : undefined;
+              const pumpPrice = item.pump_price != null ? Number(item.pump_price) : undefined;
+
+              const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                productType === 'VACÍO DE OLLA' ||
+                productType === 'EMPTY_TRUCK_CHARGE';
+              const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                productType.toLowerCase().includes('bombeo') ||
+                productType.toLowerCase().includes('pump');
+
+              if (!isEmptyTruckCharge && !isPumpService) {
+                concreteVolumePlanned += volume;
+                if (concreteDelivered > 0) {
+                  concreteVolumeDelivered += concreteDelivered;
+                }
+                if (concreteUnitPrice === undefined && unitPrice != null && unitPrice > 0) {
+                  concreteUnitPrice = unitPrice;
+                }
+              }
+
+              if (item.has_pump_service || isPumpService) {
+                if (pumpVolumeItem > 0) {
+                  pumpVolumePlanned += pumpVolumeItem;
+                } else if (isPumpService && volume > 0) {
+                  pumpVolumePlanned += volume;
+                }
+                hasPumpService = true;
+                if (pumpDelivered > 0) {
+                  pumpVolumeDelivered += pumpDelivered;
+                }
+                const effectivePumpPrice = pumpPrice != null ? pumpPrice : unitPrice;
+                if (pumpUnitPrice === undefined && effectivePumpPrice != null && effectivePumpPrice > 0) {
+                  pumpUnitPrice = effectivePumpPrice;
+                }
+              }
+            });
+          }
+
+          hasDeliveredConcrete = (concreteVolumeDelivered > 0) || (pumpVolumeDelivered > 0);
+
+          return {
+            ...order,
+            concreteVolumePlanned: concreteVolumePlanned > 0 ? concreteVolumePlanned : undefined,
+            concreteVolumeDelivered: concreteVolumeDelivered > 0 ? concreteVolumeDelivered : undefined,
+            pumpVolumePlanned: pumpVolumePlanned > 0 ? pumpVolumePlanned : undefined,
+            pumpVolumeDelivered: pumpVolumeDelivered > 0 ? pumpVolumeDelivered : undefined,
+            concreteUnitPrice,
+            pumpUnitPrice,
+            hasPumpService,
+            hasDeliveredConcrete
+          };
+        });
+
+        // Attach creator profiles for initials
+        let processedData = processedDataBase;
+        try {
+          const creatorIds = Array.from(new Set((data || []).map((o: any) => o.created_by).filter(Boolean)));
+          if (creatorIds.length > 0) {
+            const { data: creators } = await supabase
+              .from('user_profiles')
+              .select('id, first_name, last_name, email')
+              .in('id', creatorIds);
+            const map = new Map<string, any>();
+            (creators || []).forEach((u: any) => map.set(u.id, u));
+            processedData = processedDataBase.map((o: any) => ({
+              ...o,
+              creator: o.created_by ? map.get(o.created_by) : undefined
+            }));
+          }
+        } catch (_e) {}
+
+        setOrders(processedData);
       } else {
         // Create a plant-aware query directly with volume information
         const { supabase } = await import('@/lib/supabase/client');
@@ -323,6 +472,7 @@ export default function OrdersList({
             special_requirements,
             preliminary_amount,
             final_amount,
+            created_by,
             credit_status,
             order_status,
             created_at,
@@ -337,10 +487,14 @@ export default function OrdersList({
               id,
               product_type,
               volume,
+              concrete_volume_delivered,
               has_pump_service,
               pump_volume,
+              pump_volume_delivered,
               has_empty_truck_charge,
-              empty_truck_volume
+              empty_truck_volume,
+              unit_price,
+              pump_price
             )
           `)
           .eq('plant_id', currentPlant.id);
@@ -367,18 +521,27 @@ export default function OrdersList({
         if (error) throw error;
         
         // Process the data to calculate volumes using the correct logic
-        const processedData = (data || []).map(order => {
+        const processedDataBase = (data || []).map(order => {
           const orderItems = order.order_items || [];
-          let concreteVolume = 0;
-          let pumpVolume = 0;
+          let concreteVolumePlanned = 0;
+          let concreteVolumeDelivered = 0;
+          let pumpVolumePlanned = 0;
+          let pumpVolumeDelivered = 0;
           let hasPumpService = false;
+          let hasDeliveredConcrete = false;
+          let concreteUnitPrice: number | undefined = undefined;
+          let pumpUnitPrice: number | undefined = undefined;
 
           // Only calculate volumes if there are items
           if (orderItems.length > 0) {
             orderItems.forEach((item: any) => {
-              const productType = item.product_type || '';
-              const volume = item.volume || 0;
-              const pumpVolumeItem = item.pump_volume || 0;
+              const productType = (item.product_type || '').toString();
+              const volume = Number(item.volume) || 0;
+              const pumpVolumeItem = Number(item.pump_volume) || 0;
+              const pumpDelivered = Number(item.pump_volume_delivered) || 0;
+              const concreteDelivered = Number(item.concrete_volume_delivered) || 0;
+              const unitPrice = item.unit_price != null ? Number(item.unit_price) : undefined;
+              const pumpPrice = item.pump_price != null ? Number(item.pump_price) : undefined;
 
               // Determine if this item is an empty truck charge
               const isEmptyTruckCharge = item.has_empty_truck_charge ||
@@ -392,29 +555,74 @@ export default function OrdersList({
 
               // Calculate concrete volume (exclude empty truck charges and pump services)
               if (!isEmptyTruckCharge && !isPumpService) {
-                concreteVolume += volume;
+                concreteVolumePlanned += volume;
+                // Sum delivered concrete volume
+                if (concreteDelivered > 0) {
+                  concreteVolumeDelivered += concreteDelivered;
+                }
+                // Capture first valid concrete unit price
+                if (concreteUnitPrice === undefined && unitPrice != null && unitPrice > 0) {
+                  concreteUnitPrice = unitPrice;
+                }
               }
 
               // Calculate pump volume
               if (item.has_pump_service || isPumpService) {
                 if (pumpVolumeItem > 0) {
-                  pumpVolume += pumpVolumeItem;
+                  pumpVolumePlanned += pumpVolumeItem;
                 } else if (isPumpService && volume > 0) {
-                  pumpVolume += volume;
+                  pumpVolumePlanned += volume;
                 }
                 hasPumpService = true;
+                // Sum delivered pump volume from pump_volume_delivered
+                if (pumpDelivered > 0) {
+                  pumpVolumeDelivered += pumpDelivered;
+                }
+                // Capture first valid pump unit price
+                const effectivePumpPrice = pumpPrice != null ? pumpPrice : unitPrice;
+                if (pumpUnitPrice === undefined && effectivePumpPrice != null && effectivePumpPrice > 0) {
+                  pumpUnitPrice = effectivePumpPrice;
+                }
               }
             });
           }
 
+          // Determine delivered based on summed delivered volumes
+          hasDeliveredConcrete = (concreteVolumeDelivered > 0) || (pumpVolumeDelivered > 0);
+
           return {
             ...order,
-            concreteVolume: concreteVolume > 0 ? concreteVolume : undefined,
-            pumpVolume: pumpVolume > 0 ? pumpVolume : undefined,
-            hasPumpService
+            concreteVolumePlanned: concreteVolumePlanned > 0 ? concreteVolumePlanned : undefined,
+            concreteVolumeDelivered: concreteVolumeDelivered > 0 ? concreteVolumeDelivered : undefined,
+            pumpVolumePlanned: pumpVolumePlanned > 0 ? pumpVolumePlanned : undefined,
+            pumpVolumeDelivered: pumpVolumeDelivered > 0 ? pumpVolumeDelivered : undefined,
+            concreteUnitPrice,
+            pumpUnitPrice,
+            hasPumpService,
+            hasDeliveredConcrete
           };
         });
-        
+
+        // Attach creator profiles (fetch separately due to missing FK relationship)
+        let processedData = processedDataBase;
+        try {
+          const creatorIds = Array.from(new Set((data || []).map((o: any) => o.created_by).filter(Boolean)));
+          if (creatorIds.length > 0) {
+            const { data: creators } = await supabase
+              .from('user_profiles')
+              .select('id, first_name, last_name, email')
+              .in('id', creatorIds);
+            const map = new Map<string, any>();
+            (creators || []).forEach((u: any) => map.set(u.id, u));
+            processedData = processedDataBase.map((o: any) => ({
+              ...o,
+              creator: o.created_by ? map.get(o.created_by) : undefined
+            }));
+          }
+        } catch (_e) {
+          // If fetching profiles fails, continue without creator info
+        }
+
         setOrders(processedData);
       }
     } catch (err) {
@@ -473,23 +681,18 @@ export default function OrdersList({
       });
     }
     
-    // Filtrar por tipo de monto
-    if (amountFilter !== 'all') {
+    // Filtrar por estado de entrega
+    if (deliveredFilter !== 'all') {
       result = result.filter(order => {
-        const finalAmount = order.final_amount || (order as any).final_amount;
-        const hasFinalAmount = finalAmount !== undefined && finalAmount !== null;
-        
-        if (amountFilter === 'final') {
-          return hasFinalAmount;
-        } else if (amountFilter === 'preliminary') {
-          return !hasFinalAmount;
-        }
+        const isDelivered = !!(order as any).hasDeliveredConcrete;
+        if (deliveredFilter === 'delivered') return isDelivered;
+        if (deliveredFilter === 'pending') return !isDelivered;
         return true;
       });
     }
     
     setFilteredOrders(result);
-  }, [orders, searchQuery, amountFilter]);
+  }, [orders, searchQuery, deliveredFilter]);
 
   // Función para agrupar las órdenes por fecha
   const groupOrdersByDate = useCallback(() => {
@@ -636,7 +839,7 @@ export default function OrdersList({
   // Aplicar filtros cuando cambia cualquier filtro o los datos
   useEffect(() => {
     applyFilters();
-  }, [applyFilters, orders, searchQuery, amountFilter]);
+  }, [applyFilters, orders, searchQuery, deliveredFilter]);
   
   // Agrupar los datos cuando cambian los datos filtrados
   useEffect(() => {
@@ -687,8 +890,8 @@ export default function OrdersList({
     // Los filtros se aplican automáticamente
   }
 
-  function handleAmountFilterChange(value: AmountFilter) {
-    setAmountFilter(value);
+  function handleDeliveredFilterChange(value: DeliveredFilter) {
+    setDeliveredFilter(value);
   }
 
   // Indicador de carga
@@ -764,15 +967,16 @@ export default function OrdersList({
           </form>
         </div>
 
-        {/* Filtros específicos */}
+        {/* Filtros específicos */
+        }
         <div className="mb-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-2">Filtrar por tipo de monto:</h3>
+          <h3 className="text-sm font-medium text-gray-700 mb-2">Filtrar por entrega:</h3>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => handleAmountFilterChange('all')}
+              onClick={() => handleDeliveredFilterChange('all')}
               className={`px-3 py-1.5 text-sm rounded-md ${
-                amountFilter === 'all' 
+                deliveredFilter === 'all' 
                   ? 'bg-blue-100 text-blue-800 border border-blue-300' 
                   : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
               }`}
@@ -781,25 +985,25 @@ export default function OrdersList({
             </button>
             <button
               type="button"
-              onClick={() => handleAmountFilterChange('final')}
+              onClick={() => handleDeliveredFilterChange('delivered')}
               className={`px-3 py-1.5 text-sm rounded-md ${
-                amountFilter === 'final' 
+                deliveredFilter === 'delivered' 
                   ? 'bg-green-100 text-green-800 border border-green-300' 
                   : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
               }`}
             >
-              Con monto final
+              Entregados
             </button>
             <button
               type="button"
-              onClick={() => handleAmountFilterChange('preliminary')}
+              onClick={() => handleDeliveredFilterChange('pending')}
               className={`px-3 py-1.5 text-sm rounded-md ${
-                amountFilter === 'preliminary' 
+                deliveredFilter === 'pending' 
                   ? 'bg-yellow-100 text-yellow-800 border border-yellow-300' 
                   : 'bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200'
               }`}
             >
-              Solo preliminares
+              Pendientes
             </button>
           </div>
         </div>
@@ -809,10 +1013,10 @@ export default function OrdersList({
       {!loading && (
         <div className="text-sm text-gray-600 px-1">
           {filteredOrders.length} {filteredOrders.length === 1 ? 'orden' : 'órdenes'} {
-            amountFilter === 'final' 
-              ? 'con monto final' 
-              : amountFilter === 'preliminary' 
-                ? 'con monto preliminar' 
+            deliveredFilter === 'delivered' 
+              ? 'entregadas' 
+              : deliveredFilter === 'pending' 
+                ? 'pendientes de entrega' 
                 : ''
           } {searchQuery ? `que coinciden con "${searchQuery}"` : ''}
         </div>
@@ -829,10 +1033,10 @@ export default function OrdersList({
           <p className="mt-2 text-sm text-gray-500">
             {searchQuery ? 
               `No hay pedidos que coincidan con "${searchQuery}".` :
-              amountFilter !== 'all' ? 
-                amountFilter === 'final' ? 
-                  'No hay pedidos con monto final registrado' : 
-                  'No hay pedidos con sólo monto preliminar' :
+              deliveredFilter !== 'all' ? 
+                deliveredFilter === 'delivered' ? 
+                  'No hay pedidos entregados' : 
+                  'No hay pedidos pendientes de entrega' :
                 filterStatus ? 
                   `No hay pedidos con el estado "${filterStatus}".` :
                   'No hay pedidos disponibles en este momento.'
@@ -886,6 +1090,7 @@ export default function OrdersList({
                         order={order} 
                         onClick={() => handleOrderClick(order.id)} 
                         groupKey={groupKey}
+                        isDosificador={isDosificador}
                       />
                     ))}
                   </div>

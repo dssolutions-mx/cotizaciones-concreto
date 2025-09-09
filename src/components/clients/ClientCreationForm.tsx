@@ -20,10 +20,39 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
     address: '',
     requires_invoice: false,
     client_code: '',
+    client_type: 'de_la_casa' as 'normal' | 'de_la_casa' | 'asignado' | 'nuevo',
+    assigned_user_id: '' as string | null,
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [users, setUsers] = useState<Array<{ id: string; name: string }>>([]);
+
+  React.useEffect(() => {
+    // Cargar usuarios para asignación
+    const loadUsers = async () => {
+      try {
+        const supabaseModule = await import('@/lib/supabase/client');
+        const supabase = supabaseModule.supabase;
+        if (!supabase) return;
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('id, first_name, last_name, email, role')
+          .order('first_name', { ascending: true })
+          .order('last_name', { ascending: true })
+          .order('email', { ascending: true });
+        if (error) return;
+        const list = (data || []).map((u: any) => ({
+          id: u.id,
+          name: (u.first_name || u.last_name) ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : (u.email || 'Usuario')
+        }));
+        setUsers(list);
+      } catch (e) {
+        // Silencioso
+      }
+    };
+    loadUsers();
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target;
@@ -57,6 +86,8 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
       const clientData = {
         ...formData,
         client_code: formData.client_code || formData.business_name.substring(0, 3).toUpperCase(),
+        // Normalizar assigned_user_id vacío a null
+        assigned_user_id: formData.assigned_user_id || null,
       };
       
       const result = await clientService.createClient(clientData);
@@ -151,6 +182,48 @@ export default function ClientCreationForm({ onClientCreated, onCancel }: Client
           </div>
         </div>
         
+        {/* Tipo de cliente y usuario asignado */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label htmlFor="client_type" className="block text-sm font-medium text-gray-700 mb-1">
+              Tipo de Cliente
+            </label>
+            <select
+              id="client_type"
+              name="client_type"
+              value={formData.client_type}
+              onChange={(e) => setFormData(prev => ({ ...prev, client_type: e.target.value as any }))}
+              className="w-full p-2 border border-gray-300 rounded-md"
+            >
+              <option value="normal">Cliente normal</option>
+              <option value="de_la_casa">Cliente de la casa</option>
+              <option value="asignado">Cliente asignado</option>
+              <option value="nuevo">Cliente nuevo</option>
+            </select>
+          </div>
+          <div>
+            <label htmlFor="assigned_user_id" className="block text-sm font-medium text-gray-700 mb-1">
+              Usuario asignado
+            </label>
+            <select
+              id="assigned_user_id"
+              name="assigned_user_id"
+              value={formData.assigned_user_id || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, assigned_user_id: e.target.value || '' }))}
+              className="w-full p-2 border border-gray-300 rounded-md"
+              disabled={formData.client_type !== 'asignado'}
+            >
+              <option value="">Sin asignar</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+            {formData.client_type === 'asignado' && users.length === 0 && (
+              <p className="mt-1 text-xs text-gray-500">No hay usuarios disponibles para asignar.</p>
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label htmlFor="contact_name" className="block text-sm font-medium text-gray-700 mb-1">

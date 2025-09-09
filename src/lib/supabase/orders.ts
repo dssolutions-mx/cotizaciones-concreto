@@ -400,6 +400,7 @@ export async function getOrdersForDosificador() {
       .select(`
         id,
         order_number,
+        created_by,
         delivery_date,
         delivery_time,
         construction_site,
@@ -410,7 +411,20 @@ export async function getOrdersForDosificador() {
         credit_status,
         order_status,
         plant_id,
-        clients:clients(business_name, client_code)
+        clients:clients(business_name, client_code),
+        order_items(
+          id,
+          product_type,
+          volume,
+          concrete_volume_delivered,
+          has_pump_service,
+          pump_volume,
+          pump_volume_delivered,
+          has_empty_truck_charge,
+          empty_truck_volume,
+          unit_price,
+          pump_price
+        )
       `)
       // Add any specific filters for Dosificador if needed, e.g., status
       .in('order_status', [

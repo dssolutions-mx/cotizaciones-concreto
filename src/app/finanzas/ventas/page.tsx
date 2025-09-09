@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { startOfMonth, endOfMonth, format, isValid, addMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
@@ -52,6 +52,9 @@ import {
 // Import hooks
 import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
 
+// Import quality service
+import { ClientQualityService } from '@/services/clientQualityService';
+
 // Dynamically import ApexCharts with SSR disabled
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
@@ -73,6 +76,13 @@ export default function VentasDashboard() {
   // Processed data state
   const [summaryMetrics, setSummaryMetrics] = useState<SummaryMetrics | null>(null);
   const [concreteByRecipe, setConcreteByRecipe] = useState<ConcreteByRecipe>({});
+
+  // Quality data state for guarantee age
+  const [guaranteeAgeData, setGuaranteeAgeData] = useState<{
+    averageGuaranteeAge: number;
+    totalRecipes: number;
+    ageDistribution: { [key: string]: number };
+  } | null>(null);
 
   // Use custom hook for data fetching
   const {
@@ -426,6 +436,35 @@ export default function VentasDashboard() {
   const handleCodigoProductoFilterChange = (value: string) => setCodigoProductoFilter(value);
   const handleIncludeVATChange = (checked: boolean) => setIncludeVAT(checked);
 
+  // Load guarantee age data
+  useEffect(() => {
+    const loadGuaranteeAgeData = async () => {
+      if (startDate && endDate) {
+        try {
+          const fromDateStr = format(startDate, 'yyyy-MM-dd');
+          const toDateStr = format(endDate, 'yyyy-MM-dd');
+
+          const guaranteeAgeResult = await ClientQualityService.getAverageGuaranteeAge(
+            fromDateStr,
+            toDateStr,
+            currentPlant?.id
+          );
+
+          setGuaranteeAgeData(guaranteeAgeResult);
+        } catch (error) {
+          console.error('Error loading guarantee age data:', error);
+          setGuaranteeAgeData({
+            averageGuaranteeAge: 0,
+            totalRecipes: 0,
+            ageDistribution: {}
+          });
+        }
+      }
+    };
+
+    loadGuaranteeAgeData();
+  }, [startDate, endDate, currentPlant?.id]);
+
   // Excel Export Function using utility
   const exportToExcel = () => {
     const result = exportSalesToExcel(
@@ -551,9 +590,9 @@ export default function VentasDashboard() {
               includeVAT={includeVAT}
               onExportToExcel={exportToExcel}
             />
-          )}
-                    </CardContent>
-                </Card>
+                        )}
+                      </CardContent>
+                    </Card>
       )}
 
       {layoutType === 'powerbi' && (
@@ -569,7 +608,7 @@ export default function VentasDashboard() {
              </CardHeader>
             <CardContent>
                  {/* Top Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     {/* Total de Ventas */}
                     <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-white to-slate-50">
                     <CardHeader className="p-4 pb-0">
@@ -582,45 +621,49 @@ export default function VentasDashboard() {
                     </CardHeader>
                     <CardContent className='p-2'></CardContent>
                     </Card>
-                     {/* Volumen (m3) */}
-                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-white to-slate-50">
-                    <CardHeader className="p-4 pb-0">
-                         <CardTitle className="text-center text-2xl font-bold text-slate-800">
-                                       {currentSummaryMetrics.totalVolume.toFixed(2)}
+
+                    {/* Volumen Total (Incluyendo todo) */}
+                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100">
+                    <CardHeader className="p-4 pb-2">
+                         <CardTitle className="text-center text-2xl font-bold text-blue-800">
+                                       {(currentSummaryMetrics.totalVolume + currentSummaryMetrics.emptyTruckVolume).toFixed(1)}
                          </CardTitle>
-                        <CardDescription className='text-center text-xs font-medium text-slate-500'>Volumen (m3)</CardDescription>
+                        <CardDescription className='text-center text-xs font-medium text-blue-600 mb-2'>
+                            VOLUMEN TOTAL (m³)
+                        </CardDescription>
+                        <div className="flex justify-center gap-2 text-xs">
+                            <span className="text-blue-700">
+                                🏗️ Concreto + Bombeo + Vacio de Olla
+                            </span>
+                        </div>
                     </CardHeader>
-                    <CardContent className='p-2'></CardContent>
-                    </Card>
-                     {/* Resistencia Ponderada */}
-                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-white to-slate-50">
-                    <CardHeader className="p-4 pb-0">
-                         <CardTitle className="text-center text-2xl font-bold text-slate-800 relative">
-                                        {currentSummaryMetrics.weightedResistance.toFixed(2)}
-                                        {currentSummaryMetrics.resistanceTooltip && (
-                                             <Info className="h-3 w-3 text-blue-500 absolute top-0 right-0 mr-1 mt-1 cursor-help" />
-                             )}
-                          </CardTitle>
-                        <CardDescription className='text-center text-xs font-medium text-slate-500'>RESISTENCIA PONDERADA</CardDescription>
-                    </CardHeader>
-                     <CardContent className='p-2'></CardContent>
+                    <CardContent className='p-2 pt-0'>
+                        <div className="text-center text-xs text-blue-600">
+                            Producción + Servicios ({currentSummaryMetrics.totalVolume.toFixed(1)}m³ + {currentSummaryMetrics.emptyTruckVolume} cargas)
+                        </div>
+                    </CardContent>
                     </Card>
 
-                    {/* Commercial Performance Summary */}
-                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-purple-50 to-purple-100">
-                        <CardHeader className="p-4 pb-0">
-                            <CardTitle className="text-center text-2xl font-bold text-purple-800">
-                                          85.0%
-                            </CardTitle>
-                            <CardDescription className='text-center text-xs font-medium text-purple-500'>
-                                TASA DE COBRO
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className='p-2'>
-                            <div className="text-center text-xs text-purple-600">
-                                          {clients.length} clientes activos
-                            </div>
-                        </CardContent>
+                     {/* Edad Promedio de Garantía */}
+                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-purple-50 to-indigo-100">
+                    <CardHeader className="p-4 pb-2">
+                         <CardTitle className="text-center text-2xl font-bold text-purple-800">
+                                       {guaranteeAgeData?.averageGuaranteeAge.toFixed(1) || '0.0'}
+                         </CardTitle>
+                        <CardDescription className='text-center text-xs font-medium text-purple-600 mb-2'>
+                            EDAD DE GARANTÍA
+                        </CardDescription>
+                        <div className="flex justify-center gap-2 text-xs">
+                            <span className="text-purple-700">
+                                📋 {guaranteeAgeData?.totalRecipes || 0} fórmulas
+                            </span>
+                        </div>
+                    </CardHeader>
+                    <CardContent className='p-2 pt-0'>
+                        <div className="text-center text-xs text-purple-600">
+                            Promedio de edad de garantía (días)
+                        </div>
+                    </CardContent>
                     </Card>
                 </div>
 
