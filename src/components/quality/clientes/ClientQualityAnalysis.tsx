@@ -58,20 +58,76 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
     }
 
     // Group consistency by concrete strength/age (from muestreos.concrete_specs)
-    type GroupAgg = { values: number[] };
+    // Helper to normalize age to a readable label (e.g., 28d, 24h)
+    const getAgeLabel = (specs: any): string => {
+      if (!specs) return 'NA';
+
+      // 0) Direct Spanish fields found in DB: valor_edad + unidad_edad ('DÍA'|'DÍAS'|'HORA'|'HORAS')
+      const valorEdad = specs.valor_edad ?? specs.valorEdad;
+      const unidadEdadRaw = specs.unidad_edad ?? specs.unidadEdad;
+      if (typeof valorEdad === 'number' && valorEdad > 0 && unidadEdadRaw) {
+        const unidad = unidadEdadRaw.toString().toLowerCase();
+        const unidadNorm = unidad
+          .normalize('NFD')
+          .replace(/\p{Diacritic}/gu, ''); // remove accents
+        if (unidadNorm.includes('hora')) return `${valorEdad}h`;
+        if (unidadNorm.includes('dia')) return `${valorEdad}d`;
+      }
+
+      // 1) Explicit numeric fields
+      const ageHours = specs.age_hours ?? specs.hours ?? specs.guarantee_age_hours ?? undefined;
+      const ageDays = specs.age_days ?? specs.days ?? specs.guarantee_age_days ?? undefined;
+      if (typeof ageHours === 'number' && ageHours > 0) return `${ageHours}h`;
+      if (typeof ageDays === 'number' && ageDays > 0) return `${ageDays}d`;
+
+      // 2) Dashboard-like JSON: guarantee_age or age as object { value, unit } or { days|hours }
+      const ageObj = specs.guarantee_age ?? specs.age ?? specs.edad_garantia ?? undefined;
+      if (ageObj && typeof ageObj === 'object') {
+        // shape { value: 28, unit: 'DAYS'|'HOURS' } or { days|hours }
+        const v = ageObj.value ?? ageObj.valor ?? ageObj.amount ?? undefined;
+        const unitRaw = (ageObj.unit ?? ageObj.unidad ?? '').toString();
+        const unitLc = unitRaw.toLowerCase();
+        const unitNorm = unitLc
+          .normalize('NFD')
+          .replace(/\p{Diacritic}/gu, '');
+        const days = ageObj.days ?? ageObj.dias ?? undefined;
+        const hours = ageObj.hours ?? ageObj.horas ?? undefined;
+        if (typeof hours === 'number' && hours > 0) return `${hours}h`;
+        if (typeof days === 'number' && days > 0) return `${days}d`;
+        if (typeof v === 'number' && v > 0) {
+          if (unitNorm.includes('hour') || unitNorm.includes('hora')) return `${v}h`;
+          if (unitNorm.includes('day') || unitNorm.includes('dia')) return `${v}d`;
+        }
+      }
+
+      // 3) Fallback string/number (could be '28d' or '24h')
+      const genericAge = specs.age ?? specs.edad ?? undefined;
+      if (typeof genericAge === 'string') {
+        const trimmed = genericAge.trim().toLowerCase();
+        if (/^\d+\s*h$/.test(trimmed)) return trimmed.replace(/\s+/g, '');
+        if (/^\d+\s*d$/.test(trimmed)) return trimmed.replace(/\s+/g, '');
+        // If just a number, assume days
+        if (/^\d+$/.test(trimmed)) return `${trimmed}d`;
+      }
+      if (typeof genericAge === 'number' && genericAge > 0) return `${genericAge}d`;
+      return 'NA';
+    };
+
+    type GroupAgg = { values: number[]; compliances: number[] };
     const groups: Record<string, GroupAgg> = {};
     data.remisiones.forEach((rem) => {
       rem.muestreos.forEach((m: any) => {
         const specs = m.concrete_specs || {};
         const strength = specs.strength_fc ?? rem.recipeFc ?? 'NA';
-        const age = specs.age_days ?? specs.age ?? 'NA';
-        const key = `${strength}-${age}`;
+        const ageLabel = getAgeLabel(specs);
+        const key = `${strength}-${ageLabel}`;
         m.muestras.forEach((mx: any) => {
           mx.ensayos
             .filter((e: any) => e.isEdadGarantia && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0)
             .forEach((e: any) => {
-              if (!groups[key]) groups[key] = { values: [] };
+              if (!groups[key]) groups[key] = { values: [], compliances: [] };
               groups[key].values.push(e.resistenciaCalculada);
+              groups[key].compliances.push(e.porcentajeCumplimiento || 0);
             });
         });
       });
@@ -84,7 +140,11 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
       const varG = g.values.reduce((s, v) => s + Math.pow(v - meanG, 2), 0) / n;
       const stdG = Math.sqrt(varG);
       const cvG = meanG > 0 ? (stdG / meanG) * 100 : 0;
-      return { key, count: n, mean: meanG, std: stdG, cv: cvG };
+      const avgCompliance = g.compliances.length > 0
+        ? g.compliances.reduce((s, v) => s + v, 0) / g.compliances.length
+        : 0;
+      const [strengthStr, ageStr] = key.split('-');
+      return { key, strength: strengthStr, age: ageStr, count: n, mean: meanG, std: stdG, cv: cvG, compliance: avgCompliance };
     });
     // Exclude groups with insufficient samples (<3)
     const groupStats = groupStatsRaw.filter(g => g.count >= 3);
@@ -435,6 +495,48 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
           </CardContent>
         </Card>
       </div>
+
+      {/* Grouped Consistency Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Análisis por Resistencia y Edad</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-600">
+                  <th className="py-2 pr-4">Resistencia (Fc)</th>
+                  <th className="py-2 pr-4">Edad (días)</th>
+                  <th className="py-2 pr-4 text-right">Ensayos</th>
+                  <th className="py-2 pr-4 text-right">Media (kg/cm²)</th>
+                  <th className="py-2 pr-4 text-right">σ (kg/cm²)</th>
+                  <th className="py-2 pr-4 text-right">CV (%)</th>
+                  <th className="py-2 pr-4 text-right">Cumplimiento (%)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(metrics.groupStats || []).map((g: any, idx: number) => (
+                  <tr key={idx} className="border-t">
+                    <td className="py-2 pr-4">{g.strength}</td>
+                    <td className="py-2 pr-4">{g.age}</td>
+                    <td className="py-2 pr-4 text-right">{g.count}</td>
+                    <td className="py-2 pr-4 text-right">{formatNumber(g.mean, 1)}</td>
+                    <td className="py-2 pr-4 text-right">{formatNumber(g.std, 1)}</td>
+                    <td className="py-2 pr-4 text-right">{formatNumber(g.cv, 1)}</td>
+                    <td className="py-2 pr-4 text-right">{formatNumber(g.compliance, 1)}</td>
+                  </tr>)
+                )}
+                {(!metrics.groupStats || metrics.groupStats.length === 0) && (
+                  <tr>
+                    <td colSpan={7} className="py-4 text-center text-gray-500">Sin datos suficientes para agrupar (mínimo 3 ensayos por grupo)</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Recommendations */}
       {metrics.recommendations.length > 0 && (

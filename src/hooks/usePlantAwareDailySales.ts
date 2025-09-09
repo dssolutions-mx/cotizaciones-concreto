@@ -114,10 +114,37 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
         .not('order_status', 'eq', 'CANCELLED');
       if (ordersError) throw ordersError;
 
-      const { data: orderItems, error: itemsError } = await supabase
-        .from('order_items')
-        .select('*')
-        .in('order_id', orderIds);
+      // Fetch order items with sophisticated price matching support
+      let orderItems;
+      let itemsError;
+
+      try {
+        // Try to fetch with quote_details relationship for sophisticated price matching
+        const result = await supabase
+          .from('order_items')
+          .select(`
+            *,
+            quote_details (
+              final_price,
+              recipe_id
+            )
+          `)
+          .in('order_id', orderIds);
+
+        orderItems = result.data;
+        itemsError = result.error;
+      } catch (relationshipError) {
+        console.warn('Quote details relationship failed in daily sales, falling back to basic query:', relationshipError);
+        // Fallback to basic query without relationship
+        const fallbackResult = await supabase
+          .from('order_items')
+          .select('*')
+          .in('order_id', orderIds);
+
+        orderItems = fallbackResult.data;
+        itemsError = fallbackResult.error;
+      }
+      
       if (itemsError) throw itemsError;
 
       // Total delivered all dates by order

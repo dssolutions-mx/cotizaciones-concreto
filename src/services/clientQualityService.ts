@@ -682,18 +682,20 @@ export class ClientQualityService {
     try {
       console.log(`[ClientQualityService] Getting average guarantee age from ${fromDate} to ${toDate}${plantId ? ` for plant ${plantId}` : ''}`);
 
+      // Use correct column names and join to recipes to fetch age fields
       let query = supabase
         .from('remisiones')
         .select(`
           id,
-          fecha_fabricacion,
-          recipe:recipe_id (
+          fecha,
+          recipes (
             id,
-            age_days
+            age_days,
+            age_hours
           )
         `)
-        .gte('fecha_fabricacion', fromDate)
-        .lte('fecha_fabricacion', toDate)
+        .gte('fecha', fromDate)
+        .lte('fecha', toDate)
         .not('recipe_id', 'is', null);
 
       // Add plant filter if provided
@@ -726,14 +728,20 @@ export class ClientQualityService {
       let validRecipes = 0;
 
       remisiones.forEach(remision => {
-        const recipe = remision.recipe as any;
-        if (recipe && recipe.age_days) {
-          const ageDays = recipe.age_days;
-          totalAge += ageDays;
-          validRecipes++;
-
-          const ageKey = `${ageDays} días`;
-          ageDistribution[ageKey] = (ageDistribution[ageKey] || 0) + 1;
+        const recipe = (remision as any).recipes as any;
+        if (recipe) {
+          const ageDays: number | null = (recipe.age_days ?? null);
+          const ageHours: number | null = (recipe.age_hours ?? null);
+          const computedDays = typeof ageDays === 'number' && ageDays > 0
+            ? ageDays
+            : (typeof ageHours === 'number' && ageHours > 0 ? ageHours / 24 : null);
+          if (computedDays && computedDays > 0) {
+            totalAge += computedDays;
+            validRecipes++;
+            const rounded = Math.round(computedDays * 10) / 10;
+            const ageKey = `${rounded} días`;
+            ageDistribution[ageKey] = (ageDistribution[ageKey] || 0) + 1;
+          }
         }
       });
 
