@@ -19,7 +19,7 @@ import { useAdvancedMetrics } from '@/hooks/useAdvancedMetrics';
 import { QualityDashboardFilters } from '@/components/quality/QualityDashboardFilters';
 import { QualityMetricsCards } from '@/components/quality/QualityMetricsCards';
 import { QualityChartSection } from '@/components/quality/QualityChartSection';
-import { QualityAdvancedMetrics, QualityAdvancedMetricsCards } from '@/components/quality/QualityAdvancedMetrics';
+// Removed separate advanced metrics components; integrated into KPI cards
 
 // Auth
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -239,41 +239,22 @@ export default function QualityDashboardPage() {
         </Alert>
       ) : (
         <>
-          {/* Metrics Cards */}
-          <QualityMetricsCards metrics={metricas} loading={loading} />
-          
-          <Tabs defaultValue="grafico" className="mb-6">
-            <TabsList className="mb-4 bg-white/60 backdrop-blur border border-slate-200/60 rounded-md">
-              <TabsTrigger value="grafico">Gráfico de Resistencia</TabsTrigger>
-              <TabsTrigger value="metricas">Métricas Avanzadas</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="grafico">
-              <QualityChartSection
-                datosGrafico={datosGrafico}
-                loading={loading}
-                soloEdadGarantia={soloEdadGarantia}
-                constructionSites={constructionSites}
-              />
-            </TabsContent>
+          {/* Metrics Cards (integrated advanced metrics) */}
+          <QualityMetricsCards 
+            metrics={metricas} 
+            loading={loading}
+            eficienciaOverride={advancedMetrics.eficiencia}
+            rendimientoVolumetricoOverride={advancedMetrics.rendimientoVolumetrico}
+            showStdDev={selectedFcValue !== 'all'}
+          />
 
-            <TabsContent value="metricas">
-              <QualityAdvancedMetrics
-                advancedMetrics={{
-                  ...advancedMetrics,
-                  desviacionEstandar: metricas.desviacionEstandar
-                }}
-                calculating={calculating}
-              />
-              <QualityAdvancedMetricsCards
-                advancedMetrics={{
-                  ...advancedMetrics,
-                  desviacionEstandar: metricas.desviacionEstandar
-                }}
-                calculating={calculating}
-              />
-            </TabsContent>
-          </Tabs>
+          {/* Chart Section */}
+          <QualityChartSection
+            datosGrafico={datosGrafico}
+            loading={loading}
+            soloEdadGarantia={soloEdadGarantia}
+            constructionSites={constructionSites}
+          />
         </>
       )}
     </div>

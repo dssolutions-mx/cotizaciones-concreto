@@ -33,6 +33,7 @@ export interface ClientQualityMetrics {
 // Detailed quality data by remision
 export interface ClientQualityRemisionData {
   id: string;
+  orderId?: string;
   remisionNumber: string;
   fecha: string;
   volume: number;
@@ -67,6 +68,13 @@ export interface ClientQualityRemisionData {
   avgResistencia?: number;
   minResistencia?: number;
   maxResistencia?: number;
+  rendimientoVolumetrico?: number;
+  totalMaterialQuantity?: number;
+  materiales?: Array<{
+    id: string;
+    materialType: string;
+    cantidadReal: number;
+  }>;
 }
 
 // Summary statistics for client quality analysis
@@ -79,6 +87,10 @@ export interface ClientQualitySummary {
   totals: {
     volume: number;
     remisiones: number;
+    remisionesMuestreadas: number;
+    remisionesConDatosCalidad: number;
+    porcentajeCoberturaMuestreo: number;
+    porcentajeCoberturaCalidad: number;
     muestreos: number;
     ensayos: number;
     ensayosEdadGarantia: number;
@@ -87,6 +99,7 @@ export interface ClientQualitySummary {
     resistencia: number;
     complianceRate: number;
     masaUnitaria: number;
+    rendimientoVolumetrico: number;
   };
   performance: {
     complianceRate: number;

@@ -60,8 +60,44 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
       // Get accessible plant IDs
       const plantIds = await plantAwareDataService.getAccessiblePlantIds(plantFilterOptions);
       
-      // Build the query with plant filtering
-      let query = supabase
+      // STEP 1: Fetch remisiones for the selected LOCAL date (do not convert to UTC)
+      let remisionesQuery = supabase
+        .from('remisiones')
+        .select('*')
+        .eq('fecha', date);
+
+      // Apply plant filtering to remisiones first
+      if (plantIds && plantIds.length > 0) {
+        remisionesQuery = remisionesQuery.in('plant_id', plantIds);
+      } else if (plantIds && plantIds.length === 0) {
+        return setOrders([]);
+      }
+
+      const { data: remisiones, error: remisionesError } = await remisionesQuery;
+      if (remisionesError) throw remisionesError;
+
+      // If no remisiones for this date, nothing to show
+      if (!remisiones || remisiones.length === 0) {
+        setOrders([]);
+        return;
+      }
+
+      // STEP 2: Collect unique order IDs from these remisiones
+      const orderIds = Array.from(
+        new Set(
+          remisiones
+            .map((r: any) => r.order_id)
+            .filter((id: any) => Boolean(id))
+        )
+      );
+
+      if (orderIds.length === 0) {
+        setOrders([]);
+        return;
+      }
+
+      // STEP 3: Fetch those orders (exclude cancelled)
+      const { data: ordersData, error: ordersError } = await supabase
         .from('orders')
         .select(`
           id,
@@ -78,92 +114,98 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
             business_name
           )
         `)
-        .eq('delivery_date', date)
-        .not('order_status', 'eq', 'CANCELLED')
-        .order('delivery_time', { ascending: true });
-      
-      // Apply plant filtering if user doesn't have global access
-      if (plantIds && plantIds.length > 0) {
-        // User has specific plant access - filter by those plants
-        query = query.in('plant_id', plantIds);
-      } else if (plantIds && plantIds.length === 0) {
-        // User has no access - return empty result
-        return setOrders([]);
+        .in('id', orderIds)
+        .not('order_status', 'eq', 'CANCELLED');
+
+      if (ordersError) throw ordersError;
+
+      if (!ordersData || ordersData.length === 0) {
+        setOrders([]);
+        return;
       }
-      // If plantIds is null, user can access all plants (global admin), so no filter applied
-      
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      
-      console.log(`DailySalesTable - Found ${data?.length || 0} orders for ${date} with plant filtering`);
-      
-      // If we have orders, fetch their items for detailed information
-      if (data && data.length > 0) {
-        // Filter orders to only include those with a final_amount
-        const validData = data.filter(order => order.final_amount !== null);
-        console.log(`DailySalesTable - ${validData.length} orders have final_amount`);
-        
-        // Enhanced orders with items
-        const enhancedOrders = await Promise.all(validData.map(async (order) => {
-          // Fetch order items for this order
-          const { data: items, error: itemsError } = await supabase
-            .from('order_items')
-            .select('*')
-            .eq('order_id', order.id);
-          
-          if (itemsError) throw itemsError;
-          
-          // Calculate totals for this order - USE DELIVERED VOLUMES
-          let concreteVolume = 0;
-          let pumpingVolume = 0;
-          
-          // Get amounts directly from the order
-          const subtotal = Number(order.final_amount || 0);
-          const totalWithVAT = Number(order.invoice_amount || order.final_amount || 0);
-          const vat = totalWithVAT - subtotal; // Calculate VAT as the difference
-          
-          // Product names
-          const productNames: string[] = [];
-          
-          // Process items to get volumes and product names - USE DELIVERED VOLUMES when available
-          if (items && items.length > 0) {
-            items.forEach(item => {
-              // Add concrete volume - ONLY use concrete_volume_delivered (from remisiones)
-              // Exclude both empty truck charges AND global pumping service items
-              if (!item.has_empty_truck_charge && item.product_type !== 'SERVICIO DE BOMBEO') {
-                const concreteVol = item.concrete_volume_delivered || 0;
-                concreteVolume += Number(concreteVol);
-                
-                // Add product name if not already included and it's not a pumping service
-                if (item.product_type && !productNames.includes(item.product_type)) {
-                  productNames.push(item.product_type);
-                }
-              }
-              
-              // Add pumping volume - ONLY use pump_volume_delivered (from remisiones)
-              if (item.has_pump_service && item.pump_volume_delivered > 0) {
-                const pumpVol = item.pump_volume_delivered || 0;
-                pumpingVolume += Number(pumpVol);
+
+      // STEP 4: For proportional amounts, fetch items to know total delivered volumes overall
+      const { data: orderItems, error: itemsError } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('order_id', orderIds);
+      if (itemsError) throw itemsError;
+
+      // Precompute total delivered per order from items (overall, across dates)
+      const totalDeliveredByOrder: Record<string, { concrete: number; pump: number }> = {};
+      (orderItems || []).forEach((item: any) => {
+        if (!totalDeliveredByOrder[item.order_id]) {
+          totalDeliveredByOrder[item.order_id] = { concrete: 0, pump: 0 };
+        }
+        if (!item.has_empty_truck_charge && item.product_type !== 'SERVICIO DE BOMBEO') {
+          totalDeliveredByOrder[item.order_id].concrete += Number(item.concrete_volume_delivered || 0);
+        }
+        if (item.has_pump_service && item.pump_volume_delivered > 0) {
+          totalDeliveredByOrder[item.order_id].pump += Number(item.pump_volume_delivered || 0);
+        }
+      });
+
+      // Group remisiones by order for this date and compute that-day volumes
+      const remisionesByOrder: Record<string, any[]> = {};
+      remisiones.forEach((r: any) => {
+        if (!remisionesByOrder[r.order_id]) remisionesByOrder[r.order_id] = [];
+        remisionesByOrder[r.order_id].push(r);
+      });
+
+      // STEP 5: Build enhanced rows per order for this date
+      const enhancedOrders = await Promise.all(
+        ordersData.map(async (order: any) => {
+          const todaysRemisiones = remisionesByOrder[order.id] || [];
+
+          // Calculate daily concrete/pump volumes from remisiones of this date
+          let dailyConcreteVolume = 0;
+          let dailyPumpVolume = 0;
+          todaysRemisiones.forEach((r: any) => {
+            const vol = Number(r.volumen_fabricado || 0);
+            if (r.tipo_remision === 'BOMBEO') {
+              dailyPumpVolume += vol;
+            } else {
+              dailyConcreteVolume += vol;
+            }
+          });
+
+          // Proportional amounts based on delivered ratio for the order
+          const totals = totalDeliveredByOrder[order.id] || { concrete: 0, pump: 0 };
+          const totalDeliveredAllDates = (totals.concrete || 0) + (totals.pump || 0);
+          const todaysDelivered = dailyConcreteVolume + dailyPumpVolume;
+          const ratio = totalDeliveredAllDates > 0 ? todaysDelivered / totalDeliveredAllDates : 0;
+
+          const fullSubtotal = Number(order.final_amount || 0);
+          const fullTotalWithVAT = Number(order.invoice_amount || order.final_amount || 0);
+          const subtotal = fullSubtotal * ratio;
+          const totalWithVAT = fullTotalWithVAT * ratio;
+          const vat = totalWithVAT - subtotal;
+
+          // Collect product names from items
+          const productNamesSet = new Set<string>();
+          (orderItems || [])
+            .filter((i: any) => i.order_id === order.id)
+            .forEach((i: any) => {
+              if (i.product_type && i.product_type !== 'SERVICIO DE BOMBEO') {
+                productNamesSet.add(i.product_type);
               }
             });
-          }
-          
+
           return {
             ...order,
-            concreteVolume,
-            pumpingVolume,
+            concreteVolume: dailyConcreteVolume,
+            pumpingVolume: dailyPumpVolume,
             subtotal,
             vat,
             totalWithVAT,
-            productNames: productNames.join(', ')
+            productNames: Array.from(productNamesSet).join(', ')
           };
-        }));
-        
-        setOrders(enhancedOrders);
-      } else {
-        setOrders([]);
-      }
+        })
+      );
+
+      // Sort by order_number for stable display
+      enhancedOrders.sort((a, b) => String(a.order_number).localeCompare(String(b.order_number)));
+      setOrders(enhancedOrders);
       
     } catch (err) {
       console.error("Error loading plant-aware daily sales table data:", err);

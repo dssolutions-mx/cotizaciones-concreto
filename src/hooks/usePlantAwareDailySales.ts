@@ -11,6 +11,7 @@ interface UsePlantAwareDailySalesOptions {
 interface DailySalesData {
   totalConcreteVolume: number;
   totalPumpingVolume: number;
+  emptyTruckVolume: number; // Vacío de Olla (separate)
   totalSubtotal: number;
   totalWithVAT: number;
   totalOrders: number;
@@ -29,6 +30,7 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
   const [salesData, setSalesData] = useState<DailySalesData>({
     totalConcreteVolume: 0,
     totalPumpingVolume: 0,
+    emptyTruckVolume: 0,
     totalSubtotal: 0,
     totalWithVAT: 0,
     totalOrders: 0
@@ -52,127 +54,113 @@ export function usePlantAwareDailySales(options: UsePlantAwareDailySalesOptions)
       // Get accessible plant IDs
       const plantIds = await plantAwareDataService.getAccessiblePlantIds(plantFilterOptions);
       
-      // Build the query with plant filtering
-      let query = supabase
-        .from('orders')
-        .select(`
-          id,
-          order_number,
-          requires_invoice,
-          final_amount,
-          invoice_amount,
-          total_amount,
-          order_status
-        `)
-        .eq('delivery_date', date)
-        .not('order_status', 'eq', 'CANCELLED');
-      
-      // Apply plant filtering if user doesn't have global access
+      // STEP 1: Fetch remisiones for the selected LOCAL date
+      let remisionesQuery = supabase
+        .from('remisiones')
+        .select('*')
+        .eq('fecha', date);
+
       if (plantIds && plantIds.length > 0) {
-        // User has specific plant access - filter by those plants
-        query = query.in('plant_id', plantIds);
+        remisionesQuery = remisionesQuery.in('plant_id', plantIds);
       } else if (plantIds && plantIds.length === 0) {
-        // User has no access - return empty result
         return setSalesData({
           totalConcreteVolume: 0,
           totalPumpingVolume: 0,
+          emptyTruckVolume: 0,
           totalSubtotal: 0,
           totalWithVAT: 0,
           totalOrders: 0
         });
       }
-      // If plantIds is null, user can access all plants (global admin), so no filter applied
-      
-      const { data: orders, error } = await query;
-      
-      if (error) throw error;
-      
-      console.log(`Found ${orders?.length || 0} orders for date ${date} with plant filtering`);
-      
-      // Initialize metrics with default values
-      const metricsData = {
-        totalConcreteVolume: 0,
-        totalPumpingVolume: 0,
-        totalSubtotal: 0,
-        totalWithVAT: 0,
-        totalOrders: 0
-      };
-      
-      // If we have orders, fetch their items to calculate volumes and amounts
-      if (orders && orders.length > 0) {
-        // Filter orders to only include those with a final_amount
-        const validOrders = orders.filter(order => order.final_amount !== null);
-        console.log(`${validOrders.length} orders have final_amount`);
-        
-        // Store the total orders count
-        metricsData.totalOrders = validOrders.length;
-        
-        // Get order IDs to fetch items
-        const orderIds = validOrders.map(order => order.id);
-        
-        // Fetch all order items for these orders
-        const { data: orderItems, error: itemsError } = await supabase
-          .from('order_items')
-          .select('*')
-          .in('order_id', orderIds);
-        
-        if (itemsError) throw itemsError;
-        
-        console.log(`Found ${orderItems?.length || 0} order items`);
-        
-        // Calculate metrics from order items - USE DELIVERED VOLUMES ONLY
-        if (orderItems && orderItems.length > 0) {
-          // For debugging: Log pumping services requested vs delivered
-          const pumpingItems = orderItems.filter(item => item.has_pump_service);
-          console.log(`${pumpingItems.length} items have pump service requested`);
-          
-          const pumpingItemsDelivered = pumpingItems.filter(item => item.pump_volume_delivered > 0);
-          console.log(`${pumpingItemsDelivered.length} items have actual pump volume delivered`);
-          
-          if (pumpingItems.length > 0) {
-            console.log('Pump items details:', pumpingItems.map(item => ({
-              orderId: item.order_id,
-              requestedVolume: item.pump_volume,
-              deliveredVolume: item.pump_volume_delivered
-            })));
-          }
-          
-          // Process each order item
-          orderItems.forEach(item => {
-            // Add concrete volume - ONLY use concrete_volume_delivered (from remisiones)
-            // Exclude both empty truck charges AND global pumping service items
-            if (!item.has_empty_truck_charge && item.product_type !== 'SERVICIO DE BOMBEO') {
-              const concreteVolume = item.concrete_volume_delivered || 0;
-              metricsData.totalConcreteVolume += Number(concreteVolume);
-            }
-            
-            // Add pumping volume - ONLY use pump_volume_delivered (from remisiones)
-            if (item.has_pump_service && item.pump_volume_delivered > 0) {
-              const pumpVolume = item.pump_volume_delivered || 0;
-              metricsData.totalPumpingVolume += Number(pumpVolume);
-            }
-          });
-          
-          // Calculate financial totals from orders directly
-          validOrders.forEach(order => {
-            // Add subtotal (final_amount is the actual delivered amount)
-            if (order.final_amount) {
-              metricsData.totalSubtotal += Number(order.final_amount);
-            }
-            
-            // Add total with VAT (invoice_amount already includes VAT if applicable)
-            if (order.invoice_amount) {
-              // If invoice_amount is available, use it (it includes VAT)
-              metricsData.totalWithVAT += Number(order.invoice_amount);
-            } else if (order.final_amount) {
-              // Otherwise use final_amount (for cash orders without VAT)
-              metricsData.totalWithVAT += Number(order.final_amount);
-            }
-          });
-        }
+
+      const { data: remisiones, error: remisionesError } = await remisionesQuery;
+      if (remisionesError) throw remisionesError;
+
+      // Early return if no remisiones
+      if (!remisiones || remisiones.length === 0) {
+        setSalesData({
+          totalConcreteVolume: 0,
+          totalPumpingVolume: 0,
+          emptyTruckVolume: 0,
+          totalSubtotal: 0,
+          totalWithVAT: 0,
+          totalOrders: 0
+        });
+        return;
       }
-      
-      console.log("Final metrics data with plant filtering:", metricsData);
+
+      // STEP 2: Aggregate volumes by tipo_remision
+      let totalConcreteVolume = 0;
+      let totalPumpingVolume = 0;
+      let emptyTruckVolume = 0;
+
+      remisiones.forEach((r: any) => {
+        const vol = Number(r.volumen_fabricado || 0);
+        if (r.tipo_remision === 'BOMBEO') {
+          totalPumpingVolume += vol;
+        } else if (r.tipo_remision === 'VACÍO DE OLLA') {
+          emptyTruckVolume += vol || 1; // usually 1 m³ equivalent
+        } else {
+          totalConcreteVolume += vol;
+        }
+      });
+
+      // STEP 3: Financials proportional to per-order delivered today vs all-time delivered
+      const orderIds = Array.from(new Set(remisiones.map((r: any) => r.order_id).filter(Boolean)));
+      const { data: orders, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, final_amount, invoice_amount, order_status')
+        .in('id', orderIds)
+        .not('order_status', 'eq', 'CANCELLED');
+      if (ordersError) throw ordersError;
+
+      const { data: orderItems, error: itemsError } = await supabase
+        .from('order_items')
+        .select('*')
+        .in('order_id', orderIds);
+      if (itemsError) throw itemsError;
+
+      // Total delivered all dates by order
+      const totalDeliveredByOrder: Record<string, number> = {};
+      (orderItems || []).forEach((item: any) => {
+        if (!item.has_empty_truck_charge && item.product_type !== 'SERVICIO DE BOMBEO') {
+          totalDeliveredByOrder[item.order_id] = (totalDeliveredByOrder[item.order_id] || 0) + Number(item.concrete_volume_delivered || 0);
+        }
+        if (item.has_pump_service && item.pump_volume_delivered > 0) {
+          totalDeliveredByOrder[item.order_id] = (totalDeliveredByOrder[item.order_id] || 0) + Number(item.pump_volume_delivered || 0);
+        }
+      });
+
+      // Today's delivered by order from remisiones
+      const todaysDeliveredByOrder: Record<string, number> = {};
+      remisiones.forEach((r: any) => {
+        const vol = Number(r.volumen_fabricado || 0) || 0;
+        todaysDeliveredByOrder[r.order_id] = (todaysDeliveredByOrder[r.order_id] || 0) + vol;
+      });
+
+      let totalSubtotal = 0;
+      let totalWithVAT = 0;
+      let totalOrders = orders?.length || 0;
+
+      (orders || []).forEach((order: any) => {
+        const fullSubtotal = Number(order.final_amount || 0);
+        const fullTotalWithVAT = Number(order.invoice_amount || order.final_amount || 0);
+        const totalDeliveredAllDates = totalDeliveredByOrder[order.id] || 0;
+        const todaysDelivered = todaysDeliveredByOrder[order.id] || 0;
+        const ratio = totalDeliveredAllDates > 0 ? todaysDelivered / totalDeliveredAllDates : 0;
+        totalSubtotal += fullSubtotal * ratio;
+        totalWithVAT += fullTotalWithVAT * ratio;
+      });
+
+      const metricsData: DailySalesData = {
+        totalConcreteVolume,
+        totalPumpingVolume,
+        emptyTruckVolume,
+        totalSubtotal,
+        totalWithVAT,
+        totalOrders
+      };
+
       setSalesData(metricsData);
       
     } catch (err) {
