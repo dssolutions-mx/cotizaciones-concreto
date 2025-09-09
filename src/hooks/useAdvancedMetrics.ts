@@ -25,6 +25,18 @@ export function useAdvancedMetrics(datosGrafico: DatoGraficoResistencia[]) {
 
       setCalculating(true);
       try {
+        // Build quick lookup map: muestreo_id -> { resistencia, clasificacion }
+        const muestreoToStats = new Map<string, { resistencia: number; isMR: boolean }>();
+        datosGrafico.forEach(d => {
+          const muestreoId = d.muestra?.muestreo?.id as string | undefined;
+          if (muestreoId) {
+            const resistencia = typeof d.resistencia_calculada === 'number' ? d.resistencia_calculada : 0;
+            const isMR = d.clasificacion === 'MR';
+            // Prefer latest occurrence; values are averages per muestreo already
+            muestreoToStats.set(muestreoId, { resistencia, isMR });
+          }
+        });
+
         // Extract unique muestreos from filtered data
         const uniqueMuestreos = new Map();
         datosGrafico.forEach(d => {
@@ -39,6 +51,48 @@ export function useAdvancedMetrics(datosGrafico: DatoGraficoResistencia[]) {
 
         // Use Array.from to avoid TypeScript iteration issues
         const muestreosArray = Array.from(uniqueMuestreos.entries());
+
+        // Preload remision materiales and muestreo masa_unitaria for client-side fallback
+        const muestreoIds: string[] = Array.from(uniqueMuestreos.keys());
+        const muestreoMaterialsMap = new Map<string, { masaUnitaria: number; totalMateriales: number; cementKg: number }>();
+        if (muestreoIds.length > 0) {
+          try {
+            const { data: muestreoMatData } = await supabase
+              .from('muestreos')
+              .select(`
+                id,
+                masa_unitaria,
+                remision:remision_id (
+                  id,
+                  volumen_fabricado,
+                  remision_materiales (
+                    material_type,
+                    cantidad_real
+                  )
+                )
+              `)
+              .in('id', muestreoIds);
+
+            (muestreoMatData || []).forEach((row: any) => {
+              const totalMateriales = (row?.remision?.remision_materiales || [])
+                .reduce((s: number, m: any) => s + (Number(m.cantidad_real) || 0), 0);
+              const cementKg = (row?.remision?.remision_materiales || [])
+                .filter((m: any) => {
+                  const t = (m.material_type || '').toString().toUpperCase();
+                  return t.includes('CEMENTO') || t.includes('CEM');
+                })
+                .reduce((s: number, m: any) => s + (Number(m.cantidad_real) || 0), 0);
+
+              muestreoMaterialsMap.set(row.id, {
+                masaUnitaria: Number(row.masa_unitaria) || 0,
+                totalMateriales,
+                cementKg
+              });
+            });
+          } catch (e) {
+            console.warn('Could not preload muestreo materiales for efficiency fallback', e);
+          }
+        }
 
         // Process muestreos in batches to avoid overwhelming the server
         const batchSize = 5;
@@ -61,8 +115,52 @@ export function useAdvancedMetrics(datosGrafico: DatoGraficoResistencia[]) {
                 const metricas = metricasRPC[0];
 
                 // Add efficiency if available and non-zero
-                if (metricas.eficiencia && metricas.eficiencia > 0 && !isNaN(metricas.eficiencia)) {
-                  eficiencias.push(metricas.eficiencia);
+                const rpcEficienciaRaw = metricas.eficiencia;
+                if (rpcEficienciaRaw !== null && rpcEficienciaRaw !== undefined) {
+                  const rpcEficiencia = typeof rpcEficienciaRaw === 'string' ? parseFloat(rpcEficienciaRaw) : rpcEficienciaRaw;
+                  if (rpcEficiencia > 0 && !isNaN(rpcEficiencia)) {
+                    eficiencias.push(rpcEficiencia);
+                  }
+                }
+
+                // Fallback A: compute efficiency from resistencia and real cement if RPC efficiency is missing/zero (using RPC consumo)
+                if (metricas && (!metricas.eficiencia || metricas.eficiencia === 0)) {
+                  const consumoRealRaw = (metricas.consumo_cemento_real ?? metricas.consumo_cemento ?? null);
+                  const consumoReal = typeof consumoRealRaw === 'string' ? parseFloat(consumoRealRaw) : consumoRealRaw;
+
+                  const stats = muestreoToStats.get(muestreoId);
+                  const resistenciaProm = stats?.resistencia || 0;
+                  const isMR = !!stats?.isMR;
+
+                  if (consumoReal && consumoReal > 0 && resistenciaProm > 0) {
+                    const resistenciaAjustada = isMR ? (resistenciaProm / 0.13) : resistenciaProm;
+                    const eficienciaCalc = resistenciaAjustada / consumoReal;
+                    if (isFinite(eficienciaCalc) && eficienciaCalc > 0) {
+                      eficiencias.push(eficienciaCalc);
+                    }
+                  }
+                }
+
+                // Fallback B: fully client-side using materiales + masa_unitaria (volumen real)
+                if ((!metricas || !metricas.eficiencia || metricas.eficiencia === 0)) {
+                  const mat = muestreoMaterialsMap.get(muestreoId);
+                  const stats = muestreoToStats.get(muestreoId);
+                  const resistenciaProm = stats?.resistencia || 0;
+                  const isMR = !!stats?.isMR;
+
+                  if (mat && mat.masaUnitaria > 0 && mat.totalMateriales > 0 && mat.cementKg > 0 && resistenciaProm > 0) {
+                    const volumenReal = mat.totalMateriales / mat.masaUnitaria;
+                    if (volumenReal > 0) {
+                      const consumoReal = mat.cementKg / volumenReal;
+                      if (consumoReal > 0) {
+                        const resistenciaAjustada = isMR ? (resistenciaProm / 0.13) : resistenciaProm;
+                        const eficienciaCalc = resistenciaAjustada / consumoReal;
+                        if (isFinite(eficienciaCalc) && eficienciaCalc > 0) {
+                          eficiencias.push(eficienciaCalc);
+                        }
+                      }
+                    }
+                  }
                 }
 
                 // Add rendimiento volumétrico if available and non-zero

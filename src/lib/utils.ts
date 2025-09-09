@@ -22,6 +22,14 @@ export function formatCurrency(amount: number | null | undefined): string {
   return formatter.format(amount ?? 0);
 }
 
+// Function to format numbers with specified decimal places
+export function formatNumber(num: number, decimals: number = 1): string {
+  return new Intl.NumberFormat('es-MX', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(num);
+}
+
 // Function to format dates
 export function formatDate(date: string | Date | null | undefined, formatString = 'PP'): string {
   if (!date) return 'N/A';

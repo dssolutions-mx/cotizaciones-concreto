@@ -21,6 +21,10 @@ export interface PointAnalysisData {
       fc: number;
     } | null;
   };
+  // Advanced metrics for this muestreo
+  rendimientoVolumetrico?: number; // %
+  consumoCementoReal?: number; // kg/m³
+  eficiencia?: number; // kg/cm² por kg de cemento
   muestras: Array<{
     id: string;
     tipo_muestra: string;
@@ -83,6 +87,11 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
         *,
         remision:remision_id (
           *,
+          remision_materiales (
+            id,
+            material_type,
+            cantidad_real
+          ),
           recipe:recipe_id (
             *
           ),
@@ -202,6 +211,34 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
       };
     }).sort((a, b) => a.edad_dias - b.edad_dias);
 
+    // Compute advanced metrics for this muestreo
+    const masaUnitaria = Number(muestreoData.masa_unitaria) || 0;
+    const materiales = (muestreoData.remision?.remision_materiales || []) as Array<{ material_type: string; cantidad_real: number }>;
+    const totalMateriales = materiales.reduce((s, m) => s + (Number(m.cantidad_real) || 0), 0);
+    const volumenReal = masaUnitaria > 0 && totalMateriales > 0 ? totalMateriales / masaUnitaria : 0;
+    const volumenRemision = Number(muestreoData.remision?.volumen_fabricado) || 0;
+    const rendimientoVolumetrico = volumenReal > 0 && volumenRemision > 0 ? (volumenReal / volumenRemision) * 100 : 0;
+    const cementKg = materiales
+      .filter(m => (m.material_type || '').toString().toUpperCase().includes('CEMENT'))
+      .reduce((s, m) => s + (Number(m.cantidad_real) || 0), 0);
+    const consumoCementoReal = volumenReal > 0 ? cementKg / volumenReal : 0; // kg/m³
+
+    // Average resistance at guarantee age for this muestreo
+    let resistenciaGarantia = 0;
+    try {
+      const ensayos = (muestreoData.muestras || []).flatMap((m: any) => m.ensayos || []);
+      const validEnsayos = ensayos.filter((e: any) => e.is_edad_garantia === true && e.is_ensayo_fuera_tiempo === false && (e.resistencia_calculada || 0) > 0);
+      if (validEnsayos.length > 0) {
+        resistenciaGarantia = validEnsayos.reduce((s: number, e: any) => s + (Number(e.resistencia_calculada) || 0), 0) / validEnsayos.length;
+      }
+    } catch {}
+
+    // Determine classification for MR adjustment
+    const isMR = (muestreoData.concrete_specs?.clasificacion || '').toString().toUpperCase().includes('MR')
+      || (muestreoData.remision?.recipe?.recipe_code || '').toString().toUpperCase().includes('MR');
+    const resistenciaAjustada = isMR && resistenciaGarantia > 0 ? (resistenciaGarantia / 0.13) : resistenciaGarantia;
+    const eficiencia = consumoCementoReal > 0 && resistenciaAjustada > 0 ? (resistenciaAjustada / consumoCementoReal) : 0;
+
     // Construct the complete analysis data
     const analysisData: PointAnalysisData = {
       point,
@@ -217,6 +254,9 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
         temperatura_concreto: muestreoData.temperatura_concreto,
         concrete_specs: muestreoData.concrete_specs
       },
+      rendimientoVolumetrico: Number(isFinite(rendimientoVolumetrico) ? rendimientoVolumetrico.toFixed(2) : 0),
+      consumoCementoReal: Number(isFinite(consumoCementoReal) ? consumoCementoReal.toFixed(2) : 0),
+      eficiencia: Number(isFinite(eficiencia) ? eficiencia.toFixed(3) : 0),
       muestras: muestreoData.muestras?.map((muestra: any) => ({
         id: muestra.id,
         tipo_muestra: muestra.tipo_muestra,

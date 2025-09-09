@@ -219,6 +219,45 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
               </p>
               <p className="text-xs text-orange-700 mt-1">total</p>
             </div>
+            {/* Rendimiento Volumétrico */}
+            {typeof analysisData.rendimientoVolumetrico === 'number' && analysisData.rendimientoVolumetrico > 0 && (
+              <div className="text-center p-3 bg-cyan-50 rounded-lg border border-cyan-100">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <TrendingUp className="w-4 h-4 text-cyan-600" />
+                  <span className="text-xs font-medium text-cyan-700">Rendimiento</span>
+                </div>
+                <p className="text-2xl font-bold text-cyan-600">
+                  {analysisData.rendimientoVolumetrico.toFixed(2)}%
+                </p>
+                <p className="text-xs text-cyan-700 mt-1">volumen real vs. registrado</p>
+              </div>
+            )}
+            {/* Consumo Real de Cemento */}
+            {typeof analysisData.consumoCementoReal === 'number' && analysisData.consumoCementoReal > 0 && (
+              <div className="text-center p-3 bg-teal-50 rounded-lg border border-teal-100">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <Beaker className="w-4 h-4 text-teal-600" />
+                  <span className="text-xs font-medium text-teal-700">Consumo Real</span>
+                </div>
+                <p className="text-2xl font-bold text-teal-600">
+                  {analysisData.consumoCementoReal.toFixed(2)} kg/m³
+                </p>
+                <p className="text-xs text-teal-700 mt-1">cemento</p>
+              </div>
+            )}
+            {/* Eficiencia Real */}
+            {typeof analysisData.eficiencia === 'number' && analysisData.eficiencia > 0 && (
+              <div className="text-center p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                <div className="flex items-center justify-center gap-2 mb-2">
+                  <Activity className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-medium text-emerald-700">Eficiencia</span>
+                </div>
+                <p className="text-2xl font-bold text-emerald-600">
+                  {analysisData.eficiencia.toFixed(3)}
+                </p>
+                <p className="text-xs text-emerald-700 mt-1">kg/cm² por kg de cemento</p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

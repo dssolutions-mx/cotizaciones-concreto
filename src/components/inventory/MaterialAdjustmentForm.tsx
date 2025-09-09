@@ -108,8 +108,8 @@ export default function MaterialAdjustmentForm({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [existingDocuments, setExistingDocuments] = useState<any[]>([])
 
-  // Calculate inventory after
-  const inventoryAfter = currentInventory !== null ? currentInventory - formData.quantity_adjusted : null
+  // Allow signed quantity_adjusted: positive adds stock, negative reduces stock
+  const inventoryAfter = currentInventory !== null ? currentInventory + formData.quantity_adjusted : null
 
   const selectedAdjustmentType = adjustmentTypes.find(
     type => type.value === formData.adjustment_type
@@ -319,13 +319,15 @@ export default function MaterialAdjustmentForm({
   }
 
   const getQuantitySign = () => {
-    // All adjustment types reduce inventory
-    return '-'
+    // Show dynamic sign based on the entered quantity
+    return formData.quantity_adjusted >= 0 ? '+' : '-'
   }
 
   const getQuantityColor = () => {
-    // All adjustment types reduce inventory
-    return 'text-red-600'
+    // Color reflects whether the adjustment adds or removes stock
+    if (formData.quantity_adjusted > 0) return 'text-green-600'
+    if (formData.quantity_adjusted < 0) return 'text-red-600'
+    return 'text-gray-600'
   }
 
   // Show warning if no plant is selected
@@ -462,8 +464,8 @@ export default function MaterialAdjustmentForm({
                 </div>
                 <div>
                   <p className="text-blue-700">Cantidad a Ajustar</p>
-                  <p className="font-semibold text-red-600">
-                    {getQuantitySign()}{formData.quantity_adjusted.toLocaleString('es-MX', { 
+                  <p className={`font-semibold ${getQuantityColor()}`}>
+                    {getQuantitySign()}{Math.abs(formData.quantity_adjusted).toLocaleString('es-MX', { 
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2
                     })} kg

@@ -104,10 +104,11 @@ export function ClientSelector({
 
   const selectedClient = clients.find(client => client.id === selectedClientId);
 
+  const safeSearch = (searchValue || '').toLowerCase();
   const filteredClients = clients.filter(client =>
-    client.business_name.toLowerCase().includes(searchValue.toLowerCase()) ||
-    client.client_code.toLowerCase().includes(searchValue.toLowerCase()) ||
-    (client.rfc && client.rfc.toLowerCase().includes(searchValue.toLowerCase()))
+    (client.business_name || '').toLowerCase().includes(safeSearch) ||
+    (client.client_code || '').toLowerCase().includes(safeSearch) ||
+    (client.rfc ? client.rfc.toLowerCase().includes(safeSearch) : false)
   );
 
   return (

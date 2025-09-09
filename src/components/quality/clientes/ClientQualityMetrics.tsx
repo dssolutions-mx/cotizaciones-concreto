@@ -115,7 +115,10 @@ export function ClientQualityMetrics({ summary, loading }: ClientQualityMetricsP
               <BarChart3 className="h-8 w-8 text-blue-600" />
             </div>
             <div className="mt-2 text-xs text-gray-500">
-              {summary.totals.remisiones} remisiones
+              {summary.totals.remisiones} remisiones totales
+            </div>
+            <div className="mt-1 text-xs text-blue-600">
+              {(summary.totals.remisionesMuestreadas ?? 0)} muestreadas ({formatNumber(summary.totals.porcentajeCoberturaMuestreo ?? 0)}%)
             </div>
           </CardContent>
         </Card>
@@ -137,6 +140,12 @@ export function ClientQualityMetrics({ summary, loading }: ClientQualityMetricsP
                 {summary.averages.complianceRate >= 95 ? 'Excelente' :
                  summary.averages.complianceRate >= 85 ? 'Aceptable' : 'Requiere Atención'}
               </Badge>
+            </div>
+            <div className="mt-2 text-xs text-gray-500">
+              Basado en {summary.totals.ensayosEdadGarantia} ensayos válidos
+            </div>
+            <div className="mt-1 text-xs text-green-600">
+              {(summary.totals.remisionesConDatosCalidad ?? 0)} remisiones con datos de calidad ({formatNumber(summary.totals.porcentajeCoberturaCalidad ?? 0)}%)
             </div>
           </CardContent>
         </Card>
@@ -215,6 +224,18 @@ export function ClientQualityMetrics({ summary, loading }: ClientQualityMetricsP
                 }
               </div>
               <div className="text-sm text-gray-500">Ensayos por Remisión</div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Volumetric Yield */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="text-center">
+              <div className="text-lg font-semibold text-gray-900">
+                {formatNumber(summary.averages.rendimientoVolumetrico, 1)}%
+              </div>
+              <div className="text-sm text-gray-500">Rendimiento Volumétrico</div>
             </div>
           </CardContent>
         </Card>
