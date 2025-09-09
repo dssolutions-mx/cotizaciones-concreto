@@ -231,12 +231,46 @@ export default function RemisionesPorCliente() {
       const orderIds = orders.map(order => order.id);
       
       // Get all order products for price information
-      const { data: products, error: productsError } = await supabase
-        .from('order_items')
-        .select('*')
-        .in('order_id', orderIds);
-      
-      if (productsError) throw productsError;
+      // First try with quote_details relationship, fallback to basic query if it fails
+      let products;
+      let productsError;
+
+      try {
+        const result = await supabase
+          .from('order_items')
+          .select(`
+            *,
+            quote_details (
+              final_price,
+              recipe_id
+              
+            )
+          `)
+          .in('order_id', orderIds);
+
+        products = result.data;
+        productsError = result.error;
+      } catch (relationshipError) {
+        console.warn('Quote details relationship failed, falling back to basic query:', relationshipError);
+        // Fallback to basic query without relationship
+        const fallbackResult = await supabase
+          .from('order_items')
+          .select('*')
+          .in('order_id', orderIds);
+
+        products = fallbackResult.data;
+        productsError = fallbackResult.error;
+      }
+
+      if (productsError) {
+        console.error('Error fetching order items:', productsError);
+        console.error('Error details:', {
+          message: productsError.message,
+          details: productsError.details,
+          hint: productsError.hint
+        });
+        throw productsError;
+      }
       setOrderProducts(products || []);
       
       // Fetch remisiones for all found orders and filter by date range
@@ -284,33 +318,66 @@ export default function RemisionesPorCliente() {
       setTotalVolume(volume);
       
       // Calculate total amount based on order_items prices
-      // Make sure to match products to their specific order
+      // Enhanced price matching logic similar to ventas page
       let amount = 0;
       enrichedRemisiones.forEach(remision => {
         const recipeCode = remision.recipe?.recipe_code;
-        
+        const recipeId = remision.recipe_id;
+
         // Find products specifically for this remision's order
         const orderSpecificProducts = products?.filter(p => p.order_id === remision.order_id);
-        
-        // First try to find the product in the specific order
-        const product = orderSpecificProducts?.find(p => 
-          p.product_type === recipeCode || 
-          (p.recipe_id && p.recipe_id.toString() === recipeCode)
-        );
-        
-        if (product) {
-          amount += (product.unit_price || 0) * remision.volumen_fabricado;
-        } else {
-          // Fallback to any matching product if not found in specific order
-          const fallbackProduct = products?.find(p => 
-            p.product_type === recipeCode || 
-            (p.recipe_id && p.recipe_id.toString() === recipeCode)
+
+        let price = 0;
+        let product = null;
+
+        // 1. Try exact match by product_type (most reliable for concrete)
+        if (recipeCode) {
+          product = orderSpecificProducts?.find(p =>
+            p.product_type === recipeCode
           );
-          
+        }
+
+      // 2. Try match by recipe_id if no product_type match
+      if (!product && recipeId) {
+        product = orderSpecificProducts?.find(p =>
+          p.recipe_id === recipeId
+        );
+      }
+
+      // 3. Try quote_details fallback if available
+      if (!product && orderSpecificProducts) {
+        product = orderSpecificProducts.find(p =>
+          (p.quote_details?.recipe_id === recipeId) ||
+          (p.quote_details?.product_type === recipeCode)
+        );
+      }
+
+      // 4. Use the price from the found product
+      if (product) {
+        // Priority: order_item.unit_price > quote_details.final_price
+        price = product.unit_price || (product.quote_details ? product.quote_details.final_price : 0) || 0;
+
+          // Debug logging for price matching issues
+          if (price === 0) {
+            console.warn(`No price found for remision ${remision.remision_number}, recipe: ${recipeCode}, recipe_id: ${recipeId}`);
+          }
+        } else {
+          // Fallback: search in all products (less efficient but might catch edge cases)
+          const fallbackProduct = products?.find(p =>
+            p.product_type === recipeCode ||
+            (p.recipe_id && p.recipe_id.toString() === recipeCode) ||
+            p.quote_details?.recipe_id === recipeId
+          );
+
           if (fallbackProduct) {
-            amount += (fallbackProduct.unit_price || 0) * remision.volumen_fabricado;
+            price = fallbackProduct.unit_price || (fallbackProduct.quote_details ? fallbackProduct.quote_details.final_price : 0) || 0;
+            console.warn(`Using fallback price match for remision ${remision.remision_number}`);
+          } else {
+            console.error(`No price found for remision ${remision.remision_number} with recipe ${recipeCode}`);
           }
         }
+
+        amount += price * (remision.volumen_fabricado || 0);
       });
       setTotalAmount(amount);
       
@@ -353,29 +420,53 @@ export default function RemisionesPorCliente() {
     let amount = 0;
     filtered.forEach(remision => {
       const recipeCode = remision.recipe?.recipe_code;
-      
+      const recipeId = remision.recipe_id;
+
       // Find products specifically for this remision's order
       const orderSpecificProducts = orderProducts?.filter(p => p.order_id === remision.order_id);
-      
-      // First try to find the product in the specific order
-      const product = orderSpecificProducts?.find(p => 
-        p.product_type === recipeCode || 
-        (p.recipe_id && p.recipe_id.toString() === recipeCode)
-      );
-      
-      if (product) {
-        amount += (product.unit_price || 0) * remision.volumen_fabricado;
-      } else {
-        // Fallback to any matching product if not found in specific order
-        const fallbackProduct = orderProducts?.find(p => 
-          p.product_type === recipeCode || 
-          (p.recipe_id && p.recipe_id.toString() === recipeCode)
+
+      let price = 0;
+      let product = null;
+
+      // 1. Try exact match by product_type (most reliable for concrete)
+      if (recipeCode) {
+        product = orderSpecificProducts?.find(p =>
+          p.product_type === recipeCode
         );
-        
+      }
+
+      // 2. Try match by recipe_id if no product_type match
+      if (!product && recipeId) {
+        product = orderSpecificProducts?.find(p =>
+          p.recipe_id === recipeId
+        );
+      }
+
+      // 3. Try quote_details fallback if available
+      if (!product && orderSpecificProducts) {
+        product = orderSpecificProducts.find(p =>
+          p.quote_details?.recipe_id === recipeId
+        );
+      }
+
+      // 4. Use the price from the found product
+      if (product) {
+        // Priority: order_item.unit_price > quote_details.final_price
+        price = product.unit_price || (product.quote_details ? product.quote_details.final_price : 0) || 0;
+      } else {
+        // Fallback: search in all products (less efficient but might catch edge cases)
+        const fallbackProduct = orderProducts?.find(p =>
+          p.product_type === recipeCode ||
+          (p.recipe_id && p.recipe_id.toString() === recipeCode) ||
+          p.quote_details?.recipe_id === recipeId
+        );
+
         if (fallbackProduct) {
-          amount += (fallbackProduct.unit_price || 0) * remision.volumen_fabricado;
+          price = fallbackProduct.unit_price || (fallbackProduct.quote_details ? fallbackProduct.quote_details.final_price : 0) || 0;
         }
       }
+
+      amount += price * (remision.volumen_fabricado || 0);
     });
     setTotalAmount(amount);
   };
