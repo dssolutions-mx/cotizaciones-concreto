@@ -77,6 +77,14 @@ export class ArkikManualAssignmentService {
     return new Date(dateInput);
   }
 
+  // Format a Date as YYYY-MM-DD without using toISOString (no TZ conversion)
+  private formatYmd(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
   // Normalize recipe codes for robust comparisons
   private normalizeRecipeCode(value?: string | null): string {
     return (value || '')
@@ -118,20 +126,16 @@ export class ArkikManualAssignmentService {
     }
 
     // Define strict search first (same day), then fallback ranges (±3 days, then ±14 days)
-    const baseDate = remision.fecha;
-    const sameDayStart = new Date(baseDate);
-    const sameDayEnd = new Date(baseDate);
-    // Normalize to YYYY-MM-DD boundaries in local time
-    const toYmd = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
-      .toISOString().split('T')[0];
-    const sameDay = toYmd(baseDate as unknown as Date);
-    const range3Start = new Date(baseDate);
+    const baseDateObj = this.parseLocalDate(remision.fecha as any);
+    // Normalize to YYYY-MM-DD boundaries using local components only
+    const sameDay = this.formatYmd(baseDateObj);
+    const range3Start = new Date(baseDateObj);
     range3Start.setDate(range3Start.getDate() - 3);
-    const range3End = new Date(baseDate);
+    const range3End = new Date(baseDateObj);
     range3End.setDate(range3End.getDate() + 3);
-    const range14Start = new Date(baseDate);
+    const range14Start = new Date(baseDateObj);
     range14Start.setDate(range14Start.getDate() - 14);
-    const range14End = new Date(baseDate);
+    const range14End = new Date(baseDateObj);
     range14End.setDate(range14End.getDate() + 14);
 
     try {
@@ -139,8 +143,8 @@ export class ArkikManualAssignmentService {
         client_id: remision.client_id,
         recipe_id: remision.recipe_id,
         same_day: sameDay,
-        range_3_days: [toYmd(range3Start), toYmd(range3End)],
-        range_14_days: [toYmd(range14Start), toYmd(range14End)]
+        range_3_days: [this.formatYmd(range3Start), this.formatYmd(range3End)],
+        range_14_days: [this.formatYmd(range14Start), this.formatYmd(range14End)]
       });
 
       // Strict search: same client, same delivery_date
@@ -218,8 +222,8 @@ export class ArkikManualAssignmentService {
               )
             )
           `)
-          .gte('delivery_date', toYmd(range3Start))
-          .lte('delivery_date', toYmd(range3End))
+          .gte('delivery_date', this.formatYmd(range3Start))
+          .lte('delivery_date', this.formatYmd(range3End))
           .in('order_status', ['created', 'validated', 'scheduled'])
           .eq('plant_id', this.plantId)
           .limit(30); // Smaller limit for broader search
@@ -265,8 +269,8 @@ export class ArkikManualAssignmentService {
               )
             )
           `)
-          .gte('delivery_date', toYmd(range14Start))
-          .lte('delivery_date', toYmd(range14End))
+          .gte('delivery_date', this.formatYmd(range14Start))
+          .lte('delivery_date', this.formatYmd(range14End))
           .in('order_status', ['created', 'validated', 'scheduled'])
           .eq('plant_id', this.plantId)
           .limit(30);
