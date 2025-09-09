@@ -306,12 +306,12 @@ export default function ClientMuestreosCharts({ remisiones }: ClientMuestreosCha
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={chartData.recipes} layout="horizontal" barCategoryGap={20} barSize={28}>
+            <BarChart data={chartData.recipes} layout="vertical" barCategoryGap={20} barSize={28}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" domain={[90, 105]} />
-              <YAxis dataKey="recipe" type="category" width={160} />
+              <YAxis dataKey="recipe" type="category" width={220} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="avgRendimiento" fill="#ff7300" name="Rendimiento (%)" />
+              <Bar dataKey="avgRendimiento" fill="#ff7300" name="Rendimiento (%)" isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
