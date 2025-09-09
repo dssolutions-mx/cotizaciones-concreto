@@ -1163,14 +1163,24 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         
         {/* Delete Order button */}
         {canDeleteOrder && (
-          <RoleProtectedButton
-            allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
-            onClick={() => setShowConfirmDelete(true)}
-            disabled={isDeleting}
-            className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
-          >
-            {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
-          </RoleProtectedButton>
+          isCreator ? (
+            <Button
+              onClick={() => setShowConfirmDelete(true)}
+              disabled={isDeleting}
+              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
+            >
+              {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
+            </Button>
+          ) : (
+            <RoleProtectedButton
+              allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
+              onClick={() => setShowConfirmDelete(true)}
+              disabled={isDeleting}
+              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
+            >
+              {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
+            </RoleProtectedButton>
+          )
         )}
         
         {/* Allow adding payments for roles with FINANCE permission */}
