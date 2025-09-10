@@ -39,6 +39,7 @@ import dynamic from 'next/dynamic';
 import { Badge } from "@/components/ui/badge";
 // Import icons
 import { Pencil, Trash2, Plus, X, Save, Map } from "lucide-react";
+import { authService } from '@/lib/supabase/auth';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -1277,6 +1278,11 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   // Delete site confirmation dialog
   const [siteToDelete, setSiteToDelete] = useState<ConstructionSite | null>(null);
   const [isDeletingSite, setIsDeletingSite] = useState(false);
+  // Edit client modal state
+  const [isEditClientOpen, setIsEditClientOpen] = useState(false);
+  const [editForm, setEditForm] = useState<any | null>(null);
+  const [savingClient, setSavingClient] = useState(false);
+  const [userOptions, setUserOptions] = useState<Array<{ id: string; name: string }>>([]);
 
   // Find the current total balance for passing to PaymentForm - MOVED UP HERE to fix hooks order
   const currentTotalBalance = useMemo(() => {
@@ -1323,6 +1329,70 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Load user profiles for assignment when component mounts or modal opens
+  useEffect(() => {
+    const loadUsers = async () => {
+      try {
+        const data = await authService.getAllUsers();
+        const list = (data || []).map((u: any) => ({
+          id: u.id,
+          name: (u.first_name || u.last_name) ? `${u.first_name || ''} ${u.last_name || ''}`.trim() : (u.email || 'Usuario')
+        }));
+        setUserOptions(list);
+      } catch (e) {
+        console.warn('No fue posible cargar usuarios mediante authService:', e);
+      }
+    };
+    loadUsers();
+  }, []);
+
+  const openEditClient = () => {
+    if (!client) return;
+    setEditForm({
+      business_name: client.business_name || '',
+      contact_name: client.contact_name || '',
+      email: client.email || '',
+      phone: client.phone || '',
+      rfc: client.rfc || '',
+      address: client.address || '',
+      requires_invoice: !!client.requires_invoice,
+      // @ts-ignore optional runtime fields
+      client_type: (client as any).client_type || 'de_la_casa',
+      // @ts-ignore optional runtime fields
+      assigned_user_id: (client as any).assigned_user_id || '',
+    });
+    setIsEditClientOpen(true);
+  };
+
+  const handleEditChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value, type } = e.target;
+    setEditForm((prev: any) => ({
+      ...prev,
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value,
+    }));
+  };
+
+  const handleSaveClient = async () => {
+    if (!editForm) return;
+    try {
+      setSavingClient(true);
+      const payload = {
+        ...editForm,
+        // normalize blank assignment
+        assigned_user_id: editForm.assigned_user_id || null,
+      };
+      // @ts-ignore service accepts partial
+      await clientService.updateClient(clientId, payload);
+      toast.success('Cliente actualizado');
+      setIsEditClientOpen(false);
+      await loadData();
+    } catch (e: any) {
+      toast.error(e?.message || 'Error al actualizar el cliente');
+    } finally {
+      setSavingClient(false);
+    }
+  };
 
   const handlePaymentAdded = () => {
     setIsPaymentDialogOpen(false); // Close the dialog
@@ -1393,6 +1463,14 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
               <CardTitle>{client.business_name}</CardTitle>
               <CardDescription>Código: {client.client_code} | RFC: {client.rfc}</CardDescription>
             </div>
+            <RoleProtectedButton
+              allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
+              onClick={openEditClient}
+              className="flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-md"
+            >
+              <Pencil className="h-4 w-4" />
+              <span>Editar Cliente</span>
+            </RoleProtectedButton>
           </div>
         </CardHeader>
         <CardContent>
@@ -1403,9 +1481,107 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
             <p><strong>Dirección:</strong> {client.address}</p>
             <p><strong>Requiere Factura:</strong> {client.requires_invoice ? 'Sí' : 'No'}</p>
             <p><strong>Estado de Crédito:</strong> {client.credit_status}</p>
+            {/** Nuevo: tipo de cliente y usuario asignado */}
+            {'client_type' in client && (
+              <p><strong>Tipo de Cliente:</strong> {(
+                client as any
+              ).client_type === 'de_la_casa' ? 'Cliente de la casa' : (
+                (client as any).client_type === 'normal' ? 'Cliente normal' : (
+                (client as any).client_type === 'asignado' ? 'Cliente asignado' : 'Cliente nuevo'))}</p>
+            )}
+            {'assigned_user_id' in client && (
+              <p><strong>Usuario asignado:</strong> { (client as any).assigned_user_id ? (client as any).assigned_user_id : 'Sin asignar'}</p>
+            )}
           </div>
         </CardContent>
       </Card>
+
+      {/* Edit Client Modal */}
+      <Dialog open={isEditClientOpen} onOpenChange={setIsEditClientOpen}>
+        <DialogContent className="sm:max-w-[700px]">
+          <DialogHeader>
+            <DialogTitle>Editar Cliente</DialogTitle>
+            <DialogDescription>Actualiza la información del cliente.</DialogDescription>
+          </DialogHeader>
+          {editForm && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del Negocio *</label>
+                  <input name="business_name" value={editForm.business_name} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">RFC</label>
+                  <input name="rfc" value={editForm.rfc} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Contacto</label>
+                  <input name="contact_name" value={editForm.contact_name} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
+                  <input name="phone" value={editForm.phone} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <input name="email" type="email" value={editForm.email} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md" />
+                </div>
+                <div className="flex items-center gap-2 mt-6">
+                  <input id="requires_invoice_edit" name="requires_invoice" type="checkbox" checked={!!editForm.requires_invoice} onChange={handleEditChange} className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded" />
+                  <label htmlFor="requires_invoice_edit" className="text-sm text-gray-700">Requiere Factura</label>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Dirección</label>
+                <textarea name="address" value={editForm.address} onChange={handleEditChange} rows={2} className="w-full p-2 border border-gray-300 rounded-md" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Cliente</label>
+                  <select name="client_type" value={editForm.client_type} onChange={handleEditChange} className="w-full p-2 border border-gray-300 rounded-md">
+                    <option value="normal">Cliente normal</option>
+                    <option value="de_la_casa">Cliente de la casa</option>
+                    <option value="asignado">Cliente asignado</option>
+                    <option value="nuevo">Cliente nuevo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Usuario asignado</label>
+                  <select name="assigned_user_id" value={editForm.assigned_user_id || ''} onChange={(e) => {
+                    const value = e.target.value;
+                    setEditForm((prev: any) => ({
+                      ...prev,
+                      assigned_user_id: value || '',
+                      client_type: value ? 'asignado' : prev.client_type,
+                    }));
+                  }} className="w-full p-2 border border-gray-300 rounded-md">
+                    <option value="">Sin asignar</option>
+                    {userOptions.map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                  {userOptions.length === 0 && (
+                    <p className="mt-1 text-xs text-gray-500">No hay usuarios disponibles para asignar.</p>
+                  )}
+                  {userOptions.length > 0 && (
+                    <p className="mt-1 text-xs text-gray-400">Usuarios disponibles: {userOptions.length}</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setIsEditClientOpen(false)} disabled={savingClient}>Cancelar</Button>
+                <Button onClick={handleSaveClient} disabled={savingClient}>
+                  {savingClient ? 'Guardando...' : 'Guardar Cambios'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-1">
