@@ -151,6 +151,7 @@ const qualitySubMenuItems: QualityNavItem[] = [
   { type: 'group', title: "Gestión" },
   { title: "Recetas", href: "/quality/recipes", IconComponent: FileText },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { title: "Caracterización de Materiales", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
   { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
   { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
 ];
@@ -167,6 +168,7 @@ const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
   { type: 'group', title: "Gestión" },
   { title: "Recetas", href: "/quality/recipes", IconComponent: FileText },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { title: "Caracterización de Materiales", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
   { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
   { title: "Proveedores", href: "/quality/suppliers", IconComponent: Users },
 ];
@@ -181,6 +183,7 @@ const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
   { title: "Control en obra", href: "/quality/site-checks/new", IconComponent: ClipboardCheck },
   { type: 'group', title: "Gestión" },
   { title: "Materiales", href: "/quality/materials", IconComponent: Package },
+  { title: "Caracterización de Materiales", href: "/quality/caracterizacion-materiales", IconComponent: FlaskConical },
   { title: "Curvas de Abrams", href: "/quality/curvas-abrams", IconComponent: TrendingUp },
 ];
 
