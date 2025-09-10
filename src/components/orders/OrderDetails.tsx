@@ -53,7 +53,11 @@ interface EditableOrderData {
     pump_volume?: number | null;
     recipe_id?: string | null;
     temp_recipe_code?: string; // Campo temporal para mostrar el código, no se guarda en BD
+    quote_detail_id?: string | null;
   }>;
+  delivery_latitude?: number | null;
+  delivery_longitude?: number | null;
+  delivery_google_maps_url?: string | null;
 }
 
 interface OrderDetailsProps {
@@ -97,6 +101,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [loadingRecipes, setLoadingRecipes] = useState(false);
   const [recipePrices, setRecipePrices] = useState<Record<string, number>>({});
   const [isRecalculating, setIsRecalculating] = useState<boolean>(false);
+  const [recipeToQuoteDetailMap, setRecipeToQuoteDetailMap] = useState<Record<string, { quote_id: string, quote_detail_id: string, unit_price: number }>>({});
   
   // Recipe filter states - Added for filtering functionality
   const [strengthFilter, setStrengthFilter] = useState<number | ''>('');
@@ -140,6 +145,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   // Check if user is a credit validator or manager
   const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
   const isManager = profile?.role === 'EXECUTIVE' as UserRole || profile?.role === 'PLANT_MANAGER' as UserRole;
+  const isCreator = useMemo(() => {
+    try {
+      return Boolean((order as any)?.created_by && profile?.id && (order as any).created_by === profile?.id);
+    } catch {
+      return false;
+    }
+  }, [order, profile?.id]);
   
   // Check if user has the Dosificador role
   const isDosificador = profile?.role === 'DOSIFICADOR' as UserRole;
@@ -367,6 +379,9 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       delivery_time: order.delivery_time,
       requires_invoice: order.requires_invoice,
       special_requirements: order.special_requirements || null,
+      delivery_latitude: (order as any).delivery_latitude ?? null,
+      delivery_longitude: (order as any).delivery_longitude ?? null,
+      delivery_google_maps_url: (order as any).delivery_google_maps_url ?? '',
       has_pump_service: hasPumpService,
       pump_volume: pumpVolume,
       products: order.products
@@ -488,6 +503,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       // 3. Extract valid recipes from the quotes
       const validRecipes: any[] = [];
       const priceMap: Record<string, number> = {};
+      const rToQDMap: Record<string, { quote_id: string, quote_detail_id: string, unit_price: number }> = {};
       
       quotesData.forEach(quoteData => {
         // Filter quote details to only include those with active quote-recipe combinations
@@ -520,6 +536,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             
             // Also store the price in our map
             priceMap[recipeData.id] = detail.final_price || 0;
+            // Map recipe to quote linkage
+            rToQDMap[recipeData.id] = { quote_id: quoteData.id, quote_detail_id: detail.id, unit_price: detail.final_price || 0 };
           }
         });
       });
@@ -528,6 +546,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       setAvailableRecipes(validRecipes);
       setRecipePrices(priceMap);
+      setRecipeToQuoteDetailMap(rToQDMap);
     } catch (error) {
       console.error('Error loading recipes:', error);
       toast.error('Error al cargar las recetas disponibles');
@@ -546,10 +565,19 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     if (!editedOrder) return;
     
     const { name, value } = e.target;
-    setEditedOrder({
-      ...editedOrder,
-      [name]: value
-    });
+    // For numeric coordinate fields, coerce to number or null
+    if (name === 'delivery_latitude' || name === 'delivery_longitude') {
+      const num = value === '' ? null : Number(value);
+      setEditedOrder({
+        ...editedOrder,
+        [name]: (Number.isFinite(num as number) ? (num as number) : null) as any
+      });
+    } else {
+      setEditedOrder({
+        ...editedOrder,
+        [name]: value
+      });
+    }
   }
 
   function handleProductVolumeChange(id: string, newVolume: number) {
@@ -589,13 +617,15 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     
     // Find the recipe details
     const selectedRecipe = availableRecipes.find(r => r.id === newRecipeId);
+    const linkage = recipeToQuoteDetailMap[newRecipeId];
     
     const updatedProducts = editedOrder.products.map(product => {
       if (product.id === id) {
         return { 
           ...product, 
           recipe_id: newRecipeId,
-          temp_recipe_code: selectedRecipe?.recipe_code || ''
+          temp_recipe_code: selectedRecipe?.recipe_code || '',
+          quote_detail_id: linkage?.quote_detail_id || null
         };
       }
       return product;
@@ -652,12 +682,25 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       setIsSaving(true);
       
       // Actualizar la información general de la orden
-      const orderUpdate = {
+      const orderUpdate: any = {
         delivery_date: editedOrder.delivery_date,
         delivery_time: editedOrder.delivery_time,
         requires_invoice: editedOrder.requires_invoice,
-        special_requirements: editedOrder.special_requirements
+        special_requirements: editedOrder.special_requirements,
+        delivery_latitude: editedOrder.delivery_latitude ?? (order as any).delivery_latitude ?? null,
+        delivery_longitude: editedOrder.delivery_longitude ?? (order as any).delivery_longitude ?? null,
+        delivery_google_maps_url: editedOrder.delivery_google_maps_url ?? (order as any).delivery_google_maps_url ?? null
       };
+      // If a product changed to a recipe tied to a different quote, update order.quote_id
+      if (editedOrder.products && editedOrder.products.length > 0) {
+        const withLink = editedOrder.products.find(p => p.recipe_id && recipeToQuoteDetailMap[p.recipe_id]);
+        if (withLink) {
+          const linkage = recipeToQuoteDetailMap[withLink.recipe_id as string];
+          if (linkage?.quote_id && linkage.quote_id !== (order as any).quote_id) {
+            orderUpdate.quote_id = linkage.quote_id;
+          }
+        }
+      }
       
       await orderService.updateOrder(orderId, orderUpdate);
       
@@ -756,7 +799,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 product_type: productType,
                 unit_price: unitPrice,
                 total_price: newTotalPrice,
-                recipe_id: product.recipe_id // Agregar recipe_id directamente en el item
+                recipe_id: product.recipe_id, // Agregar recipe_id directamente en el item
+                quote_detail_id: (recipeToQuoteDetailMap[product.recipe_id] || {}).quote_detail_id || null
               } : {
                 // Si solo cambió el volumen, actualizar solo el precio total
                 total_price: unitPrice * product.volume
@@ -1080,7 +1124,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     const managerOrFinance = hasRole(['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]);
     
     // For delete action
-    const canDeleteOrder = managerOrFinance && order && !hasRemisiones && order.order_status !== 'cancelled';
+    const canDeleteOrder = (managerOrFinance || isCreator) && order && !hasRemisiones && order.order_status !== 'cancelled';
     
     // Menu of actions
     return (
@@ -1119,14 +1163,24 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         
         {/* Delete Order button */}
         {canDeleteOrder && (
-          <RoleProtectedButton
-            allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
-            onClick={() => setShowConfirmDelete(true)}
-            disabled={isDeleting}
-            className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
-          >
-            {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
-          </RoleProtectedButton>
+          isCreator ? (
+            <Button
+              onClick={() => setShowConfirmDelete(true)}
+              disabled={isDeleting}
+              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
+            >
+              {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
+            </Button>
+          ) : (
+            <RoleProtectedButton
+              allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
+              onClick={() => setShowConfirmDelete(true)}
+              disabled={isDeleting}
+              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
+            >
+              {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
+            </RoleProtectedButton>
+          )
         )}
         
         {/* Allow adding payments for roles with FINANCE permission */}
@@ -1696,6 +1750,52 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                         onChange={handleInputChange}
                         className="w-full rounded-md border border-gray-300 px-3 py-2"
                       />
+                    </div>
+
+                    {/* Delivery coordinates editing */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label htmlFor="delivery_latitude" className="block text-sm font-medium text-gray-700 mb-1">
+                          Latitud de entrega
+                        </label>
+                        <input
+                          type="number"
+                          step="0.000001"
+                          name="delivery_latitude"
+                          id="delivery_latitude"
+                          value={editedOrder?.delivery_latitude ?? ''}
+                          onChange={handleInputChange}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="delivery_longitude" className="block text-sm font-medium text-gray-700 mb-1">
+                          Longitud de entrega
+                        </label>
+                        <input
+                          type="number"
+                          step="0.000001"
+                          name="delivery_longitude"
+                          id="delivery_longitude"
+                          value={editedOrder?.delivery_longitude ?? ''}
+                          onChange={handleInputChange}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2"
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="delivery_google_maps_url" className="block text-sm font-medium text-gray-700 mb-1">
+                          URL Google Maps (opcional)
+                        </label>
+                        <input
+                          type="url"
+                          name="delivery_google_maps_url"
+                          id="delivery_google_maps_url"
+                          placeholder="https://maps.google.com/..."
+                          value={editedOrder?.delivery_google_maps_url || ''}
+                          onChange={handleInputChange}
+                          className="w-full rounded-md border border-gray-300 px-3 py-2"
+                        />
+                      </div>
                     </div>
                     
                     {/* Global Pumping Service */}

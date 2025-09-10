@@ -667,6 +667,102 @@ export class ClientQualityService {
   /**
    * Get list of clients with quality data available
    */
+  /**
+   * Get average guarantee age from recipes for a date range and plant
+   */
+  static async getAverageGuaranteeAge(
+    fromDate: string,
+    toDate: string,
+    plantId?: string
+  ): Promise<{
+    averageGuaranteeAge: number;
+    totalRecipes: number;
+    ageDistribution: { [key: string]: number };
+  }> {
+    try {
+      console.log(`[ClientQualityService] Getting average guarantee age from ${fromDate} to ${toDate}${plantId ? ` for plant ${plantId}` : ''}`);
+
+      // Use correct column names and join to recipes to fetch age fields
+      let query = supabase
+        .from('remisiones')
+        .select(`
+          id,
+          fecha,
+          recipes (
+            id,
+            age_days,
+            age_hours
+          )
+        `)
+        .gte('fecha', fromDate)
+        .lte('fecha', toDate)
+        .not('recipe_id', 'is', null);
+
+      // Add plant filter if provided
+      if (plantId) {
+        query = query.eq('plant_id', plantId);
+      }
+
+      const { data: remisiones, error } = await query;
+
+      if (error) {
+        console.error('Error fetching remisiones for guarantee age:', error);
+        return {
+          averageGuaranteeAge: 0,
+          totalRecipes: 0,
+          ageDistribution: {}
+        };
+      }
+
+      if (!remisiones || remisiones.length === 0) {
+        return {
+          averageGuaranteeAge: 0,
+          totalRecipes: 0,
+          ageDistribution: {}
+        };
+      }
+
+      // Calculate age distribution and average
+      const ageDistribution: { [key: string]: number } = {};
+      let totalAge = 0;
+      let validRecipes = 0;
+
+      remisiones.forEach(remision => {
+        const recipe = (remision as any).recipes as any;
+        if (recipe) {
+          const ageDays: number | null = (recipe.age_days ?? null);
+          const ageHours: number | null = (recipe.age_hours ?? null);
+          const computedDays = typeof ageDays === 'number' && ageDays > 0
+            ? ageDays
+            : (typeof ageHours === 'number' && ageHours > 0 ? ageHours / 24 : null);
+          if (computedDays && computedDays > 0) {
+            totalAge += computedDays;
+            validRecipes++;
+            const rounded = Math.round(computedDays * 10) / 10;
+            const ageKey = `${rounded} días`;
+            ageDistribution[ageKey] = (ageDistribution[ageKey] || 0) + 1;
+          }
+        }
+      });
+
+      const averageGuaranteeAge = validRecipes > 0 ? totalAge / validRecipes : 0;
+
+      return {
+        averageGuaranteeAge: Math.round(averageGuaranteeAge * 10) / 10, // Round to 1 decimal
+        totalRecipes: validRecipes,
+        ageDistribution
+      };
+
+    } catch (error) {
+      console.error('Error in getAverageGuaranteeAge:', error);
+      return {
+        averageGuaranteeAge: 0,
+        totalRecipes: 0,
+        ageDistribution: {}
+      };
+    }
+  }
+
   static async getClientsWithQualityData(fromDate: string, toDate: string): Promise<ClientInfo[]> {
     try {
       // This is a simplified version - in practice, you'd need a more complex query

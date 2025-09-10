@@ -477,15 +477,24 @@ export class ArkikOrderMatcher {
             const teoricos = stagingRemision.materials_teorico as Record<string, number>;
             const reales = (stagingRemision.materials_real || {}) as Record<string, number>;
             const retrabajo = (stagingRemision.materials_retrabajo || {}) as Record<string, number>;
+            const manual = (stagingRemision.materials_manual || {}) as Record<string, number>;
 
-            const materialCodes = new Set<string>([...Object.keys(teoricos), ...Object.keys(reales), ...Object.keys(retrabajo)]);
+            const materialCodes = new Set<string>([
+              ...Object.keys(teoricos),
+              ...Object.keys(reales),
+              ...Object.keys(retrabajo),
+              ...Object.keys(manual)
+            ]);
             if (materialCodes.size > 0) {
               materialCodes.forEach(code => {
                 const cantidad_teorica = Number(teoricos[code] || 0);
-                const cantidad_real = Number(reales[code] || 0);
-                const ajuste = retrabajo[code] != null ? Number(retrabajo[code]) : null;
+                const baseReal = Number(reales[code] || 0);
+                const retrabajoVal = Number(retrabajo[code] || 0);
+                const manualVal = Number(manual[code] || 0);
+                const ajuste = retrabajoVal + manualVal; // retrabajo + manual
+                const cantidad_real = baseReal + retrabajoVal + manualVal; // final real
                 // Only insert if at least one value is non-zero
-                if (cantidad_teorica > 0 || cantidad_real > 0 || (ajuste != null && ajuste !== 0)) {
+                if (cantidad_teorica > 0 || cantidad_real > 0 || ajuste !== 0) {
                   allRemisionMaterials.push({
                     remision_id: createdRemision.id,
                     material_type: code,

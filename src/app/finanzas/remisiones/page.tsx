@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
 import { clientService } from '@/lib/supabase/clients';
 import { formatCurrency } from '@/lib/utils';
+import { findProductPrice } from '@/utils/salesDataProcessor';
 import EditRemisionModal from '@/components/remisiones/EditRemisionModal';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import { 
@@ -231,12 +232,46 @@ export default function RemisionesPorCliente() {
       const orderIds = orders.map(order => order.id);
       
       // Get all order products for price information
-      const { data: products, error: productsError } = await supabase
-        .from('order_items')
-        .select('*')
-        .in('order_id', orderIds);
-      
-      if (productsError) throw productsError;
+      // First try with quote_details relationship, fallback to basic query if it fails
+      let products;
+      let productsError;
+
+      try {
+        const result = await supabase
+          .from('order_items')
+          .select(`
+            *,
+            quote_details (
+              final_price,
+              recipe_id
+              
+            )
+          `)
+          .in('order_id', orderIds);
+
+        products = result.data;
+        productsError = result.error;
+      } catch (relationshipError) {
+        console.warn('Quote details relationship failed, falling back to basic query:', relationshipError);
+        // Fallback to basic query without relationship
+        const fallbackResult = await supabase
+          .from('order_items')
+          .select('*')
+          .in('order_id', orderIds);
+
+        products = fallbackResult.data;
+        productsError = fallbackResult.error;
+      }
+
+      if (productsError) {
+        console.error('Error fetching order items:', productsError);
+        console.error('Error details:', {
+          message: productsError.message,
+          details: productsError.details,
+          hint: productsError.hint
+        });
+        throw productsError;
+      }
       setOrderProducts(products || []);
       
       // Fetch remisiones for all found orders and filter by date range
@@ -284,34 +319,33 @@ export default function RemisionesPorCliente() {
       setTotalVolume(volume);
       
       // Calculate total amount based on order_items prices
-      // Make sure to match products to their specific order
-      let amount = 0;
-      enrichedRemisiones.forEach(remision => {
-        const recipeCode = remision.recipe?.recipe_code;
-        
-        // Find products specifically for this remision's order
-        const orderSpecificProducts = products?.filter(p => p.order_id === remision.order_id);
-        
-        // First try to find the product in the specific order
-        const product = orderSpecificProducts?.find(p => 
-          p.product_type === recipeCode || 
-          (p.recipe_id && p.recipe_id.toString() === recipeCode)
-        );
-        
-        if (product) {
-          amount += (product.unit_price || 0) * remision.volumen_fabricado;
-        } else {
-          // Fallback to any matching product if not found in specific order
-          const fallbackProduct = products?.find(p => 
-            p.product_type === recipeCode || 
-            (p.recipe_id && p.recipe_id.toString() === recipeCode)
-          );
-          
-          if (fallbackProduct) {
-            amount += (fallbackProduct.unit_price || 0) * remision.volumen_fabricado;
+        // Enhanced price matching using shared sophisticated utility
+        let amount = 0;
+        enrichedRemisiones.forEach(remision => {
+          const recipeCode = remision.recipe?.recipe_code;
+          const recipeId = remision.recipe_id;
+          const volume = remision.volumen_fabricado || 0;
+
+          let price = 0;
+          if (remision.tipo_remision === 'BOMBEO') {
+            // Pump service - use SER002 code
+            price = findProductPrice('SER002', remision.order_id, recipeId, products);
+          } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
+            // Empty truck charge - use SER001 code
+            price = findProductPrice('SER001', remision.order_id, recipeId, products);
+          } else {
+            // Regular concrete - use recipe code
+            const productCode = recipeCode || 'PRODUCTO';
+            price = findProductPrice(productCode, remision.order_id, recipeId, products);
           }
-        }
-      });
+
+          // Debug logging for price matching issues
+          if (price === 0) {
+            console.warn(`No price found for remision ${remision.remision_number}, recipe: ${recipeCode}, recipe_id: ${recipeId}, type: ${remision.tipo_remision}`);
+          }
+
+          amount += price * volume;
+        });
       setTotalAmount(amount);
       
       // Apply initial site filter if needed
@@ -353,29 +387,23 @@ export default function RemisionesPorCliente() {
     let amount = 0;
     filtered.forEach(remision => {
       const recipeCode = remision.recipe?.recipe_code;
-      
-      // Find products specifically for this remision's order
-      const orderSpecificProducts = orderProducts?.filter(p => p.order_id === remision.order_id);
-      
-      // First try to find the product in the specific order
-      const product = orderSpecificProducts?.find(p => 
-        p.product_type === recipeCode || 
-        (p.recipe_id && p.recipe_id.toString() === recipeCode)
-      );
-      
-      if (product) {
-        amount += (product.unit_price || 0) * remision.volumen_fabricado;
+      const recipeId = remision.recipe_id;
+      const volume = remision.volumen_fabricado || 0;
+
+      let price = 0;
+      if (remision.tipo_remision === 'BOMBEO') {
+        // Pump service - use SER002 code
+        price = findProductPrice('SER002', remision.order_id, recipeId, orderProducts);
+      } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
+        // Empty truck charge - use SER001 code
+        price = findProductPrice('SER001', remision.order_id, recipeId, orderProducts);
       } else {
-        // Fallback to any matching product if not found in specific order
-        const fallbackProduct = orderProducts?.find(p => 
-          p.product_type === recipeCode || 
-          (p.recipe_id && p.recipe_id.toString() === recipeCode)
-        );
-        
-        if (fallbackProduct) {
-          amount += (fallbackProduct.unit_price || 0) * remision.volumen_fabricado;
-        }
+        // Regular concrete - use recipe code
+        const productCode = recipeCode || 'PRODUCTO';
+        price = findProductPrice(productCode, remision.order_id, recipeId, orderProducts);
       }
+
+      amount += price * volume;
     });
     setTotalAmount(amount);
   };

@@ -263,20 +263,6 @@ export default function EnhancedReportFilters({
     };
   }, [hierarchicalData, searchTerm, remisionMatchesFilters, orderMatchesFilters, recipeFilter, siteFilter, clientFilter, plantFilter]);
 
-  // Update selection summary when filtered data changes
-  useEffect(() => {
-    if (filteredData) {
-      updateSelectionSummary(filteredData);
-      onDataChange(filteredData, {
-        dateRange: dateRange,
-        clientIds: clientFilter,
-        recipeCodes: recipeFilter,
-        constructionSites: siteFilter,
-        plantIds: plantFilter
-      });
-    }
-  }, [filteredData, updateSelectionSummary, onDataChange, dateRange, clientFilter, recipeFilter, siteFilter, plantFilter, hierarchicalData]);
-
   // Update selection summary
   const updateSelectionSummary = useCallback((updatedData: HierarchicalReportData) => {
     const selectedClients = updatedData.clients.filter(c => c.selected).map(c => c.id);
@@ -321,6 +307,20 @@ export default function EnhancedReportFilters({
 
     onDataChange(updatedData, filters);
   }, [dateRange, singleDateMode, recipeFilter, siteFilter, plantFilter, onDataChange, onSelectionChange]);
+
+  // Update selection summary when filtered data changes
+  useEffect(() => {
+    if (filteredData) {
+      updateSelectionSummary(filteredData);
+      onDataChange(filteredData, {
+        dateRange: dateRange,
+        clientIds: clientFilter,
+        recipeCodes: recipeFilter,
+        constructionSites: siteFilter,
+        plantIds: plantFilter
+      });
+    }
+  }, [filteredData, updateSelectionSummary, onDataChange, dateRange, clientFilter, recipeFilter, siteFilter, plantFilter, hierarchicalData]);
 
   // Selection functions - Fixed to avoid nested buttons
   const toggleClientSelection = (clientId: string) => {
