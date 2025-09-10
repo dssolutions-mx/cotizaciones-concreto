@@ -42,6 +42,7 @@ interface DebugMatch {
 
 interface BatchData {
   recipes: Map<string, any>; // keyed by normalized code
+  recipesArray: any[]; // full recipes array to allow duplicate-code candidates
   materials: Map<string, any>; // keyed by material_code
   pricingByRecipe: Map<string, DebugPricing[]>; // keyed by recipe_id
   constructionSites: Map<string, Map<string, any>>; // keyed by client_id -> site_name -> site_data
@@ -266,6 +267,7 @@ export class DebugArkikValidator {
 
     return {
       recipes,
+      recipesArray: recipesData,
       materials,
       pricingByRecipe,
       constructionSites: constructionSitesData,
@@ -277,7 +279,7 @@ export class DebugArkikValidator {
   private async loadAllRecipes(): Promise<any[]> {
     const { data: recipes, error } = await supabase
       .from('recipes')
-      .select('id, recipe_code, arkik_long_code, arkik_short_code')
+      .select('id, recipe_code, arkik_long_code, arkik_short_code, has_waterproofing')
       .eq('plant_id', this.plantId);
 
     if (error) {
@@ -498,21 +500,89 @@ export class DebugArkikValidator {
   }> {
     const errors: ValidationError[] = [];
 
-    // STEP 1: Find Recipe from cache
-    const recipe = this.findRecipeFromCache(row, errors, batchData.recipes);
-    if (!recipe) {
+    // STEP 1: Find Recipe candidates from cache (handle duplicates differing by waterproofing)
+    const candidates = this.findRecipeCandidatesFromCache(row, batchData.recipesArray);
+    if (candidates.length === 0) {
+      // Reuse existing single-match finder to populate helpful errors/suggestions
+      const _ = this.findRecipeFromCache(row, errors, batchData.recipes);
       return {
         row: { ...row, validation_status: 'error', validation_errors: errors },
         errors
       };
     }
 
+    // Choose recipe (and pricing) when multiple candidates exist
+    let recipe = candidates[0];
+    let bestPricingMatch: DebugMatch | null = null;
+
+    if (candidates.length > 1) {
+      console.log('[DebugArkikValidator] ⚠️ Multiple recipe candidates matched by code. Evaluating via pricing...',
+        candidates.map(c => ({ id: c.id, code: c.recipe_code, has_waterproofing: c.has_waterproofing })));
+
+      // Gather pricing options per candidate
+      const perCandidateOptions = candidates.map(c => ({
+        recipe: c,
+        options: batchData.pricingByRecipe.get(c.id) || []
+      }));
+
+      const withPricing = perCandidateOptions.filter(x => x.options.length > 0);
+
+      if (withPricing.length === 1) {
+        // Only one candidate has pricing -> select it directly
+        recipe = withPricing[0].recipe;
+        bestPricingMatch = this.selectBestPricing(withPricing[0].options as any, row, batchData.productPricesData);
+        console.log('[DebugArkikValidator] ✅ Selected unique priced candidate:', {
+          id: recipe.id,
+          code: recipe.recipe_code,
+          has_waterproofing: recipe.has_waterproofing
+        });
+      } else if (withPricing.length > 1) {
+        // Score each candidate's best pricing match, add slight bias for waterproofing alignment
+        const wantsWaterproofing = this.detectWaterproofingHint(row);
+        const scored = withPricing.map(({ recipe: rec, options }) => {
+          const base = this.selectBestPricing(options as any, row, batchData.productPricesData);
+          let adjustedScore = base.totalScore;
+          if (wantsWaterproofing !== undefined) {
+            const bias = wantsWaterproofing ? 0.05 : 0.0;
+            const penalty = !wantsWaterproofing ? 0.05 : 0.0;
+            adjustedScore += rec.has_waterproofing ? bias : -penalty;
+          }
+          return { rec, match: base, adjustedScore };
+        });
+        scored.sort((a, b) => b.adjustedScore - a.adjustedScore);
+        recipe = scored[0].rec;
+        bestPricingMatch = scored[0].match;
+        console.log('[DebugArkikValidator] 🎯 Selected candidate after scoring:', {
+          id: recipe.id,
+          code: recipe.recipe_code,
+          has_waterproofing: recipe.has_waterproofing,
+          adjustedScore: scored[0].adjustedScore.toFixed(2)
+        });
+      } else {
+        // None have pricing -> keep original behavior, but mark as price missing for all
+        const msg = `No pricing found for any of ${candidates.length} matching recipes.`;
+        console.log('[DebugArkikValidator] ❌', msg);
+        errors.push({
+          row_number: row.row_number,
+          error_type: ArkikErrorType.RECIPE_NO_PRICE,
+          field_name: 'recipe_id',
+          field_value: candidates.map(c => c.id).join(','),
+          message: msg,
+          recoverable: true
+        });
+        return {
+          row: { ...row, validation_status: 'error', validation_errors: errors },
+          errors
+        };
+      }
+    }
+
     // STEP 2: Validate Materials from cache
     this.validateMaterialsFromCache(row, errors, batchData.materials);
 
-    // STEP 3: Get Pricing from cache
-    const pricingOptions = batchData.pricingByRecipe.get(recipe.id) || [];
-    if (pricingOptions.length === 0) {
+    // STEP 3: Get Pricing from cache (or reuse bestPricingMatch from multi-candidate branch)
+    let pricingOptions = batchData.pricingByRecipe.get(recipe.id) || [];
+    if (pricingOptions.length === 0 && !bestPricingMatch) {
       errors.push({
         row_number: row.row_number,
         error_type: ArkikErrorType.RECIPE_NO_PRICE,
@@ -528,7 +598,7 @@ export class DebugArkikValidator {
     }
 
     // STEP 4: Smart Client/Site Matching
-    const bestMatch = this.selectBestPricing(pricingOptions, row, batchData.productPricesData);
+    const bestMatch = bestPricingMatch || this.selectBestPricing(pricingOptions, row, batchData.productPricesData);
     
     console.log('[DebugArkikValidator] === BEST MATCH RESULTS ===');
     console.log('[DebugArkikValidator] Row:', row.row_number, 'Remision:', row.remision_number);
@@ -630,6 +700,43 @@ export class DebugArkikValidator {
     });
 
     return { row: validatedRow, errors };
+  }
+
+  /**
+   * Return all recipes whose arkik_long_code/recipe_code/arkik_short_code exactly match
+   * the provided row's primary/fallback code after normalization.
+   */
+  private findRecipeCandidatesFromCache(row: StagingRemision, recipesArray: any[]): any[] {
+    const primaryCode = row.product_description?.trim();
+    const fallbackCode = row.recipe_code?.trim();
+    const searchCode = primaryCode || fallbackCode || '';
+    if (!searchCode) return [];
+
+    const norm = normalizeRecipeCode(searchCode);
+    const candidates = recipesArray.filter(r => {
+      const codes = [r.arkik_long_code, r.recipe_code, r.arkik_short_code].filter(Boolean);
+      return codes.some((c: string) => normalizeRecipeCode(c) === norm);
+    });
+
+    return candidates;
+  }
+
+  /**
+   * Detect if the row likely refers to a waterproofing recipe, based on textual hints.
+   * Returns true if waterproofing is hinted, false if explicitly hinted as not waterproofing,
+   * or undefined if no signal is present.
+   */
+  private detectWaterproofingHint(row: StagingRemision): boolean | undefined {
+    const text = [row.product_description, (row as any).prod_comercial, row.comentarios_externos, row.comentarios_internos]
+      .filter(Boolean)
+      .map(v => this.removeAccents(String(v).toLowerCase()))
+      .join(' | ');
+
+    if (!text) return undefined;
+
+    if (text.includes('imperme')) return true; // matches "impermeabilizante", "impermeable", etc.
+    if (text.includes('sin imperme')) return false;
+    return undefined;
   }
 
   private findRecipeFromCache(row: StagingRemision, errors: ValidationError[], recipesMap: Map<string, any>): any | null {
