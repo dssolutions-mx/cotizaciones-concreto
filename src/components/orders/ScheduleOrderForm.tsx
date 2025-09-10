@@ -37,6 +37,7 @@ interface Product {
   pumpVolume?: number;
   ageDays?: number;
   slump?: number;
+  hasWaterproofing?: boolean;
 }
 
 interface Quote {
@@ -427,7 +428,8 @@ export default function ScheduleOrderForm({
                 placement_type,
                 max_aggregate_size,
                 age_days,
-                slump
+                slump,
+                has_waterproofing
               ),
               product_prices:product_id(
                 id,
@@ -482,6 +484,7 @@ export default function ScheduleOrderForm({
                   max_aggregate_size?: number;
                   age_days?: number;
                   slump?: number;
+                  has_waterproofing?: boolean;
                 };
                 return {
                   id: recipeData?.recipe_code || 'Unknown',
@@ -497,7 +500,8 @@ export default function ScheduleOrderForm({
                   scheduledVolume: 0, // Initialize scheduled volume
                   pumpVolume: 0,      // Initialize pump volume
                   ageDays: recipeData?.age_days || 0,
-                  slump: recipeData?.slump || 0
+                  slump: recipeData?.slump || 0,
+                  hasWaterproofing: recipeData?.has_waterproofing ?? undefined
                 };
               }
               
@@ -1360,6 +1364,13 @@ export default function ScheduleOrderForm({
                             {product.recipeCode}<br/>
                             <span className="text-xs">({product.quoteNumber})</span>
                           </span>
+                          <div className="mt-1">
+                            {product.hasWaterproofing ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200">Impermeabilizante</span>
+                            ) : (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-50 text-gray-600 border border-gray-200">Sin imperm.</span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-3 py-2">
                           {isSelected ? (
@@ -1439,6 +1450,14 @@ export default function ScheduleOrderForm({
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs border-t pt-2 mt-2">
                       <div><span className="font-medium text-gray-500">Tipo:</span> <span className="text-gray-700">{product.placementType}</span></div>
                       <div><span className="font-medium text-gray-500">TMA:</span> <span className="text-gray-700">{product.maxAggregateSize} mm</span></div>
+                      <div>
+                        <span className="font-medium text-gray-500">Impermeabilizante:</span>{' '}
+                        {product.hasWaterproofing ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-200">Sí</span>
+                        ) : (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-50 text-gray-600 border border-gray-200">No</span>
+                        )}
+                      </div>
                       <div className="col-span-2"><span className="font-medium text-gray-500">Precio Unitario:</span> <span className="font-semibold text-gray-700">${product.unitPrice.toFixed(2)}</span></div>
                     </div>
 

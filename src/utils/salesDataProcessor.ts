@@ -92,6 +92,13 @@ export interface VirtualRemision {
 
 const VAT_RATE = 0.16;
 
+// Normalize quote_details which can be either an object or an array with a single element
+const getQuoteDetails = (p: any): { final_price?: number; recipe_id?: string | number } | undefined => {
+  const qd = p?.quote_details;
+  if (!qd) return undefined;
+  return Array.isArray(qd) ? (qd[0] || undefined) : qd;
+};
+
 // Shared sophisticated price finding utility (extracted from remisiones page)
 export const findProductPrice = (productType: string, remisionOrderId: string, recipeId?: string, orderItems?: any[]): number => {
   if (!orderItems || orderItems.length === 0) return 0;
@@ -101,15 +108,16 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
     // First try to find empty truck product in the specific order
     const orderSpecificEmptyTruck = orderItems.find(p => 
       (p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge || p.product_type === 'SER001') && 
-      p.order_id === remisionOrderId
+      String(p.order_id) === String(remisionOrderId)
     );
     
     if (orderSpecificEmptyTruck) {
       // Prefer explicit empty_truck_price, then unit_price, then quote_details.final_price
+      const qd = getQuoteDetails(orderSpecificEmptyTruck);
       return (
         orderSpecificEmptyTruck.empty_truck_price ??
         orderSpecificEmptyTruck.unit_price ??
-        orderSpecificEmptyTruck.quote_details?.final_price ??
+        qd?.final_price ??
         0
       );
     }
@@ -118,10 +126,11 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
     const emptyTruckProduct = orderItems.find(p => 
       p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge || p.product_type === 'SER001'
     );
+    const qd = emptyTruckProduct ? getQuoteDetails(emptyTruckProduct) : undefined;
     return (
       emptyTruckProduct?.empty_truck_price ??
       emptyTruckProduct?.unit_price ??
-      emptyTruckProduct?.quote_details?.final_price ??
+      qd?.final_price ??
       0
     );
   }
@@ -130,31 +139,33 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
   if (productType === 'SER002') {
     // First try to find pump product in the specific order
     const orderSpecificPump = orderItems.find(p => 
-      (p.has_pump_service || p.product_type === 'SER002') && p.order_id === remisionOrderId
+      (p.has_pump_service || p.product_type === 'SER002') && String(p.order_id) === String(remisionOrderId)
     );
     
     if (orderSpecificPump) {
       // Prefer explicit pump_price, then unit_price, then quote_details.final_price
+      const qd = getQuoteDetails(orderSpecificPump);
       return (
         orderSpecificPump.pump_price ??
         orderSpecificPump.unit_price ??
-        orderSpecificPump.quote_details?.final_price ??
+        qd?.final_price ??
         0
       );
     }
     
     // Fallback to any pump product
     const pumpProduct = orderItems.find(p => p.has_pump_service || p.product_type === 'SER002');
+    const qd = pumpProduct ? getQuoteDetails(pumpProduct) : undefined;
     return (
       pumpProduct?.pump_price ??
       pumpProduct?.unit_price ??
-      pumpProduct?.quote_details?.final_price ??
+      qd?.final_price ??
       0
     );
   }
   
   // For concrete products, first try to find in the specific order
-  const orderSpecificProducts = orderItems.filter(p => p.order_id === remisionOrderId);
+  const orderSpecificProducts = orderItems.filter(p => String(p.order_id) === String(remisionOrderId));
   
   // Normalize recipeId for comparisons
   const recipeIdStr = recipeId ? String(recipeId) : undefined;
@@ -162,7 +173,8 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
   // 1) Prefer match via quote_details.recipe_id (quote detail linkage)
   let concreteProduct = recipeIdStr
     ? orderSpecificProducts.find(p => {
-        const qdRecipeId = p.quote_details?.recipe_id ? String(p.quote_details.recipe_id) : undefined;
+        const qd = getQuoteDetails(p);
+        const qdRecipeId = qd?.recipe_id ? String(qd.recipe_id) : undefined;
         return qdRecipeId && qdRecipeId === recipeIdStr;
       })
     : undefined;
@@ -192,7 +204,8 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
   // 5) If still not found, try global by quote_details.recipe_id
   if (!concreteProduct && recipeIdStr) {
     concreteProduct = orderItems.find(p => {
-      const qdRecipeId = p.quote_details?.recipe_id ? String(p.quote_details.recipe_id) : undefined;
+      const qd = getQuoteDetails(p);
+      const qdRecipeId = qd?.recipe_id ? String(qd.recipe_id) : undefined;
       return qdRecipeId && qdRecipeId === recipeIdStr;
     });
   }
@@ -215,9 +228,10 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
   }
   
   // 7) If we matched a product but its price is zero/undefined, try to salvage a sensible price
+  const concreteQd = concreteProduct ? getQuoteDetails(concreteProduct) : undefined;
   let price = (
     concreteProduct?.unit_price ??
-    concreteProduct?.quote_details?.final_price ??
+    concreteQd?.final_price ??
     0
   );
 
@@ -231,9 +245,12 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
 
   if (!price || price === 0) {
     // Try non-zero final_price from quote_details in this order
-    const nonZeroFinalPriceInOrder = orderSpecificProducts.find(p => p.quote_details?.final_price && p.quote_details.final_price > 0);
+    const nonZeroFinalPriceInOrder = orderSpecificProducts.find(p => {
+      const qd = getQuoteDetails(p);
+      return qd?.final_price && qd.final_price > 0;
+    });
     if (nonZeroFinalPriceInOrder) {
-      price = nonZeroFinalPriceInOrder.quote_details!.final_price!;
+      price = getQuoteDetails(nonZeroFinalPriceInOrder)!.final_price!;
     }
   }
 
@@ -247,13 +264,173 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
 
   if (!price || price === 0) {
     // Final fallback to any non-zero final_price globally
-    const anyNonZeroFinal = orderItems.find(p => p.quote_details?.final_price && p.quote_details.final_price > 0);
+    const anyNonZeroFinal = orderItems.find(p => {
+      const qd = getQuoteDetails(p);
+      return qd?.final_price && qd.final_price > 0;
+    });
     if (anyNonZeroFinal) {
-      price = anyNonZeroFinal.quote_details!.final_price!;
+      price = getQuoteDetails(anyNonZeroFinal)!.final_price!;
     }
   }
 
   return price || 0;
+};
+
+export type PriceMatchDebug = {
+  matchedStage: string;
+  priceSelected: number;
+  orderSpecificCount: number;
+  recipeIdStr?: string;
+  productType: string;
+  remisionOrderId: string;
+  tried: string[];
+  matchedItemSummary?: {
+    id?: string | number;
+    order_id?: string | number;
+    product_type?: string;
+    recipe_id?: string | number;
+    unit_price?: number;
+    qd_recipe_id?: string | number;
+    qd_final_price?: number;
+  };
+};
+
+export const explainPriceMatch = (productType: string, remisionOrderId: string, recipeId?: string, orderItems?: any[]): PriceMatchDebug => {
+  const tried: string[] = [];
+  const normalize = (s: string) => (s || '').toString().replace(/-/g, '').trim().toUpperCase();
+  const recipeIdStr = recipeId ? String(recipeId) : undefined;
+  const orderSpecificProducts = (orderItems || []).filter(p => String(p.order_id) === String(remisionOrderId));
+
+  let matchedStage = 'none';
+  let matchedItem: any | undefined;
+
+  // 1) order-specific by quote_details.recipe_id
+  tried.push('order.qd_recipe_id');
+  if (!matchedItem && recipeIdStr) {
+    matchedItem = orderSpecificProducts.find(p => {
+      const qd = getQuoteDetails(p);
+      const qdRecipeId = qd?.recipe_id ? String(qd.recipe_id) : undefined;
+      return qdRecipeId && qdRecipeId === recipeIdStr;
+    });
+    if (matchedItem) matchedStage = 'order.qd_recipe_id';
+  }
+
+  // 2) order-specific by order_item.recipe_id
+  tried.push('order.item_recipe_id');
+  if (!matchedItem && recipeIdStr) {
+    matchedItem = orderSpecificProducts.find(p => p.recipe_id && String(p.recipe_id) === recipeIdStr);
+    if (matchedItem) matchedStage = 'order.item_recipe_id';
+  }
+
+  // 3) order-specific by product_type or recipe_id string
+  tried.push('order.product_or_recipe_str');
+  if (!matchedItem) {
+    matchedItem = orderSpecificProducts.find(p => p.product_type === productType || (p.recipe_id && p.recipe_id.toString() === productType));
+    if (matchedItem) matchedStage = 'order.product_or_recipe_str';
+  }
+
+  // 4) order-specific normalized hyphenless match
+  tried.push('order.normalized');
+  if (!matchedItem) {
+    const normalized = normalize(productType);
+    matchedItem = orderSpecificProducts.find(p => (p.product_type && normalize(p.product_type) === normalized) || (p.recipe_id && normalize(p.recipe_id.toString()) === normalized));
+    if (matchedItem) matchedStage = 'order.normalized';
+  }
+
+  // 5) global by quote_details.recipe_id
+  tried.push('global.qd_recipe_id');
+  if (!matchedItem && recipeIdStr && orderItems && orderItems.length) {
+    matchedItem = orderItems.find(p => {
+      const qd = getQuoteDetails(p);
+      const qdRecipeId = qd?.recipe_id ? String(qd.recipe_id) : undefined;
+      return qdRecipeId && qdRecipeId === recipeIdStr;
+    });
+    if (matchedItem) matchedStage = 'global.qd_recipe_id';
+  }
+
+  // 6) global by product_type or recipe_id string
+  tried.push('global.product_or_recipe_str');
+  if (!matchedItem && orderItems && orderItems.length) {
+    matchedItem = orderItems.find(p => p.product_type === productType || (p.recipe_id && p.recipe_id.toString() === productType));
+    if (matchedItem) matchedStage = 'global.product_or_recipe_str';
+  }
+
+  // 7) global normalized hyphenless match
+  tried.push('global.normalized');
+  if (!matchedItem && orderItems && orderItems.length) {
+    const normalized = normalize(productType);
+    matchedItem = orderItems.find(p => (p.product_type && normalize(p.product_type) === normalized) || (p.recipe_id && normalize(p.recipe_id.toString()) === normalized));
+    if (matchedItem) matchedStage = 'global.normalized';
+  }
+
+  // Price resolution mirroring findProductPrice
+  const qd = matchedItem ? getQuoteDetails(matchedItem) : undefined;
+  let price = (matchedItem?.unit_price ?? qd?.final_price ?? 0) || 0;
+
+  if (!price || price === 0) {
+    const nonZeroOrderSpecific = orderSpecificProducts.find(p => (p.unit_price ?? 0) > 0);
+    if (nonZeroOrderSpecific) {
+      price = nonZeroOrderSpecific.unit_price!;
+      if (!matchedItem) matchedItem = nonZeroOrderSpecific;
+      if (matchedStage === 'none') matchedStage = 'fallback.order.unit_price';
+    }
+  }
+
+  if (!price || price === 0) {
+    const nonZeroFinalPriceInOrder = orderSpecificProducts.find(p => {
+      const d = getQuoteDetails(p);
+      return d?.final_price && d.final_price > 0;
+    });
+    if (nonZeroFinalPriceInOrder) {
+      price = getQuoteDetails(nonZeroFinalPriceInOrder)!.final_price!;
+      if (!matchedItem) matchedItem = nonZeroFinalPriceInOrder;
+      if (matchedStage === 'none') matchedStage = 'fallback.order.qd_final_price';
+    }
+  }
+
+  if (!price || price === 0) {
+    const anyNonZero = (orderItems || []).find(p => (p.unit_price ?? 0) > 0);
+    if (anyNonZero) {
+      price = anyNonZero.unit_price!;
+      if (!matchedItem) matchedItem = anyNonZero;
+      if (matchedStage === 'none') matchedStage = 'fallback.global.unit_price';
+    }
+  }
+
+  if (!price || price === 0) {
+    const anyNonZeroFinal = (orderItems || []).find(p => {
+      const d = getQuoteDetails(p);
+      return d?.final_price && d.final_price > 0;
+    });
+    if (anyNonZeroFinal) {
+      price = getQuoteDetails(anyNonZeroFinal)!.final_price!;
+      if (!matchedItem) matchedItem = anyNonZeroFinal;
+      if (matchedStage === 'none') matchedStage = 'fallback.global.qd_final_price';
+    }
+  }
+
+  const summary: PriceMatchDebug = {
+    matchedStage,
+    priceSelected: price || 0,
+    orderSpecificCount: orderSpecificProducts.length,
+    recipeIdStr,
+    productType,
+    remisionOrderId,
+    tried,
+    matchedItemSummary: matchedItem
+      ? {
+          id: matchedItem.id,
+          order_id: matchedItem.order_id,
+          product_type: matchedItem.product_type,
+          recipe_id: matchedItem.recipe_id,
+          unit_price: matchedItem.unit_price,
+          qd_recipe_id: getQuoteDetails(matchedItem)?.recipe_id,
+          qd_final_price: getQuoteDetails(matchedItem)?.final_price,
+        }
+      : undefined,
+  };
+
+  return summary;
 };
 
 export class SalesDataProcessor {

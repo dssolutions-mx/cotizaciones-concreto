@@ -77,6 +77,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
     );
     const baseConcrete = filteredMonthlyData.map(item => item.concreteVolume);
     const basePump = filteredMonthlyData.map(item => item.pumpVolume);
+    const baseClients = filteredMonthlyData.map(item => (item as any).activeClients || 0);
 
     const toCumulative = (arr: number[]) => {
       const out: number[] = [];
@@ -89,6 +90,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
     const pumpVolumeData = basePump;
     const concreteCumulativeData = toCumulative(baseConcrete);
     const pumpCumulativeData = toCumulative(basePump);
+    const clientsData = baseClients;
 
     console.log('📈 HistoricalCharts: Chart series data created (CONCRETE ONLY):', {
       salesData: historicalSalesData.filter(val => val > 0).length,
@@ -117,6 +119,12 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         data: pumpVolumeData,
         type: 'column' as const,
         yAxisIndex: 1
+      },
+      {
+        name: 'Clientes Activos',
+        data: clientsData,
+        type: 'column' as const,
+        yAxisIndex: 3
       },
       {
         name: 'Concreto Acumulado (m³)',
@@ -195,21 +203,21 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         },
         foreColor: '#374151'
       },
-      colors: ['#059669', '#2563EB', '#7C3AED', '#059669', '#2563EB'],
+      colors: ['#059669', '#2563EB', '#7C3AED', '#6B7280', '#059669', '#2563EB'],
       stroke: {
         curve: 'smooth',
-        width: [3, 0, 0, 3, 3],
-        dashArray: [0, 0, 0, 5, 5]
+        width: [3, 0, 0, 0, 3, 3],
+        dashArray: [0, 0, 0, 0, 5, 5]
       },
       fill: {
-        type: ['gradient', 'solid', 'solid', 'solid', 'solid'] as any,
+        type: ['gradient', 'solid', 'solid', 'solid', 'solid', 'solid'] as any,
         gradient: {
           shadeIntensity: 0.35,
           opacityFrom: 0.35,
           opacityTo: 0.05,
           stops: [0, 90, 100]
         },
-        opacity: [1, 0.9, 0.9, 1, 1]
+        opacity: [1, 0.9, 0.9, 0.6, 1, 1]
       },
       plotOptions: {
         bar: {
@@ -218,9 +226,9 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         }
       },
       markers: {
-        size: [6, 5, 5, 4, 4],
-        colors: ['#059669', '#2563EB', '#7C3AED', '#059669', '#2563EB'],
-        strokeColors: ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'],
+        size: [6, 5, 5, 4, 4, 4],
+        colors: ['#059669', '#2563EB', '#7C3AED', '#6B7280', '#059669', '#2563EB'],
+        strokeColors: ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'],
         strokeWidth: 2,
         hover: {
           size: 8
@@ -344,6 +352,35 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
             text: 'Acumulado (m³)',
             style: {
               color: '#059669',
+              fontSize: '12px',
+              fontWeight: '600'
+            }
+          }
+        },
+        {
+          // Fourth y-axis for active clients (count)
+          opposite: true,
+          labels: {
+            style: {
+              fontSize: '12px',
+              fontWeight: 500,
+              colors: '#6B7280',
+              fontFamily: 'Inter, system-ui, sans-serif'
+            },
+            formatter: (val: number) => {
+              if (val === null || val === undefined || isNaN(val)) {
+                return 'Sin datos';
+              }
+              return `${val.toFixed(0)} clientes`;
+            }
+          },
+          axisBorder: {
+            show: false
+          },
+          title: {
+            text: 'Clientes Activos',
+            style: {
+              color: '#6B7280',
               fontSize: '12px',
               fontWeight: '600'
             }

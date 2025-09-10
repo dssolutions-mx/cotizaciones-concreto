@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import React, { useMemo, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -9,10 +9,17 @@ import { formatCurrency } from '@/lib/utils';
 import { usePlantContext } from '@/contexts/PlantContext';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { HistoricalCharts } from '@/components/finanzas/HistoricalCharts';
+import { useWeeklyProjection } from '@/hooks/useWeeklyProjection';
+import dynamic from 'next/dynamic';
 
 export default function HistoricalDataPage() {
   const { currentPlant } = usePlantContext();
   const [includeVAT, setIncludeVAT] = useState<boolean>(false);
+  const { data: projectionData, actual, projected, loading: projLoading } = useWeeklyProjection({
+    plantId: currentPlant?.id || null,
+    weeksBack: 26,
+    weeksForward: 8
+  });
 
   // Helper functions for the SalesCharts component
   const formatNumberWithUnits = (value: number) => {
@@ -39,7 +46,7 @@ export default function HistoricalDataPage() {
               Análisis completo de tendencias históricas de ventas y volúmenes
             </p>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-6">
             {/* Plant Context Display */}
             <div className="flex flex-col items-end">
               <Label className="mb-1 text-sm font-medium">Planta</Label>
@@ -140,23 +147,24 @@ export default function HistoricalDataPage() {
               </svg>
               Información del Análisis Histórico
             </CardTitle>
+            <CardDescription>Incluye clientes activos por período y proyección semanal basada en estacionalidad y tendencia</CardDescription>
           </CardHeader>
           <CardContent className="pt-0">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-amber-700">
               <div>
                 <p className="font-medium mb-2">📊 Datos Incluidos:</p>
                 <ul className="space-y-1 ml-4">
-                  <li>• Ventas históricas completas (sin filtros de fecha)</li>
-                  <li>• Volúmenes de concreto, bombeo y vacío</li>
-                  <li>• Análisis de tendencias por mes</li>
-                  <li>• Comparativas entre períodos</li>
+                  <li>• Ventas históricas completas</li>
+                  <li>• Volúmenes de concreto y bombeo (vacío excluido)</li>
+                  <li>• Clientes activos por período</li>
+                  <li>• Proyección semanal de volúmenes</li>
                 </ul>
               </div>
               <div>
                 <p className="font-medium mb-2">🔍 Características:</p>
                 <ul className="space-y-1 ml-4">
                   <li>• Independiente de filtros de fecha</li>
-                  <li>• Datos de todas las plantas disponibles</li>
+                  <li>• Filtrado por planta según contexto</li>
                   <li>• Cálculos con y sin IVA</li>
                   <li>• Exportación de gráficos</li>
                 </ul>
@@ -183,6 +191,40 @@ export default function HistoricalDataPage() {
           formatNumberWithUnits={formatNumberWithUnits}
           formatCurrency={formatCurrencyHelper}
         />
+
+        {/* Projection Section */}
+        <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow bg-gradient-to-br from-white to-gray-50/30">
+          <CardHeader>
+            <CardTitle className="text-xl font-bold text-gray-800">Proyección Semanal de Volúmenes</CardTitle>
+            <CardDescription className="text-gray-600">Modelo híbrido: estacionalidad (semana del año) + tendencia EMA + factor de clientes</CardDescription>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="text-xs text-gray-500 mb-2">
+              {projLoading ? 'Calculando proyección…' : `Semanas analizadas: ${actual.length} • Semanas proyectadas: ${projected.length}`}
+            </div>
+            {/* Lightweight inline chart rendering via any preferred lib can be added later; show quick stats for now */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div className="p-3 rounded border bg-white">
+                <div className="text-gray-500">Volumen medio histórico semanal</div>
+                <div className="text-lg font-semibold text-gray-800">
+                  {actual.length > 0 ? (actual.reduce((s, p) => s + p.actualVolume, 0) / actual.length).toFixed(1) : '0.0'} m³
+                </div>
+              </div>
+              <div className="p-3 rounded border bg-white">
+                <div className="text-gray-500">Clientes activos promedio</div>
+                <div className="text-lg font-semibold text-gray-800">
+                  {actual.length > 0 ? (actual.reduce((s, p) => s + p.activeClients, 0) / actual.length).toFixed(0) : '0'}
+                </div>
+              </div>
+              <div className="p-3 rounded border bg-white">
+                <div className="text-gray-500">Próxima semana (proyección)</div>
+                <div className="text-lg font-semibold text-gray-800">
+                  {projected.length > 0 ? projected[0].projectedVolume.toFixed(1) : '0.0'} m³
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Footer Information */}
