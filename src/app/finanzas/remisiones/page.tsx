@@ -18,7 +18,7 @@ import { Label } from "@/components/ui/label";
 import { formatRemisionesForAccounting } from '@/components/remisiones/RemisionesList';
 import { clientService } from '@/lib/supabase/clients';
 import { formatCurrency } from '@/lib/utils';
-import { findProductPrice } from '@/utils/salesDataProcessor';
+import { findProductPrice, explainPriceMatch } from '@/utils/salesDataProcessor';
 import EditRemisionModal from '@/components/remisiones/EditRemisionModal';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import { 
@@ -73,6 +73,32 @@ export default function RemisionesPorCliente() {
   const [clientComboboxOpen, setClientComboboxOpen] = useState(false);
   const [editingRemision, setEditingRemision] = useState<any>(null);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [debugMode, setDebugMode] = useState(false);
+  
+  // Determine display name for recipe/product
+  const getDisplayRecipeName = useCallback((remision: any): string => {
+    // 1) Prefer explicit designation on the remision
+    if (remision?.designacion_ehe) {
+      return remision.designacion_ehe;
+    }
+    
+    // 2) Try to match order_items by recipe_id
+    const byRecipe = orderProducts.find((op: any) => op.recipe_id === remision.recipe_id);
+    if (byRecipe?.product_type) {
+      return byRecipe.product_type;
+    }
+    
+    // 3) Fallback: try normalized match between product_type and recipe_code
+    const normalize = (s: string) => (s || '').toString().replace(/-/g, '').trim().toUpperCase();
+    const recipeCode = remision.recipe?.recipe_code || '';
+    const matchByCode = orderProducts.find((op: any) => normalize(op.product_type) === normalize(recipeCode));
+    if (matchByCode?.product_type) {
+      return matchByCode.product_type;
+    }
+    
+    // 4) Final fallback to recipe code
+    return remision.recipe?.recipe_code || 'N/A';
+  }, [orderProducts]);
   
   // Load clients based on date range
   const loadClientsWithRemisiones = useCallback(async () => {
@@ -330,13 +356,22 @@ export default function RemisionesPorCliente() {
           if (remision.tipo_remision === 'BOMBEO') {
             // Pump service - use SER002 code
             price = findProductPrice('SER002', remision.order_id, recipeId, products);
+            if (debugMode) {
+              console.debug('PriceDebug Pump', explainPriceMatch('SER002', remision.order_id, recipeId, products));
+            }
           } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
             // Empty truck charge - use SER001 code
             price = findProductPrice('SER001', remision.order_id, recipeId, products);
+            if (debugMode) {
+              console.debug('PriceDebug Vacio', explainPriceMatch('SER001', remision.order_id, recipeId, products));
+            }
           } else {
             // Regular concrete - use recipe code
             const productCode = recipeCode || 'PRODUCTO';
             price = findProductPrice(productCode, remision.order_id, recipeId, products);
+            if (debugMode) {
+              console.debug('PriceDebug Concrete', explainPriceMatch(productCode, remision.order_id, recipeId, products));
+            }
           }
 
           // Debug logging for price matching issues
@@ -394,13 +429,22 @@ export default function RemisionesPorCliente() {
       if (remision.tipo_remision === 'BOMBEO') {
         // Pump service - use SER002 code
         price = findProductPrice('SER002', remision.order_id, recipeId, orderProducts);
+        if (debugMode) {
+          console.debug('PriceDebug Pump(filtered)', explainPriceMatch('SER002', remision.order_id, recipeId, orderProducts));
+        }
       } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
         // Empty truck charge - use SER001 code
         price = findProductPrice('SER001', remision.order_id, recipeId, orderProducts);
+        if (debugMode) {
+          console.debug('PriceDebug Vacio(filtered)', explainPriceMatch('SER001', remision.order_id, recipeId, orderProducts));
+        }
       } else {
         // Regular concrete - use recipe code
         const productCode = recipeCode || 'PRODUCTO';
         price = findProductPrice(productCode, remision.order_id, recipeId, orderProducts);
+        if (debugMode) {
+          console.debug('PriceDebug Concrete(filtered)', explainPriceMatch(productCode, remision.order_id, recipeId, orderProducts));
+        }
       }
 
       amount += price * volume;
@@ -700,6 +744,13 @@ export default function RemisionesPorCliente() {
             </div>
             
             <div className="flex items-center gap-2 self-end">
+              <Button
+                variant="ghost"
+                className="text-xs"
+                onClick={() => setDebugMode(v => !v)}
+              >
+                {debugMode ? 'Ocultar Debug' : 'Mostrar Debug'}
+              </Button>
               <div className="flex flex-col items-end">
                 <span className="text-sm text-gray-500">Total: {formatCurrency(totalAmount)}</span>
                 <span className="text-sm text-gray-500">Volumen: {totalVolume.toFixed(2)} m³</span>
@@ -761,6 +812,13 @@ export default function RemisionesPorCliente() {
                         <TableHead>Unidad</TableHead>
                         <TableHead>Receta</TableHead>
                         <TableHead className="text-right">Volumen</TableHead>
+                        {debugMode && (
+                          <>
+                            <TableHead className="text-right">Precio</TableHead>
+                            <TableHead>Match</TableHead>
+                            <TableHead>RecipeIDs</TableHead>
+                          </>
+                        )}
                         <TableHead className="text-right">Acciones</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -781,8 +839,22 @@ export default function RemisionesPorCliente() {
                             <TableCell>{remision.construction_site || '-'}</TableCell>
                             <TableCell>{remision.conductor || '-'}</TableCell>
                             <TableCell>{remision.unidad || '-'}</TableCell>
-                            <TableCell>{remision.recipe?.recipe_code || 'N/A'}</TableCell>
+                            <TableCell>{getDisplayRecipeName(remision)}</TableCell>
                             <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                            {debugMode && (() => {
+                              const recipeCode = remision.recipe?.recipe_code;
+                              const recipeId = remision.recipe_id;
+                              const productCode = recipeCode || 'PRODUCTO';
+                              const price = findProductPrice(productCode, remision.order_id, recipeId, orderProducts);
+                              const dbg = explainPriceMatch(productCode, remision.order_id, recipeId, orderProducts);
+                              return (
+                                <>
+                                  <TableCell className="text-right">{formatCurrency(price)}</TableCell>
+                                  <TableCell className="text-xs">{dbg.matchedStage}</TableCell>
+                                  <TableCell className="text-xs">{String(recipeId || '')} / {String(dbg.matchedItemSummary?.qd_recipe_id || '')}</TableCell>
+                                </>
+                              );
+                            })()}
                             <TableCell className="text-right">
                               <div onClick={(e) => e.stopPropagation()}>
                                 <RoleProtectedButton
@@ -837,6 +909,13 @@ export default function RemisionesPorCliente() {
                         <TableHead>Conductor</TableHead>
                         <TableHead>Unidad</TableHead>
                         <TableHead className="text-right">Volumen</TableHead>
+                        {debugMode && (
+                          <>
+                            <TableHead className="text-right">Precio</TableHead>
+                            <TableHead>Match</TableHead>
+                            <TableHead>RecipeIDs</TableHead>
+                          </>
+                        )}
                         <TableHead className="text-right">Acciones</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -849,6 +928,18 @@ export default function RemisionesPorCliente() {
                           <TableCell>{remision.conductor || '-'}</TableCell>
                           <TableCell>{remision.unidad || '-'}</TableCell>
                           <TableCell className="text-right">{remision.volumen_fabricado.toFixed(2)} m³</TableCell>
+                          {debugMode && (() => {
+                            const recipeId = remision.recipe_id;
+                            const price = findProductPrice('SER002', remision.order_id, recipeId, orderProducts);
+                            const dbg = explainPriceMatch('SER002', remision.order_id, recipeId, orderProducts);
+                            return (
+                              <>
+                                <TableCell className="text-right">{formatCurrency(price)}</TableCell>
+                                <TableCell className="text-xs">{dbg.matchedStage}</TableCell>
+                                <TableCell className="text-xs">{String(recipeId || '')} / {String(dbg.matchedItemSummary?.qd_recipe_id || '')}</TableCell>
+                              </>
+                            );
+                          })()}
                           <TableCell className="text-right">
                             <RoleProtectedButton
                               allowedRoles={['DOSIFICADOR', 'PLANT_MANAGER', 'EXECUTIVE']}

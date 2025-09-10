@@ -101,7 +101,7 @@ export function useProgressiveHistoricalAggregates(
           // Fetch only the fields we actually need for volume aggregation
           let query = supabase
             .from('remisiones')
-            .select('id, fecha, tipo_remision, volumen_fabricado, order_id, recipe:recipes(recipe_code)')
+            .select('id, fecha, tipo_remision, volumen_fabricado, order_id, recipe:recipes(recipe_code), order:orders(client_id)')
             .gte('fecha', range.start)
             .lte('fecha', range.end);
 

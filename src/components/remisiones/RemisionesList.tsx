@@ -30,7 +30,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useSignedUrls } from '@/hooks/useSignedUrls';
-import { findProductPrice } from '@/utils/salesDataProcessor';
+import { findProductPrice, explainPriceMatch } from '@/utils/salesDataProcessor';
 
 interface RemisionesListProps {
   orderId: string;
@@ -97,6 +97,71 @@ export const formatRemisionesForAccounting = (
     return findProductPrice(productType, remisionOrderId, recipeId, orderProducts);
   };
   
+  // Strict order-specific price getters for pump and vacío de olla based ONLY on order_items
+  const getOrderSpecificPumpPrice = (orderId: string): number => {
+    const qd = (p: any) => (p?.quote_details ? (Array.isArray(p.quote_details) ? p.quote_details[0] : p.quote_details) : undefined);
+    const normalizeName = (s: string) => (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+    const items = orderProducts.filter((p: any) => String(p.order_id) === String(orderId));
+    // Key factor: match strictly by product_type name
+    let item = items.find((p: any) => normalizeName(p.product_type) === 'SERVICIO DE BOMBEO');
+    // Last resort fallback to legacy flags/codes if naming is missing
+    if (!item) {
+      item = items.find((p: any) => p.has_pump_service || p.product_type === 'SER002');
+    }
+    return (
+      item?.pump_price ??
+      item?.unit_price ??
+      qd(item)?.final_price ??
+      0
+    );
+  };
+  
+  const getOrderSpecificEmptyTruckPrice = (orderId: string): number => {
+    const qd = (p: any) => (p?.quote_details ? (Array.isArray(p.quote_details) ? p.quote_details[0] : p.quote_details) : undefined);
+    const normalizeName = (s: string) => (s || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+    const items = orderProducts.filter((p: any) => String(p.order_id) === String(orderId));
+    // Key factor: match strictly by product_type name
+    let item = items.find((p: any) => {
+      const name = normalizeName(p.product_type);
+      return name === 'VACIO DE OLLA' || name === 'EMPTY_TRUCK_CHARGE';
+    });
+    // Last resort fallback to legacy flags/codes if naming is missing
+    if (!item) {
+      item = items.find((p: any) => p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge || p.product_type === 'SER001');
+    }
+    return (
+      item?.empty_truck_price ??
+      item?.unit_price ??
+      qd(item)?.final_price ??
+      0
+    );
+  };
+  
+  // Determine the display product code using order_items.product_type when available
+  const getDisplayProductCodeForRemision = (remision: any): string => {
+    // First preference: explicit designation stored on the remision itself
+    if (remision?.designacion_ehe) {
+      return remision.designacion_ehe.replace(/-/g, '');
+    }
+
+    // Prefer exact match by recipe_id
+    const byRecipe = orderProducts.find((op: any) => op.recipe_id === remision.recipe_id);
+    if (byRecipe?.product_type) {
+      return byRecipe.product_type.replace(/-/g, '');
+    }
+    
+    // Fallback: try to match by normalized code text
+    const normalize = (s: string) => (s || '').toString().replace(/-/g, '').trim().toUpperCase();
+    const recipeCode = remision.recipe?.recipe_code || '';
+    const matchByCode = orderProducts.find((op: any) => normalize(op.product_type) === normalize(recipeCode));
+    if (matchByCode?.product_type) {
+      return matchByCode.product_type.replace(/-/g, '');
+    }
+    
+    // Final fallback to recipe_code
+    return (recipeCode || 'PRODUCTO').replace(/-/g, '');
+  };
+  
   // First handle VACIO DE OLLA if any exists (should be assigned first remision number)
   // Only include if hasEmptyTruckCharge is true
   if (concreteRemisiones.length > 0 && hasEmptyTruckCharge) {
@@ -108,8 +173,8 @@ export const formatRemisionesForAccounting = (
     // Format the date
     const dateFormatted = formatDateString(firstRemision.fecha);
     
-    // Get price for vacío de olla
-    const emptyTruckPrice = findProductPrice('SER001', firstRemision.order_id, firstRemision.recipe_id);
+    // Get price for vacío de olla strictly from order_items of the same order
+    const emptyTruckPrice = getOrderSpecificEmptyTruckPrice(firstRemision.order_id);
     
     // Add row for "VACIO DE OLLA" with code SER001
     rows.push([
@@ -131,14 +196,46 @@ export const formatRemisionesForAccounting = (
     // Format the date
     const dateFormatted = formatDateString(remision.fecha);
     
+    // Determine display using order_items.product_type when available
+    const displayProductCode = getDisplayProductCodeForRemision(remision);
+    
     // Get original product code from recipe code for price lookup
     const originalProductCode = remision.recipe?.recipe_code || "PRODUCTO";
     
-    // Remove hyphens for display in accounting software
-    const displayProductCode = originalProductCode.replace(/-/g, '');
+    // Derive an effective recipeId to honor matching priority when remision.recipe_id is missing
+    let effectiveRecipeId: string | undefined = remision.recipe_id;
+    if (!effectiveRecipeId && orderProducts && orderProducts.length > 0) {
+      const normalize = (s: string) => (s || '').toString().replace(/-/g, '').trim().toUpperCase();
+      const normalizedOriginal = normalize(originalProductCode);
+      // Prefer match using the original recipe_code against order_items.product_type within the same order
+      let candidate = orderProducts.find((op: any) => (
+        op.order_id === remision.order_id &&
+        op.product_type && normalize(op.product_type) === normalizedOriginal
+      ));
+      // Fallback: try using the display code if original code did not match
+      if (!candidate) {
+        const normalizedDisplay = normalize(displayProductCode);
+        candidate = orderProducts.find((op: any) => (
+          op.order_id === remision.order_id &&
+          op.product_type && normalize(op.product_type) === normalizedDisplay
+        ));
+      }
+      const qd = candidate?.quote_details ? (Array.isArray(candidate.quote_details) ? candidate.quote_details[0] : candidate.quote_details) : undefined;
+      const candidateRecipeId = qd?.recipe_id ?? candidate?.recipe_id;
+      if (candidateRecipeId) {
+        effectiveRecipeId = String(candidateRecipeId);
+      }
+    }
     
-    // Get price for this product using original product code AND recipe_id
-    const productPrice = findProductPrice(originalProductCode, remision.order_id, remision.recipe_id);
+    // Get price for this product using original product code AND recipe_id only (display is visual-only)
+    let productPrice = findProductPrice(originalProductCode, remision.order_id, effectiveRecipeId);
+    if (!productPrice || productPrice === 0) {
+      const dbg = explainPriceMatch(originalProductCode, remision.order_id, effectiveRecipeId, orderProducts);
+      console.debug('CopyDebug Concrete', { remision: remision.remision_number, recipe: originalProductCode, recipeId: effectiveRecipeId, dbg });
+      if (dbg.priceSelected && dbg.priceSelected > 0) {
+        productPrice = dbg.priceSelected;
+      }
+    }
     
     rows.push([
       `${prefix}${remision.remision_number}`,
@@ -159,8 +256,8 @@ export const formatRemisionesForAccounting = (
     // Format the date
     const dateFormatted = formatDateString(remision.fecha);
     
-    // Get price for pump service
-    const pumpPrice = findProductPrice('SER002', remision.order_id, remision.recipe_id);
+    // Get price for pump service strictly from order_items of the same order
+    const pumpPrice = getOrderSpecificPumpPrice(remision.order_id);
     
     rows.push([
       `${prefix}${remision.remision_number}`,

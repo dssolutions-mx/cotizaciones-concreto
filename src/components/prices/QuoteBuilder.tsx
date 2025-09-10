@@ -39,6 +39,7 @@ interface Recipe {
   max_aggregate_size: number;
   recipe_type?: string;
   age_days?: number;
+  has_waterproofing?: boolean;
   plant_id?: string;
 }
 
@@ -168,6 +169,7 @@ export default function QuoteBuilder() {
         max_aggregate_size: r.max_aggregate_size,
         recipe_type: (r as any).recipe_type || 'N/A',
         age_days: r.age_days,
+        has_waterproofing: (r as any).has_waterproofing,
         plant_id: (r as any).plant_id // Include plant_id for validation
       }) as Recipe));
     }
@@ -847,6 +849,13 @@ export default function QuoteBuilder() {
                                                 <div key={recipe.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
                                                   <h3 className="font-semibold text-gray-800">{recipe.recipe_code}</h3>
                                                   <div className="text-sm space-y-2 mt-2 text-gray-600">
+                                                    <div>
+                                                      {recipe.has_waterproofing ? (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">Impermeabilizante</span>
+                                                      ) : (
+                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600 border border-gray-200">Sin impermeabilizante</span>
+                                                      )}
+                                                    </div>
                                                     <p className="flex items-center gap-1">
                                                       <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714a2.25 2.25 0 0 0 .659 1.591L19.5 14.5" />
