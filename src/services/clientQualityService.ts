@@ -135,6 +135,7 @@ export class ClientQualityService {
               id,
               fecha_muestreo,
               numero_muestreo,
+              concrete_specs,
               masa_unitaria,
               temperatura_ambiente,
               temperatura_concreto,
@@ -247,6 +248,7 @@ export class ClientQualityService {
             id: muestreo.id,
             fechaMuestreo: muestreo.fecha_muestreo,
             numeroMuestreo: muestreo.numero_muestreo,
+            concrete_specs: ClientQualityService.parseConcreteSpecs(muestreo.concrete_specs),
             masaUnitaria: muestreo.masa_unitaria || 0,
             temperaturaAmbiente: muestreo.temperatura_ambiente || 0,
             temperaturaConcreto: muestreo.temperatura_concreto || 0,
@@ -280,6 +282,33 @@ export class ClientQualityService {
       handleError(error, 'getClientRemisionesWithQuality');
       return [];
     }
+  }
+
+  private static parseConcreteSpecs(specs: any): any {
+    if (!specs) return null;
+    if (typeof specs === 'object') return specs;
+    if (typeof specs === 'string') {
+      try {
+        const parsed = JSON.parse(specs);
+        return typeof parsed === 'object' ? parsed : null;
+      } catch (_e) {
+        const trimmed = specs.trim().toLowerCase();
+        if (/^\d+\s*h$/.test(trimmed)) {
+          const hours = parseInt(trimmed);
+          return { valor_edad: hours, unidad_edad: 'HORA' };
+        }
+        if (/^\d+\s*d$/.test(trimmed)) {
+          const days = parseInt(trimmed);
+          return { valor_edad: days, unidad_edad: 'DÍA' };
+        }
+        if (/^\d+$/.test(trimmed)) {
+          const days = parseInt(trimmed);
+          return { valor_edad: days, unidad_edad: 'DÍA' };
+        }
+        return null;
+      }
+    }
+    return null;
   }
 
   /**

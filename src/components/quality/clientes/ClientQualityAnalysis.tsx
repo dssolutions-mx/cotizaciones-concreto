@@ -62,9 +62,35 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
     const getAgeLabel = (specs: any): string => {
       if (!specs) return 'NA';
 
+      // Normalize when concrete_specs arrives as a JSON string or shorthand (e.g., "24h", "28d")
+      const parsedSpecs = (() => {
+        if (typeof specs === 'string') {
+          const trimmed = specs.trim();
+          try {
+            const obj = JSON.parse(trimmed);
+            if (obj && typeof obj === 'object') return obj;
+          } catch (_e) {
+            const lower = trimmed.toLowerCase();
+            if (/^\d+\s*h$/.test(lower)) {
+              const hours = parseInt(lower);
+              return { valor_edad: hours, unidad_edad: 'HORA' };
+            }
+            if (/^\d+\s*d$/.test(lower)) {
+              const days = parseInt(lower);
+              return { valor_edad: days, unidad_edad: 'DÍA' };
+            }
+            if (/^\d+$/.test(lower)) {
+              const days = parseInt(lower);
+              return { valor_edad: days, unidad_edad: 'DÍA' };
+            }
+          }
+        }
+        return specs;
+      })();
+
       // 0) Direct Spanish fields found in DB: valor_edad + unidad_edad ('DÍA'|'DÍAS'|'HORA'|'HORAS')
-      const valorEdad = specs.valor_edad ?? specs.valorEdad;
-      const unidadEdadRaw = specs.unidad_edad ?? specs.unidadEdad;
+      const valorEdad = parsedSpecs?.valor_edad ?? parsedSpecs?.valorEdad;
+      const unidadEdadRaw = parsedSpecs?.unidad_edad ?? parsedSpecs?.unidadEdad;
       if (typeof valorEdad === 'number' && valorEdad > 0 && unidadEdadRaw) {
         const unidad = unidadEdadRaw.toString().toLowerCase();
         const unidadNorm = unidad
@@ -75,13 +101,13 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
       }
 
       // 1) Explicit numeric fields
-      const ageHours = specs.age_hours ?? specs.hours ?? specs.guarantee_age_hours ?? undefined;
-      const ageDays = specs.age_days ?? specs.days ?? specs.guarantee_age_days ?? undefined;
+      const ageHours = parsedSpecs?.age_hours ?? parsedSpecs?.hours ?? parsedSpecs?.guarantee_age_hours ?? undefined;
+      const ageDays = parsedSpecs?.age_days ?? parsedSpecs?.days ?? parsedSpecs?.guarantee_age_days ?? undefined;
       if (typeof ageHours === 'number' && ageHours > 0) return `${ageHours}h`;
       if (typeof ageDays === 'number' && ageDays > 0) return `${ageDays}d`;
 
       // 2) Dashboard-like JSON: guarantee_age or age as object { value, unit } or { days|hours }
-      const ageObj = specs.guarantee_age ?? specs.age ?? specs.edad_garantia ?? undefined;
+      const ageObj = parsedSpecs?.guarantee_age ?? parsedSpecs?.age ?? parsedSpecs?.edad_garantia ?? undefined;
       if (ageObj && typeof ageObj === 'object') {
         // shape { value: 28, unit: 'DAYS'|'HOURS' } or { days|hours }
         const v = ageObj.value ?? ageObj.valor ?? ageObj.amount ?? undefined;
@@ -101,7 +127,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
       }
 
       // 3) Fallback string/number (could be '28d' or '24h')
-      const genericAge = specs.age ?? specs.edad ?? undefined;
+      const genericAge = parsedSpecs?.age ?? parsedSpecs?.edad ?? undefined;
       if (typeof genericAge === 'string') {
         const trimmed = genericAge.trim().toLowerCase();
         if (/^\d+\s*h$/.test(trimmed)) return trimmed.replace(/\s+/g, '');

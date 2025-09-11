@@ -30,6 +30,40 @@ export class ArkikOrderMatcher {
   }
 
   /**
+   * Parse a date-only value (YYYY-MM-DD or Date) as a local date (no TZ shift)
+   */
+  private parseLocalDate(dateInput: string | Date): Date {
+    if (dateInput instanceof Date) {
+      // Normalize to local midnight to avoid time components affecting diffs
+      return new Date(
+        dateInput.getFullYear(),
+        dateInput.getMonth(),
+        dateInput.getDate()
+      );
+    }
+    if (!dateInput) return new Date();
+    const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(dateInput);
+    if (m) {
+      const year = Number(m[1]);
+      const month = Number(m[2]) - 1;
+      const day = Number(m[3]);
+      return new Date(year, month, day);
+    }
+    // Fallback – let JS parse, but this should rarely be hit
+    return new Date(dateInput);
+  }
+
+  /**
+   * Format a Date as YYYY-MM-DD using local components (no TZ conversion)
+   */
+  private formatYmd(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  /**
    * Find existing orders that can accommodate remisiones
    */
   async findMatchingOrders(
@@ -52,7 +86,7 @@ export class ArkikOrderMatcher {
         client_id: criteria.client_id,
         client_name: criteria.client_name,
         construction_site_name: criteria.construction_site_name,
-        delivery_date: criteria.delivery_date_start.toISOString().split('T')[0]
+        delivery_date: this.formatYmd(criteria.delivery_date_start)
       });
       
       const existingOrders = await this.queryExistingOrders(criteria);
@@ -104,7 +138,7 @@ export class ArkikOrderMatcher {
     // Prioritize client names for flexible matching (like validation does)
     const client = remision.cliente_name || remision.client_id || 'UNKNOWN_CLIENT';
     const site = remision.obra_name || remision.construction_site_id || 'UNKNOWN_SITE';
-    const date = remision.fecha.toISOString().split('T')[0];
+    const date = this.formatYmd(this.parseLocalDate(remision.fecha as any));
     const recipe = remision.product_description || remision.recipe_id || 'UNKNOWN_RECIPE';
     
     // Normalize the key for consistent grouping
@@ -121,7 +155,7 @@ export class ArkikOrderMatcher {
     const firstRemision = remisiones[0];
     
     // Define date range (allow ±1 day flexibility)
-    const baseDate = firstRemision.fecha;
+    const baseDate = this.parseLocalDate(firstRemision.fecha as any);
     const startDate = new Date(baseDate);
     startDate.setDate(startDate.getDate() - 1);
     const endDate = new Date(baseDate);
@@ -144,6 +178,9 @@ export class ArkikOrderMatcher {
    */
   private async queryExistingOrders(criteria: OrderMatchCriteria): Promise<Order[]> {
     // Use broader query criteria for flexible matching
+    const startYmd = this.formatYmd(criteria.delivery_date_start);
+    const endYmd = this.formatYmd(criteria.delivery_date_end);
+
     let query = supabase
       .from('orders')
       .select(`
@@ -155,8 +192,8 @@ export class ArkikOrderMatcher {
           client_code
         )
       `)
-      .gte('delivery_date', criteria.delivery_date_start.toISOString().split('T')[0])
-      .lte('delivery_date', criteria.delivery_date_end.toISOString().split('T')[0])
+      .gte('delivery_date', startYmd)
+      .lte('delivery_date', endYmd)
       .in('order_status', ['created', 'validated', 'scheduled']) // Only orders that can be updated
       .eq('credit_status', 'approved'); // Only approved orders
 
@@ -194,21 +231,25 @@ export class ArkikOrderMatcher {
     remisiones: StagingRemision[],
     candidateOrders: Order[]
   ): ExistingOrderMatch | null {
-    let bestMatch: ExistingOrderMatch | null = null;
-    let bestScore = 0;
+    const firstRemision = remisiones[0];
+    const remisionYmd = this.formatYmd(this.parseLocalDate(firstRemision.fecha as any));
 
-    for (const order of candidateOrders) {
+    // Evaluate all candidates and mark if same-day
+    const evaluated = candidateOrders.map(order => {
       const match = this.evaluateOrderMatch(remisiones, order);
-      
-      if (match.matchScore > bestScore) {
-        bestScore = match.matchScore;
-        bestMatch = match;
-      }
-    }
+      const orderYmd = this.formatYmd(this.parseLocalDate((order as any).delivery_date));
+      const isSameDay = orderYmd === remisionYmd;
+      return { match, isSameDay };
+    });
 
-    // Only return matches with a minimum score threshold
-    // Lower threshold for more flexible matching with similarity scoring
-    return bestScore >= 0.5 ? bestMatch : null;
+    // Prefer same-day; then highest score
+    evaluated.sort((a, b) => {
+      if (a.isSameDay !== b.isSameDay) return a.isSameDay ? -1 : 1;
+      return b.match.matchScore - a.match.matchScore;
+    });
+
+    const best = evaluated[0]?.match;
+    return best && best.matchScore >= 0.5 ? best : null;
   }
 
   /**
@@ -263,20 +304,23 @@ export class ArkikOrderMatcher {
       matchReasons.push('Obra parcialmente similar');
     }
 
-    // Date proximity
-    const orderDate = new Date(order.delivery_date);
-    const remisionDate = firstRemision.fecha;
-    const daysDiff = Math.abs((orderDate.getTime() - remisionDate.getTime()) / (1000 * 60 * 60 * 24));
-    
-    if (daysDiff === 0) {
-      score += 2;
+    // Date proximity (string-based equality preferred, no TZ conversion)
+    const orderYmd = this.formatYmd(this.parseLocalDate((order as any).delivery_date));
+    const remisionYmd = this.formatYmd(this.parseLocalDate(firstRemision.fecha as any));
+    if (orderYmd === remisionYmd) {
+      score += 3; // Strongly prefer exact same day
       matchReasons.push('Fecha exacta');
-    } else if (daysDiff <= 1) {
-      score += 1.5;
-      matchReasons.push('Fecha próxima');
-    } else if (daysDiff <= 2) {
-      score += 1;
-      matchReasons.push('Fecha cercana');
+    } else {
+      const orderDate = this.parseLocalDate((order as any).delivery_date);
+      const remisionDate = this.parseLocalDate(firstRemision.fecha as any);
+      const daysDiff = Math.abs((orderDate.getTime() - remisionDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysDiff <= 1) {
+        score += 1.2;
+        matchReasons.push('Fecha próxima');
+      } else if (daysDiff <= 2) {
+        score += 0.8;
+        matchReasons.push('Fecha cercana');
+      }
     }
 
     // Recipe/Product match (check order items)
@@ -305,7 +349,8 @@ export class ArkikOrderMatcher {
     console.log(`[ArkikOrderMatcher] Evaluating match for order ${order.order_number}:`, {
       clientSimilarity: clientSimilarity.toFixed(3),
       siteSimilarity: siteSimilarity.toFixed(3),
-      daysDiff: daysDiff.toFixed(1),
+      // daysDiff logged as 0.0 for exact date to reflect strict preference
+      daysDiff: (orderYmd === remisionYmd ? 0 : Math.abs((this.parseLocalDate((order as any).delivery_date).getTime() - this.parseLocalDate(firstRemision.fecha as any).getTime()) / (1000 * 60 * 60 * 24))).toFixed(1),
       totalScore: score.toFixed(2),
       finalScore: (score / maxScore).toFixed(3),
       matchReasons
