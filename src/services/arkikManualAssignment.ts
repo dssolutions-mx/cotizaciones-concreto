@@ -517,25 +517,28 @@ export class ArkikManualAssignmentService {
       reasons.push('Obra diferente');
     }
 
-    // Date proximity (more flexible for manual assignment)
-    const orderDate = this.parseLocalDate(order.delivery_date);
-    const remisionDate = this.parseLocalDate(remision.fecha as any);
-    const daysDiff = Math.abs((orderDate.getTime() - remisionDate.getTime()) / (1000 * 60 * 60 * 24));
-
-    if (daysDiff === 0) {
-      score += 2;
+    // Date proximity: prefer exact same YYYY-MM-DD without TZ effects
+    const orderYmd = this.formatYmd(this.parseLocalDate(order.delivery_date));
+    const remisionYmd = this.formatYmd(this.parseLocalDate(remision.fecha as any));
+    if (orderYmd === remisionYmd) {
+      score += 3; // stronger preference for exact same day
       reasons.push('Fecha exacta');
-    } else if (daysDiff <= 1) {
-      score += 1.5;
-      reasons.push('Fecha próxima');
-    } else if (daysDiff <= 7) {
-      score += 1;
-      reasons.push('Fecha cercana');
-    } else if (daysDiff <= 30) {
-      score += 0.5;
-      reasons.push('Fecha en el mes');
     } else {
-      reasons.push('Fecha distante');
+      const orderDate = this.parseLocalDate(order.delivery_date);
+      const remisionDate = this.parseLocalDate(remision.fecha as any);
+      const daysDiff = Math.abs((orderDate.getTime() - remisionDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysDiff <= 1) {
+        score += 1.5;
+        reasons.push('Fecha próxima');
+      } else if (daysDiff <= 7) {
+        score += 1;
+      reasons.push('Fecha cercana');
+      } else if (daysDiff <= 30) {
+        score += 0.5;
+        reasons.push('Fecha en el mes');
+      } else {
+        reasons.push('Fecha distante');
+      }
     }
 
     // Recipe/Product compatibility

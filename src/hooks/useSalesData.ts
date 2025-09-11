@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { format } from 'date-fns';
+import { useRef, useState, useEffect } from 'react';
+import { addDays, endOfWeek, format, isAfter, isBefore, max as dateMax, min as dateMin, startOfDay, startOfWeek } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 
 interface UseSalesDataProps {
@@ -18,205 +18,242 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
   const [productCodes, setProductCodes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
 
   useEffect(() => {
-    async function fetchSalesData() {
+    async function fetchSalesDataProgressively() {
       if (!startDate || !endDate) {
-        // Set default empty data
         setSalesData([]);
         setRemisionesData([]);
         setOrderItems([]);
+        setClients([]);
+        setResistances([]);
+        setTipos([]);
+        setProductCodes([]);
         setLoading(false);
         return;
       }
 
+      abortRef.current.aborted = false;
       setLoading(true);
       setError(null);
+      setSalesData([]);
+      setRemisionesData([]);
+      setOrderItems([]);
+      setClients([]);
+      setResistances([]);
+      setTipos([]);
+      setProductCodes([]);
+
+      // Normalized, safe date bounds
+      const safeStart = startOfDay(startDate);
+      const safeEnd = startOfDay(endDate);
+      const rangeStart = isBefore(safeStart, safeEnd) ? safeStart : safeEnd;
+      const rangeEnd = isAfter(safeStart, safeEnd) ? safeStart : safeEnd;
+
+      // Build weekly slices from newest to oldest to show recent data first
+      const slices: { from: Date; to: Date }[] = [];
+      let cursorEnd = endOfWeek(rangeEnd, { weekStartsOn: 1 });
+      while (isAfter(cursorEnd, rangeStart) || cursorEnd.getTime() === rangeStart.getTime()) {
+        const weekStart = startOfWeek(cursorEnd, { weekStartsOn: 1 });
+        const from = dateMax([weekStart, rangeStart]);
+        const to = dateMin([cursorEnd, rangeEnd]);
+        slices.push({ from, to });
+        // Move to previous week
+        cursorEnd = addDays(weekStart, -1);
+      }
+
+      // Accumulators / caches for progressive enrichment
+      const ordersById = new Map<string, any>();
+      const itemsByOrderId = new Map<string, any[]>();
+      const clientMap = new Map<string, { id: string; name: string }>();
+      let firstChunkRendered = false;
 
       try {
-        // Format dates for Supabase query
-        const formattedStartDate = format(startDate, 'yyyy-MM-dd');
-        const formattedEndDate = format(endDate, 'yyyy-MM-dd');
+        let accRemisiones: any[] = [];
+        for (const slice of slices) {
+          if (abortRef.current.aborted) return;
 
-        // 1. Fetch remisiones directly by their fecha field (ORIGINAL APPROACH)
-        let remisionesQuery = supabase
-          .from('remisiones')
-          .select(`
-            *,
-            recipe:recipes(id, recipe_code, strength_fc),
-            order:orders(
-              id,
-              order_number,
-              delivery_date,
-              client_id,
-              construction_site,
-              requires_invoice,
-              clients:clients(business_name)
-            )
-          `)
-          .gte('fecha', formattedStartDate)
-          .lte('fecha', formattedEndDate);
+          const formattedStart = format(slice.from, 'yyyy-MM-dd');
+          const formattedEnd = format(slice.to, 'yyyy-MM-dd');
 
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
-        }
-
-        const { data: remisiones, error: remisionesError } = await remisionesQuery.order('fecha', { ascending: false });
-
-        if (remisionesError) throw remisionesError;
-
-        // Extract order IDs from remisiones
-        const orderIdsFromRemisiones = remisiones?.map(r => r.order_id).filter(Boolean) || [];
-        const uniqueOrderIds = Array.from(new Set(orderIdsFromRemisiones));
-
-        if (uniqueOrderIds.length === 0) {
-          setSalesData([]);
-          setRemisionesData([]);
-          setOrderItems([]);
-          setClients([]);
-          setResistances([]);
-          setTipos([]);
-          setProductCodes([]);
-          setLoading(false);
-          return;
-        }
-
-        // 2. Fetch all relevant orders (even those without remisiones in the date range)
-        let ordersQuery = supabase
-          .from('orders')
-          .select(`
-            id,
-            order_number,
-            delivery_date,
-            client_id,
-            construction_site,
-            requires_invoice,
-            clients:clients(business_name)
-          `)
-          .in('id', uniqueOrderIds)
-          .not('order_status', 'eq', 'cancelled');
-
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
-        }
-
-        const { data: orders, error: ordersError } = await ordersQuery;
-
-        if (ordersError) throw ordersError;
-
-        if (!orders || orders.length === 0) {
-          setSalesData([]);
-          setRemisionesData([]);
-          setOrderItems([]);
-          setClients([]);
-          setResistances([]);
-          setTipos([]);
-          setProductCodes([]);
-          setLoading(false);
-          return;
-        }
-
-        // Extract unique client names for the filter
-        const clientMap = new Map();
-        orders.forEach(order => {
-          if (order.client_id && !clientMap.has(order.client_id)) {
-            const businessName = order.clients ?
-              (typeof order.clients === 'object' ?
-                (order.clients as any).business_name || 'Desconocido' : 'Desconocido')
-              : 'Desconocido';
-
-            clientMap.set(order.client_id, {
-              id: order.client_id,
-              name: businessName
-            });
-          }
-        });
-
-        const uniqueClients = Array.from(clientMap.values());
-        uniqueClients.sort((a, b) => a.name.localeCompare(b.name));
-        setClients(uniqueClients);
-
-        // 3. Fetch order items (products) for these orders with sophisticated price matching support
-        const orderIds = orders.map(order => order.id);
-        let orderItemsQuery;
-        let orderItems;
-        let itemsError;
-
-        try {
-          // Try to fetch with quote_details relationship for sophisticated price matching
-          const result = await supabase
-            .from('order_items')
+          // Fetch remisiones for the slice
+          let remisionesQuery = supabase
+            .from('remisiones')
             .select(`
               *,
-              quote_details (
-                final_price,
-                recipe_id
+              recipe:recipes(id, recipe_code, strength_fc),
+              order:orders(
+                id,
+                order_number,
+                delivery_date,
+                client_id,
+                construction_site,
+                requires_invoice,
+                clients:clients(business_name)
               )
             `)
-            .in('order_id', orderIds);
+            .gte('fecha', formattedStart)
+            .lte('fecha', formattedEnd);
 
-          orderItems = result.data;
-          itemsError = result.error;
-        } catch (relationshipError) {
-          console.warn('Quote details relationship failed, falling back to basic query:', relationshipError);
-          // Fallback to basic query without relationship
-          const fallbackResult = await supabase
-            .from('order_items')
-            .select('*')
-            .in('order_id', orderIds);
+          if (currentPlant?.id) {
+            remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
+          }
 
-          orderItems = fallbackResult.data;
-          itemsError = fallbackResult.error;
-        }
+          const { data: sliceRemisiones, error: remErr } = await remisionesQuery.order('fecha', { ascending: false });
+          if (remErr) throw remErr;
 
-        if (itemsError) throw itemsError;
+          // Append remisiones progressively
+          if (sliceRemisiones && sliceRemisiones.length > 0) {
+            accRemisiones = [...accRemisiones, ...sliceRemisiones];
+            accRemisiones.sort((a, b) => (new Date(b.fecha).getTime()) - (new Date(a.fecha).getTime()));
+            setRemisionesData(accRemisiones);
+          }
 
-        // Store order items for sophisticated price matching
-        setOrderItems(orderItems || []);
+          // Determine new order IDs to fetch
+          const newOrderIds = Array.from(new Set((sliceRemisiones || []).map(r => r.order_id).filter(Boolean)));
+          const orderIdsToFetch = newOrderIds.filter(id => id && !ordersById.has(String(id)));
 
-        // Extract unique values for filters from remisiones
-        const uniqueResistances = Array.from(new Set(remisiones?.map(r => r.recipe?.strength_fc?.toString()).filter(Boolean) as string[] || [])).sort();
-        const uniqueTipos = Array.from(new Set(remisiones?.map(r => r.tipo_remision).filter(Boolean) as string[] || [])).sort();
-        const uniqueProductCodes = Array.from(new Set(remisiones?.map(r => r.recipe?.recipe_code).filter(Boolean) as string[] || [])).sort();
+          if (orderIdsToFetch.length > 0) {
+            let ordersQuery = supabase
+              .from('orders')
+              .select(`
+                id,
+                order_number,
+                delivery_date,
+                client_id,
+                construction_site,
+                requires_invoice,
+                clients:clients(business_name)
+              `)
+              .in('id', orderIdsToFetch)
+              .not('order_status', 'eq', 'cancelled');
 
-        setResistances(uniqueResistances);
-        setTipos(uniqueTipos);
-        setProductCodes(uniqueProductCodes);
+            if (currentPlant?.id) {
+              ordersQuery = ordersQuery.eq('plant_id', currentPlant.id);
+            }
 
-        // Combine orders with their items and remisiones (ORIGINAL STRUCTURE)
-        const enrichedOrders = orders.map(order => {
-          const items = orderItems?.filter(item => item.order_id === order.id) || [];
-          const orderRemisiones = remisiones?.filter(r => r.order_id === order.id) || [];
+            const { data: newOrders, error: ordersError } = await ordersQuery;
+            if (ordersError) throw ordersError;
 
-          // Extract the client name safely
-          let clientName = 'Desconocido';
-          if (order.clients) {
-            if (typeof order.clients === 'object') {
-              clientName = (order.clients as any).business_name || 'Desconocido';
+            (newOrders || []).forEach(order => {
+              ordersById.set(String(order.id), order);
+              if (order.client_id && !clientMap.has(order.client_id)) {
+                const businessName = order.clients ?
+                  (typeof order.clients === 'object' ?
+                    (order.clients as any).business_name || 'Desconocido' : 'Desconocido')
+                  : 'Desconocido';
+                clientMap.set(order.client_id, { id: order.client_id, name: businessName });
+              }
+            });
+
+            // Fetch items for just these orders, with relationship if available
+            try {
+              const result = await supabase
+                .from('order_items')
+                .select(`
+                  *,
+                  quote_details (
+                    final_price,
+                    recipe_id
+                  )
+                `)
+                .in('order_id', orderIdsToFetch);
+
+              if (result.error) throw result.error;
+              (result.data || []).forEach((item: any) => {
+                const key = String(item.order_id);
+                const arr = itemsByOrderId.get(key) || [];
+                arr.push(item);
+                itemsByOrderId.set(key, arr);
+              });
+            } catch (relationshipError) {
+              const fallback = await supabase
+                .from('order_items')
+                .select('*')
+                .in('order_id', orderIdsToFetch);
+              if (fallback.error) throw fallback.error;
+              (fallback.data || []).forEach((item: any) => {
+                const key = String(item.order_id);
+                const arr = itemsByOrderId.get(key) || [];
+                arr.push(item);
+                itemsByOrderId.set(key, arr);
+              });
             }
           }
 
-          return {
-            ...order,
-            items,
-            remisiones: orderRemisiones,
-            clientName
-          };
-        });
+          // Update filters from accumulated remisiones
+          const accResistances = Array.from(new Set((accRemisiones || [])
+            .map(r => (r?.recipe?.strength_fc != null ? String(r.recipe.strength_fc) : null))
+            .filter(Boolean) as string[])).sort();
+          const accTipos = Array.from(new Set((accRemisiones || [])
+            .map(r => r?.tipo_remision)
+            .filter(Boolean) as string[])).sort();
+          const accProductCodes = Array.from(new Set((accRemisiones || [])
+            .map(r => r?.recipe?.recipe_code)
+            .filter(Boolean) as string[])).sort();
+          setResistances(accResistances);
+          setTipos(accTipos);
+          setProductCodes(accProductCodes);
 
-        setSalesData(enrichedOrders);
-        setRemisionesData(remisiones || []);
-      } catch (error) {
-        console.error('Error fetching sales data:', error);
-        setError('Error al cargar los datos de ventas. Por favor, intente nuevamente.');
+          // Update clients progressively
+          setClients(() => {
+            const list = Array.from(clientMap.values());
+            list.sort((a, b) => a.name.localeCompare(b.name));
+            return list;
+          });
+
+          // Rebuild enriched orders snapshot with currently known data
+          setOrderItems(Array.from(itemsByOrderId.values()).flat());
+
+          const orderIds = Array.from(new Set(accRemisiones.map(r => r.order_id).filter(Boolean).map(String)));
+          const ordersArray = orderIds
+            .map(id => ordersById.get(id))
+            .filter(Boolean);
+
+          const enriched = ordersArray.map(order => {
+            const id = String(order.id);
+            const items = itemsByOrderId.get(id) || [];
+            const orderRemisiones = accRemisiones.filter(r => String(r.order_id) === id);
+            let clientName = 'Desconocido';
+            if (order.clients) {
+              if (typeof order.clients === 'object') {
+                clientName = (order.clients as any).business_name || 'Desconocido';
+              }
+            }
+            return {
+              ...order,
+              items,
+              remisiones: orderRemisiones,
+              clientName
+            };
+          });
+          setSalesData(enriched);
+
+          // After first successful slice, allow UI to render
+          if (!firstChunkRendered) {
+            firstChunkRendered = true;
+            setLoading(false);
+          }
+        }
+      } catch (err) {
+        if (!abortRef.current.aborted) {
+          console.error('Error fetching sales data progressively:', err);
+          setError('Error al cargar los datos de ventas. Por favor, intente nuevamente.');
+        }
       } finally {
-        setLoading(false);
+        if (!abortRef.current.aborted) {
+          // Ensure loading is cleared in case there were zero slices
+          setLoading(false);
+        }
       }
     }
 
-    fetchSalesData();
+    fetchSalesDataProgressively();
+
+    return () => {
+      abortRef.current.aborted = true;
+    };
   }, [startDate, endDate, currentPlant]);
 
   return {

@@ -186,11 +186,25 @@ export default function ManualAssignmentInterface({
   };
 
   const formatDate = (date: Date | string) => {
-    const targetDate = date instanceof Date ? date : new Date(date);
-    const year = targetDate.getFullYear();
-    const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-    const day = String(targetDate.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    // If we receive a date-only string, return as-is to avoid TZ conversion
+    if (typeof date === 'string') {
+      const ymd = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/;
+      if (ymd.test(date)) return date;
+      // If it looks like an ISO string, take the date part only
+      const isoDatePart = date.split('T')[0];
+      if (ymd.test(isoDatePart)) return isoDatePart;
+      // Fallback to native parsing (rare)
+      const tmp = new Date(date);
+      const y = tmp.getFullYear();
+      const m = String(tmp.getMonth() + 1).padStart(2, '0');
+      const d = String(tmp.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    // Date object: format using local components (no toISOString)
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   };
 
   const getStatusColor = (status: string) => {
@@ -436,7 +450,7 @@ export default function ManualAssignmentInterface({
                         <div className="text-gray-600">{result.remision.cliente_name}</div>
                         <div className="text-gray-600">{result.remision.obra_name}</div>
                         <div className="text-gray-600">
-                          {formatDate(result.remision.fecha.toISOString())}
+                          {formatDate(result.remision.fecha as any)}
                         </div>
                       </div>
                       {result.isAssigned && (
@@ -548,7 +562,7 @@ export default function ManualAssignmentInterface({
                     </div>
                     <div className="flex items-center gap-1">
                       <Calendar className="h-4 w-4" />
-                      <span>{formatDate(remision.fecha.toISOString())}</span>
+                      <span>{formatDate(remision.fecha as any)}</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <DollarSign className="h-4 w-4" />
