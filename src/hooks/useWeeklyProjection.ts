@@ -133,3 +133,4 @@ export function useWeeklyProjection(options: Options) {
 
   return { data, actual, projected, loading, error };
 }
+

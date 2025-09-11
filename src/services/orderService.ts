@@ -1126,12 +1126,16 @@ export async function recalculateOrderAmount(orderId: string) {
           .reduce((sum, item) => sum + ((item.pump_price || 0) * (item.pump_volume_delivered || 0)), 0) || 0;
     
     // Calculate empty truck amount
-    const emptyTruckAmount = updatedItems
-      ?.filter(item => 
-        item.product_type === 'VACÍO DE OLLA' || 
-        item.has_empty_truck_charge
-      )
-      .reduce((sum, item) => sum + ((item.empty_truck_price || 0) * (item.empty_truck_volume || 0)), 0) || 0;
+    // Business rule: Only include vacío de olla if there is at least one remisión
+    const hasAnyRemisiones = Array.isArray(remisiones) && remisiones.length > 0;
+    const emptyTruckAmount = hasAnyRemisiones
+      ? (updatedItems
+          ?.filter(item => 
+            item.product_type === 'VACÍO DE OLLA' || 
+            item.has_empty_truck_charge
+          )
+          .reduce((sum, item) => sum + ((item.empty_truck_price || 0) * (item.empty_truck_volume || 0)), 0) || 0)
+      : 0;
     
     // Calculate additional products amount
     const { data: additionalProducts, error: additionalError } = await supabase

@@ -40,6 +40,7 @@ import { Badge } from "@/components/ui/badge";
 // Import icons
 import { Pencil, Trash2, Plus, X, Save, Map } from "lucide-react";
 import { authService } from '@/lib/supabase/auth';
+import { supabase } from '@/lib/supabase/client';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -590,6 +591,405 @@ function ClientBalanceSummary({ balances }: { balances: ClientBalance[] }) {
         {balances.length === 0 && (
            <p className="text-sm text-center text-gray-500 py-4">No hay información de balance disponible.</p>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// Desglose aritmético del saldo del cliente
+function ClientBalanceBreakdown({
+  clientId,
+  orders,
+  payments,
+  balances
+}: {
+  clientId: string;
+  orders: OrderWithClient[];
+  payments: ClientPayment[];
+  balances: ClientBalance[];
+}) {
+  const [deliveredOrderIds, setDeliveredOrderIds] = React.useState<Set<string>>(new Set());
+  const [netAdjustments, setNetAdjustments] = React.useState<number>(0);
+  const [adjustmentCount, setAdjustmentCount] = React.useState<number>(0);
+  const [consumptionWithVat, setConsumptionWithVat] = React.useState<number>(0);
+  const [orderRowsExtended, setOrderRowsExtended] = React.useState<Array<any>>([]);
+  const [vatByPlant, setVatByPlant] = React.useState<Record<string, number>>({});
+  const [adjustmentsList, setAdjustmentsList] = React.useState<any[]>([]);
+  const [expandedSites, setExpandedSites] = React.useState<Set<string>>(new Set());
+  const generalBalance = React.useMemo(() => balances.find(b => b.construction_site === null)?.current_balance || 0, [balances]);
+
+  // Cargar remisiones por orden para determinar entregas (EXISTS remisiones)
+  React.useEffect(() => {
+    const loadRemisiones = async () => {
+      try {
+        const orderIds = (orders || []).map(o => o.id);
+        if (orderIds.length === 0) {
+          setDeliveredOrderIds(new Set());
+          return;
+        }
+        const { data, error } = await supabase
+          .from('remisiones')
+          .select('order_id')
+          .in('order_id', orderIds);
+        if (error) {
+          console.error('Error loading remisiones:', error);
+          setDeliveredOrderIds(new Set());
+          return;
+        }
+        const setIds = new Set<string>((data || []).map((r: any) => r.order_id));
+        setDeliveredOrderIds(setIds);
+      } catch (e) {
+        console.error('Unexpected error loading remisiones:', e);
+        setDeliveredOrderIds(new Set());
+      }
+    };
+    loadRemisiones();
+  }, [orders]);
+
+  // Cargar ajustes y calcular neto (DEBT suma, CREDIT resta)
+  React.useEffect(() => {
+    const loadAdjustments = async () => {
+      try {
+        // Verificar existencia de la función antes de llamar con filtros
+        const { error: testError } = await supabase.rpc('get_client_balance_adjustments', {});
+        if (testError && testError.message?.includes('does not exist')) {
+          setNetAdjustments(0);
+          setAdjustmentCount(0);
+          return;
+        }
+        const { data, error } = await supabase.rpc('get_client_balance_adjustments', { p_client_id: clientId });
+        if (error) {
+          console.error('Error loading adjustments:', error);
+          setNetAdjustments(0);
+          setAdjustmentCount(0);
+          return;
+        }
+        const list = (data as any[]) || [];
+        const net = list.reduce((sum, a: any) => {
+          const amount = Number(a.amount) || 0;
+          const dir = a.transfer_type === 'DEBT' ? 1 : -1; // DEBT incrementa saldo, CREDIT reduce
+          return sum + dir * amount;
+        }, 0);
+        setNetAdjustments(net);
+        setAdjustmentCount(list.length);
+        setAdjustmentsList(list);
+      } catch (e) {
+        console.error('Unexpected error loading adjustments:', e);
+        setNetAdjustments(0);
+        setAdjustmentCount(0);
+        setAdjustmentsList([]);
+      }
+    };
+    loadAdjustments();
+  }, [clientId]);
+
+  // Consumo con IVA cuando aplique: usar invoice_amount si existe; si no, aplicar VAT por planta o 0.16
+  React.useEffect(() => {
+    const computeConsumptionWithVat = async () => {
+      try {
+        if (!orders || orders.length === 0 || deliveredOrderIds.size === 0) {
+          setConsumptionWithVat(0);
+          return;
+        }
+        const deliveredOrders = orders.filter(o => {
+          const status = (o.order_status || '').toString().toLowerCase();
+          const notCancelled = status !== 'cancelled' && status !== 'CANCELLED';
+          const delivered = deliveredOrderIds.has(o.id);
+          return notCancelled && delivered;
+        });
+        const deliveredIds = deliveredOrders.map(o => o.id);
+        if (deliveredIds.length === 0) {
+          setConsumptionWithVat(0);
+          return;
+        }
+        // Fetch needed fields from orders
+        const { data: orderRows, error: ordersErr } = await supabase
+          .from('orders')
+          .select('id, order_number, construction_site, final_amount, invoice_amount, requires_invoice, plant_id')
+          .in('id', deliveredIds);
+        if (ordersErr) {
+          console.error('Error fetching orders for VAT computation:', ordersErr);
+          // Fallback: sum final_amount
+          const fallback = deliveredOrders.reduce((sum, o) => sum + (o.final_amount || 0), 0);
+          setConsumptionWithVat(fallback);
+          return;
+        }
+        const rows = orderRows || [];
+        // Collect plant ids needing VAT rate
+        const plantIds = Array.from(new Set(rows.map((r: any) => r.plant_id).filter(Boolean)));
+        let vatByPlant: Record<string, number> = {};
+        if (plantIds.length > 0) {
+          const { data: plants, error: plantsErr } = await supabase
+            .from('plants')
+            .select('id, business_unit:business_unit_id(id, vat_rate)')
+            .in('id', plantIds);
+          if (!plantsErr && Array.isArray(plants)) {
+            plants.forEach((p: any) => {
+              const rate = p?.business_unit?.vat_rate;
+              if (typeof rate === 'number') vatByPlant[p.id] = rate;
+            });
+          }
+        }
+        const DEFAULT_VAT = 0.16;
+        const total = rows.reduce((sum: number, r: any) => {
+          const finalAmount = Number(r.final_amount) || 0;
+          const invoiceAmount = typeof r.invoice_amount === 'number' ? r.invoice_amount : null;
+          const requiresInvoice = !!r.requires_invoice;
+          if (!requiresInvoice) return sum + finalAmount;
+          if (invoiceAmount !== null) return sum + invoiceAmount;
+          const rate = (r.plant_id && typeof vatByPlant[r.plant_id] === 'number') ? vatByPlant[r.plant_id] : DEFAULT_VAT;
+          return sum + finalAmount * (1 + rate);
+        }, 0);
+        setConsumptionWithVat(total);
+        setOrderRowsExtended(rows);
+        setVatByPlant(vatByPlant);
+      } catch (e) {
+        console.error('Unexpected error computing consumption with VAT:', e);
+        // Fallback: sum final amounts without VAT
+        const fallback = orders
+          .filter(o => deliveredOrderIds.has(o.id))
+          .reduce((sum, o) => sum + (o.final_amount || 0), 0);
+        setConsumptionWithVat(fallback);
+        setOrderRowsExtended([]);
+      }
+    };
+    computeConsumptionWithVat();
+  }, [orders, deliveredOrderIds]);
+
+  // Pagos totales
+  const totalPayments = React.useMemo(() => {
+    if (!payments || payments.length === 0) return 0;
+    return payments.reduce((sum, p) => sum + (p.amount || 0), 0);
+  }, [payments]);
+
+  // Saldo esperado por aritmética
+  const expectedBalance = React.useMemo(() => {
+    return consumptionWithVat - totalPayments + netAdjustments;
+  }, [consumptionWithVat, totalPayments, netAdjustments]);
+
+  // Desglose por obra (usar balances existentes para mostrar el saldo actual por obra)
+  const siteBalances = React.useMemo(() => balances.filter(b => b.construction_site !== null), [balances]);
+
+  // Agrupar por obra (incluye "General" para null)
+  const siteKeys = React.useMemo(() => {
+    const keys = new Set<string>();
+    balances.forEach(b => keys.add(b.construction_site || '::GENERAL'));
+    (orderRowsExtended || []).forEach((r: any) => keys.add(r.construction_site || '::GENERAL'));
+    (payments || []).forEach((p) => keys.add(p.construction_site || '::GENERAL'));
+    if (keys.size === 0) keys.add('::GENERAL');
+    return Array.from(keys).sort((a, b) => a.localeCompare(b));
+  }, [balances, orderRowsExtended, payments]);
+
+  const perSiteBreakdown = React.useMemo(() => {
+    const DEFAULT_VAT = 0.16;
+    const computeOrderWithVat = (row: any) => {
+      const finalAmount = Number(row.final_amount) || 0;
+      const invoiceAmount = typeof row.invoice_amount === 'number' ? row.invoice_amount : null;
+      const requiresInvoice = !!row.requires_invoice;
+      if (!requiresInvoice) return finalAmount;
+      if (invoiceAmount !== null) return invoiceAmount;
+      const rate = (row.plant_id && typeof vatByPlant[row.plant_id] === 'number') ? vatByPlant[row.plant_id] : DEFAULT_VAT;
+      return finalAmount * (1 + rate);
+    };
+
+    const bySite: Record<string, {
+      label: string;
+      consumptionWithVat: number;
+      payments: number;
+      adjustments: number;
+      expected: number;
+      currentBalance: number;
+      orders: any[];
+      sitePayments: ClientPayment[];
+    }> = {};
+
+    siteKeys.forEach(key => {
+      const label = key === '::GENERAL' ? 'General' : key;
+      const ordersForSite = (orderRowsExtended || []).filter((r: any) => (r.construction_site || '::GENERAL') === key && deliveredOrderIds.has(r.id));
+      const consumption = ordersForSite.reduce((sum, r) => sum + computeOrderWithVat(r), 0);
+      const paymentsForSite = (payments || []).filter(p => (p.construction_site || '::GENERAL') === key);
+      const paymentsSum = paymentsForSite.reduce((s, p) => s + (p.amount || 0), 0);
+      let adjustmentsSum = 0;
+      (adjustmentsList || []).forEach((a: any) => {
+        const dir = a.transfer_type === 'DEBT' ? 1 : -1; // DEBT incrementa saldo, CREDIT reduce
+        if (a.adjustment_type === 'SITE_TRANSFER') {
+          if ((a.source_site || '::GENERAL') === key) adjustmentsSum += dir * (Number(a.amount) || 0);
+          if ((a.target_site || '::GENERAL') === key) adjustmentsSum += -dir * (Number(a.amount) || 0);
+        } else if (a.adjustment_type === 'TRANSFER') {
+          if (key === '::GENERAL') adjustmentsSum += dir * (Number(a.amount) || 0);
+        } else if (a.adjustment_type === 'MANUAL_ADDITION') {
+          const site = (a.source_site || '::GENERAL');
+          if (site === key) adjustmentsSum += dir * (Number(a.amount) || 0);
+        }
+      });
+      const current = balances.find(b => (b.construction_site || '::GENERAL') === key)?.current_balance || 0;
+      const expected = consumption - paymentsSum + adjustmentsSum;
+      bySite[key] = {
+        label,
+        consumptionWithVat: consumption,
+        payments: paymentsSum,
+        adjustments: adjustmentsSum,
+        expected,
+        currentBalance: current,
+        orders: ordersForSite,
+        sitePayments: paymentsForSite
+      };
+    });
+    return bySite;
+  }, [siteKeys, orderRowsExtended, deliveredOrderIds, vatByPlant, payments, adjustmentsList, balances]);
+
+  const totals = React.useMemo(() => {
+    const base = Object.values(perSiteBreakdown).reduce((acc, s) => {
+      acc.consumptionWithVat += s.consumptionWithVat;
+      acc.payments += s.payments;
+      acc.adjustments += s.adjustments;
+      acc.expected += s.expected;
+      return acc;
+    }, { consumptionWithVat: 0, payments: 0, adjustments: 0, expected: 0 });
+    // IMPORTANT: Saldo actual en totales debe ser el balance general (no suma de obras)
+    return { ...base, currentBalance: generalBalance } as { consumptionWithVat: number; payments: number; adjustments: number; expected: number; currentBalance: number };
+  }, [perSiteBreakdown, generalBalance]);
+
+  const toggleSite = (key: string) => {
+    setExpandedSites(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  return (
+    <Card className="mt-4 overflow-x-auto">
+      <CardHeader>
+        <CardTitle>Cómo se calcula el saldo</CardTitle>
+        <CardDescription>Consumo entregado − Pagos ± Ajustes = Saldo</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="rounded-md border overflow-hidden">
+          <Table className="min-w-[700px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Concepto</TableHead>
+                <TableHead className="text-right">Monto</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow>
+                <TableCell className="font-medium">Consumo entregado (incluye IVA cuando aplica)</TableCell>
+                <TableCell className="text-right">{formatCurrency(consumptionWithVat)}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell className="font-medium">Pagos</TableCell>
+                <TableCell className="text-right text-green-700">− {formatCurrency(totalPayments)}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell className="font-medium">Ajustes {adjustmentCount > 0 && <span className="text-xs text-muted-foreground">({adjustmentCount})</span>}</TableCell>
+                <TableCell className={`text-right ${netAdjustments >= 0 ? 'text-red-700' : 'text-green-700'}`}>
+                  {netAdjustments >= 0 ? '+ ' : '− '}{formatCurrency(Math.abs(netAdjustments))}
+                </TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell className="font-semibold">Saldo esperado</TableCell>
+                <TableCell className="text-right font-semibold">{formatCurrency(expectedBalance)}</TableCell>
+              </TableRow>
+              <TableRow>
+                <TableCell className="text-sm text-muted-foreground">Saldo actual del sistema</TableCell>
+                <TableCell className={`text-right font-medium ${generalBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatCurrency(generalBalance)}</TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+
+        <div className="overflow-x-auto">
+          <h3 className="text-md font-semibold mb-2 text-gray-800">Desglose por obra</h3>
+          <div className="rounded-md border overflow-hidden">
+            <Table className="min-w-[900px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Obra</TableHead>
+                  <TableHead className="text-right">Consumo (IVA)</TableHead>
+                  <TableHead className="text-right">Pagos</TableHead>
+                  <TableHead className="text-right">Ajustes</TableHead>
+                  <TableHead className="text-right">Saldo esperado</TableHead>
+                  <TableHead className="text-right">Saldo actual</TableHead>
+                  <TableHead className="text-right">Detalle</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {siteKeys.map((key) => {
+                  const s = perSiteBreakdown[key];
+                  if (!s) return null;
+                  const isExpanded = expandedSites.has(key);
+                  return (
+                    <React.Fragment key={key}>
+                      <TableRow>
+                        <TableCell className="truncate" title={s.label}>{s.label}</TableCell>
+                        <TableCell className="text-right">{formatCurrency(s.consumptionWithVat)}</TableCell>
+                        <TableCell className="text-right text-green-700">− {formatCurrency(s.payments)}</TableCell>
+                        <TableCell className={`text-right ${s.adjustments >= 0 ? 'text-red-700' : 'text-green-700'}`}>{s.adjustments >= 0 ? '+ ' : '− '}{formatCurrency(Math.abs(s.adjustments))}</TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(s.expected)}</TableCell>
+                        <TableCell className={`text-right ${s.currentBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatCurrency(s.currentBalance)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={() => toggleSite(key)} className="h-8 px-2">
+                            {isExpanded ? 'Ocultar' : 'Ver'}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow>
+                          <TableCell colSpan={7}>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-gray-50 rounded-md border">
+                              <div>
+                                <h4 className="text-sm font-semibold mb-2">Órdenes entregadas</h4>
+                                <div className="rounded border bg-white divide-y">
+                                  {s.orders.length === 0 ? (
+                                    <div className="p-2 text-sm text-muted-foreground">Sin órdenes entregadas</div>
+                                  ) : s.orders.map((o: any) => (
+                                    <div key={o.id} className="flex justify-between p-2 text-sm">
+                                      <span className="truncate" title={o.order_number || o.id}>{o.order_number || o.id}</span>
+                                      <span>{formatCurrency(((o.requires_invoice && (typeof o.invoice_amount === 'number')) ? o.invoice_amount : (o.final_amount || 0)) || 0)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <h4 className="text-sm font-semibold mb-2">Pagos</h4>
+                                <div className="rounded border bg-white divide-y">
+                                  {s.sitePayments.length === 0 ? (
+                                    <div className="p-2 text-sm text-muted-foreground">Sin pagos registrados</div>
+                                  ) : s.sitePayments.map((p) => (
+                                    <div key={p.id} className="flex justify-between p-2 text-sm">
+                                      <span className="truncate" title={p.reference_number || ''}>{formatDate(p.payment_date)}</span>
+                                      <span>{formatCurrency(p.amount)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+                <TableRow>
+                  <TableCell className="font-semibold">Totales</TableCell>
+                  <TableCell className="text-right font-semibold">{formatCurrency(totals.consumptionWithVat)}</TableCell>
+                  <TableCell className="text-right font-semibold text-green-700">− {formatCurrency(totals.payments)}</TableCell>
+                  <TableCell className={`text-right font-semibold ${totals.adjustments >= 0 ? 'text-red-700' : 'text-green-700'}`}>{totals.adjustments >= 0 ? '+ ' : '− '}{formatCurrency(Math.abs(totals.adjustments))}</TableCell>
+                  <TableCell className="text-right font-semibold">{formatCurrency(totals.expected)}</TableCell>
+                  <TableCell className={`text-right font-semibold ${totals.currentBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatCurrency(totals.currentBalance)}</TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+
+        {/* Nota de conciliación */}
+        <p className="text-xs text-muted-foreground">
+          Si el saldo esperado difiere del saldo actual, verifique órdenes sin remisiones o ajustes recientes.
+        </p>
       </CardContent>
     </Card>
   );
@@ -1455,8 +1855,8 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
   }
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 space-y-6">
-      <Card>
+    <div className="p-4 md:p-6 lg:p-8 space-y-6 max-w-[1600px] mx-auto">
+      <Card className="overflow-x-auto">
         <CardHeader>
           <div className="flex justify-between items-start">
             <div>
@@ -1583,12 +1983,18 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
         </DialogContent>
       </Dialog>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         <div className="lg:col-span-1">
           <ClientBalanceSummary balances={balances} />
         </div>
 
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 xl:col-span-3 space-y-6">
+          <ClientBalanceBreakdown
+            clientId={clientId}
+            orders={clientOrders}
+            payments={payments}
+            balances={balances}
+          />
           <Tabs defaultValue="payments" className="w-full">
             <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="payments">Pagos</TabsTrigger>
@@ -1668,7 +2074,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
          </CardHeader>
          <CardContent>
             {sites.length > 0 ? (
-              <Table>
+              <Table className="min-w-[720px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nombre</TableHead>
@@ -1738,7 +2144,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
          </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-x-auto">
         <CardHeader>
           <CardTitle>Pedidos Relacionados</CardTitle>
           <CardDescription>Lista de pedidos asociados a este cliente</CardDescription>
@@ -1747,7 +2153,7 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
           {loadingOrders ? (
             <p className="text-sm text-gray-500">Cargando pedidos...</p>
           ) : clientOrders.length > 0 ? (
-            <Table>
+            <Table className="min-w-[900px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Número de Pedido</TableHead>
