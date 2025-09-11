@@ -147,15 +147,30 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
         const strength = specs.strength_fc ?? rem.recipeFc ?? 'NA';
         const ageLabel = getAgeLabel(specs);
         const key = `${strength}-${ageLabel}`;
+        // Aggregate per muestreo: average valid ensayos within this muestreo
+        const validEnsayosDelMuestreo: Array<{ resistencia: number; cumplimiento: number }> = [];
         m.muestras.forEach((mx: any) => {
-          mx.ensayos
-            .filter((e: any) => e.isEdadGarantia && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0)
-            .forEach((e: any) => {
-              if (!groups[key]) groups[key] = { values: [], compliances: [] };
-              groups[key].values.push(e.resistenciaCalculada);
-              groups[key].compliances.push(e.porcentajeCumplimiento || 0);
+          const ensayos = (mx.ensayos || []).filter((e: any) => 
+            e.isEdadGarantia && 
+            !e.isEnsayoFueraTiempo && 
+            (e.resistenciaCalculada || 0) > 0
+          );
+          ensayos.forEach((e: any) => {
+            validEnsayosDelMuestreo.push({
+              resistencia: e.resistenciaCalculada,
+              cumplimiento: e.porcentajeCumplimiento || 0
             });
+          });
         });
+
+        if (validEnsayosDelMuestreo.length > 0) {
+          const nE = validEnsayosDelMuestreo.length;
+          const avgResMuestreo = validEnsayosDelMuestreo.reduce((s, x) => s + x.resistencia, 0) / nE;
+          const avgCumplMuestreo = validEnsayosDelMuestreo.reduce((s, x) => s + x.cumplimiento, 0) / nE;
+          if (!groups[key]) groups[key] = { values: [], compliances: [] };
+          groups[key].values.push(avgResMuestreo);
+          groups[key].compliances.push(avgCumplMuestreo);
+        }
       });
     });
 
@@ -172,7 +187,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
       const [strengthStr, ageStr] = key.split('-');
       return { key, strength: strengthStr, age: ageStr, count: n, mean: meanG, std: stdG, cv: cvG, compliance: avgCompliance };
     });
-    // Exclude groups with insufficient samples (<3)
+    // Exclude groups with insufficient muestreos (<3)
     const groupStats = groupStatsRaw.filter(g => g.count >= 3);
     const totalCount = groupStats.reduce((s, g) => s + g.count, 0) || 1;
     const cvWeighted = groupStats.reduce((s, g) => s + g.cv * (g.count / totalCount), 0);
@@ -239,6 +254,15 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
   };
 
   const metrics = calculateAdvancedMetrics();
+
+  // Map CV to guidance per provided ranges
+  const getCvGuidance = (cv: number) => {
+    if (cv < 5) return 'Excelente';
+    if (cv >= 5 && cv < 7) return 'Muy Bueno';
+    if (cv >= 7 && cv < 10) return 'Bueno';
+    if (cv >= 10 && cv <= 12) return 'Aceptable';
+    return 'Pobre';
+  };
 
   // Control chart data
   const controlChartData = data.remisiones.map((remision, index) => {
@@ -391,7 +415,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
               </div>
               <div className="text-sm text-gray-500">Coeficiente de Variación</div>
               <div className="text-xs text-gray-400 mt-1">
-                {metrics.cv < 5 ? 'Excelente' : metrics.cv < 10 ? 'Bueno' : 'Alto'}
+                {getCvGuidance(metrics.cv)}
               </div>
             </div>
           </CardContent>
@@ -534,7 +558,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                 <tr className="text-left text-gray-600">
                   <th className="py-2 pr-4">Resistencia (Fc)</th>
                   <th className="py-2 pr-4">Edad (días)</th>
-                  <th className="py-2 pr-4 text-right">Ensayos</th>
+                  <th className="py-2 pr-4 text-right">Muestreos</th>
                   <th className="py-2 pr-4 text-right">Media (kg/cm²)</th>
                   <th className="py-2 pr-4 text-right">σ (kg/cm²)</th>
                   <th className="py-2 pr-4 text-right">CV (%)</th>

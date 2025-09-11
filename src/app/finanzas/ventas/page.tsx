@@ -94,7 +94,9 @@ export default function VentasDashboard() {
     productCodes,
     loading,
     error,
-    orderItems // Add order items for sophisticated price matching
+    orderItems, // Add order items for sophisticated price matching
+    streaming,
+    progress
   } = useSalesData({
     startDate,
     endDate,
@@ -437,6 +439,13 @@ export default function VentasDashboard() {
   const handleCodigoProductoFilterChange = (value: string) => setCodigoProductoFilter(value);
   const handleIncludeVATChange = (checked: boolean) => setIncludeVAT(checked);
 
+  // Streaming progress percentage for progressive loading
+  const streamingPercent = useMemo(() => {
+    if (!progress || !progress.total || progress.total === 0) return 0;
+    const pct = Math.round((progress.processed / progress.total) * 100);
+    return isNaN(pct) ? 0 : Math.min(100, Math.max(0, pct));
+  }, [progress]);
+
   // Load guarantee age data
   useEffect(() => {
     const loadGuaranteeAgeData = async () => {
@@ -636,6 +645,19 @@ export default function VentasDashboard() {
                     onIncludeVATChange={handleIncludeVATChange}
                   />
                 </div>
+                {streaming && (
+                  <div className="mb-4">
+                    <div className="w-full bg-gray-100 border rounded h-2 overflow-hidden">
+                      <div
+                        className="bg-blue-500 h-2"
+                        style={{ width: `${streamingPercent}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1 text-right">
+                      Cargando datos… {streamingPercent}%
+                    </div>
+                  </div>
+                )}
                  {/* Top Summary Cards */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                     {/* Total de Ventas */}

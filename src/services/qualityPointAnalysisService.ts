@@ -55,12 +55,14 @@ export interface PointAnalysisData {
     order_number: string;
   };
   resistanceEvolution: Array<{
-    edad_dias: number;
+    edad_dias: number; // fractional days
+    edad_horas?: number; // for sub-day precision
     resistencia_promedio: number;
     resistencia_min: number;
     resistencia_max: number;
     numero_muestras: number;
-    fecha_ensayo: string;
+    fecha_ensayo: string; // fallback ISO date
+    fecha_ensayo_ts?: string; // precise timestamp
   }>;
 }
 
@@ -138,6 +140,7 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
         )
       `)
       .eq('muestras.muestreos.remision_id', muestreoData.remision_id)
+      .order('fecha_ensayo_ts', { ascending: true, nullsFirst: false })
       .order('fecha_ensayo', { ascending: true });
 
 
@@ -154,9 +157,9 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
     if (muestreoData.muestras) {
       muestreoData.muestras.forEach((muestra: any) => {
         if (muestra.ensayos && muestra.ensayos.length > 0) {
-          // Use the actual test date as key, not the guarantee age
+          // Use precise timestamp when available as key
           muestra.ensayos.forEach((ensayo: any) => {
-            const testDate = ensayo.fecha_ensayo;
+            const testDate = ensayo.fecha_ensayo_ts || ensayo.fecha_ensayo;
             if (!evolutionMap.has(testDate)) {
               evolutionMap.set(testDate, []);
             }
@@ -169,7 +172,7 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
     // Add data from evolution query if available
     evolutionData?.forEach(ensayo => {
       if (ensayo.muestras?.muestras?.muestreos) {
-        const testDate = ensayo.fecha_ensayo;
+        const testDate = ensayo.fecha_ensayo_ts || ensayo.fecha_ensayo;
         if (!evolutionMap.has(testDate)) {
           evolutionMap.set(testDate, []);
         }
@@ -183,7 +186,7 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
       
       if (currentEnsayos.length > 0) {
         currentEnsayos.forEach((ensayo: any) => {
-          const testDate = ensayo.fecha_ensayo;
+          const testDate = ensayo.fecha_ensayo_ts || ensayo.fecha_ensayo;
           if (!evolutionMap.has(testDate)) {
             evolutionMap.set(testDate, []);
           }
@@ -192,24 +195,31 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
       }
     }
 
-    const resistanceEvolution = Array.from(evolutionMap.entries()).map(([testDate, ensayos]) => {
-      const resistencias = ensayos.map(e => e.resistencia_calculada).filter(r => r > 0);
-      
-      // Calculate actual age in days from muestreo date to test date
-      const muestreoDate = new Date(muestreoData.fecha_muestreo);
-      const testDateObj = new Date(testDate);
-      const ageInDays = Math.ceil((testDateObj.getTime() - muestreoDate.getTime()) / (1000 * 60 * 60 * 24));
-      
+    const resistanceEvolution = Array.from(evolutionMap.entries()).map(([testDateKey, ensayos]) => {
+      const resistencias = ensayos.map((e: any) => Number(e.resistencia_calculada) || 0).filter(r => r > 0);
+
+      // Determine accurate dates using timestamps when present
+      const muestreoDateStr: string = muestreoData.fecha_muestreo_ts || muestreoData.fecha_muestreo;
+      const muestreoDate = new Date(muestreoDateStr);
+      const testDateStr: string = testDateKey as string;
+      const testDateObj = new Date(testDateStr);
+
+      const diffMs = testDateObj.getTime() - muestreoDate.getTime();
+      const ageInDaysFloat = diffMs / (1000 * 60 * 60 * 24);
+      const ageInHours = diffMs / (1000 * 60 * 60);
+
       return {
-        edad_dias: ageInDays,
+        edad_dias: Number(ageInDaysFloat.toFixed(3)),
+        edad_horas: ageInHours < 24 ? Number(ageInHours.toFixed(2)) : undefined,
         resistencia_promedio: resistencias.length > 0 ? 
           resistencias.reduce((a, b) => a + b, 0) / resistencias.length : 0,
         resistencia_min: resistencias.length > 0 ? Math.min(...resistencias) : 0,
         resistencia_max: resistencias.length > 0 ? Math.max(...resistencias) : 0,
         numero_muestras: resistencias.length,
-        fecha_ensayo: testDate
+        fecha_ensayo: ensayos[0]?.fecha_ensayo || testDateStr,
+        fecha_ensayo_ts: ensayos[0]?.fecha_ensayo_ts || (/[T\s]/.test(testDateStr) ? testDateStr : undefined)
       };
-    }).sort((a, b) => a.edad_dias - b.edad_dias);
+    }).sort((a, b) => (a.fecha_ensayo_ts || a.fecha_ensayo).localeCompare(b.fecha_ensayo_ts || b.fecha_ensayo));
 
     // Compute advanced metrics for this muestreo
     const masaUnitaria = Number(muestreoData.masa_unitaria) || 0;
@@ -271,7 +281,13 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
           carga_kg: ensayo.carga_kg,
           resistencia_calculada: ensayo.resistencia_calculada,
           porcentaje_cumplimiento: ensayo.porcentaje_cumplimiento,
-          edad_dias: muestreoData.concrete_specs?.valor_edad || 28
+          // compute precise age when timestamps exist
+          edad_dias: (() => {
+            const muestreoDateStr: string = muestreoData.fecha_muestreo_ts || muestreoData.fecha_muestreo;
+            const testDateStr: string = ensayo.fecha_ensayo_ts || ensayo.fecha_ensayo;
+            const diff = new Date(testDateStr).getTime() - new Date(muestreoDateStr).getTime();
+            return Number((diff / (1000 * 60 * 60 * 24)).toFixed(3));
+          })()
         })) || []
       })) || [],
       recipe: {

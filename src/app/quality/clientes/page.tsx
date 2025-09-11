@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { format, subMonths, addMonths } from 'date-fns';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { format, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DateRange } from "react-day-picker";
 import { Loader2, TrendingUp, BarChart3, Target, Users } from 'lucide-react';
@@ -25,6 +25,7 @@ import { ClientSelector } from '@/components/quality/clientes/ClientSelector';
 
 // Services and Types
 import { ClientQualityService } from '@/services/clientQualityService';
+import { useProgressiveClientQuality } from '@/hooks/useProgressiveClientQuality';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 
 // Auth
@@ -36,13 +37,21 @@ export default function ClientQualityAnalysisPage() {
   // State for data
   const [selectedClientId, setSelectedClientId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange | undefined>({
-    from: subMonths(new Date(), 12), // Extended to 12 months to include 2025 data
-    to: addMonths(new Date(), 6) // Extended to future to include 2025 data
+    from: new Date(2025, 1, 1),
+    to: new Date()
   });
   const [qualityData, setQualityData] = useState<ClientQualityData | null>(null);
   const [summary, setSummary] = useState<ClientQualitySummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Progressive quality data
+  const { data: progData, summary: progSummary, loading: progLoading, streaming, progress, error: progError } = useProgressiveClientQuality({
+    clientId: selectedClientId || undefined,
+    fromDate: dateRange && dateRange.from ? dateRange.from : undefined,
+    toDate: dateRange && dateRange.to ? dateRange.to : undefined,
+    options: { newestFirst: true }
+  });
 
   // Load client quality data
   const loadClientQualityData = useCallback(async () => {
@@ -51,26 +60,20 @@ export default function ClientQualityAnalysisPage() {
       setSummary(null);
       return;
     }
-
+    // Fallback: keep legacy trigger to allow manual refresh if desired
     setLoading(true);
     setError(null);
-
     try {
       const fromDate = format(dateRange.from, 'yyyy-MM-dd');
       const toDate = format(dateRange.to, 'yyyy-MM-dd');
-
-      console.log(`[ClientQualityPage] Loading data for client ${selectedClientId} from ${fromDate} to ${toDate}`);
       const result = await ClientQualityService.getClientQualityData(
         selectedClientId,
         fromDate,
         toDate
       );
-
-      console.log(`[ClientQualityPage] Data loaded. Success: ${result.success}, Remisiones: ${result.data?.remisiones?.length || 0}`);
       setQualityData(result.data);
       setSummary(result.summary);
     } catch (err) {
-      console.error('Error loading client quality data:', err);
       setError(err instanceof Error ? err.message : 'Error al cargar datos de calidad del cliente');
     } finally {
       setLoading(false);
@@ -78,11 +81,22 @@ export default function ClientQualityAnalysisPage() {
   }, [selectedClientId, dateRange]);
 
   // Load data when client or date range changes
+  // Bind progressive results to local state for rendering
   useEffect(() => {
-    if (selectedClientId) {
-      loadClientQualityData();
-    }
-  }, [loadClientQualityData, selectedClientId]);
+    if (progError) setError(progError);
+    if (!progError && progLoading) setError(null);
+    if (progData) setQualityData(progData);
+    if (progSummary) setSummary(progSummary);
+    // Mirror loading state from progressive loader
+    setLoading(progLoading);
+  }, [progData, progSummary, progLoading, progError]);
+
+  // Clear page-level state when switching client or date range to avoid stale UI
+  useEffect(() => {
+    setError(null);
+    setQualityData(null);
+    setSummary(null);
+  }, [selectedClientId, dateRange?.from, dateRange?.to]);
 
   // Handle date range changes
   const handleDateRangeChange = (range: DateRange | undefined) => {
@@ -167,12 +181,22 @@ export default function ClientQualityAnalysisPage() {
       )}
 
       {/* Loading State */}
-      {loading && (
+      {(loading || streaming) && (
         <div className="flex items-center justify-center py-12">
           <div className="flex items-center gap-3">
             <Loader2 className="h-6 w-6 animate-spin" />
             <span className="text-lg">Cargando datos de calidad del cliente...</span>
           </div>
+          {streaming && (
+            <div className="w-full mt-4">
+              <div className="w-full bg-gray-100 border rounded h-2 overflow-hidden">
+                <div className="bg-blue-500 h-2" style={{ width: `${Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%` }} />
+              </div>
+              <div className="text-xs text-muted-foreground mt-1 text-center">
+                Progresando… {Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -200,7 +224,7 @@ export default function ClientQualityAnalysisPage() {
               No se encontraron datos de calidad
             </h3>
             <p className="text-gray-500 mb-4">
-              El cliente seleccionado no tiene datos de calidad en el período seleccionado ({format(dateRange.from, 'dd/MM/yyyy')} - {format(dateRange.to, 'dd/MM/yyyy')}).
+              El cliente seleccionado no tiene datos de calidad en el período seleccionado ({dateRange?.from ? format(dateRange.from, 'dd/MM/yyyy') : 'N/A'} - {dateRange?.to ? format(dateRange.to, 'dd/MM/yyyy') : 'N/A'}).
             </p>
             <p className="text-sm text-gray-600 mb-4">
               💡 Si el cliente tiene datos en fechas futuras o pasadas, ajusta el rango de fechas para incluirlos.
