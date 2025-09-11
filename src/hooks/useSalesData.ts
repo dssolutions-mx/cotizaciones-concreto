@@ -19,6 +19,8 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
+  const [streaming, setStreaming] = useState<boolean>(false);
+  const [progress, setProgress] = useState<{ processed: number; total: number }>({ processed: 0, total: 0 });
 
   useEffect(() => {
     async function fetchSalesDataProgressively() {
@@ -70,6 +72,8 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
       let firstChunkRendered = false;
 
       try {
+        setStreaming(true);
+        setProgress({ processed: 0, total: slices.length });
         let accRemisiones: any[] = [];
         for (const slice of slices) {
           if (abortRef.current.aborted) return;
@@ -235,6 +239,9 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
             firstChunkRendered = true;
             setLoading(false);
           }
+
+          // Update progress
+          setProgress(prev => ({ ...prev, processed: Math.min(prev.processed + 1, prev.total) }));
         }
       } catch (err) {
         if (!abortRef.current.aborted) {
@@ -245,6 +252,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
         if (!abortRef.current.aborted) {
           // Ensure loading is cleared in case there were zero slices
           setLoading(false);
+          setStreaming(false);
         }
       }
     }
@@ -266,6 +274,8 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
     productCodes,
     loading,
     error,
+    streaming,
+    progress,
   };
 };
 

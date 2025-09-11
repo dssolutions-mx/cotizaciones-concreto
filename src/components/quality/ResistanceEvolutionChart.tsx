@@ -29,61 +29,19 @@ interface ChartDataPoint {
 }
 
 export default function ResistanceEvolutionChart({ data, className = '' }: ResistanceEvolutionChartProps) {
-  // Transform data for the chart with proper age grouping
+  // Transform data using precomputed evolution with timestamps and fractional ages
   const chartData: ChartDataPoint[] = useMemo(() => {
-    // Group all individual points by age first
-    const ageGroups = new Map<number, Array<{
-      resistencia: number;
-      edad: number;
-      fecha: string;
-      muestra_id: string;
-    }>>();
-    
-    // Collect all individual points and group by age
-    data.muestras.forEach(muestra => {
-      muestra.ensayos.forEach(ensayo => {
-        // Calculate age in days from muestreo to test date
-        const muestreoDate = new Date(data.muestreo.fecha_muestreo);
-        const testDate = new Date(ensayo.fecha_ensayo);
-        const ageInDays = Math.ceil((testDate.getTime() - muestreoDate.getTime()) / (1000 * 60 * 60 * 24));
-        
-        if (!ageGroups.has(ageInDays)) {
-          ageGroups.set(ageInDays, []);
-        }
-        
-        ageGroups.get(ageInDays)!.push({
-          resistencia: ensayo.resistencia_calculada,
-          edad: ageInDays,
-          fecha: ensayo.fecha_ensayo,
-          muestra_id: muestra.id
-        });
-      });
-    });
-    
-    // Convert grouped data to chart format
-    const chartPoints = Array.from(ageGroups.entries())
-      .map(([age, individualPoints]) => {
-        const resistencias = individualPoints.map(p => p.resistencia);
-        const resistencia_promedio = resistencias.reduce((a, b) => a + b, 0) / resistencias.length;
-        const resistencia_min = Math.min(...resistencias);
-        const resistencia_max = Math.max(...resistencias);
-        
-        const cumplimiento = data.recipe.strength_fc > 0 ? 
-          (resistencia_promedio / data.recipe.strength_fc) * 100 : 0;
-        
-        return {
-          edad: age,
-          resistencia: resistencia_promedio,
-          resistencia_min: resistencia_min,
-          resistencia_max: resistencia_max,
-          muestras: individualPoints.length,
-          fecha: individualPoints[0]?.fecha || '',
-          cumplimiento: Math.round(cumplimiento),
-          individualPoints: individualPoints
-        };
-      })
-      .sort((a, b) => a.edad - b.edad);
-    
+    const points: ChartDataPoint[] = (data.resistanceEvolution || []).map(ev => ({
+      edad: ev.edad_dias,
+      resistencia: ev.resistencia_promedio,
+      resistencia_min: ev.resistencia_min,
+      resistencia_max: ev.resistencia_max,
+      muestras: ev.numero_muestras,
+      fecha: ev.fecha_ensayo_ts || ev.fecha_ensayo,
+      cumplimiento: data.recipe.strength_fc > 0 ? Math.round((ev.resistencia_promedio / data.recipe.strength_fc) * 100) : 0,
+      individualPoints: []
+    })).sort((a, b) => a.edad - b.edad);
+
     // Add day 0 with resistance 0 at the beginning
     const dayZeroPoint: ChartDataPoint = {
       edad: 0,
@@ -91,12 +49,12 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
       resistencia_min: 0,
       resistencia_max: 0,
       muestras: 0,
-      fecha: data.muestreo.fecha_muestreo,
+      fecha: data.muestreo.fecha_muestreo_ts || data.muestreo.fecha_muestreo,
       cumplimiento: 0,
       individualPoints: []
     };
-    
-    return [dayZeroPoint, ...chartPoints];
+
+    return [dayZeroPoint, ...points];
   }, [data]);
 
   // Calculate target resistance line
@@ -106,17 +64,34 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
   const averageResistance = chartData.length > 0 ? 
     chartData.reduce((sum, point) => sum + point.resistencia, 0) / chartData.length : 0;
 
-  // Flatten all individual points for scatter plot
-  const allIndividualPoints = chartData.flatMap(point => 
-    point.individualPoints?.map(individual => ({
-      ...individual,
-      isIndividual: true
-    })) || []
-  );
+  // Flatten all individual points for scatter plot using precise timestamps
+  const allIndividualPoints = useMemo(() => {
+    const muestreoDateStr = data.muestreo.fecha_muestreo_ts || data.muestreo.fecha_muestreo;
+    const muestreoDate = new Date(muestreoDateStr);
+    const list: Array<{ resistencia: number; edad: number; fecha: string; muestra_id: string; isIndividual: boolean }>
+      = [];
+    data.muestras.forEach(m => {
+      m.ensayos.forEach(e => {
+        const testStr = e.fecha_ensayo_ts || e.fecha_ensayo;
+        const testDate = new Date(testStr);
+        const ageDays = (testDate.getTime() - muestreoDate.getTime()) / (1000 * 60 * 60 * 24);
+        list.push({
+          resistencia: e.resistencia_calculada,
+          edad: Number(ageDays.toFixed(3)),
+          fecha: testStr,
+          muestra_id: m.id,
+          isIndividual: true
+        });
+      });
+    });
+    return list;
+  }, [data]);
 
   // Unique ages for clean numeric X-axis ticks
   const uniqueAges = useMemo(() => {
-    return Array.from(new Set(chartData.map(p => p.edad))).sort((a, b) => a - b);
+    // Round to two decimals to avoid too-dense ticks for fractional values
+    const rounded = chartData.map(p => Number(p.edad.toFixed(2)));
+    return Array.from(new Set(rounded)).sort((a, b) => a - b);
   }, [chartData]);
 
   // Calculate trend line data for better visualization
@@ -156,7 +131,9 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
         return (
           <div className="bg-white border-2 border-slate-300 rounded-xl p-4 shadow-xl">
             <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-3 mb-3">
-              <p className="font-bold text-lg text-slate-800 text-center">{`Día ${label} desde muestreo`}</p>
+              <p className="font-bold text-lg text-slate-800 text-center">
+                {label < 1 ? `${(label * 24).toFixed(1)} horas desde muestreo` : `Día ${Number(label).toFixed(2)} desde muestreo`}
+              </p>
               <p className="text-sm text-slate-600 text-center">
                 {data.fecha ? new Date(data.fecha).toLocaleDateString('es-ES', { 
                   weekday: 'long', 
@@ -189,7 +166,11 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
           <div className="bg-white border-2 border-slate-300 rounded-xl p-4 shadow-xl">
             <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-3 mb-3">
               <p className="font-bold text-lg text-slate-800 text-center">
-                {isDayZero ? 'Día 0 (Muestreo)' : `Día ${label} desde muestreo`}
+                {isDayZero
+                  ? 'Día 0 (Muestreo)'
+                  : label < 1
+                    ? `${(label * 24).toFixed(1)} horas desde muestreo`
+                    : `Día ${Number(label).toFixed(2)} desde muestreo`}
               </p>
               <p className="text-sm text-slate-600 text-center">
                 {data.fecha ? new Date(data.fecha).toLocaleDateString('es-ES', { 
@@ -364,7 +345,7 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
                 allowDuplicatedCategory={false}
                 ticks={uniqueAges}
                 label={{ 
-                  value: 'Días', 
+                  value: 'Edad (días, horas si < 1 día)', 
                   position: 'insideBottom', 
                   offset: -15, 
                   style: { textAnchor: 'middle', fill: '#475569', fontSize: 12, fontWeight: 500 } 
@@ -403,7 +384,7 @@ export default function ResistanceEvolutionChart({ data, className = '' }: Resis
                 }}
               />
               
-              {/* Individual data points - rendered as a dot-only line to avoid index-based duplication */}
+              {/* Individual data points - rendered as a dot-only line using precise ages */}
               <Line
                 type="linear"
                 dataKey="resistencia"
