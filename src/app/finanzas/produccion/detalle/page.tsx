@@ -309,8 +309,8 @@ export default function ProduccionDashboard() {
     }, {} as Record<string, any>);
 
     const groupsArray = Object.entries(recipeGroups);
-    // Expand progress total to include each recipe group for progressive updates
-    setProgress(prev => ({ processed: prev.processed, total: Math.max(prev.total, (prev.processed || 0) + groupsArray.length) }));
+    // Progress tracks per-group completion for primary content
+    setProgress({ processed: 0, total: groupsArray.length });
 
     const productionMetrics: ProductionData[] = [];
 
@@ -348,12 +348,31 @@ export default function ProduccionDashboard() {
       
       // Get material costs from actual remision_materiales rows for this recipe group
       const remisionIds = group.remisiones.map((r: any) => r.id);
+      // 1) Push placeholder immediately so UI renders the row fast
+      const placeholderIndex = productionMetrics.length;
+      const placeholder: ProductionData = {
+        strength_fc: group.strength_fc,
+        recipe_code: group.recipe_code,
+        recipe_id: group.recipe_id,
+        total_volume: totalVolume,
+        remisiones_count: group.remisiones.length,
+        avg_cost_per_m3: 0,
+        total_material_cost: 0,
+        cement_cost: 0,
+        cement_consumption: 0,
+        materials_breakdown: []
+      };
+      productionMetrics.push(placeholder);
+      setProductionData([...productionMetrics]);
+
+      // 2) Compute material costs in chunks
       const materialCosts = await calculateMaterialCosts(remisionIds, totalVolume);
 
       const avgSellingPrice = Number(priceMap.get(group.recipe_id)) || 0;
       const marginPerM3 = avgSellingPrice - materialCosts.costPerM3;
 
-      productionMetrics.push({
+      // 3) Replace placeholder with final values and update UI
+      productionMetrics[placeholderIndex] = {
         strength_fc: group.strength_fc,
         recipe_code: group.recipe_code,
         recipe_id: group.recipe_id,
@@ -366,11 +385,11 @@ export default function ProduccionDashboard() {
         materials_breakdown: materialCosts.breakdown,
         avg_selling_price: avgSellingPrice,
         margin_per_m3: marginPerM3
-      });
-
-      // Progressive update after each group
+      };
       setProductionData([...productionMetrics]);
       setProgress(prev => ({ processed: Math.min(prev.processed + 1, prev.total), total: prev.total }));
+      // Yield to the browser to paint between groups
+      await new Promise(resolve => setTimeout(resolve, 0));
     }
 
     return productionMetrics.sort((a, b) => a.strength_fc - b.strength_fc);
