@@ -1243,6 +1243,123 @@ Fin del reporte
             console.error(`Failed to update order ${suggestion.existing_order_number}:`, updateResult.error);
           }
         }
+
+        // After updating existing orders, insert/update materials for each remision with proper material_id
+        try {
+          const remisionesForExistingOrders = existingOrderSuggestions.flatMap(s => s.remisiones);
+          if (remisionesForExistingOrders.length > 0) {
+            // Build unique sets
+            const allMaterialCodesSet = new Set<string>();
+            const allRemisionNumbersSet = new Set<string>();
+            remisionesForExistingOrders.forEach(r => {
+              allRemisionNumbersSet.add(String(r.remision_number));
+              Object.keys(r.materials_teorico || {}).forEach(code => allMaterialCodesSet.add(code));
+              Object.keys(r.materials_real || {}).forEach(code => allMaterialCodesSet.add(code));
+              Object.keys(r.materials_retrabajo || {}).forEach(code => allMaterialCodesSet.add(code));
+              Object.keys(r.materials_manual || {}).forEach(code => allMaterialCodesSet.add(code));
+            });
+
+            // Fetch material info once
+            const materialInfoByCode = new Map<string, { id: string; name: string }>();
+            if (allMaterialCodesSet.size > 0) {
+              const { data: dbMaterials, error: dbMatError } = await supabase
+                .from('materials')
+                .select('id, material_code, material_name')
+                .eq('plant_id', currentPlant.id)
+                .eq('is_active', true)
+                .in('material_code', Array.from(allMaterialCodesSet));
+              if (dbMatError) {
+                console.warn('[ArkikProcessor] Could not fetch materials for mapping (commercial existing orders):', dbMatError);
+              } else {
+                (dbMaterials || []).forEach((m: any) => materialInfoByCode.set(m.material_code, { id: m.id, name: m.material_name }));
+              }
+            }
+
+            // Fetch remision ids for the remision numbers just processed
+            const remisionIdByNumber = new Map<string, string>();
+            if (allRemisionNumbersSet.size > 0) {
+              const { data: dbRemisiones, error: dbRemError } = await supabase
+                .from('remisiones')
+                .select('id, remision_number')
+                .eq('plant_id', currentPlant.id)
+                .in('remision_number', Array.from(allRemisionNumbersSet));
+              if (dbRemError) {
+                console.warn('[ArkikProcessor] Could not fetch remision IDs for existing orders:', dbRemError);
+              } else {
+                (dbRemisiones || []).forEach((r: any) => remisionIdByNumber.set(String(r.remision_number), r.id));
+              }
+            }
+
+            // Upsert materials per remision
+            for (const remision of remisionesForExistingOrders) {
+              const remisionId = remisionIdByNumber.get(String(remision.remision_number));
+              if (!remisionId) {
+                console.warn('[ArkikProcessor] Skipping materials for remision without DB ID (commercial existing orders):', remision.remision_number);
+                continue;
+              }
+
+              try {
+                const allCodes = new Set([
+                  ...Object.keys(remision.materials_teorico || {}),
+                  ...Object.keys(remision.materials_real || {}),
+                  ...Object.keys(remision.materials_retrabajo || {}),
+                  ...Object.keys(remision.materials_manual || {})
+                ]);
+
+                const materialsToInsert: any[] = [];
+
+                if (allCodes.size > 0) {
+                  allCodes.forEach(code => {
+                    const teorico = Number(remision.materials_teorico?.[code] || 0);
+                    const realBase = Number(remision.materials_real?.[code] || 0);
+                    const retrabajo = Number(remision.materials_retrabajo?.[code] || 0);
+                    const manual = Number(remision.materials_manual?.[code] || 0);
+                    const ajuste = retrabajo + manual;
+                    const realFinal = realBase + ajuste;
+
+                    if (teorico > 0 || realFinal > 0) {
+                      const info = materialInfoByCode.get(code);
+                      materialsToInsert.push({
+                        remision_id: remisionId,
+                        material_id: info?.id,
+                        material_type: info?.name || code,
+                        cantidad_teorica: teorico,
+                        cantidad_real: realFinal,
+                        ajuste
+                      });
+                    }
+                  });
+                }
+
+                // Clear existing and insert new materials
+                const { error: delErr } = await supabase
+                  .from('remision_materiales')
+                  .delete()
+                  .eq('remision_id', remisionId);
+                if (delErr) {
+                  console.warn('[ArkikProcessor] Warning deleting existing materials (commercial existing orders):', remision.remision_number, delErr);
+                }
+
+                if (materialsToInsert.length > 0) {
+                  const { error: insErr } = await supabase
+                    .from('remision_materiales')
+                    .insert(materialsToInsert);
+                  if (insErr) {
+                    console.error('[ArkikProcessor] ❌ Failed to insert materials (commercial existing orders):', remision.remision_number, insErr);
+                  } else {
+                    totalMaterialsProcessed += materialsToInsert.length;
+                  }
+                } else {
+                  // No materials → cleared
+                }
+              } catch (e) {
+                console.error('[ArkikProcessor] Error processing materials for remision (commercial existing orders):', remision.remision_number, e);
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[ArkikProcessor] Error in commercial materials post-processing for existing orders:', e);
+        }
       }
       
       // Handle new orders (create them)
