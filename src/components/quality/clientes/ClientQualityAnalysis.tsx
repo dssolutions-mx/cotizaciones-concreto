@@ -461,7 +461,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                  data={radarData} 
                  cx="50%" 
                  cy="52%" 
-                 outerRadius="75%"
+                 outerRadius="85%"
                  margin={{ top: 30, right: 80, bottom: 50, left: 80 }}
                >
                  <defs>
@@ -480,17 +480,14 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                    dataKey="dimension" 
                    tick={{ 
                      fill: '#1f2937', 
-                     fontSize: 13, 
+                     fontSize: 15, 
                      fontWeight: 600,
-                     textAnchor: 'middle',
-                     dy: (value) => {
-                       if (value === 'Rendimiento Volumétrico') return -8;
-                       return 8; // Consistencia and Cumplimiento
-                     }
+                     dy: -10                     
                    }} 
                    className="select-none"
                    tickFormatter={(value) => value}
-                   radius={85}
+                   
+                   tickLine={false}
                  />
                  <PolarRadiusAxis 
                    angle={90} 
