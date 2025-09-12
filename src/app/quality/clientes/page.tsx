@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { format, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { DateRange } from "react-day-picker";
@@ -16,10 +17,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 // Custom Components
 import { ClientQualityMetrics } from '@/components/quality/clientes/ClientQualityMetrics';
-import { ClientQualityCharts } from '@/components/quality/clientes/ClientQualityCharts';
 import { ClientQualityTable } from '@/components/quality/clientes/ClientQualityTable';
 import ClientMuestreosTable from '@/components/quality/clientes/ClientMuestreosTable';
-import ClientMuestreosCharts from '@/components/quality/clientes/ClientMuestreosCharts';
+const ClientMuestreosCharts = dynamic(() => import('@/components/quality/clientes/ClientMuestreosCharts'), { ssr: false });
 import ClientQualityAnalysis from '@/components/quality/clientes/ClientQualityAnalysis';
 import { ClientSelector } from '@/components/quality/clientes/ClientSelector';
 

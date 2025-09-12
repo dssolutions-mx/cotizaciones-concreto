@@ -25,7 +25,8 @@ export default function FinanzasLayout({
       const canAccessFinanzas = 
         profile.role === "EXECUTIVE" || 
         profile.role === "PLANT_MANAGER" || 
-        profile.role === "CREDIT_VALIDATOR";
+        profile.role === "CREDIT_VALIDATOR" ||
+        profile.role === "SALES_AGENT";
       
       if (!canAccessFinanzas) {
         router.push("/dashboard");

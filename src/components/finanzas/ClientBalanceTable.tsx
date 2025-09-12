@@ -59,10 +59,13 @@ interface ClientBalance {
   current_balance: number;
   last_payment_date: string | null;
   credit_status: string;
+  score?: number;
+  risk?: { level: string; color: string; bg: string };
 }
 
 interface ClientBalanceTableProps {
   clientBalances?: ClientBalance[];
+  extraClientData?: Record<string, { lastDeliveryDate: string | null }>;
 }
 
 type SortField = 'business_name' | 'current_balance' | 'last_payment_date' | 'credit_status';
@@ -82,7 +85,7 @@ const paymentFormSchema = z.object({
   notes: z.string().optional(),
 });
 
-export function ClientBalanceTable({ clientBalances: initialClientBalances }: ClientBalanceTableProps) {
+export function ClientBalanceTable({ clientBalances: initialClientBalances, extraClientData }: ClientBalanceTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortField, setSortField] = useState<SortField>('current_balance');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
@@ -95,6 +98,12 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances }: Cl
   const [isBalanceAdjustmentModalOpen, setIsBalanceAdjustmentModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clientSites, setClientSites] = useState<any[]>([]);
+
+  const daysSince = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    const diffMs = Date.now() - new Date(dateStr).getTime();
+    return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  };
 
   // Payment form setup
   const paymentForm = useForm<z.infer<typeof paymentFormSchema>>({
@@ -125,6 +134,13 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances }: Cl
       };
       
       fetchClientBalances();
+    }
+  }, [initialClientBalances]);
+
+  // Keep internal state in sync if caller provides a new list
+  useEffect(() => {
+    if (initialClientBalances) {
+      setClientBalances(initialClientBalances);
     }
   }, [initialClientBalances]);
 
@@ -347,6 +363,18 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances }: Cl
                 </Button>
               </TableHead>
               <TableHead>
+                Última Entrega
+              </TableHead>
+              <TableHead>
+                Días sin Pago
+              </TableHead>
+              <TableHead>
+                Días sin Entrega
+              </TableHead>
+              <TableHead>
+                Score Cliente
+              </TableHead>
+              <TableHead>
                 <Button 
                   variant="ghost" 
                   onClick={() => handleSort('credit_status')}
@@ -366,14 +394,18 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances }: Cl
                   </TooltipProvider>
                 </Button>
               </TableHead>
-              <TableHead className="w-[150px]">Acciones</TableHead>
+              <TableHead className="w-[200px]">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredAndSortedData.length > 0 ? (
               filteredAndSortedData.map((client) => (
                 <TableRow key={client.client_id}>
-                  <TableCell className="font-medium">{client.business_name}</TableCell>
+                  <TableCell className="font-medium">
+                    <Link href={`/clients/${client.client_id}`} className="text-blue-600 hover:underline">
+                      {client.business_name}
+                    </Link>
+                  </TableCell>
                   <TableCell className={client.current_balance > 0 ? "text-red-600 font-medium" : "text-green-600 font-medium"}>
                     {formatCurrency(client.current_balance)}
                   </TableCell>
@@ -382,6 +414,37 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances }: Cl
                       formatDate(client.last_payment_date) : 
                       <span className="text-muted-foreground">Sin pagos</span>
                     }
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const lastDelivery = extraClientData?.[client.client_id]?.lastDeliveryDate || null;
+                      return lastDelivery ? formatDate(lastDelivery) : <span className="text-muted-foreground">Sin entregas</span>;
+                    })()}
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const d = daysSince(client.last_payment_date);
+                      return d !== null ? `${d} días` : <span className="text-muted-foreground">N/A</span>;
+                    })()}
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const lastDelivery = extraClientData?.[client.client_id]?.lastDeliveryDate || null;
+                      const d = daysSince(lastDelivery);
+                      return d !== null ? `${d} días` : <span className="text-muted-foreground">N/A</span>;
+                    })()}
+                  </TableCell>
+                  <TableCell>
+                    {client.score !== undefined && client.risk ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{client.score}</span>
+                        <span className={`px-2 py-1 text-xs rounded-full ${client.risk.bg} ${client.risk.color}`}>
+                          {client.risk.level}
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">N/A</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span className={`px-2 py-1 text-xs rounded-full ${
@@ -427,7 +490,7 @@ export function ClientBalanceTable({ clientBalances: initialClientBalances }: Cl
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
+                <TableCell colSpan={8} className="h-24 text-center">
                   No se encontraron resultados.
                 </TableCell>
               </TableRow>

@@ -5,22 +5,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  ScatterChart,
-  Scatter,
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
   PolarRadiusAxis,
-  Radar
+  Radar,
+  ResponsiveContainer,
+  Tooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid
 } from 'recharts';
 import { formatNumber } from '@/lib/utils';
 import { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
@@ -95,7 +91,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
         const unidad = unidadEdadRaw.toString().toLowerCase();
         const unidadNorm = unidad
           .normalize('NFD')
-          .replace(/\p{Diacritic}/gu, ''); // remove accents
+          .replace(/[\u0300-\u036f]/g, ''); // remove accents
         if (unidadNorm.includes('hora')) return `${valorEdad}h`;
         if (unidadNorm.includes('dia')) return `${valorEdad}d`;
       }
@@ -115,7 +111,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
         const unitLc = unitRaw.toLowerCase();
         const unitNorm = unitLc
           .normalize('NFD')
-          .replace(/\p{Diacritic}/gu, '');
+          .replace(/[\u0300-\u036f]/g, '');
         const days = ageObj.days ?? ageObj.dias ?? undefined;
         const hours = ageObj.hours ?? ageObj.horas ?? undefined;
         if (typeof hours === 'number' && hours > 0) return `${hours}h`;
@@ -255,6 +251,37 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
 
   const metrics = calculateAdvancedMetrics();
 
+  // Compliance histogram data
+  const complianceHistogram = (() => {
+    const allEnsayos = data.remisiones.flatMap(remision => 
+      remision.muestreos.flatMap(muestreo => 
+        muestreo.muestras.flatMap(muestra => 
+          muestra.ensayos.filter(ensayo => 
+            ensayo.isEdadGarantia && 
+            !ensayo.isEnsayoFueraTiempo && 
+            (ensayo.resistenciaCalculada || 0) > 0 &&
+            (ensayo.porcentajeCumplimiento || 0) >= 0
+          )
+        )
+      )
+    );
+    const ranges = [
+      { key: '0-80', from: 0, to: 80 },
+      { key: '80-85', from: 80, to: 85 },
+      { key: '85-90', from: 85, to: 90 },
+      { key: '90-95', from: 90, to: 95 },
+      { key: '95-100', from: 95, to: 100 },
+      { key: '100-110', from: 100, to: 110 }
+    ];
+    const counts = Object.fromEntries(ranges.map(r => [r.key, 0]));
+    allEnsayos.forEach(e => {
+      const c = e.porcentajeCumplimiento || 0;
+      const r = ranges.find(rr => c >= rr.from && c < rr.to) || ranges[ranges.length - 1];
+      counts[r.key] += 1;
+    });
+    return ranges.map(r => ({ range: r.key, count: counts[r.key] }));
+  })();
+
   // Map CV to guidance per provided ranges
   const getCvGuidance = (cv: number) => {
     if (cv < 5) return 'Excelente';
@@ -264,37 +291,6 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
     return 'Pobre';
   };
 
-  // Control chart data
-  const controlChartData = data.remisiones.map((remision, index) => {
-    const validEnsayos = remision.muestreos.flatMap(muestreo => 
-      muestreo.muestras.flatMap(muestra => 
-        muestra.ensayos.filter(ensayo => 
-          ensayo.isEdadGarantia && 
-          !ensayo.isEnsayoFueraTiempo && 
-          ensayo.resistenciaCalculada > 0
-        )
-      )
-    );
-
-    const avgResistencia = validEnsayos.length > 0 
-      ? validEnsayos.reduce((sum, e) => sum + e.resistenciaCalculada, 0) / validEnsayos.length
-      : 0;
-
-    const avgCompliance = validEnsayos.length > 0 
-      ? validEnsayos.reduce((sum, e) => sum + e.porcentajeCumplimiento, 0) / validEnsayos.length
-      : 0;
-
-    return {
-      remision: remision.remisionNumber,
-      fecha: remision.fecha,
-      resistencia: avgResistencia,
-      compliance: avgCompliance,
-      ensayos: validEnsayos.length,
-      ucl: metrics.mean + (3 * metrics.stdDev), // Upper control limit
-      lcl: metrics.mean - (3 * metrics.stdDev), // Lower control limit
-      center: metrics.mean
-    };
-  }).filter(item => item.ensayos > 0);
 
   // Per-order sampling frequency (m3 per ensayada remision)
   // For each order: frequency = sum(volume of all remisiones in order) / (# remisiones ensayadas en el pedido)
@@ -337,31 +333,24 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
     ? (100 / averageSamplingFrequency) * 100 // 65 m³ -> 153.8%
     : 0;
 
-  // Radar chart data for quality dimensions - more relevant metrics
+  // Clamp helper to keep values within 0-100
+  const clampPercent = (n: number) => Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0));
+
+  // Radar chart data for quality dimensions - three metrics: Rendimiento Volumétrico, Cumplimiento, Consistencia
   const radarData = [
     {
+      dimension: 'Rendimiento Volumétrico',
+      value: clampPercent(summary.averages.rendimientoVolumetrico || 0),
+      fullMark: 100
+    },
+    {
       dimension: 'Cumplimiento',
-      value: summary.averages.complianceRate,
+      value: clampPercent(summary.averages.complianceRate || 0),
       fullMark: 100
     },
     {
       dimension: 'Consistencia',
-      value: Math.max(0, 100 - metrics.cv),
-      fullMark: 100
-    },
-    {
-      dimension: 'Freq. Promedio',
-      value: Math.min(150, (100 / Math.max(1, averageSamplingFrequency)) * 100),
-      fullMark: 100
-    },
-    {
-      dimension: 'Rend. Volumétrico',
-      value: Math.min(100, summary.averages.rendimientoVolumetrico || 0),
-      fullMark: 100
-    },
-    {
-      dimension: 'Rendimiento',
-      value: Math.min(100, summary.averages.rendimientoVolumetrico || 0),
+      value: clampPercent(100 - (metrics.cv || 0)),
       fullMark: 100
     }
   ];
@@ -460,87 +449,100 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
         </Card>
       </div>
 
-      {/* Charts Grid */}
+      {/* Charts row: Radar + Compliance distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Control Chart */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Gráfico de Control - Resistencia</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={controlChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="remision" angle={-45} textAnchor="end" height={80} />
-                <YAxis />
-                <Tooltip content={({ active, payload, label }) => {
-                  if (active && payload && payload.length) {
-                    return (
-                      <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-                        <p className="font-medium">{label}</p>
-                        <p className="text-sm text-blue-600">
-                          Resistencia: {formatNumber(payload[0].value, 1)} kg/cm²
-                        </p>
-                        <p className="text-sm text-green-600">
-                          Cumplimiento: {formatNumber(payload[1].value, 1)}%
-                        </p>
-                      </div>
-                    );
-                  }
-                  return null;
-                }} />
-                <Line 
-                  type="monotone" 
-                  dataKey="resistencia" 
-                  stroke="#8884d8" 
-                  strokeWidth={2}
-                  name="Resistencia (kg/cm²)"
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="center" 
-                  stroke="#ff7300" 
-                  strokeDasharray="5 5"
-                  name="Línea Central"
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="ucl" 
-                  stroke="#ff0000" 
-                  strokeDasharray="3 3"
-                  name="LCS"
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="lcl" 
-                  stroke="#ff0000" 
-                  strokeDasharray="3 3"
-                  name="LCI"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Quality Radar Chart */}
         <Card>
           <CardHeader>
             <CardTitle>Perfil de Calidad Multidimensional</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <RadarChart data={radarData}>
-                <PolarGrid />
-                <PolarAngleAxis dataKey="dimension" />
-                <PolarRadiusAxis domain={[0, 100]} />
-                <Radar 
-                  name="Calidad" 
-                  dataKey="value" 
-                  stroke="#8884d8" 
-                  fill="#8884d8" 
-                  fillOpacity={0.3}
-                />
-              </RadarChart>
+             <ResponsiveContainer width="100%" height={430}>
+               <RadarChart 
+                 data={radarData} 
+                 cx="50%" 
+                 cy="53%" 
+                 outerRadius="72%"
+                 margin={{ top: 35, right: 85, bottom: 55, left: 85 }}
+               >
+                 <defs>
+                   <linearGradient id="radarGradient" x1="0" y1="0" x2="0" y2="1">
+                     <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3} />
+                     <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.08} />
+                   </linearGradient>
+                 </defs>
+                 <PolarGrid 
+                   stroke="#d1d5db" 
+                   strokeWidth={1.2}
+                   gridType="polygon" 
+                   radialLines={false}
+                   opacity={0.8}
+                 />
+                 <PolarAngleAxis 
+                   dataKey="dimension" 
+                   tick={{ 
+                     fill: '#1f2937', 
+                     fontSize: 13, 
+                     fontWeight: 600,
+                     textAnchor: 'middle'
+                   }} 
+                   className="select-none"
+                   tickFormatter={(value) => value}
+                 />
+                 <PolarRadiusAxis 
+                   angle={135} 
+                   domain={[0, 100]} 
+                   tick={{ 
+                     fill: '#9ca3af', 
+                     fontSize: 10,
+                     fontWeight: 500
+                   }}
+                   tickCount={3}
+                   axisLine={false}
+                 />
+                 <Tooltip 
+                   formatter={(value: any) => [`${formatNumber(Number(value), 1)}%`, 'Puntuación']} 
+                   labelFormatter={(label: any) => label}
+                   contentStyle={{
+                     backgroundColor: '#ffffff',
+                     border: '1px solid #e5e7eb',
+                     borderRadius: '8px',
+                     boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+                   }}
+                 />
+                 <Radar 
+                   name="Calidad"
+                   dataKey="value"
+                   stroke="#3b82f6"
+                   strokeWidth={2.5}
+                   fill="url(#radarGradient)"
+                   dot={{ 
+                     r: 4, 
+                     stroke: '#3b82f6', 
+                     strokeWidth: 2, 
+                     fill: '#ffffff',
+                     style: { filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }
+                   }}
+                   isAnimationActive
+                   animationDuration={1000}
+                 />
+               </RadarChart>
+             </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Distribución de Cumplimiento (%)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={340}>
+              <BarChart data={complianceHistogram}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="range" tick={{ fontSize: 12 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                <Tooltip formatter={(v: any) => [v, 'Ensayos']} />
+                <Bar dataKey="count" fill="#10b981" radius={[4,4,0,0]} />
+              </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>

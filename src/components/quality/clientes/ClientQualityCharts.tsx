@@ -3,17 +3,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer
-} from 'recharts';
+import { Tooltip } from 'recharts';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 
 interface ClientQualityChartsProps {
@@ -23,25 +13,7 @@ interface ClientQualityChartsProps {
 }
 
 export function ClientQualityCharts({ data, summary, chartType }: ClientQualityChartsProps) {
-  // Prepare volume chart data
-  const volumeChartData = data.monthlyStats.map(stat => ({
-    month: stat.month,
-    volume: Number(stat.volume.toFixed(2)),
-    remisiones: stat.remisiones
-  }));
-
-  // Prepare compliance chart data
-  const complianceChartData = data.monthlyStats.map(stat => ({
-    month: stat.month,
-    complianceRate: Number(stat.complianceRate.toFixed(1)),
-    totalTests: stat.ensayos
-  }));
-
-  // Prepare resistance evolution chart data
-  const resistanceChartData = data.monthlyStats.map(stat => ({
-    month: stat.month,
-    avgResistencia: Number(stat.avgResistencia.toFixed(1))
-  }));
+  // Monthly trend datasets removed by request
 
   const formatNumber = (num: number, decimals: number = 1) => {
     return num.toFixed(decimals);
