@@ -456,13 +456,13 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
             <CardTitle>Perfil de Calidad Multidimensional</CardTitle>
           </CardHeader>
           <CardContent>
-             <ResponsiveContainer width="100%" height={430}>
+             <ResponsiveContainer width="100%" height={420}>
                <RadarChart 
                  data={radarData} 
                  cx="50%" 
-                 cy="53%" 
-                 outerRadius="72%"
-                 margin={{ top: 35, right: 85, bottom: 55, left: 85 }}
+                 cy="52%" 
+                 outerRadius="75%"
+                 margin={{ top: 30, right: 80, bottom: 50, left: 80 }}
                >
                  <defs>
                    <linearGradient id="radarGradient" x1="0" y1="0" x2="0" y2="1">
@@ -472,10 +472,9 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                  </defs>
                  <PolarGrid 
                    stroke="#d1d5db" 
-                   strokeWidth={1.2}
+                   strokeWidth={1}
                    gridType="polygon" 
                    radialLines={false}
-                   opacity={0.8}
                  />
                  <PolarAngleAxis 
                    dataKey="dimension" 
@@ -483,13 +482,18 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                      fill: '#1f2937', 
                      fontSize: 13, 
                      fontWeight: 600,
-                     textAnchor: 'middle'
+                     textAnchor: 'middle',
+                     dy: (value) => {
+                       if (value === 'Rendimiento Volumétrico') return -8;
+                       return 8; // Consistencia and Cumplimiento
+                     }
                    }} 
                    className="select-none"
                    tickFormatter={(value) => value}
+                   radius={85}
                  />
                  <PolarRadiusAxis 
-                   angle={135} 
+                   angle={90} 
                    domain={[0, 100]} 
                    tick={{ 
                      fill: '#9ca3af', 
@@ -498,6 +502,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                    }}
                    tickCount={3}
                    axisLine={false}
+                   tickFormatter={(value) => value}
                  />
                  <Tooltip 
                    formatter={(value: any) => [`${formatNumber(Number(value), 1)}%`, 'Puntuación']} 

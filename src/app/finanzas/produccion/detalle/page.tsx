@@ -157,6 +157,8 @@ export default function ProduccionDashboard() {
   const [materialAnalysisLoading, setMaterialAnalysisLoading] = useState(false);
   const [globalMaterialsSummary, setGlobalMaterialsSummary] = useState<any>(null);
   const [historicalTrends, setHistoricalTrends] = useState<any>(null);
+  const [streaming, setStreaming] = useState(false);
+  const [progress, setProgress] = useState<{ processed: number; total: number }>({ processed: 0, total: 0 });
 
   // Format the dates for display
   const dateRangeText = useMemo(() => {
@@ -171,18 +173,22 @@ export default function ProduccionDashboard() {
         setProductionData([]);
         setRemisionesData([]);
         setLoading(false);
+        setStreaming(false);
+        setProgress({ processed: 0, total: 0 });
         return;
       }
 
       setLoading(true);
       setError(null);
+      setStreaming(true);
+      setProgress({ processed: 0, total: 3 });
 
       try {
         // Format dates for Supabase query
         const formattedStartDate = format(startDate, 'yyyy-MM-dd');
         const formattedEndDate = format(endDate, 'yyyy-MM-dd');
 
-        // Fetch remisiones with recipe and order data
+        // 1) Fetch remisiones with recipe and order data
         let remisionesQuery = supabase
           .from('remisiones')
           .select(`
@@ -240,6 +246,7 @@ export default function ProduccionDashboard() {
           }));
 
         setRemisionesData(processedRemisiones);
+        setProgress(prev => ({ ...prev, processed: Math.min(prev.processed + 1, prev.total) }));
 
         // Extract unique strengths for filter
         const strengths = Array.from(new Set(processedRemisiones.map(r => r.recipe.strength_fc)))
@@ -248,7 +255,9 @@ export default function ProduccionDashboard() {
         setAvailableStrengths(strengths);
 
         // Extract unique materials for material analysis
+        // 2) Load available materials progressively
         await loadAvailableMaterials(processedRemisiones);
+        setProgress(prev => ({ ...prev, processed: Math.min(prev.processed + 1, prev.total) }));
 
         // Clear material analysis data when dates change
         setSelectedMaterial('');
@@ -263,21 +272,24 @@ export default function ProduccionDashboard() {
         setHistoricalTrends(trends);
 
         // Group by recipe and calculate production metrics
+        // 3) Calculate production metrics (material costs computed in chunks)
         const productionSummary = await calculateProductionMetrics(processedRemisiones);
         setProductionData(productionSummary);
+        setProgress(prev => ({ ...prev, processed: Math.min(prev.processed + 1, prev.total) }));
 
       } catch (error) {
         console.error('Error fetching production data:', error);
         setError('Error al cargar los datos de producción. Por favor, intente nuevamente.');
       } finally {
         setLoading(false);
+        setStreaming(false);
       }
     }
 
     fetchProductionData();
   }, [startDate, endDate, currentPlant]);
 
-  // Calculate production metrics with material costs
+  // Calculate production metrics with material costs (progressive)
   const calculateProductionMetrics = async (remisiones: RemisionData[]): Promise<ProductionData[]> => {
     // Group by recipe
     const recipeGroups = remisiones.reduce((acc, remision) => {
@@ -293,6 +305,10 @@ export default function ProduccionDashboard() {
       acc[key].remisiones.push(remision);
       return acc;
     }, {} as Record<string, any>);
+
+    const groupsArray = Object.entries(recipeGroups);
+    // Expand progress total to include each recipe group for progressive updates
+    setProgress(prev => ({ processed: prev.processed, total: Math.max(prev.total, (prev.processed || 0) + groupsArray.length) }));
 
     const productionMetrics: ProductionData[] = [];
 
@@ -325,7 +341,7 @@ export default function ProduccionDashboard() {
       }
     }
 
-    for (const [key, group] of Object.entries(recipeGroups)) {
+    for (const [key, group] of groupsArray) {
       const totalVolume = group.remisiones.reduce((sum: number, r: any) => sum + r.volumen_fabricado, 0);
       
       // Get material costs from actual remision_materiales rows for this recipe group
@@ -349,6 +365,10 @@ export default function ProduccionDashboard() {
         avg_selling_price: avgSellingPrice,
         margin_per_m3: marginPerM3
       });
+
+      // Progressive update after each group
+      setProductionData([...productionMetrics]);
+      setProgress(prev => ({ processed: Math.min(prev.processed + 1, prev.total), total: prev.total }));
     }
 
     return productionMetrics.sort((a, b) => a.strength_fc - b.strength_fc);
@@ -383,7 +403,7 @@ export default function ProduccionDashboard() {
         )
       `;
 
-      const chunkSize = 50;
+      const chunkSize = 10;
       const materialesResults: any[] = [];
       for (let i = 0; i < remisionIds.length; i += chunkSize) {
         const chunk = remisionIds.slice(i, i + chunkSize);
@@ -429,36 +449,36 @@ export default function ProduccionDashboard() {
         }
       });
 
-      // Get current material prices using material_id
+      // Get current material prices using material_id (chunked to avoid URL bloat)
       const materialIds = Array.from(aggregatedByMaterial.keys());
       const currentDate = format(new Date(), 'yyyy-MM-dd');
-      
-      let pricesQuery = supabase
-        .from('material_prices')
-        .select('material_id, price_per_unit, effective_date, end_date, plant_id')
-        .in('material_id', materialIds)
-        .lte('effective_date', currentDate)
-        .or(`end_date.is.null,end_date.gte.${currentDate}`)
-        .order('effective_date', { ascending: false });
 
-      // Prefer plant-specific prices if plant is set
-      if (currentPlant?.id) {
-        pricesQuery = pricesQuery.eq('plant_id', currentPlant.id);
-      }
-
-      const { data: materialPrices, error: pricesError } = await pricesQuery;
-
-      if (pricesError) {
-        console.error('Error fetching material prices:', pricesError);
-      }
-
-      // Create price lookup by material_id (first row per material wins as we ordered by effective_date desc)
       const priceMap = new Map();
-      materialPrices?.forEach((mp: any) => {
-        if (!priceMap.has(mp.material_id)) {
-          priceMap.set(mp.material_id, mp.price_per_unit);
+      for (let i = 0; i < materialIds.length; i += chunkSize) {
+        const idsChunk = materialIds.slice(i, i + chunkSize);
+        let pricesQuery = supabase
+          .from('material_prices')
+          .select('material_id, price_per_unit, effective_date, end_date, plant_id')
+          .in('material_id', idsChunk)
+          .lte('effective_date', currentDate)
+          .or(`end_date.is.null,end_date.gte.${currentDate}`)
+          .order('effective_date', { ascending: false });
+
+        if (currentPlant?.id) {
+          pricesQuery = pricesQuery.eq('plant_id', currentPlant.id);
         }
-      });
+
+        const { data: chunkPrices, error: chunkErr } = await pricesQuery;
+        if (chunkErr) {
+          console.error('Error fetching material prices chunk:', chunkErr);
+          continue;
+        }
+        chunkPrices?.forEach((mp: any) => {
+          if (!priceMap.has(mp.material_id)) {
+            priceMap.set(mp.material_id, mp.price_per_unit);
+          }
+        });
+      }
 
       // Calculate costs
       let totalCostPerM3 = 0;
@@ -925,7 +945,7 @@ export default function ProduccionDashboard() {
 
       // Get previous period material costs (simplified)
       const previousRemisionIds = previousRemisiones.map(r => r.id);
-      const chunkSize = 50;
+      const chunkSize = 10;
       let previousTotalCost = 0;
 
       for (let i = 0; i < previousRemisionIds.length; i += chunkSize) {
@@ -934,14 +954,30 @@ export default function ProduccionDashboard() {
           .from('remision_materiales')
           .select(`
             material_id,
-            cantidad_real,
-            material_prices!inner(price_per_unit)
+            cantidad_real
           `)
           .in('remision_id', chunk);
 
         if (materials) {
+          const ids = Array.from(new Set(materials.map((m: any) => m.material_id))).filter(Boolean);
+          const today = format(new Date(), 'yyyy-MM-dd');
+          const priceMap = new Map<string, number>();
+          for (let j = 0; j < ids.length; j += 10) {
+            const idsChunk = ids.slice(j, j + 10);
+            const { data: prices } = await supabase
+              .from('material_prices')
+              .select('material_id, price_per_unit, effective_date, end_date')
+              .in('material_id', idsChunk)
+              .lte('effective_date', today)
+              .or(`end_date.is.null,end_date.gte.${today}`)
+              .order('effective_date', { ascending: false });
+            prices?.forEach((p: any) => {
+              if (!priceMap.has(p.material_id)) priceMap.set(p.material_id, Number(p.price_per_unit) || 0);
+            });
+          }
           materials.forEach((m: any) => {
-            previousTotalCost += (Number(m.cantidad_real) || 0) * (Number(m.material_prices?.price_per_unit) || 0);
+            const price = Number(priceMap.get(m.material_id)) || 0;
+            previousTotalCost += (Number(m.cantidad_real) || 0) * price;
           });
         }
       }
@@ -1352,7 +1388,7 @@ export default function ProduccionDashboard() {
 
       // 2. Fetch material consumption details - chunked to avoid URL length limits
       const remisionIds = remisiones.map((r: any) => r.id);
-      const chunkSize = 50; // Supabase has URL length limits, so we chunk the requests
+      const chunkSize = 10; // Supabase has URL length limits, so we chunk the requests
       const materialesResults: any[] = [];
       
       console.log(`Fetching material consumption data for ${remisionIds.length} remisiones in chunks of ${chunkSize}`);
@@ -1634,11 +1670,22 @@ export default function ProduccionDashboard() {
         </CardContent>
       </Card>
 
-      {loading ? (
+      {(loading || streaming) ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {[...Array(4)].map((_, i) => (
             <Skeleton key={i} className="h-32" />
           ))}
+        </div>
+      ) : null}
+
+      {streaming ? (
+        <div className="w-full mb-6">
+          <div className="w-full bg-gray-100 border rounded h-2 overflow-hidden">
+            <div className="bg-blue-500 h-2" style={{ width: `${Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%` }} />
+          </div>
+          <div className="text-xs text-muted-foreground mt-1 text-center">
+            Progresando… {Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%
+          </div>
         </div>
       ) : (
         <>
