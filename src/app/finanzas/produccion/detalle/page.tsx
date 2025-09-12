@@ -246,6 +246,8 @@ export default function ProduccionDashboard() {
           }));
 
         setRemisionesData(processedRemisiones);
+        // Allow UI to render while we keep streaming the rest
+        setLoading(false);
         setProgress(prev => ({ ...prev, processed: Math.min(prev.processed + 1, prev.total) }));
 
         // Extract unique strengths for filter
@@ -1670,7 +1672,7 @@ export default function ProduccionDashboard() {
         </CardContent>
       </Card>
 
-      {(loading || streaming) ? (
+      {(loading && productionData.length === 0) ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {[...Array(4)].map((_, i) => (
             <Skeleton key={i} className="h-32" />
@@ -1678,7 +1680,7 @@ export default function ProduccionDashboard() {
         </div>
       ) : null}
 
-      {streaming ? (
+      {streaming && (
         <div className="w-full mb-6">
           <div className="w-full bg-gray-100 border rounded h-2 overflow-hidden">
             <div className="bg-blue-500 h-2" style={{ width: `${Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%` }} />
@@ -1687,8 +1689,9 @@ export default function ProduccionDashboard() {
             Progresando… {Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%
           </div>
         </div>
-      ) : (
-        <>
+      )}
+
+      <>
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <Card>
