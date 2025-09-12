@@ -21,6 +21,7 @@ interface ClientData {
   business_name: string;
   client_code: string;
   credit_status?: string;
+  assigned_user_id?: string | null;
 }
 
 interface BalanceDataResponse {
@@ -372,7 +373,8 @@ export const financialService = {
             id,
             business_name,
             client_code,
-            credit_status
+            credit_status,
+            assigned_user_id
           )
         `)
         .is('construction_site', null)
@@ -418,7 +420,8 @@ export const financialService = {
           current_balance: balance.current_balance || 0,
           last_payment_date: latestPaymentsByClient.get(balance.client_id) || null,
           credit_status: creditStatus,
-          last_updated: balance.last_updated
+          last_updated: balance.last_updated,
+          assigned_user_id: client?.assigned_user_id || null
         };
       });
 

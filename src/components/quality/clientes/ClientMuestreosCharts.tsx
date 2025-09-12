@@ -9,20 +9,12 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer,
-  LineChart,
-  Line,
-  ScatterChart,
-  Scatter,
-  PieChart,
-  Pie,
-  Cell,
-  Area,
-  AreaChart,
-  ComposedChart
+  ResponsiveContainer
 } from 'recharts';
 import { formatNumber } from '@/lib/utils';
 import { ClientQualityRemisionData } from '@/types/clientQuality';
+import { QualityChartSection } from '@/components/quality/QualityChartSection';
+import type { DatoGraficoResistencia } from '@/types/quality';
 
 interface ClientMuestreosChartsProps {
   remisiones: ClientQualityRemisionData[];
@@ -184,6 +176,30 @@ export default function ClientMuestreosCharts({ remisiones }: ClientMuestreosCha
   };
 
   const chartData = processChartData();
+  // Map to QualityChartSection data format
+  const datosGrafico: DatoGraficoResistencia[] = allMuestreos.flatMap((muestreo: any) =>
+    (muestreo.muestras || []).flatMap((muestra: any) =>
+      (muestra.ensayos || [])
+        .filter((ensayo: any) => ensayo.isEdadGarantia && !ensayo.isEnsayoFueraTiempo && (ensayo.resistenciaCalculada || 0) > 0 && (ensayo.porcentajeCumplimiento || 0) > 0)
+        .map((ensayo: any) => {
+          const specs = muestreo.concrete_specs || {};
+          // Resolve age in days from specs if available
+          const edad = typeof specs.valor_edad === 'number' && specs.valor_edad > 0
+            ? specs.valor_edad
+            : 28;
+          const clasificacion = (specs.clasificacion as 'FC' | 'MR') || 'FC';
+          return {
+            x: new Date(muestreo.fechaMuestreo || muestreo.fecha_muestreo || muestreo.fecha || Date.now()).getTime(),
+            y: ensayo.porcentajeCumplimiento || 0,
+            clasificacion,
+            edad,
+            fecha_ensayo: ensayo.fechaEnsayo || ensayo.fecha_ensayo,
+            resistencia_calculada: ensayo.resistenciaCalculada || ensayo.resistencia_calculada,
+            muestra: { muestreo, muestra, ensayo }
+          } as DatoGraficoResistencia;
+        })
+    )
+  );
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -202,29 +218,7 @@ export default function ClientMuestreosCharts({ remisiones }: ClientMuestreosCha
     return null;
   };
 
-  const ScatterTooltip = ({ active, payload }: any) => {
-    if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-        <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-          <p className="font-medium text-gray-800">Ensayo Individual</p>
-          <p className="text-sm text-blue-600">
-            Resistencia: {formatNumber(data.resistencia, 1)} kg/cm²
-          </p>
-          <p className="text-sm text-green-600">
-            Cumplimiento: {formatNumber(data.cumplimiento, 1)}%
-          </p>
-          <p className="text-xs text-gray-500">
-            Receta: {data.recipeCode}
-          </p>
-          <p className="text-xs text-gray-500">
-            Fecha: {new Date(data.fecha).toLocaleDateString('es-ES')}
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
+  // Removed custom scatter tooltip; QualityChartSection handles its own UI
 
   if (allMuestreos.length === 0) {
     return (
@@ -243,61 +237,10 @@ export default function ClientMuestreosCharts({ remisiones }: ClientMuestreosCha
 
   return (
     <div className="space-y-6">
-      {/* Scatter Plot - Main Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Relación Resistencia vs Cumplimiento</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={400}>
-            <ScatterChart data={chartData.scatter}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis 
-                type="number" 
-                dataKey="resistencia" 
-                name="Resistencia (kg/cm²)" 
-                domain={['dataMin - 10', 'dataMax + 10']}
-                label={{ value: 'Resistencia (kg/cm²)', position: 'insideBottom', offset: -5 }}
-              />
-              <YAxis 
-                type="number" 
-                dataKey="cumplimiento" 
-                name="Cumplimiento (%)" 
-                domain={[0, 120]}
-                label={{ value: 'Cumplimiento (%)', angle: -90, position: 'insideLeft' }}
-              />
-              <Tooltip content={<ScatterTooltip />} />
-              <Scatter 
-                dataKey="cumplimiento" 
-                fill="#8884d8" 
-                name="Ensayo"
-                r={6}
-              />
-            </ScatterChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Scatter Plot replaced with QualityChartSection */}
+      <QualityChartSection datosGrafico={datosGrafico} loading={false} soloEdadGarantia={true} constructionSites={[...new Set(remisiones.map(r => r.constructionSite).filter(Boolean))]} />
 
-      {/* Monthly Trends */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Tendencias Mensuales</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart data={chartData.monthly}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
-              <YAxis yAxisId="left" />
-              <YAxis yAxisId="right" orientation="right" />
-              <Tooltip content={<CustomTooltip />} />
-              <Bar yAxisId="left" dataKey="total" fill="#e0e0e0" name="Total Muestreos" />
-              <Bar yAxisId="left" dataKey="ensayados" fill="#82ca9d" name="Ensayados" />
-              <Line yAxisId="right" type="monotone" dataKey="avgCompliance" stroke="#8884d8" strokeWidth={2} name="Cumplimiento Promedio (%)" />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Monthly Trends removed by request */}
 
       {/* Recipe Performance */}
       <Card>

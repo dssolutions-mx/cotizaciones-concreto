@@ -242,14 +242,49 @@ export class ArkikOrderMatcher {
       return { match, isSameDay };
     });
 
-    // Prefer same-day; then highest score
-    evaluated.sort((a, b) => {
-      if (a.isSameDay !== b.isSameDay) return a.isSameDay ? -1 : 1;
-      return b.match.matchScore - a.match.matchScore;
+    // Separate same-day and different-day candidates
+    const sameDayCandidates = evaluated.filter(e => e.isSameDay);
+    const differentDayCandidates = evaluated.filter(e => !e.isSameDay);
+
+    console.log(`[ArkikOrderMatcher] Candidate analysis:`, {
+      totalCandidates: candidateOrders.length,
+      sameDayCandidates: sameDayCandidates.length,
+      differentDayCandidates: differentDayCandidates.length,
+      remisionDate: remisionYmd
     });
 
-    const best = evaluated[0]?.match;
-    return best && best.matchScore >= 0.5 ? best : null;
+    // If we have same-day candidates, be more strict with recipe matching
+    if (sameDayCandidates.length > 0) {
+      console.log(`[ArkikOrderMatcher] Same-day candidates found - applying strict recipe matching`);
+      
+      // Sort same-day candidates by score (highest first)
+      sameDayCandidates.sort((a, b) => b.match.matchScore - a.match.matchScore);
+      
+      // For same-day matches, require higher threshold and better recipe matching
+      const bestSameDay = sameDayCandidates[0];
+      if (bestSameDay && bestSameDay.match.matchScore >= 0.7) {
+        console.log(`[ArkikOrderMatcher] ✅ Best same-day match: ${bestSameDay.match.order.order_number} (score: ${(bestSameDay.match.matchScore * 100).toFixed(1)}%)`);
+        return bestSameDay.match;
+      } else {
+        console.log(`[ArkikOrderMatcher] ❌ Same-day candidates below threshold (best: ${bestSameDay?.match.matchScore ? (bestSameDay.match.matchScore * 100).toFixed(1) : 'N/A'}%)`);
+      }
+    }
+
+    // If no good same-day matches, consider different-day candidates
+    if (differentDayCandidates.length > 0) {
+      differentDayCandidates.sort((a, b) => b.match.matchScore - a.match.matchScore);
+      const bestDifferentDay = differentDayCandidates[0];
+      
+      if (bestDifferentDay && bestDifferentDay.match.matchScore >= 0.6) {
+        console.log(`[ArkikOrderMatcher] ✅ Best different-day match: ${bestDifferentDay.match.order.order_number} (score: ${(bestDifferentDay.match.matchScore * 100).toFixed(1)}%)`);
+        return bestDifferentDay.match;
+      } else {
+        console.log(`[ArkikOrderMatcher] ❌ Different-day candidates below threshold (best: ${bestDifferentDay?.match.matchScore ? (bestDifferentDay.match.matchScore * 100).toFixed(1) : 'N/A'}%)`);
+      }
+    }
+
+    console.log(`[ArkikOrderMatcher] ❌ No suitable match found (all candidates below threshold)`);
+    return null;
   }
 
   /**
@@ -323,18 +358,56 @@ export class ArkikOrderMatcher {
       }
     }
 
-    // Recipe/Product match (check order items)
+    // Recipe/Product match (check order items with strict matching)
     const orderItems = (order as any).order_items || [];
-    const hasMatchingProduct = orderItems.some((item: OrderItem) => {
-      return remisiones.some(remision => 
-        item.quote_detail_id === remision.quote_detail_id ||
-        (item as any).recipe_id === remision.recipe_id
-      );
-    });
-
-    if (hasMatchingProduct) {
-      score += 2;
-      matchReasons.push('Producto/receta compatible');
+    let recipeMatchScore = 0;
+    let recipeMatchReason = '';
+    
+    // Check each remision against order items for strict recipe matching
+    for (const remision of remisiones) {
+      const remisionRecipeId = remision.recipe_id;
+      const remisionArkikCode = this.normalizeRecipeCode(remision.product_description || remision.recipe_code || '');
+      
+      const hasMatchingRecipe = orderItems.some((item: any) => {
+        // First check: exact recipe_id match
+        const idMatch = item.recipe_id && remisionRecipeId && item.recipe_id === remisionRecipeId;
+        
+        // Second check: normalized recipe code match (more strict)
+        const itemArkik = this.normalizeRecipeCode(item.recipes?.arkik_long_code || item.recipes?.recipe_code || item.product_type || '');
+        const codeMatch = !!remisionArkikCode && remisionArkikCode.length > 0 && itemArkik === remisionArkikCode;
+        
+        // Third check: quote_detail_id match (highest priority)
+        const quoteMatch = item.quote_detail_id && remision.quote_detail_id && item.quote_detail_id === remision.quote_detail_id;
+        
+        return quoteMatch || idMatch || codeMatch;
+      });
+      
+      if (hasMatchingRecipe) {
+        recipeMatchScore += 1;
+      }
+    }
+    
+    // Calculate recipe match percentage
+    const recipeMatchPercentage = remisiones.length > 0 ? recipeMatchScore / remisiones.length : 0;
+    
+    if (recipeMatchPercentage === 1.0) {
+      score += 3; // Perfect recipe match
+      recipeMatchReason = 'Receta exacta (100%)';
+    } else if (recipeMatchPercentage >= 0.8) {
+      score += 2.5; // Very good recipe match
+      recipeMatchReason = `Receta muy compatible (${(recipeMatchPercentage * 100).toFixed(0)}%)`;
+    } else if (recipeMatchPercentage >= 0.6) {
+      score += 2; // Good recipe match
+      recipeMatchReason = `Receta compatible (${(recipeMatchPercentage * 100).toFixed(0)}%)`;
+    } else if (recipeMatchPercentage > 0) {
+      score += 1; // Partial recipe match
+      recipeMatchReason = `Receta parcialmente compatible (${(recipeMatchPercentage * 100).toFixed(0)}%)`;
+    } else {
+      recipeMatchReason = 'Receta no compatible';
+    }
+    
+    if (recipeMatchScore > 0) {
+      matchReasons.push(recipeMatchReason);
     }
 
     // Volume capacity check
@@ -351,9 +424,26 @@ export class ArkikOrderMatcher {
       siteSimilarity: siteSimilarity.toFixed(3),
       // daysDiff logged as 0.0 for exact date to reflect strict preference
       daysDiff: (orderYmd === remisionYmd ? 0 : Math.abs((this.parseLocalDate((order as any).delivery_date).getTime() - this.parseLocalDate(firstRemision.fecha as any).getTime()) / (1000 * 60 * 60 * 24))).toFixed(1),
+      recipeMatchPercentage: (recipeMatchPercentage * 100).toFixed(1) + '%',
+      recipeMatchReason,
       totalScore: score.toFixed(2),
       finalScore: (score / maxScore).toFixed(3),
-      matchReasons
+      matchReasons,
+      // Debug: Show recipe details for troubleshooting
+      remisionRecipes: remisiones.map(r => ({
+        remision_number: r.remision_number,
+        recipe_id: r.recipe_id,
+        product_description: r.product_description,
+        recipe_code: r.recipe_code,
+        normalized_arkik: this.normalizeRecipeCode(r.product_description || r.recipe_code || '')
+      })),
+      orderItemRecipes: orderItems.map((item: any) => ({
+        recipe_id: item.recipe_id,
+        product_type: item.product_type,
+        arkik_long_code: item.recipes?.arkik_long_code,
+        recipe_code: item.recipes?.recipe_code,
+        normalized_arkik: this.normalizeRecipeCode(item.recipes?.arkik_long_code || item.recipes?.recipe_code || item.product_type || '')
+      }))
     });
 
     return {

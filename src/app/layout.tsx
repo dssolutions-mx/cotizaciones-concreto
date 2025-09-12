@@ -113,6 +113,15 @@ function getFinanzasSubMenuItemsForRole(userRole?: string) {
       { title: "Reportes Dinámicos", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
     ];
   }
+  if (userRole === 'SALES_AGENT') {
+    // Sales agents focus on client management, quotes, and sales reports
+    return [
+      { title: "Balances de Clientes", href: "/finanzas/clientes", IconComponent: Users },
+      { title: "Reporte de Ventas", href: "/finanzas/ventas", IconComponent: BarChart2 },
+      { title: "Remisiones por Cliente", href: "/finanzas/remisiones", IconComponent: FileBarChart2 },
+      { title: "Reportes Dinámicos", href: "/finanzas/reportes-clientes", IconComponent: FileSpreadsheet },
+    ];
+  }
   return finanzasSubMenuItems;
 }
 
@@ -303,6 +312,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/clients', label: 'Clientes', IconComponent: Users });
         navItems.push({ href: '/quotes', label: 'Cotizaciones', IconComponent: ClipboardList });
         navItems.push({ href: '/orders', label: 'Pedidos', IconComponent: Package });
+        addFinanzasLink = true;
         break;
         
       case 'PLANT_MANAGER':
