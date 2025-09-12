@@ -24,7 +24,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ChevronDown, Filter } from "lucide-react";
+import { ChevronDown, Filter, Loader2 } from "lucide-react";
+import { useProgressiveProductionComparison } from '@/hooks/useProgressiveProductionComparison';
 
 // Types for comparative production data
 interface PlantProductionData {
@@ -62,6 +63,11 @@ export default function ComparativaProduccion() {
   const [availablePlants, setAvailablePlants] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [selectedPlants, setSelectedPlants] = useState<string[]>([]);
   const [previousMonthData, setPreviousMonthData] = useState<PlantProductionData[]>([]);
+  const { data: progData, previousMonthData: progPrev, loading: progLoading, streaming, progress, error: progError } = useProgressiveProductionComparison({
+    startDate,
+    endDate,
+    selectedPlantIds: selectedPlants,
+  });
 
   // Format the dates for display
   const dateRangeText = useMemo(() => {
@@ -91,377 +97,20 @@ export default function ComparativaProduccion() {
     fetchPlants();
   }, []);
 
-  // Fetch comparative production data
+  // Mirror progressive results into local state for rendering
   useEffect(() => {
-    async function fetchComparativeData() {
-      if (!startDate || !endDate || availablePlants.length === 0 || selectedPlants.length === 0) {
-        setComparativeData(null);
-        setLoading(false);
-        return;
-      }
+    if (progError) setError(progError);
+    if (!progError && progLoading) setError(null);
+    if (progData) setComparativeData(progData);
+    if (progPrev) setPreviousMonthData(progPrev);
+    setLoading(progLoading);
+  }, [progData, progPrev, progLoading, progError]);
 
-      setLoading(true);
-      setError(null);
+  // Previous month data now comes from the progressive hook
 
-      try {
-        const formattedStartDate = format(startDate, 'yyyy-MM-dd');
-        const formattedEndDate = format(endDate, 'yyyy-MM-dd');
+  // Plant-level fetching moved to the progressive hook
 
-        const plantData: PlantProductionData[] = [];
-
-        // Fetch data only for selected plants
-        const plantsToProcess = availablePlants.filter(plant => selectedPlants.includes(plant.id));
-        for (const plant of plantsToProcess) {
-          const plantProduction = await fetchPlantProductionData(
-            plant.id,
-            plant.code,
-            plant.name,
-            formattedStartDate,
-            formattedEndDate
-          );
-          if (plantProduction) {
-            plantData.push(plantProduction);
-          }
-        }
-
-        // Get previous month data for comparison
-        const prevMonthData = await fetchPreviousMonthData();
-        setPreviousMonthData(prevMonthData);
-
-        // Organize data into sections like the reference image
-        const comparative: ComparativeData = {
-          section1: plantData, // Consumo (Volume and cement consumption)
-          section2: plantData, // Precios MP (Material prices)
-          section3: plantData, // Costo Total MP (Total material costs)
-          section4: plantData  // Rendimientos (Performance metrics)
-        };
-
-        setComparativeData(comparative);
-
-      } catch (error) {
-        console.error('Error fetching comparative data:', error);
-        setError('Error al cargar los datos comparativos. Por favor, intente nuevamente.');
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchComparativeData();
-  }, [startDate, endDate, availablePlants, selectedPlants]);
-
-  // Function to fetch previous month data for comparison
-  const fetchPreviousMonthData = async (): Promise<PlantProductionData[]> => {
-    if (!startDate || selectedPlants.length === 0) return [];
-
-    try {
-      // Calculate previous month date range
-      const prevMonthStart = startOfMonth(subMonths(startDate, 1));
-      const prevMonthEnd = endOfMonth(subMonths(startDate, 1));
-      const formattedPrevStart = format(prevMonthStart, 'yyyy-MM-dd');
-      const formattedPrevEnd = format(prevMonthEnd, 'yyyy-MM-dd');
-
-      const plantData: PlantProductionData[] = [];
-
-      // Fetch data only for selected plants
-      const plantsToProcess = availablePlants.filter(plant => selectedPlants.includes(plant.id));
-      for (const plant of plantsToProcess) {
-        const plantProduction = await fetchPlantProductionData(
-          plant.id,
-          plant.code,
-          plant.name,
-          formattedPrevStart,
-          formattedPrevEnd
-        );
-        if (plantProduction) {
-          plantData.push(plantProduction);
-        }
-      }
-
-      return plantData;
-    } catch (error) {
-      console.error('Error fetching previous month data:', error);
-      return [];
-    }
-  };
-
-  // Fetch production data for a specific plant
-  const fetchPlantProductionData = async (
-    plantId: string,
-    plantCode: string,
-    plantName: string,
-    startDateStr: string,
-    endDateStr: string
-  ): Promise<PlantProductionData | null> => {
-    try {
-      // Fetch remisiones for this plant
-      const { data: remisiones, error: remisionesError } = await supabase
-        .from('remisiones')
-        .select(`
-          id,
-          volumen_fabricado,
-          recipe_id,
-          recipes!inner(
-            id,
-            recipe_code,
-            strength_fc,
-            age_days
-          )
-        `)
-        .eq('tipo_remision', 'CONCRETO')
-        .eq('plant_id', plantId)
-        .gte('fecha', startDateStr)
-        .lte('fecha', endDateStr);
-
-      if (remisionesError) throw remisionesError;
-
-      if (!remisiones || remisiones.length === 0) {
-        return {
-          plant_id: plantId,
-          plant_code: plantCode,
-          plant_name: plantName,
-          total_volume: 0,
-          total_material_cost: 0,
-          cement_consumption: 0,
-          cement_cost_per_m3: 0,
-          avg_cost_per_m3: 0,
-          remisiones_count: 0,
-          additive_consumption: 0,
-          additive_cost: 0,
-          aggregate_consumption: 0,
-          aggregate_cost: 0,
-          water_consumption: 0,
-          fc_ponderada: 0,
-          edad_ponderada: 0
-        };
-      }
-
-      const totalVolume = remisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
-      const remisionIds = remisiones.map(r => r.id);
-
-      // Fetch material costs for these remisiones
-      const materialCosts = await calculateMaterialCosts(remisionIds, totalVolume, plantId);
-
-      // Calculate F'c ponderada and edad ponderada
-      let fcPonderada = 0;
-      let edadPonderada = 0;
-      
-      if (totalVolume > 0) {
-        let sumFcVolume = 0;
-        let sumEdadVolume = 0;
-        
-        remisiones.forEach(remision => {
-          const volume = remision.volumen_fabricado || 0;
-          const fc = remision.recipes?.strength_fc || 0;
-          const edad = remision.recipes?.age_days || 28;
-          
-          sumFcVolume += fc * volume;
-          sumEdadVolume += edad * volume;
-        });
-        
-        fcPonderada = sumFcVolume / totalVolume;
-        edadPonderada = sumEdadVolume / totalVolume;
-      }
-
-      return {
-        plant_id: plantId,
-        plant_code: plantCode,
-        plant_name: plantName,
-        total_volume: totalVolume,
-        total_material_cost: materialCosts.totalCost,
-        cement_consumption: materialCosts.cementConsumption,
-        cement_cost_per_m3: totalVolume > 0 ? materialCosts.cementCost / totalVolume : 0,
-        avg_cost_per_m3: totalVolume > 0 ? materialCosts.totalCost / totalVolume : 0,
-        remisiones_count: remisiones.length,
-        additive_consumption: materialCosts.additiveConsumption,
-        additive_cost: materialCosts.additiveCost,
-        aggregate_consumption: materialCosts.aggregateConsumption,
-        aggregate_cost: materialCosts.aggregateCost,
-        water_consumption: materialCosts.waterConsumption,
-        fc_ponderada: fcPonderada,
-        edad_ponderada: edadPonderada
-      };
-
-    } catch (error) {
-      console.error(`Error fetching data for plant ${plantCode}:`, error);
-      return null;
-    }
-  };
-
-  // Calculate material costs for remisiones using the same logic as detail page
-  const calculateMaterialCosts = async (remisionIds: string[], totalVolume: number, plantId: string) => {
-    try {
-      if (!remisionIds || remisionIds.length === 0 || totalVolume <= 0) {
-        return {
-          totalCost: 0,
-          cementConsumption: 0,
-          cementCost: 0,
-          additiveConsumption: 0,
-          additiveCost: 0,
-          aggregateConsumption: 0,
-          aggregateCost: 0,
-          waterConsumption: 0
-        };
-      }
-
-      // Fetch actual consumptions from remision_materiales with proper material relationships
-      const selectColumns = `
-        remision_id,
-        material_id,
-        material_type,
-        cantidad_real,
-        materials!inner(
-          id,
-          material_name,
-          unit_of_measure,
-          category,
-          material_code
-        )
-      `;
-
-      const chunkSize = 50;
-      const materialesResults: any[] = [];
-      for (let i = 0; i < remisionIds.length; i += chunkSize) {
-        const chunk = remisionIds.slice(i, i + chunkSize);
-        const { data, error } = await supabase
-          .from('remision_materiales')
-          .select(selectColumns)
-          .in('remision_id', chunk);
-        if (error) {
-          console.error('Error fetching remision_materiales chunk:', error);
-          continue;
-        }
-        if (data) materialesResults.push(...data);
-      }
-
-      const materiales = materialesResults;
-
-      if (!materiales || materiales.length === 0) {
-        return {
-          totalCost: 0,
-          cementConsumption: 0,
-          cementCost: 0,
-          additiveConsumption: 0,
-          additiveCost: 0,
-          aggregateConsumption: 0,
-          aggregateCost: 0,
-          waterConsumption: 0
-        };
-      }
-
-      // Aggregate by material_id
-      const aggregatedByMaterial = new Map<string, { qty: number, material: any, fallbackType?: string }>();
-      materiales.forEach((m: any) => {
-        if (!m.material_id || !m.materials) return;
-        const materialId = String(m.material_id);
-        const qty = Number(m.cantidad_real) || 0;
-
-        if (aggregatedByMaterial.has(materialId)) {
-          const existing = aggregatedByMaterial.get(materialId)!;
-          existing.qty += qty;
-        } else {
-          aggregatedByMaterial.set(materialId, {
-            qty: qty,
-            material: m.materials,
-            fallbackType: m.material_type || undefined
-          });
-        }
-      });
-
-      // Get current material prices using material_id
-      const materialIds = Array.from(aggregatedByMaterial.keys());
-      const currentDate = format(new Date(), 'yyyy-MM-dd');
-      
-      let pricesQuery = supabase
-        .from('material_prices')
-        .select('material_id, price_per_unit, effective_date, end_date, plant_id')
-        .in('material_id', materialIds)
-        .lte('effective_date', currentDate)
-        .or(`end_date.is.null,end_date.gte.${currentDate}`)
-        .order('effective_date', { ascending: false });
-
-      // Prefer plant-specific prices if plant is set
-      if (plantId) {
-        pricesQuery = pricesQuery.eq('plant_id', plantId);
-      }
-
-      const { data: materialPrices, error: pricesError } = await pricesQuery;
-
-      if (pricesError) {
-        console.error('Error fetching material prices:', pricesError);
-      }
-
-      // Create price lookup by material_id
-      const priceMap = new Map();
-      materialPrices?.forEach((mp: any) => {
-        if (!priceMap.has(mp.material_id)) {
-          priceMap.set(mp.material_id, mp.price_per_unit);
-        }
-      });
-
-      // Calculate costs and categorize materials
-      let totalCost = 0;
-      let cementConsumption = 0;
-      let cementCost = 0;
-      let additiveConsumption = 0;
-      let additiveCost = 0;
-      let aggregateConsumption = 0;
-      let aggregateCost = 0;
-      let waterConsumption = 0;
-
-      aggregatedByMaterial.forEach(({ qty, material, fallbackType }, materialId) => {
-        const price = Number(priceMap.get(materialId)) || 0;
-        const cost = qty * price;
-
-        totalCost += cost;
-
-        // Categorize materials based on name and category
-        const typeOrName = String(
-          material.category || material.material_name || fallbackType || ''
-        ).toLowerCase();
-
-        if (typeOrName.includes('cement') || typeOrName.includes('cemento')) {
-          cementConsumption += qty;
-          cementCost += cost;
-        } else if (typeOrName.includes('aditivo') || typeOrName.includes('additive') || 
-                   typeOrName.includes('plastificante') || typeOrName.includes('superplastificante')) {
-          additiveConsumption += qty;
-          additiveCost += cost;
-        } else if (typeOrName.includes('agregado') || typeOrName.includes('arena') || 
-                   typeOrName.includes('grava') || typeOrName.includes('piedra') ||
-                   typeOrName.includes('aggregate') || typeOrName.includes('sand') ||
-                   typeOrName.includes('gravel') || typeOrName.includes('stone')) {
-          aggregateConsumption += qty;
-          aggregateCost += cost;
-        } else if (typeOrName.includes('agua') || typeOrName.includes('water')) {
-          waterConsumption += qty;
-        }
-      });
-
-      return {
-        totalCost,
-        cementConsumption,
-        cementCost,
-        additiveConsumption,
-        additiveCost,
-        aggregateConsumption,
-        aggregateCost,
-        waterConsumption
-      };
-
-    } catch (error) {
-      console.error('Error calculating material costs:', error);
-      return {
-        totalCost: 0,
-        cementConsumption: 0,
-        cementCost: 0,
-        additiveConsumption: 0,
-        additiveCost: 0,
-        aggregateConsumption: 0,
-        aggregateCost: 0,
-        waterConsumption: 0
-      };
-    }
-  };
+  // Cost calculation moved to the progressive hook
 
   // Export data to Excel
   const exportToExcel = () => {
@@ -864,7 +513,8 @@ export default function ComparativaProduccion() {
     );
   };
 
-  if (loading) {
+  // Show top-level loader only before first chunk
+  if (loading && !streaming) {
     return (
       <div className="container mx-auto p-6">
         <div className="space-y-6">
@@ -964,6 +614,25 @@ export default function ComparativaProduccion() {
         <Alert className="mb-6">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      )}
+
+      {(loading || streaming) && (
+        <div className="flex items-center justify-center py-6">
+          <div className="flex items-center gap-3 w-full max-w-xl">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-sm">Cargando datos de producción...</span>
+          </div>
+          {streaming && (
+            <div className="w-full mt-4">
+              <div className="w-full bg-gray-100 border rounded h-2 overflow-hidden">
+                <div className="bg-blue-500 h-2" style={{ width: `${Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%` }} />
+              </div>
+              <div className="text-xs text-muted-foreground mt-1 text-center">
+                Progresando… {Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Quick access to detailed analysis */}
