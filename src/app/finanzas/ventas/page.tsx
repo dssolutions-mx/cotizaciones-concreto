@@ -54,6 +54,7 @@ import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
 
 // Import quality service
 import { ClientQualityService } from '@/services/clientQualityService';
+import { useProgressiveGuaranteeAge } from '@/hooks/useProgressiveGuaranteeAge';
 
 // Dynamically import ApexCharts with SSR disabled
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -446,34 +447,25 @@ export default function VentasDashboard() {
     return isNaN(pct) ? 0 : Math.min(100, Math.max(0, pct));
   }, [progress]);
 
-  // Load guarantee age data
+  // Progressive guarantee age loading
+  const { data: progressiveGuarantee, streaming: gaStreaming, progress: gaProgress } = useProgressiveGuaranteeAge(
+    startDate,
+    endDate,
+    currentPlant?.id,
+    { newestFirst: true }
+  );
+
   useEffect(() => {
-    const loadGuaranteeAgeData = async () => {
-      if (startDate && endDate) {
-        try {
-          const fromDateStr = format(startDate, 'yyyy-MM-dd');
-          const toDateStr = format(endDate, 'yyyy-MM-dd');
+    if (progressiveGuarantee) {
+      setGuaranteeAgeData(progressiveGuarantee);
+    }
+  }, [progressiveGuarantee]);
 
-          const guaranteeAgeResult = await ClientQualityService.getAverageGuaranteeAge(
-            fromDateStr,
-            toDateStr,
-            currentPlant?.id
-          );
-
-          setGuaranteeAgeData(guaranteeAgeResult);
-        } catch (error) {
-          console.error('Error loading guarantee age data:', error);
-          setGuaranteeAgeData({
-            averageGuaranteeAge: 0,
-            totalRecipes: 0,
-            ageDistribution: {}
-          });
-        }
-      }
-    };
-
-    loadGuaranteeAgeData();
-  }, [startDate, endDate, currentPlant?.id]);
+  const gaPercent = useMemo(() => {
+    if (!gaProgress || !gaProgress.total || gaProgress.total === 0) return 0;
+    const pct = Math.round((gaProgress.processed / gaProgress.total) * 100);
+    return isNaN(pct) ? 0 : Math.min(100, Math.max(0, pct));
+  }, [gaProgress]);
 
   // Excel Export Function using utility
   const exportToExcel = () => {
@@ -708,12 +700,43 @@ export default function VentasDashboard() {
                             <span className="text-purple-700">
                                 📋 {guaranteeAgeData?.totalRecipes || 0} fórmulas
                             </span>
+                            {gaStreaming && (
+                              <span className="text-purple-700">
+                                ⏳ {gaPercent}%
+                              </span>
+                            )}
                         </div>
                         </CardHeader>
                     <CardContent className='p-2 pt-0'>
-                            <div className="text-center text-xs text-purple-600">
+                            <div className="text-center text-xs text-purple-600 mb-2">
                             Promedio de edad de garantía (días)
                             </div>
+                            {/* Lightweight histogram */}
+                            {guaranteeAgeData && Object.keys(guaranteeAgeData.ageDistribution || {}).length > 0 && (
+                              <div className="px-2">
+                                <div className="grid grid-cols-6 gap-1 items-end">
+                                  {Object.entries(guaranteeAgeData.ageDistribution)
+                                    .sort((a, b) => {
+                                      const an = parseFloat(a[0]);
+                                      const bn = parseFloat(b[0]);
+                                      return an - bn;
+                                    })
+                                    .slice(0, 12)
+                                    .map(([label, count]) => (
+                                      <div key={`ga-bin-${label}`} className="flex flex-col items-center">
+                                        <div
+                                          className="w-3 bg-purple-400 rounded"
+                                          style={{ height: `${Math.min(100, (Number(count) / Math.max(1, guaranteeAgeData.totalRecipes)) * 80 + 10)}px` }}
+                                          title={`${label}: ${count}`}
+                                        />
+                                        <div className="mt-1 text-[10px] text-purple-700 truncate max-w-[24px]" title={label}>
+                                          {label.replace(' días','d')}
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
+                              </div>
+                            )}
                         </CardContent>
                     </Card>
                 </div>

@@ -1481,7 +1481,7 @@ export default function ProduccionDashboard() {
               <CardContent>
                 <CementTrendComponent
                   categories={trendCatsV2}
-                  data={(trendSeriesV2 && trendSeriesV2[0] && Array.isArray(trendSeriesV2[0].data)) ? trendSeriesV2[0].data as number[] : []}
+                  series={Array.isArray(trendSeriesV2) ? trendSeriesV2 as any : []}
                   loading={!!trendLoadingV2}
                 />
               </CardContent>
