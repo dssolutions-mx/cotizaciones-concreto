@@ -15,13 +15,16 @@ import {
   Search,
   ChevronRight,
   Building2,
-  Beaker,
   Shield,
   Truck,
   Calculator,
   TrendingUp,
   Database,
-  Settings
+  Settings,
+  Bell,
+  Headphones,
+  BadgeCheck,
+  Receipt
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -70,23 +73,75 @@ export default function LandingPage() {
             className="max-w-3xl"
           >
             <h1 className="text-5xl font-bold mb-4 drop-shadow-lg">
-              Sistema Integral de Gestión para Plantas de Concreto
+              Portal de Clientes: Transparencia, Calidad y Finanzas Claras
             </h1>
             <p className="text-xl mb-8 drop-shadow-sm text-gray-100">
-              Administra tu planta de concreto de manera integral: cotizaciones, finanzas, control de calidad, recetas, operaciones y más en una sola plataforma
+              Consulta el estado de tus pedidos en tiempo real, verifica la calidad con evidencias y controla tu saldo y pagos desde un mismo lugar.
             </p>
-            <div className="flex justify-center">
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a href="/login">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg"
                 >
-                  Acceder al Sistema
+                  Entrar al Portal
+                </motion.button>
+              </a>
+              <a href="/contact">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="bg-white/10 hover:bg-white/15 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg border border-white/20"
+                >
+                  Solicitar una demo
                 </motion.button>
               </a>
             </div>
+            <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[{
+                icon: <BadgeCheck className="w-5 h-5" />, title: 'Transparencia en cada pedido'
+              },{
+                icon: <Shield className="w-5 h-5" />, title: 'Laboratorio y control de calidad'
+              },{
+                icon: <BarChart3 className="w-5 h-5" />, title: 'Estado de cuenta en tiempo real'
+              },{
+                icon: <Headphones className="w-5 h-5" />, title: 'Soporte dedicado'
+              }].map((badge, i) => (
+                <div key={i} className="flex items-center gap-2 bg-white/10 rounded-md px-4 py-2 backdrop-blur-sm">
+                  <div className="text-green-300">
+                    {badge.icon}
+                  </div>
+                  <span className="text-sm text-gray-100">{badge.title}</span>
+                </div>
+              ))}
+            </div>
           </motion.div>
+        </div>
+      </section>
+
+      {/* Pilares principales */}
+      <section className="py-16 bg-white">
+        <div className="container mx-auto px-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[{
+              icon: <Search className="w-7 h-7" />, title: 'Transparencia total', desc: 'Seguimiento de pedidos, remisiones y evidencias de entrega en un clic.'
+            },{
+              icon: <Shield className="w-7 h-7" />, title: 'Calidad comprobable', desc: 'Resultados de ensayos, muestreos y certificados disponibles para tus obras.'
+            },{
+              icon: <DollarSign className="w-7 h-7" />, title: 'Finanzas claras', desc: 'Saldo al día, pagos registrados y documentos disponibles cuando los necesites.'
+            }].map((item, idx) => (
+              <div key={idx} className="bg-gray-50 border border-gray-100 rounded-xl p-6 flex items-start gap-4">
+                <div className="text-green-600 bg-green-100 rounded-lg w-12 h-12 flex items-center justify-center">
+                  {item.icon}
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-800">{item.title}</h3>
+                  <p className="text-gray-600 text-sm mt-1">{item.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -94,57 +149,57 @@ export default function LandingPage() {
       <section id="features" className="py-20 bg-gray-50">
         <div className="container mx-auto px-6">
           <h2 className="text-3xl font-bold text-center mb-16 text-gray-800">
-            Módulos Principales del Sistema
+            Portal del Cliente: ¿Qué puedes hacer?
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {[
               { 
-                title: 'Gestión Financiera', 
-                description: 'Control de balances, aprobación de créditos, pagos y reportes financieros completos',
-                icon: <DollarSign className="w-8 h-8" />,
-                href: '/finanzas',
+                title: 'Estado de pedidos en tiempo real', 
+                description: 'Sigue tus entregas, horarios y remisiones desde cualquier dispositivo',
+                icon: <Truck className="w-8 h-8" />,
+                href: '/orders',
                 color: 'bg-blue-50 text-blue-600',
-                features: ['Balances de clientes', 'Aprobación de créditos', 'Reportes financieros', 'Control de pagos']
+                features: ['Seguimiento de entrega', 'Remisiones asociadas', 'Historial por obra']
               },
               { 
-                title: 'Control de Calidad', 
-                description: 'Gestión de ensayos, muestreos, alertas y métricas de calidad del concreto',
-                icon: <Shield className="w-8 h-8" />,
+                title: 'Calidad y certificados', 
+                description: 'Consulta ensayos, muestreos y certificados de tus colados',
+                icon: <FileCheck className="w-8 h-8" />,
                 href: '/quality',
                 color: 'bg-green-50 text-green-600',
-                features: ['Ensayos de resistencia', 'Muestreos', 'Alertas de calidad', 'Métricas y gráficos']
+                features: ['Ensayos y resultados', 'Certificados por pedido', 'Alertas de calidad']
               },
               { 
-                title: 'Gestión de Recetas', 
-                description: 'Diseño, cálculo y administración de fórmulas de concreto con calculadora integrada',
-                icon: <Beaker className="w-8 h-8" />,
-                href: '/recipes',
+                title: 'Saldo y pagos', 
+                description: 'Revisa tu saldo, descarga estados de cuenta y registra pagos',
+                icon: <DollarSign className="w-8 h-8" />,
+                href: '/finanzas',
                 color: 'bg-purple-50 text-purple-600',
-                features: ['Diseño de recetas', 'Calculadora de mezclas', 'Base de datos', 'Validación técnica']
+                features: ['Saldo actualizado', 'Historial de pagos', 'Descarga de documentos']
               },
               { 
-                title: 'Cotizaciones y Ventas', 
-                description: 'Sistema completo de cotizaciones, órdenes y seguimiento de ventas',
-                icon: <FileText className="w-8 h-8" />,
-                href: '/quotes',
+                title: 'Remisiones y documentos', 
+                description: 'Descarga remisiones, facturas y documentación de tus obras',
+                icon: <Receipt className="w-8 h-8" />,
+                href: '/finanzas',
                 color: 'bg-orange-50 text-orange-600',
-                features: ['Cotizaciones rápidas', 'Gestión de órdenes', 'Historial de precios', 'Seguimiento']
+                features: ['Remisiones por obra', 'Facturas y CFDI', 'Comprobantes disponibles']
               },
               { 
-                title: 'Gestión de Clientes', 
-                description: 'Administración integral de clientes, sitios de construcción y relaciones comerciales',
-                icon: <Users className="w-8 h-8" />,
-                href: '/clients',
+                title: 'Notificaciones y alertas', 
+                description: 'Recibe avisos de programación, cambios y resultados de calidad',
+                icon: <Bell className="w-8 h-8" />,
+                href: '/dashboard',
                 color: 'bg-indigo-50 text-indigo-600',
-                features: ['Base de clientes', 'Sitios de obra', 'Historial comercial', 'Gestión de contactos']
+                features: ['Alertas de entrega', 'Cambios de horario', 'Resultados de laboratorio']
               },
               { 
-                title: 'Operaciones de Planta', 
-                description: 'Control de producción, remisiones, programación y logística de entrega',
-                icon: <Building2 className="w-8 h-8" />,
-                href: '/orders',
+                title: 'Soporte y comunicación', 
+                description: 'Habla con nuestro equipo comercial y de calidad cuando lo necesites',
+                icon: <Headphones className="w-8 h-8" />,
+                href: '/contact',
                 color: 'bg-red-50 text-red-600',
-                features: ['Programación', 'Remisiones', 'Control de producción', 'Logística']
+                features: ['Chat y correo', 'Atención a obra', 'Acompañamiento técnico']
               }
             ].map((item, index) => (
               <motion.div
@@ -168,7 +223,7 @@ export default function LandingPage() {
                   ))}
                 </ul>
                 <a href={item.href} className="text-green-600 hover:text-green-700 font-medium inline-flex items-center">
-                  Explorar módulo <ChevronRight className="w-4 h-4 ml-1" />
+                  Explorar <ChevronRight className="w-4 h-4 ml-1" />
                 </a>
               </motion.div>
             ))}
@@ -304,19 +359,28 @@ export default function LandingPage() {
         <div className="container mx-auto px-6 relative z-20">
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="text-3xl font-bold mb-6 text-white">
-              Bienvenido al Sistema de Gestión
+              Transparencia y control para tus obras
             </h2>
             <p className="text-gray-200 mb-10 text-lg">
-              Accede a todas las herramientas que necesitas para tu trabajo diario en la planta
+              Ingresa al portal para ver tus pedidos, calidad y estado de cuenta en tiempo real, o agenda una demostración con nuestro equipo.
             </p>
-            <div className="flex justify-center">
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a href="/login">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg"
                 >
-                  Acceder al Sistema
+                  Entrar al Portal
+                </motion.button>
+              </a>
+              <a href="/contact">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="bg-white/10 hover:bg-white/15 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg border border-white/20"
+                >
+                  Solicitar una demo
                 </motion.button>
               </a>
             </div>
