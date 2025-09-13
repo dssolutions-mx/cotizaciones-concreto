@@ -251,20 +251,25 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
 
   const metrics = calculateAdvancedMetrics();
 
-  // Compliance histogram data
-  const complianceHistogram = (() => {
-    const allEnsayos = data.remisiones.flatMap(remision => 
-      remision.muestreos.flatMap(muestreo => 
-        muestreo.muestras.flatMap(muestra => 
-          muestra.ensayos.filter(ensayo => 
-            ensayo.isEdadGarantia && 
-            !ensayo.isEnsayoFueraTiempo && 
+  // Precompute guarantee-age ensayos once to keep charts consistent
+  const guaranteeAgeEnsayos = React.useMemo(() => {
+    return data.remisiones.flatMap(remision =>
+      remision.muestreos.flatMap(muestreo =>
+        muestreo.muestras.flatMap(muestra =>
+          (muestra.ensayos || []).filter(ensayo =>
+            ensayo.isEdadGarantia &&
+            !ensayo.isEnsayoFueraTiempo &&
             (ensayo.resistenciaCalculada || 0) > 0 &&
             (ensayo.porcentajeCumplimiento || 0) >= 0
           )
         )
       )
     );
+  }, [data]);
+
+  // Compliance histogram data
+  const complianceHistogram = (() => {
+    const allEnsayos = guaranteeAgeEnsayos;
     const ranges = [
       { key: '0-80', from: 0, to: 80 },
       { key: '80-85', from: 80, to: 85 },
