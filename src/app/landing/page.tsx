@@ -78,7 +78,7 @@ export default function LandingPage() {
             <p className="text-xl mb-8 drop-shadow-sm text-gray-100">
               Consulta el estado de tus pedidos en tiempo real, verifica la calidad con evidencias y controla tu saldo y pagos desde un mismo lugar.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <div className="flex justify-center">
               <a href="/login">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -86,15 +86,6 @@ export default function LandingPage() {
                   className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg"
                 >
                   Entrar al Portal
-                </motion.button>
-              </a>
-              <a href="/contact">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="bg-white/10 hover:bg-white/15 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg border border-white/20"
-                >
-                  Solicitar una demo
                 </motion.button>
               </a>
             </div>
@@ -362,9 +353,9 @@ export default function LandingPage() {
               Transparencia y control para tus obras
             </h2>
             <p className="text-gray-200 mb-10 text-lg">
-              Ingresa al portal para ver tus pedidos, calidad y estado de cuenta en tiempo real, o agenda una demostración con nuestro equipo.
+              Ingresa al portal para ver tus pedidos, calidad y estado de cuenta en tiempo real.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <div className="flex justify-center">
               <a href="/login">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -372,15 +363,6 @@ export default function LandingPage() {
                   className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg"
                 >
                   Entrar al Portal
-                </motion.button>
-              </a>
-              <a href="/contact">
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="bg-white/10 hover:bg-white/15 text-white font-bold py-3 px-8 rounded-md transition-all duration-300 shadow-lg border border-white/20"
-                >
-                  Solicitar una demo
                 </motion.button>
               </a>
             </div>
