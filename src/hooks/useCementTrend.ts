@@ -81,22 +81,42 @@ export function useCementTrend(plantId: string | null | undefined, monthsToShow:
             continue;
           }
           const ids = rows.map(r => r.id);
-          const weekVol = rows.reduce((s, r) => s + (Number(r.volumen_fabricado) || 0), 0);
+          // Map remision_id -> month key derived directly from remision fecha (no Date conversion)
+          const idToMonth = new Map<string, string>();
+          rows.forEach((r) => {
+            const f = String(r.fecha || '');
+            const mk = f.length >= 7 ? f.slice(0, 7) : '';
+            if (mk) idToMonth.set(r.id, mk);
+          });
           const materiales = await getRemisionMaterialesByRemisionIdsInChunks(
             ids,
             50,
             'remision_id, cantidad_real, materials!inner(material_name, category, material_code)'
           );
-          // Aggregate week cement
-          let weekCement = 0;
+          // Build set of remisiones that actually have materiales
+          const includedRemisionIds = new Set<string>();
           (materiales || []).forEach((row: any) => {
-            const haystack = `${String(row.materials?.category||'').toLowerCase()} ${String(row.materials?.material_name||'').toLowerCase()} ${String(row.materials?.material_code||'').toLowerCase()}`;
-            const isCement = haystack.includes('cement') || haystack.includes('cemento') || haystack.includes('cem ' ) || haystack.includes(' cem') || haystack.includes('cem-') || haystack.includes('cem40') || haystack.includes('cem 40');
-            if (isCement) weekCement += Number(row.cantidad_real) || 0;
+            if (row && row.remision_id) includedRemisionIds.add(row.remision_id);
           });
-          const monthKey = format(w.start, 'yyyy-MM');
-          monthToVolume.set(monthKey, (monthToVolume.get(monthKey) || 0) + weekVol);
-          monthToCement.set(monthKey, (monthToCement.get(monthKey) || 0) + weekCement);
+
+          // Aggregate volumes ONLY for remisiones that have materiales, by their own month
+          rows.forEach((r) => {
+            if (!includedRemisionIds.has(r.id)) return;
+            const mk = idToMonth.get(r.id);
+            if (!mk) return;
+            const vol = Number(r.volumen_fabricado) || 0;
+            monthToVolume.set(mk, (monthToVolume.get(mk) || 0) + vol);
+          });
+
+          // Aggregate cement ONLY for cement materials, bucketed by the remision's own month
+          (materiales || []).forEach((row: any) => {
+            const mk = idToMonth.get(row.remision_id);
+            if (!mk) return;
+            const haystack = `${String(row.materials?.category||'').toLowerCase()} ${String(row.materials?.material_name||'').toLowerCase()} ${String(row.materials?.material_code||'').toLowerCase()}`;
+            const isCement = haystack.includes('cement') || haystack.includes('cemento') || haystack.includes('cem ') || haystack.includes(' cem') || haystack.includes('cem-') || haystack.includes('cem40') || haystack.includes('cem 40');
+            if (!isCement) return;
+            monthToCement.set(mk, (monthToCement.get(mk) || 0) + (Number(row.cantidad_real) || 0));
+          });
           setProgress((p) => ({ processed: Math.min(p.processed + 1, p.total), total: p.total }));
         }
 

@@ -18,6 +18,7 @@ import { CementTrend as CementTrendComponent } from '@/components/production/Cem
 import { SummaryCards as SummaryCardsV2 } from '@/components/production/SummaryCards';
 import { VolumeByStrengthCards as VolumeByStrengthCardsV2 } from '@/components/production/VolumeByStrengthCards';
 import { ProductionSummaryTable as ProductionSummaryTableV2 } from '@/components/production/Tables/ProductionSummaryTable';
+import { MaterialsByStrengthTable as MaterialsByStrengthTableV2 } from '@/components/production/Tables/MaterialsByStrengthTable';
 import { Download, TrendingUp, Package, DollarSign, BarChart3, ArrowUpIcon, ArrowDownIcon, AlertTriangle, CheckCircle2, Search, CheckCircle, Info } from "lucide-react";
 import {
   Select,
@@ -139,7 +140,6 @@ interface MissingPriceData {
 
 export default function ProduccionDashboard() {
   const { currentPlant } = usePlantContext();
-  const useV2 = typeof process !== 'undefined' && process.env.NEXT_PUBLIC_PROD_DET_V2 === 'true';
   const { categories: trendCatsV2, series: trendSeriesV2, loading: trendLoadingV2 } = useCementTrend(currentPlant?.id, 6);
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
@@ -711,17 +711,8 @@ export default function ProduccionDashboard() {
         .lte('fecha', formattedEnd);
       if (remErr) throw remErr;
 
-      // Bucket remisiones by month
-      const monthToIds = new Map<string, string[]>();
       const monthToVolume = new Map<string, number>();
-      const allIds: string[] = [];
-      (rems || []).forEach((r: any) => {
-        const key = format(new Date(r.fecha), 'yyyy-MM');
-        if (!monthToIds.has(key)) monthToIds.set(key, []);
-        monthToIds.get(key)!.push(r.id);
-        monthToVolume.set(key, (monthToVolume.get(key) || 0) + (Number(r.volumen_fabricado) || 0));
-        allIds.push(r.id);
-      });
+      const allIds: string[] = (rems || []).map((r: any) => r.id);
 
       if (allIds.length === 0) {
         setCementTrendData({ categories: monthLabels, series: [{ name: 'Consumo Cemento (kg/m³)', data: monthLabels.map(() => 0) }] });
@@ -732,10 +723,15 @@ export default function ProduccionDashboard() {
       // 2) Fetch remision_materiales for all ids with materials join in chunks (unified detection)
       const chunkSize = 25;
       const idToMonth = new Map<string, string>();
+      const idToVolume = new Map<string, number>();
       (rems || []).forEach((r: any) => {
-        idToMonth.set(r.id, format(new Date(r.fecha), 'yyyy-MM'));
+        const f: string = String(r.fecha || '');
+        const mk = f.length >= 7 ? f.slice(0, 7) : '';
+        if (mk) idToMonth.set(r.id, mk);
+        idToVolume.set(r.id, Number(r.volumen_fabricado) || 0);
       });
       const monthToCement = new Map<string, number>();
+      const includedRemisionIds = new Set<string>();
       for (let i = 0; i < allIds.length; i += chunkSize) {
         const chunk = allIds.slice(i, i + chunkSize);
         const { data, error } = await supabase
@@ -747,14 +743,23 @@ export default function ProduccionDashboard() {
           continue;
         }
         (data || []).forEach((row: any) => {
+          if (row && row.remision_id) includedRemisionIds.add(row.remision_id);
           const mk = idToMonth.get(row.remision_id);
           if (!mk) return;
           const haystack = `${String(row.materials?.category||'').toLowerCase()} ${String(row.materials?.material_name||'').toLowerCase()} ${String(row.materials?.material_code||'').toLowerCase()}`;
-          const isCement = haystack.includes('cement') || haystack.includes('cemento') || haystack.includes('cem ' ) || haystack.includes(' cem') || haystack.includes('cem-') || haystack.includes('cem40') || haystack.includes('cem 40');
+          const isCement = haystack.includes('cement') || haystack.includes('cemento') || haystack.includes('cem ') || haystack.includes(' cem') || haystack.includes('cem-') || haystack.includes('cem40') || haystack.includes('cem 40');
           if (!isCement) return;
           monthToCement.set(mk, (monthToCement.get(mk) || 0) + (Number(row.cantidad_real) || 0));
         });
       }
+
+      // 3) Aggregate month volumes ONLY for remisiones that have materiales, by their own month
+      (rems || []).forEach((r: any) => {
+        if (!includedRemisionIds.has(r.id)) return;
+        const mk = idToMonth.get(r.id);
+        if (!mk) return;
+        monthToVolume.set(mk, (monthToVolume.get(mk) || 0) + (idToVolume.get(r.id) || 0));
+      });
 
       // 5) Build series in correct order
       let dataPoints = monthKeys.map(key => {
@@ -1273,73 +1278,13 @@ export default function ProduccionDashboard() {
       )}
 
       <div>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Volumen Total</CardTitle>
-                <Package className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{summaryMetrics.totalVolume.toFixed(1)} m³</div>
-                <p className="text-xs text-muted-foreground">
-                  Concreto producido en el período
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Costo Total de Materiales</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(summaryMetrics.totalMaterialCost)}</div>
-                <p className="text-xs text-muted-foreground">
-                  Inversión en materias primas
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Costo Promedio</CardTitle>
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(summaryMetrics.weightedAvgCostPerM3)}</div>
-                <p className="text-xs text-muted-foreground">
-                  por m³ (costo ponderado)
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Consumo Cemento</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{(summaryMetrics.totalCementConsumption / 1000).toFixed(1)} t</div>
-                <p className="text-xs text-muted-foreground">
-                  Total de cemento utilizado
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Cemento por m³</CardTitle>
-                <BarChart3 className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{summaryMetrics.avgCementConsumptionPerM3.toFixed(1)} kg/m³</div>
-                <p className="text-xs text-muted-foreground">
-                  Consumo promedio por m³
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+          <SummaryCardsV2
+            totalVolume={summaryMetrics.totalVolume}
+            totalMaterialCost={summaryMetrics.totalMaterialCost}
+            weightedAvgCostPerM3={summaryMetrics.weightedAvgCostPerM3}
+            totalCementConsumption={summaryMetrics.totalCementConsumption}
+            avgCementPerM3={summaryMetrics.avgCementConsumptionPerM3}
+          />
 
           {/* Global Materials Summary */}
           {globalMaterialsSummary && (
@@ -1519,103 +1464,7 @@ export default function ProduccionDashboard() {
                 <CardDescription>Distribución de la producción por tipo de concreto</CardDescription>
               </CardHeader>
               <CardContent>
-                {volumeByStrengthCards.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {volumeByStrengthCards.map((card, index) => {
-                      // Generate color based on percentage for visual hierarchy
-                      const getColorClasses = (percentage: number, index: number) => {
-                        if (index === 0) {
-                          // Highest percentage - primary color
-                          return {
-                            bg: 'bg-blue-50',
-                            border: 'border-blue-200',
-                            text: 'text-blue-900',
-                            accent: 'bg-blue-500'
-                          };
-                        } else if (percentage > 20) {
-                          // High percentage - green
-                          return {
-                            bg: 'bg-green-50',
-                            border: 'border-green-200', 
-                            text: 'text-green-900',
-                            accent: 'bg-green-500'
-                          };
-                        } else if (percentage > 10) {
-                          // Medium percentage - orange
-                          return {
-                            bg: 'bg-orange-50',
-                            border: 'border-orange-200',
-                            text: 'text-orange-900', 
-                            accent: 'bg-orange-500'
-                          };
-                        } else {
-                          // Low percentage - gray
-                          return {
-                            bg: 'bg-gray-50',
-                            border: 'border-gray-200',
-                            text: 'text-gray-900',
-                            accent: 'bg-gray-500'
-                          };
-                        }
-                      };
-
-                      const colors = getColorClasses(card.percentage, index);
-                      
-                      return (
-                        <div 
-                          key={card.id}
-                          className={`relative p-4 rounded-lg border-2 ${colors.bg} ${colors.border} transition-all hover:shadow-md`}
-                        >
-                          {/* Percentage indicator bar */}
-                          <div className="absolute top-0 left-0 right-0 h-1 bg-gray-200 rounded-t-lg overflow-hidden">
-                            <div 
-                              className={`h-full ${colors.accent} transition-all duration-500`}
-                              style={{ width: `${card.percentage}%` }}
-                            />
-                          </div>
-                          
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex flex-col gap-1">
-                              <Badge variant="outline" className={`${colors.text} border-current`}>
-                                {card.strength} kg/cm²
-                              </Badge>
-                              <div className="text-xs text-muted-foreground font-mono">
-                                {card.recipe_code}
-                              </div>
-                            </div>
-                            {index === 0 && (
-                              <div className="flex items-center text-xs text-blue-600 font-medium">
-                                <TrendingUp className="h-3 w-3 mr-1" />
-                                Mayor
-                              </div>
-                            )}
-                          </div>
-                          
-                          <div className="space-y-1">
-                            <div className={`text-2xl font-bold ${colors.text}`}>
-                              {card.percentage.toFixed(1)}%
-                            </div>
-                            <div className="text-sm text-muted-foreground">
-                              {card.volume.toFixed(1)} m³
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {card.remisiones} remisiones
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center h-80">
-                    <div className="text-center">
-                      <Package className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">
-                        No hay datos de producción para mostrar.
-                      </p>
-                    </div>
-                  </div>
-                )}
+                <VolumeByStrengthCardsV2 items={volumeByStrengthCards as any} />
               </CardContent>
             </Card>
 
@@ -1630,42 +1479,11 @@ export default function ProduccionDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {useV2 ? (
-                  <CementTrendComponent
-                    categories={trendCatsV2}
-                    data={(trendSeriesV2 && trendSeriesV2[0] && Array.isArray(trendSeriesV2[0].data)) ? trendSeriesV2[0].data as number[] : []}
-                    loading={!!trendLoadingV2}
-                  />
-                ) : (
-                  <>
-                    {trendLoading ? (
-                      <div className="flex items-center justify-center h-80">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                        <span className="ml-2 text-muted-foreground">Cargando datos de tendencia...</span>
-                      </div>
-                    ) : cementTrendData.categories.length > 0 ? (
-                      typeof window !== 'undefined' && (
-                        <Chart
-                          options={{
-                            ...cementTrendChartOptions,
-                            chart: { ...cementTrendChartOptions.chart, background: 'transparent' }
-                          }}
-                          series={cementTrendData.series}
-                          type="line"
-                          height={320}
-                        />
-                      )
-                    ) : (
-                      <div className="flex items-center justify-center h-80">
-                        <div className="text-center">
-                          <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                          <p className="text-muted-foreground">No hay datos suficientes para mostrar la tendencia.</p>
-                          <p className="text-sm text-muted-foreground mt-2">Asegúrate de tener una planta seleccionada y datos de producción disponibles.</p>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
+                <CementTrendComponent
+                  categories={trendCatsV2}
+                  data={(trendSeriesV2 && trendSeriesV2[0] && Array.isArray(trendSeriesV2[0].data)) ? trendSeriesV2[0].data as number[] : []}
+                  loading={!!trendLoadingV2}
+                />
               </CardContent>
             </Card>
           </div>
@@ -1707,124 +1525,23 @@ export default function ProduccionDashboard() {
                 </TabsList>
 
                 <TabsContent value="summary">
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Resistencia</TableHead>
-                          <TableHead>Código Receta</TableHead>
-                          <TableHead className="text-right">Volumen (m³)</TableHead>
-                          <TableHead className="text-right">Remisiones</TableHead>
-                          <TableHead className="text-right">Costo por m³</TableHead>
-                          <TableHead className="text-right">Costo Total</TableHead>
-                          <TableHead className="text-right">Precio Promedio</TableHead>
-                          <TableHead className="text-right">Margen por m³</TableHead>
-                          <TableHead className="text-right">% Cemento</TableHead>
-                          <TableHead className="text-right">Cemento por m³</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredProductionData.map((item, index) => (
-                          <TableRow key={index}>
-                            <TableCell>
-                              <Badge variant="outline">
-                                {item.strength_fc} kg/cm²
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-medium">
-                              {item.recipe_code}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {item.total_volume.toFixed(2)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {item.remisiones_count}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(item.avg_cost_per_m3)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(item.total_material_cost)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(item.avg_selling_price || 0)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(item.margin_per_m3 || 0)}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-orange-100 text-orange-800 text-sm font-medium">
-                                {((item.cement_cost / item.total_material_cost) * 100).toFixed(1)}%
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 text-sm font-medium">
-                                {(item.cement_consumption / item.total_volume).toFixed(1)} kg/m³
-                              </span>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        {filteredProductionData.length > 0 && (
-                          <TableRow>
-                            <TableCell colSpan={2} className="font-bold">TOTAL</TableCell>
-                            <TableCell className="text-right font-bold">
-                              {summaryMetrics.totalVolume.toFixed(2)}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {filteredProductionData.reduce((sum, item) => sum + item.remisiones_count, 0)}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {formatCurrency(summaryMetrics.weightedAvgCostPerM3)}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {formatCurrency(summaryMetrics.totalMaterialCost)}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {formatCurrency((() => {
-                                const vols = filteredProductionData.reduce((acc, i) => acc + i.total_volume, 0);
-                                const rev = filteredProductionData.reduce((acc, i) => acc + (i.avg_selling_price || 0) * i.total_volume, 0);
-                                return vols > 0 ? rev / vols : 0;
-                              })())}
-                            </TableCell>
-                            <TableCell className="text-right font-bold">
-                              {formatCurrency((() => {
-                                const vols = filteredProductionData.reduce((acc, i) => acc + i.total_volume, 0);
-                                const rev = filteredProductionData.reduce((acc, i) => acc + (i.avg_selling_price || 0) * i.total_volume, 0);
-                                return vols > 0 ? (rev / vols) - summaryMetrics.weightedAvgCostPerM3 : 0;
-                              })())}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-orange-200 text-orange-900 text-sm font-bold">
-                                {summaryMetrics.cementCostPercentage.toFixed(1)}%
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right">
-                              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-200 text-blue-900 text-sm font-bold">
-                                {summaryMetrics.avgCementConsumptionPerM3.toFixed(1)} kg/m³
-                              </span>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
+                  <ProductionSummaryTableV2 items={filteredProductionData as any} summary={summaryMetrics as any} />
                 </TabsContent>
 
                 <TabsContent value="materials">
                   <div className="space-y-6">
-                    {/* Aggregate materials by strength across recipes */}
-                    {Array.from(
-                      filteredProductionData.reduce((map, item) => {
+                    {(() => {
+                      const aggMap = filteredProductionData.reduce((map: Map<number, any>, item: any) => {
                         const key = item.strength_fc;
                         const existing = map.get(key) || {
                           strength_fc: key,
                           total_volume: 0,
                           total_cost: 0,
-                          breakdown: new Map<string, MaterialBreakdown>()
+                          breakdown: new Map<string, any>()
                         };
                         existing.total_volume += item.total_volume;
                         existing.total_cost += item.total_material_cost;
-                        item.materials_breakdown.forEach(mb => {
+                        item.materials_breakdown.forEach((mb: any) => {
                           const b = existing.breakdown.get(mb.material_name) || {
                             material_type: mb.material_type,
                             material_name: mb.material_name,
@@ -1832,7 +1549,6 @@ export default function ProduccionDashboard() {
                             unit: mb.unit,
                             total_cost: 0,
                             cost_per_unit: mb.cost_per_unit,
-                            cost_per_m3: 0
                           };
                           b.total_consumption += mb.total_consumption;
                           b.total_cost += mb.total_cost;
@@ -1840,78 +1556,12 @@ export default function ProduccionDashboard() {
                         });
                         map.set(key, existing);
                         return map;
-                      }, new Map<number, any>())
-                    ).sort((a, b) => a[0] - b[0]).map(([strength, agg]: any, idx: number) => (
-                      <Card key={idx}>
-                        <CardHeader>
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h4 className="text-lg font-semibold mb-1">
-                                Resistencia {strength} kg/cm²
-                              </h4>
-                              <div className="flex items-center gap-3">
-                                <Badge variant="outline">
-                                  {strength} kg/cm²
-                                </Badge>
-                                <span className="text-sm text-muted-foreground">
-                                  Volumen total: {agg.total_volume.toFixed(2)} m³
-                                </span>
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <div className="text-2xl font-bold">
-                                {formatCurrency(agg.total_cost)}
-                              </div>
-                              <div className="text-sm text-muted-foreground">Costo total</div>
-                            </div>
-                          </div>
-                        </CardHeader>
-                        
-                        <CardContent>
-                          <div className="overflow-x-auto">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>Material</TableHead>
-                                  <TableHead className="text-right">Consumo Total</TableHead>
-                                  <TableHead className="text-right">Unidad</TableHead>
-                                  <TableHead className="text-right">Precio Unitario</TableHead>
-                                  <TableHead className="text-right">Costo por m³</TableHead>
-                                  <TableHead className="text-right">Costo Total</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {Array.from(agg.breakdown.values()).sort((a: any, b: any) => b.total_cost - a.total_cost).map((material: any, materialIndex: number) => {
-                                  const costPerM3 = agg.total_volume > 0 ? material.total_cost / agg.total_volume : 0;
-                                  return (
-                                    <TableRow key={materialIndex}>
-                                      <TableCell className="font-medium">
-                                        {material.material_name}
-                                      </TableCell>
-                                      <TableCell className="text-right">
-                                        {material.total_consumption.toFixed(2)}
-                                      </TableCell>
-                                      <TableCell className="text-right text-muted-foreground">
-                                        {material.unit}
-                                      </TableCell>
-                                      <TableCell className="text-right font-medium">
-                                        {formatCurrency(material.cost_per_unit)}
-                                      </TableCell>
-                                      <TableCell className="text-right font-medium">
-                                        {formatCurrency(costPerM3)}
-                                      </TableCell>
-                                      <TableCell className="text-right font-bold">
-                                        {formatCurrency(material.total_cost)}
-                                      </TableCell>
-                                    </TableRow>
-                                  );
-                                })}
-                              </TableBody>
-                            </Table>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                      }, new Map<number, any>());
+                      const strengths = Array.from(aggMap.entries())
+                        .sort((a, b) => a[0] - b[0])
+                        .map(([k, v]) => v);
+                      return <MaterialsByStrengthTableV2 strengths={strengths} />;
+                    })()}
                   </div>
                 </TabsContent>
 
@@ -1960,7 +1610,7 @@ export default function ProduccionDashboard() {
                     </Card>
 
                     {/* Material Consumption Summary - Enhanced KPI Cards */}
-                    {materialConsumptionData && !materialAnalysisLoading && (
+                    {materialConsumptionData && materialConsumptionData.material && !materialAnalysisLoading && (
                       <>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                           <Card className="relative overflow-hidden hover:shadow-lg transition-shadow">
@@ -1981,11 +1631,11 @@ export default function ProduccionDashboard() {
                               <div className="text-2xl font-bold text-blue-600">
                                 {materialConsumptionData.totalConsumption.toFixed(2)}
                                 <span className="text-sm font-normal text-muted-foreground ml-1">
-                                  {materialConsumptionData.material.unit}
+                                  {materialConsumptionData.material?.unit || 'unidades'}
                                 </span>
                               </div>
                               <p className="text-xs text-muted-foreground mt-1">
-                                Promedio: {materialConsumptionData.consumptionPerM3.toFixed(3)} {materialConsumptionData.material.unit}/m³
+                                Promedio: {materialConsumptionData.consumptionPerM3.toFixed(3)} {materialConsumptionData.material?.unit || 'unidades'}/m³
                               </p>
                             </CardContent>
                           </Card>
@@ -2090,7 +1740,7 @@ export default function ProduccionDashboard() {
                               <div className="space-y-2">
                                 <div className="flex justify-between">
                                   <span className="font-medium">Unidad:</span>
-                                  <span>{materialConsumptionData.material.unit}</span>
+                                  <span>{materialConsumptionData.material?.unit || 'unidades'}</span>
                                 </div>
                                 <div className="flex justify-between">
                                   <span className="font-medium">Precio Unitario:</span>
@@ -2152,7 +1802,7 @@ export default function ProduccionDashboard() {
                                     },
                                     yaxis: {
                                       title: {
-                                        text: `Consumo (${materialConsumptionData.material.unit})`,
+                                        text: `Consumo (${materialConsumptionData.material?.unit || 'unidades'})`,
                                         style: {
                                           fontSize: '14px',
                                           fontWeight: 600,
@@ -2169,7 +1819,7 @@ export default function ProduccionDashboard() {
                                     },
                                     tooltip: {
                                       y: {
-                                        formatter: (val: number) => `${val.toFixed(2)} ${materialConsumptionData.material.unit}`
+                                        formatter: (val: number) => `${val.toFixed(2)} ${materialConsumptionData.material?.unit || 'unidades'}`
                                       }
                                     },
                                     dataLabels: {
@@ -2251,7 +1901,7 @@ export default function ProduccionDashboard() {
                                     },
                                     yaxis: {
                                       title: {
-                                        text: `${materialConsumptionData.material.unit}/m³`,
+                                        text: `${materialConsumptionData.material?.unit || 'unidades'}/m³`,
                                         style: {
                                           fontSize: '14px',
                                           fontWeight: 600,
@@ -2270,7 +1920,7 @@ export default function ProduccionDashboard() {
                                       shared: true,
                                       intersect: false,
                                       y: {
-                                        formatter: (val: number) => `${val.toFixed(3)} ${materialConsumptionData.material.unit}/m³`
+                                        formatter: (val: number) => `${val.toFixed(3)} ${materialConsumptionData.material?.unit || 'unidades'}/m³`
                                       }
                                     },
                                     legend: {
@@ -2341,7 +1991,7 @@ export default function ProduccionDashboard() {
                                           </Badge>
                                         </TableCell>
                                         <TableCell className="text-right font-medium">
-                                          {recipe.total_consumption.toFixed(2)} {materialConsumptionData.material.unit}
+                                          {recipe.total_consumption.toFixed(2)} {materialConsumptionData.material?.unit || 'unidades'}
                                         </TableCell>
                                         <TableCell className="text-right">
                                           {recipe.remisiones_count}
@@ -2350,7 +2000,7 @@ export default function ProduccionDashboard() {
                                           {recipe.total_volume.toFixed(2)}
                                         </TableCell>
                                         <TableCell className="text-right">
-                                          {consumptionPerM3.toFixed(3)} {materialConsumptionData.material.unit}/m³
+                                          {consumptionPerM3.toFixed(3)} {materialConsumptionData.material?.unit || 'unidades'}/m³
                                         </TableCell>
                                         <TableCell className="text-right">
                                           <Badge variant="outline" className={
@@ -2389,7 +2039,7 @@ export default function ProduccionDashboard() {
                                   'Material': materialConsumptionData.material.name,
                                   'Código': materialConsumptionData.material.code,
                                   'Categoría': materialConsumptionData.material.category,
-                                  'Unidad': materialConsumptionData.material.unit,
+                                  'Unidad': materialConsumptionData.material?.unit || 'unidades',
                                   'Consumo Total': materialConsumptionData.totalConsumption,
                                   'Consumo por m³': materialConsumptionData.consumptionPerM3,
                                   'Costo Total': materialConsumptionData.hasPrice ? materialConsumptionData.totalCost : 'N/A',
