@@ -13,6 +13,8 @@ export interface RemisionData {
     id: string;
     recipe_code: string;
     strength_fc: number;
+    age_hours?: number;
+    age_days?: number;
   };
   order: {
     client_id: string | null;
@@ -131,7 +133,9 @@ export function useProgressiveProductionDetails(params: {
             recipes!inner(
               id,
               recipe_code,
-              strength_fc
+              strength_fc,
+              age_hours,
+              age_days
             ),
             orders!inner(
               client_id,
@@ -156,7 +160,13 @@ export function useProgressiveProductionDetails(params: {
             remision_number: r.remision_number,
             fecha: r.fecha,
             volumen_fabricado: r.volumen_fabricado,
-            recipe: { id: r.recipes.id, recipe_code: r.recipes.recipe_code, strength_fc: r.recipes.strength_fc },
+            recipe: { 
+              id: r.recipes.id, 
+              recipe_code: r.recipes.recipe_code, 
+              strength_fc: r.recipes.strength_fc,
+              age_hours: r.recipes.age_hours,
+              age_days: r.recipes.age_days
+            },
             order: { client_id: r.orders?.client_id ?? null, clients: { business_name: r.orders?.clients?.business_name || 'Desconocido' } },
           }));
 
@@ -518,30 +528,88 @@ export function useProgressiveProductionDetails(params: {
         // 2) Load available materials in background
         loadAvailableMaterials(rems);
 
-        // 3) Progressive production metrics, grouped by recipe
+        // 3) Progressive production metrics, grouped by strength and age
         const groups = rems.reduce((acc: Record<string, any>, r) => {
-          const key = `${r.recipe.id}-${r.recipe.strength_fc}`;
-          if (!acc[key]) acc[key] = { recipe_id: r.recipe.id, recipe_code: r.recipe.recipe_code, strength_fc: r.recipe.strength_fc, remisiones: [] as RemisionData[] };
+          // Extract age from recipe columns age_hours and age_days
+          let age = '28d'; // default to 28 days
+          
+          const ageHours = r.recipe.age_hours;
+          const ageDays = r.recipe.age_days;
+          
+          
+          if (ageHours && ageHours > 0) {
+            // If hours > 24, convert to days, otherwise use hours
+            if (ageHours >= 24) {
+              const days = Math.round(ageHours / 24);
+              age = `${days}d`;
+            } else {
+              age = `${ageHours}h`;
+            }
+          } else if (ageDays && ageDays > 0) {
+            age = `${ageDays}d`;
+          } else {
+            // If no age data, try to extract from recipe_code as fallback
+            const ageMatch = r.recipe.recipe_code?.match(/(\d{1,2})([dh])$/i);
+            if (ageMatch) {
+              const value = parseInt(ageMatch[1]);
+              const unit = ageMatch[2].toLowerCase();
+              if (unit === 'h' || (unit === 'd' && value <= 24)) {
+                age = `${value}h`;
+              } else {
+                age = `${value}d`;
+              }
+            }
+          }
+          
+          const key = `${r.recipe.strength_fc}-${age}`;
+          if (!acc[key]) acc[key] = { 
+            strength_fc: r.recipe.strength_fc, 
+            age: age,
+            recipe_ids: new Set(),
+            remisiones: [] as RemisionData[] 
+          };
+          acc[key].recipe_ids.add(r.recipe.id);
           acc[key].remisiones.push(r);
           return acc;
         }, {});
         const groupsArray = Object.entries(groups) as Array<[string, any]>;
         // Extend progress to include per-group processing
         setProgress((p) => ({ processed: p.processed, total: p.processed + groupsArray.length }));
-        const recipeIds = Array.from(new Set(Object.values(groups).map((g: any) => g.recipe_id)));
+        const recipeIds = Array.from(new Set(Object.values(groups).flatMap((g: any) => Array.from(g.recipe_ids) as string[])));
         const priceMap = await preloadAvgSellingPrices(recipeIds, plantId);
 
         const metrics: ProductionData[] = [];
         for (const [_, group] of groupsArray) {
           if (abortRef.current.aborted || abortRef.current.token !== token) return;
-          const totalVolume = group.remisiones.reduce((s: number, r: RemisionData) => s + (r.volumen_fabricado || 0), 0);
+          // Build included remisiones set (those that have materiales)
+          const remisionIdsAll = group.remisiones.map((r: RemisionData) => r.id);
+          const includedSet = new Set<string>();
+          // Probe materiales existence in small chunks
+          const probeChunk = 25;
+          for (let i = 0; i < remisionIdsAll.length; i += probeChunk) {
+            const chunk = remisionIdsAll.slice(i, i + probeChunk);
+            const { data } = await supabase
+              .from('remision_materiales')
+              .select('remision_id')
+              .in('remision_id', chunk);
+            (data || []).forEach((d: any) => { if (d.remision_id) includedSet.add(d.remision_id); });
+          }
+          const remisionesIncluded = group.remisiones.filter((r: RemisionData) => includedSet.has(r.id));
+          const totalVolumeIncluded = remisionesIncluded.reduce((s: number, r: RemisionData) => s + (r.volumen_fabricado || 0), 0);
+
+          // Skip groups with no data
+          if (totalVolumeIncluded === 0 || remisionesIncluded.length === 0) {
+            setProgress((p) => ({ processed: Math.min(p.processed + 1, p.total), total: p.total }));
+            continue;
+          }
+
           const placeholderIndex = metrics.length;
           metrics.push({
             strength_fc: group.strength_fc,
-            recipe_code: group.recipe_code,
-            recipe_id: group.recipe_id,
-            total_volume: totalVolume,
-            remisiones_count: group.remisiones.length,
+            recipe_code: `${group.strength_fc} kg/cm² - ${group.age}`,
+            recipe_id: Array.from(group.recipe_ids).join(','),
+            total_volume: totalVolumeIncluded,
+            remisiones_count: remisionesIncluded.length,
             avg_cost_per_m3: 0,
             total_material_cost: 0,
             cement_cost: 0,
@@ -552,17 +620,22 @@ export function useProgressiveProductionDetails(params: {
           setProductionData([...metrics]);
           await yieldToBrowser();
 
-          const remisionIds = group.remisiones.map((r: RemisionData) => r.id);
-          const costs = await getGroupMaterialCosts(remisionIds, totalVolume);
-          const avgSelling = Number(priceMap.get(group.recipe_id)) || 0;
+          const remisionIds = remisionesIncluded.map((r: RemisionData) => r.id);
+          const costs = await getGroupMaterialCosts(remisionIds, totalVolumeIncluded);
+          
+          // Calculate average selling price from all recipes in this group
+          const recipeIdsArray = Array.from(group.recipe_ids) as string[];
+          const avgSelling = recipeIdsArray.length > 0 
+            ? recipeIdsArray.reduce((sum: number, id: string) => sum + (Number(priceMap.get(id)) || 0), 0) / recipeIdsArray.length
+            : 0;
           const margin = avgSelling - costs.costPerM3;
 
           metrics[placeholderIndex] = {
             strength_fc: group.strength_fc,
-            recipe_code: group.recipe_code,
-            recipe_id: group.recipe_id,
-            total_volume: totalVolume,
-            remisiones_count: group.remisiones.length,
+            recipe_code: `${group.strength_fc} kg/cm² - ${group.age}`,
+            recipe_id: Array.from(group.recipe_ids).join(','),
+            total_volume: totalVolumeIncluded,
+            remisiones_count: remisionesIncluded.length,
             avg_cost_per_m3: costs.costPerM3,
             total_material_cost: costs.totalCost,
             cement_cost: costs.cementCost,
@@ -596,6 +669,16 @@ export function useProgressiveProductionDetails(params: {
   const calculateMaterialConsumption = useMemo(() => {
     return async (materialId: string) => {
       if (!materialId || !remisionesData.length) return null;
+      
+      // First, get material information
+      const { data: materialData } = await supabase
+        .from('materials')
+        .select('id, material_name, material_code, category, unit_of_measure')
+        .eq('id', materialId)
+        .single();
+      
+      if (!materialData) return null;
+      
       const remisionIds = remisionesData.map((r) => r.id);
       const chunkSize = chunkSizeRef.current;
       const rows: any[] = [];
@@ -609,6 +692,7 @@ export function useProgressiveProductionDetails(params: {
         (data || []).forEach((d: any) => rows.push(d));
       }
       if (!rows.length) return null;
+      
       const currentDate = format(new Date(), 'yyyy-MM-dd');
       let pq = supabase
         .from('material_prices')
@@ -620,6 +704,7 @@ export function useProgressiveProductionDetails(params: {
       if (plantId) pq = pq.eq('plant_id', plantId);
       const { data: priceData } = await pq;
       const pricePerUnit = priceData && priceData.length ? Number(priceData[0].price_per_unit) || 0 : 0;
+      
       let totalConsumption = 0;
       let totalVolume = 0;
       const remSet = new Set<string>();
@@ -631,10 +716,49 @@ export function useProgressiveProductionDetails(params: {
           remSet.add(rem.id);
         }
       });
+      
       const totalCost = totalConsumption * pricePerUnit;
       const costPerM3 = totalVolume > 0 ? totalCost / totalVolume : 0;
       const consumptionPerM3 = totalVolume > 0 ? totalConsumption / totalVolume : 0;
+      
+      // Group consumption by recipe/strength for charts
+      const consumptionByRecipe = new Map<string, {
+        strength_fc: number;
+        total_consumption: number;
+        total_volume: number;
+        remisiones_count: number;
+      }>();
+      
+      rows.forEach((r) => {
+        const rem = remisionesData.find((x) => x.id === r.remision_id);
+        if (rem) {
+          const recipeKey = `${rem.recipe.strength_fc}`;
+          const qty = Number(r.cantidad_real) || 0;
+          const vol = rem.volumen_fabricado || 0;
+          
+          if (consumptionByRecipe.has(recipeKey)) {
+            const existing = consumptionByRecipe.get(recipeKey)!;
+            existing.total_consumption += qty;
+            existing.total_volume += vol;
+            existing.remisiones_count += 1;
+          } else {
+            consumptionByRecipe.set(recipeKey, {
+              strength_fc: rem.recipe.strength_fc,
+              total_consumption: qty,
+              total_volume: vol,
+              remisiones_count: 1
+            });
+          }
+        }
+      });
+      
       return {
+        material: {
+          name: materialData.material_name,
+          code: materialData.material_code,
+          category: materialData.category,
+          unit: materialData.unit_of_measure
+        },
         totalConsumption,
         totalVolume,
         totalCost,
@@ -643,6 +767,7 @@ export function useProgressiveProductionDetails(params: {
         remisionesCount: remSet.size,
         pricePerUnit,
         hasPrice: pricePerUnit > 0,
+        consumptionByRecipe: Array.from(consumptionByRecipe.values())
       };
     };
   }, [remisionesData, plantId]);

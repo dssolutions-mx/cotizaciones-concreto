@@ -83,12 +83,18 @@ export function useProductionDataV2(plantId: string | null | undefined, startDat
         setProgress((p) => ({ processed: p.processed, total: p.processed + byRecipe.size }));
 
         const metrics: ProductionDataV2[] = [];
-        for (const [, group] of byRecipe) {
+        for (const entry of Array.from(byRecipe.entries())) {
+          const group = entry[1];
           if (abortRef.current.aborted || abortRef.current.token !== token) return;
-          const remisionIds = group.remisiones.map(r => r.id);
-          const totalVol = group.remisiones.reduce((s, r) => s + (Number(r.volumen_fabricado) || 0), 0);
+          const remisionIds = group.remisiones.map((r: { id: string }) => r.id);
+          // Fetch materiales for remisiones in this recipe group
           // materiales rows (no join)
           const rmRows = await getRemisionMaterialesByRemisionIdsInChunks(remisionIds, 50, 'remision_id, material_id, cantidad_real');
+          // Build set of remisiones that actually have materiales
+          const includedRemisionIds = new Set<string>();
+          (rmRows || []).forEach((row: any) => { if (row && row.remision_id) includedRemisionIds.add(row.remision_id); });
+          // Only count volume from remisiones that have materiales
+          const totalVol = group.remisiones.reduce((s: number, r: { id: string; volumen_fabricado: number }) => s + (includedRemisionIds.has(r.id) ? (Number(r.volumen_fabricado) || 0) : 0), 0);
           const matIds = Array.from(new Set(rmRows.map((x: any) => x.material_id))).filter(Boolean) as string[];
           const meta = await getMaterialsMetaByIdsInChunks(matIds, 50);
           const metaMap = new Map<string, any>();
