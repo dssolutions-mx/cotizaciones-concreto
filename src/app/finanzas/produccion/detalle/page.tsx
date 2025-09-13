@@ -11,7 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { supabase } from '@/lib/supabase';
+import { useProgressiveProductionDetails } from '@/hooks/useProgressiveProductionDetails';
 import { formatCurrency } from '@/lib/utils';
+import { useCementTrend } from '@/hooks/useCementTrend';
+import { CementTrend as CementTrendComponent } from '@/components/production/CementTrend';
+import { SummaryCards as SummaryCardsV2 } from '@/components/production/SummaryCards';
+import { VolumeByStrengthCards as VolumeByStrengthCardsV2 } from '@/components/production/VolumeByStrengthCards';
+import { ProductionSummaryTable as ProductionSummaryTableV2 } from '@/components/production/Tables/ProductionSummaryTable';
 import { Download, TrendingUp, Package, DollarSign, BarChart3, ArrowUpIcon, ArrowDownIcon, AlertTriangle, CheckCircle2, Search, CheckCircle, Info } from "lucide-react";
 import {
   Select,
@@ -73,7 +79,7 @@ interface RemisionData {
     strength_fc: number;
   };
   order: {
-    client_id: string;
+    client_id: string | null;
     clients: {
       business_name: string;
     };
@@ -133,32 +139,45 @@ interface MissingPriceData {
 
 export default function ProduccionDashboard() {
   const { currentPlant } = usePlantContext();
+  const useV2 = typeof process !== 'undefined' && process.env.NEXT_PUBLIC_PROD_DET_V2 === 'true';
+  const { categories: trendCatsV2, series: trendSeriesV2, loading: trendLoadingV2 } = useCementTrend(currentPlant?.id, 6);
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
-  const [productionData, setProductionData] = useState<ProductionData[]>([]);
-  const [remisionesData, setRemisionesData] = useState<RemisionData[]>([]);
   const [investigationData, setInvestigationData] = useState<InvestigationData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [strengthFilter, setStrengthFilter] = useState<string>('all');
-  const [availableStrengths, setAvailableStrengths] = useState<number[]>([]);
   const [investigationLoading, setInvestigationLoading] = useState(false);
   const [investigationProgress, setInvestigationProgress] = useState<string>('');
   const [selectedMaterial, setSelectedMaterial] = useState<string>('');
-  const [availableMaterials, setAvailableMaterials] = useState<Array<{
-    id: string;
-    name: string;
-    code: string;
-    category: string;
-    unit: string;
-  }>>([]);
   const [materialConsumptionData, setMaterialConsumptionData] = useState<any>(null);
   const [materialAnalysisLoading, setMaterialAnalysisLoading] = useState(false);
-  const [globalMaterialsSummary, setGlobalMaterialsSummary] = useState<any>(null);
-  const [historicalTrends, setHistoricalTrends] = useState<any>(null);
-  const [streaming, setStreaming] = useState(false);
-  const [progress, setProgress] = useState<{ processed: number; total: number }>({ processed: 0, total: 0 });
+
+  const {
+    productionData: hookProductionData,
+    remisionesData: hookRemisionesData,
+    availableStrengths: hookAvailableStrengths,
+    availableMaterials: hookAvailableMaterials,
+    globalMaterialsSummary: hookGlobalMaterialsSummary,
+    historicalTrends: hookHistoricalTrends,
+    loading: hookLoading,
+    streaming: hookStreaming,
+    progress: hookProgress,
+    calculateMaterialConsumption: hookCalculateMaterialConsumption,
+  } = useProgressiveProductionDetails({
+    plantId: currentPlant?.id,
+    startDate,
+    endDate
+  });
+
+  const productionData = hookProductionData;
+  const remisionesData = hookRemisionesData;
+  const availableStrengths = hookAvailableStrengths;
+  const availableMaterials = hookAvailableMaterials;
+  const globalMaterialsSummary = hookGlobalMaterialsSummary;
+  const historicalTrends = hookHistoricalTrends;
+  const loading = hookLoading;
+  const streaming = hookStreaming;
+  const progress = hookProgress;
 
   // Format the dates for display
   const dateRangeText = useMemo(() => {
@@ -166,454 +185,13 @@ export default function ProduccionDashboard() {
     return `${format(startDate, 'dd/MM/yyyy', { locale: es })} - ${format(endDate, 'dd/MM/yyyy', { locale: es })}`;
   }, [startDate, endDate]);
 
-  // Fetch production data
+  // Clear material analysis on date change
   useEffect(() => {
-    async function fetchProductionData() {
-      if (!startDate || !endDate) {
-        setProductionData([]);
-        setRemisionesData([]);
-        setLoading(false);
-        setStreaming(false);
-        setProgress({ processed: 0, total: 0 });
-        return;
-      }
+    setSelectedMaterial('');
+    setMaterialConsumptionData(null);
+  }, [startDate, endDate]);
 
-      setLoading(true);
-      setError(null);
-      setStreaming(true);
-      setProgress({ processed: 0, total: 3 });
-
-      try {
-        // Format dates for Supabase query
-        const formattedStartDate = format(startDate, 'yyyy-MM-dd');
-        const formattedEndDate = format(endDate, 'yyyy-MM-dd');
-
-        // 1) Fetch remisiones with recipe and order data
-        let remisionesQuery = supabase
-          .from('remisiones')
-          .select(`
-            id,
-            remision_number,
-            fecha,
-            volumen_fabricado,
-            recipe_id,
-            order_id,
-            recipes!inner(
-              id,
-              recipe_code,
-              strength_fc
-            ),
-            orders!inner(
-              client_id,
-              clients!inner(
-                business_name
-              )
-            )
-          `)
-          .eq('tipo_remision', 'CONCRETO')
-          .gte('fecha', formattedStartDate)
-          .lte('fecha', formattedEndDate);
-
-        // Apply plant filter if a plant is selected
-        if (currentPlant?.id) {
-          remisionesQuery = remisionesQuery.eq('plant_id', currentPlant.id);
-        }
-
-        const { data: remisiones, error: remisionesError } = await remisionesQuery;
-
-        if (remisionesError) throw remisionesError;
-
-        // Process remisiones data
-        const processedRemisiones: RemisionData[] = remisiones
-          // filter out records without recipe/strength
-          .filter((r: any) => r?.recipes?.strength_fc)
-          .map((r: any) => ({
-            id: r.id,
-            remision_number: r.remision_number,
-            fecha: r.fecha,
-            volumen_fabricado: r.volumen_fabricado,
-            recipe: {
-              id: r.recipes.id,
-              recipe_code: r.recipes.recipe_code,
-              strength_fc: r.recipes.strength_fc
-            },
-            order: {
-              client_id: r.orders?.client_id,
-              clients: {
-                business_name: r.orders?.clients?.business_name || 'Desconocido'
-              }
-            }
-          }));
-
-        setRemisionesData(processedRemisiones);
-        // Allow UI to render while we keep streaming the rest
-        setLoading(false);
-        setProgress(prev => ({ ...prev, processed: Math.min(prev.processed + 1, prev.total) }));
-
-        // Extract unique strengths for filter
-        const strengths = Array.from(new Set(processedRemisiones.map(r => r.recipe.strength_fc)))
-          .filter(s => s != null)
-          .sort((a, b) => a - b);
-        setAvailableStrengths(strengths);
-
-        // Extract unique materials for material analysis
-        // 2) Load available materials progressively
-        await loadAvailableMaterials(processedRemisiones);
-        setProgress(prev => ({ ...prev, processed: Math.min(prev.processed + 1, prev.total) }));
-
-        // Clear material analysis data when dates change
-        setSelectedMaterial('');
-        setMaterialConsumptionData(null);
-
-        // Calculate global materials summary
-        const materialsSummary = await calculateGlobalMaterialsSummary(processedRemisiones);
-        setGlobalMaterialsSummary(materialsSummary);
-
-        // Calculate historical trends
-        const trends = await calculateHistoricalTrends();
-        setHistoricalTrends(trends);
-
-        // Group by recipe and calculate production metrics
-        // 3) Calculate production metrics (material costs computed in chunks)
-        const productionSummary = await calculateProductionMetrics(processedRemisiones);
-        setProductionData(productionSummary);
-        setProgress(prev => ({ ...prev, processed: Math.min(prev.processed + 1, prev.total) }));
-
-      } catch (error) {
-        console.error('Error fetching production data:', error);
-        setError('Error al cargar los datos de producción. Por favor, intente nuevamente.');
-      } finally {
-        setLoading(false);
-        setStreaming(false);
-      }
-    }
-
-    fetchProductionData();
-  }, [startDate, endDate, currentPlant]);
-
-  // Calculate production metrics with material costs (progressive)
-  const calculateProductionMetrics = async (remisiones: RemisionData[]): Promise<ProductionData[]> => {
-    // Group by recipe
-    const recipeGroups = remisiones.reduce((acc, remision) => {
-      const key = `${remision.recipe.id}-${remision.recipe.strength_fc}`;
-      if (!acc[key]) {
-        acc[key] = {
-          recipe_id: remision.recipe.id,
-          recipe_code: remision.recipe.recipe_code,
-          strength_fc: remision.recipe.strength_fc,
-          remisiones: []
-        };
-      }
-      acc[key].remisiones.push(remision);
-      return acc;
-    }, {} as Record<string, any>);
-
-    const groupsArray = Object.entries(recipeGroups);
-    // Progress tracks per-group completion for primary content
-    setProgress({ processed: 0, total: groupsArray.length });
-
-    const productionMetrics: ProductionData[] = [];
-
-    // Preload average selling prices per recipe (active prices, filtered by plant when available)
-    const uniqueRecipeIds = Array.from(new Set(Object.values(recipeGroups as any).map((g: any) => g.recipe_id)));
-    let priceMap = new Map<string, number>();
-    if (uniqueRecipeIds.length > 0) {
-      let priceQuery = supabase
-        .from('product_prices')
-        .select('recipe_id, base_price')
-        .eq('is_active', true)
-        .in('recipe_id', uniqueRecipeIds);
-      if (currentPlant?.id) {
-        priceQuery = priceQuery.eq('plant_id', currentPlant.id);
-      }
-      const { data: priceRows, error: priceErr } = await priceQuery;
-      if (!priceErr && priceRows) {
-        const sumCount = new Map<string, { sum: number, count: number }>();
-        priceRows.forEach((row: any) => {
-          const key = row.recipe_id as string;
-          const value = Number(row.base_price) || 0;
-          const entry = sumCount.get(key) || { sum: 0, count: 0 };
-          entry.sum += value;
-          entry.count += 1;
-          sumCount.set(key, entry);
-        });
-        sumCount.forEach((v, k) => {
-          priceMap.set(k, v.count > 0 ? v.sum / v.count : 0);
-        });
-      }
-    }
-
-    for (const [key, group] of groupsArray) {
-      const totalVolume = group.remisiones.reduce((sum: number, r: any) => sum + r.volumen_fabricado, 0);
-      
-      // Get material costs from actual remision_materiales rows for this recipe group
-      const remisionIds = group.remisiones.map((r: any) => r.id);
-      // 1) Push placeholder immediately so UI renders the row fast
-      const placeholderIndex = productionMetrics.length;
-      const placeholder: ProductionData = {
-        strength_fc: group.strength_fc,
-        recipe_code: group.recipe_code,
-        recipe_id: group.recipe_id,
-        total_volume: totalVolume,
-        remisiones_count: group.remisiones.length,
-        avg_cost_per_m3: 0,
-        total_material_cost: 0,
-        cement_cost: 0,
-        cement_consumption: 0,
-        materials_breakdown: []
-      };
-      productionMetrics.push(placeholder);
-      setProductionData([...productionMetrics]);
-
-      // 2) Compute material costs in chunks
-      const materialCosts = await calculateMaterialCosts(remisionIds, totalVolume);
-
-      const avgSellingPrice = Number(priceMap.get(group.recipe_id)) || 0;
-      const marginPerM3 = avgSellingPrice - materialCosts.costPerM3;
-
-      // 3) Replace placeholder with final values and update UI
-      productionMetrics[placeholderIndex] = {
-        strength_fc: group.strength_fc,
-        recipe_code: group.recipe_code,
-        recipe_id: group.recipe_id,
-        total_volume: totalVolume,
-        remisiones_count: group.remisiones.length,
-        avg_cost_per_m3: materialCosts.costPerM3,
-        total_material_cost: materialCosts.totalCost,
-        cement_cost: materialCosts.cementCost,
-        cement_consumption: materialCosts.cementConsumption,
-        materials_breakdown: materialCosts.breakdown,
-        avg_selling_price: avgSellingPrice,
-        margin_per_m3: marginPerM3
-      };
-      setProductionData([...productionMetrics]);
-      setProgress(prev => ({ processed: Math.min(prev.processed + 1, prev.total), total: prev.total }));
-      // Yield to the browser to paint between groups
-      await new Promise(resolve => setTimeout(resolve, 0));
-    }
-
-    return productionMetrics.sort((a, b) => a.strength_fc - b.strength_fc);
-  };
-
-  // Calculate material costs from actual consumptions in remision_materiales
-  const calculateMaterialCosts = async (remisionIds: string[], totalVolume: number) => {
-    try {
-      if (!remisionIds || remisionIds.length === 0 || totalVolume <= 0) {
-        return {
-          costPerM3: 0,
-          totalCost: 0,
-          cementCost: 0,
-          cementConsumption: 0,
-          breakdown: []
-        };
-      }
-
-      // Fetch actual consumptions from remision_materiales with proper material relationships
-      // Note: Large IN() lists can exceed URL limits; chunk requests to avoid 400 errors
-      const selectColumns = `
-        remision_id,
-        material_id,
-        material_type,
-        cantidad_real,
-        materials!inner(
-          id,
-          material_name,
-          unit_of_measure,
-          category,
-          material_code
-        )
-      `;
-
-      const chunkSize = 10;
-      const materialesResults: any[] = [];
-      for (let i = 0; i < remisionIds.length; i += chunkSize) {
-        const chunk = remisionIds.slice(i, i + chunkSize);
-        const { data, error } = await supabase
-          .from('remision_materiales')
-          .select(selectColumns)
-          .in('remision_id', chunk);
-        if (error) {
-          console.error('Error fetching remision_materiales chunk:', error);
-          continue;
-        }
-        if (data) materialesResults.push(...data);
-      }
-
-      const materiales = materialesResults;
-
-      if (!materiales || materiales.length === 0) {
-        return {
-          costPerM3: 0,
-          totalCost: 0,
-          cementCost: 0,
-          cementConsumption: 0,
-          breakdown: []
-        };
-      }
-
-      // Aggregate by material_id (skip rows without a valid material_id or material relation)
-      const aggregatedByMaterial = new Map<string, { qty: number, material: any, fallbackType?: string }>();
-      materiales.forEach((m: any) => {
-        if (!m.material_id || !m.materials) return; // ensure we only include mapped materials
-        const materialId = String(m.material_id);
-        const qty = Number(m.cantidad_real) || 0;
-
-        if (aggregatedByMaterial.has(materialId)) {
-          const existing = aggregatedByMaterial.get(materialId)!;
-          existing.qty += qty;
-        } else {
-          aggregatedByMaterial.set(materialId, {
-            qty: qty,
-            material: m.materials,
-            fallbackType: m.material_type || undefined
-          });
-        }
-      });
-
-      // Get current material prices using material_id (chunked to avoid URL bloat)
-      const materialIds = Array.from(aggregatedByMaterial.keys());
-      const currentDate = format(new Date(), 'yyyy-MM-dd');
-
-      const priceMap = new Map();
-      for (let i = 0; i < materialIds.length; i += chunkSize) {
-        const idsChunk = materialIds.slice(i, i + chunkSize);
-        let pricesQuery = supabase
-          .from('material_prices')
-          .select('material_id, price_per_unit, effective_date, end_date, plant_id')
-          .in('material_id', idsChunk)
-          .lte('effective_date', currentDate)
-          .or(`end_date.is.null,end_date.gte.${currentDate}`)
-          .order('effective_date', { ascending: false });
-
-        if (currentPlant?.id) {
-          pricesQuery = pricesQuery.eq('plant_id', currentPlant.id);
-        }
-
-        const { data: chunkPrices, error: chunkErr } = await pricesQuery;
-        if (chunkErr) {
-          console.error('Error fetching material prices chunk:', chunkErr);
-          continue;
-        }
-        chunkPrices?.forEach((mp: any) => {
-          if (!priceMap.has(mp.material_id)) {
-            priceMap.set(mp.material_id, mp.price_per_unit);
-          }
-        });
-      }
-
-      // Calculate costs
-      let totalCostPerM3 = 0;
-      let cementCostPerM3 = 0;
-      let cementConsumptionTotal = 0;
-      const breakdown: MaterialBreakdown[] = [];
-
-      aggregatedByMaterial.forEach(({ qty, material, fallbackType }, materialId) => {
-        const price = Number(priceMap.get(materialId)) || 0;
-        const totalCost = qty * price;
-        const costPerM3 = totalVolume > 0 ? totalCost / totalVolume : 0;
-
-        totalCostPerM3 += costPerM3;
-
-        // Check if this is cement based on known fields
-        const typeOrName = String(
-          material.category || material.material_name || fallbackType || ''
-        ).toLowerCase();
-        const isCement = typeOrName.includes('cement') || typeOrName.includes('cemento');
-        
-        if (isCement) {
-          cementCostPerM3 += costPerM3;
-          cementConsumptionTotal += qty;
-        }
-
-        breakdown.push({
-          material_type: (material.category || fallbackType || 'Unknown') as string,
-          material_name: (material.material_name || 'Material Desconocido') as string,
-          total_consumption: qty,
-          unit: (material.unit_of_measure || '') as string,
-          total_cost: totalCost,
-          cost_per_unit: price,
-          cost_per_m3: costPerM3
-        });
-      });
-
-      return {
-        costPerM3: totalCostPerM3,
-        totalCost: totalCostPerM3 * totalVolume,
-        cementCost: cementCostPerM3 * totalVolume,
-        cementConsumption: cementConsumptionTotal,
-        breakdown: breakdown.sort((a, b) => b.cost_per_m3 - a.cost_per_m3)
-      };
-    } catch (error) {
-      console.error('Error calculating material costs:', error);
-      return {
-        costPerM3: 0,
-        totalCost: 0,
-        cementCost: 0,
-        cementConsumption: 0,
-        breakdown: []
-      };
-    }
-  };
-
-  // Load available materials from remision_materiales
-  const loadAvailableMaterials = async (remisiones: RemisionData[]) => {
-    try {
-      if (!remisiones || remisiones.length === 0) {
-        setAvailableMaterials([]);
-        return;
-      }
-
-      const remisionIds = remisiones.map(r => r.id);
-      const chunkSize = 50;
-      const materialesResults: any[] = [];
-
-      // Fetch materials in chunks to avoid URL length limits
-      for (let i = 0; i < remisionIds.length; i += chunkSize) {
-        const chunk = remisionIds.slice(i, i + chunkSize);
-        const { data, error } = await supabase
-          .from('remision_materiales')
-          .select(`
-            material_id,
-            materials!inner(
-              id,
-              material_name,
-              material_code,
-              category,
-              unit_of_measure
-            )
-          `)
-          .in('remision_id', chunk);
-
-        if (error) {
-          console.error('Error fetching materials chunk:', error);
-          continue;
-        }
-        if (data) materialesResults.push(...data);
-      }
-
-      // Extract unique materials
-      const uniqueMaterials = new Map<string, any>();
-      materialesResults.forEach((m: any) => {
-        if (!m.material_id || !m.materials || uniqueMaterials.has(m.material_id)) return;
-
-        uniqueMaterials.set(m.material_id, {
-          id: m.material_id,
-          name: m.materials.material_name,
-          code: m.materials.material_code,
-          category: m.materials.category,
-          unit: m.materials.unit_of_measure
-        });
-      });
-
-      const materialsArray = Array.from(uniqueMaterials.values())
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      setAvailableMaterials(materialsArray);
-    } catch (error) {
-      console.error('Error loading available materials:', error);
-      setAvailableMaterials([]);
-    }
-  };
+  // Removed local heavy calculators: handled by useProgressiveProductionDetails
 
   // Calculate total consumption for a specific material
   const calculateMaterialConsumption = async (materialId: string) => {
@@ -764,7 +342,7 @@ export default function ProduccionDashboard() {
 
     setMaterialAnalysisLoading(true);
     try {
-      const data = await calculateMaterialConsumption(materialId);
+      const data = await hookCalculateMaterialConsumption(materialId);
       setMaterialConsumptionData(data);
     } catch (error) {
       console.error('Error loading material consumption data:', error);
@@ -1101,110 +679,95 @@ export default function ProduccionDashboard() {
   }>({ categories: [], series: [] });
   const [trendLoading, setTrendLoading] = useState(false);
 
-  // Fetch cement consumption trend data
+  // Fetch cement consumption trend data (optimized single-range approach)
   const fetchCementTrendData = async () => {
     if (!currentPlant?.id) return;
-    
+
     setTrendLoading(true);
     try {
-      const monthsToShow = 6; // Show last 6 months including current
-      const trendData: { month: string; consumption: number }[] = [];
-      
+      const monthsToShow = 6;
+      const monthKeys: string[] = [];
+      const monthLabels: string[] = [];
+      const now = new Date();
       for (let i = monthsToShow - 1; i >= 0; i--) {
-        const targetDate = subMonths(new Date(), i);
-        const monthStart = startOfMonth(targetDate);
-        const monthEnd = endOfMonth(targetDate);
-        
-        const formattedStartDate = format(monthStart, 'yyyy-MM-dd');
-        const formattedEndDate = format(monthEnd, 'yyyy-MM-dd');
-        
-        // Fetch remisiones for this month
-        const { data: remisiones, error } = await supabase
-          .from('remisiones')
-          .select(`
-            id,
-            volumen_fabricado,
-            recipe_id,
-            recipes!inner(
-              id,
-              strength_fc
-            )
-          `)
-          .eq('tipo_remision', 'CONCRETO')
-          .eq('plant_id', currentPlant.id)
-          .gte('fecha', formattedStartDate)
-          .lte('fecha', formattedEndDate)
-          .not('recipes.strength_fc', 'is', null);
+        const targetDate = subMonths(now, i);
+        const key = format(targetDate, 'yyyy-MM');
+        monthKeys.push(key);
+        monthLabels.push(format(targetDate, 'MMM yyyy', { locale: es }));
+      }
 
+      const rangeStart = startOfMonth(subMonths(now, monthsToShow - 1));
+      const rangeEnd = endOfMonth(now);
+      const formattedStart = format(rangeStart, 'yyyy-MM-dd');
+      const formattedEnd = format(rangeEnd, 'yyyy-MM-dd');
+
+      // 1) Fetch all remisiones in the full range
+      const { data: rems, error: remErr } = await supabase
+        .from('remisiones')
+        .select('id, fecha, volumen_fabricado')
+        .eq('tipo_remision', 'CONCRETO')
+        .eq('plant_id', currentPlant.id)
+        .gte('fecha', formattedStart)
+        .lte('fecha', formattedEnd);
+      if (remErr) throw remErr;
+
+      // Bucket remisiones by month
+      const monthToIds = new Map<string, string[]>();
+      const monthToVolume = new Map<string, number>();
+      const allIds: string[] = [];
+      (rems || []).forEach((r: any) => {
+        const key = format(new Date(r.fecha), 'yyyy-MM');
+        if (!monthToIds.has(key)) monthToIds.set(key, []);
+        monthToIds.get(key)!.push(r.id);
+        monthToVolume.set(key, (monthToVolume.get(key) || 0) + (Number(r.volumen_fabricado) || 0));
+        allIds.push(r.id);
+      });
+
+      if (allIds.length === 0) {
+        setCementTrendData({ categories: monthLabels, series: [{ name: 'Consumo Cemento (kg/m³)', data: monthLabels.map(() => 0) }] });
+        setTrendLoading(false);
+        return;
+      }
+
+      // 2) Fetch remision_materiales for all ids with materials join in chunks (unified detection)
+      const chunkSize = 25;
+      const idToMonth = new Map<string, string>();
+      (rems || []).forEach((r: any) => {
+        idToMonth.set(r.id, format(new Date(r.fecha), 'yyyy-MM'));
+      });
+      const monthToCement = new Map<string, number>();
+      for (let i = 0; i < allIds.length; i += chunkSize) {
+        const chunk = allIds.slice(i, i + chunkSize);
+        const { data, error } = await supabase
+          .from('remision_materiales')
+          .select('remision_id, cantidad_real, materials(material_name, category, material_code)')
+          .in('remision_id', chunk);
         if (error) {
-          console.error('Error fetching trend data for month:', targetDate, error);
+          console.error('Error fetching materiales+materials chunk for trend:', error);
           continue;
         }
-
-        if (!remisiones || remisiones.length === 0) {
-          trendData.push({
-            month: format(targetDate, 'MMM yyyy', { locale: es }),
-            consumption: 0
-          });
-          continue;
-        }
-
-        // Calculate cement consumption for this month
-        const remisionIds = remisiones.map(r => r.id);
-        let totalVolume = remisiones.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0);
-        let totalCementConsumption = 0;
-
-        if (remisionIds.length > 0 && totalVolume > 0) {
-          // Fetch material consumption in chunks
-          const chunkSize = 50;
-          const materialesResults: any[] = [];
-          
-          for (let j = 0; j < remisionIds.length; j += chunkSize) {
-            const chunk = remisionIds.slice(j, j + chunkSize);
-            const { data: materiales } = await supabase
-              .from('remision_materiales')
-              .select(`
-                material_id,
-                cantidad_real,
-                materials!inner(
-                  material_name,
-                  category
-                )
-              `)
-              .in('remision_id', chunk);
-            
-            if (materiales) materialesResults.push(...materiales);
-          }
-
-          // Calculate cement consumption
-          materialesResults.forEach(material => {
-            if (material.materials) {
-              const typeOrName = String(
-                material.materials.category || material.materials.material_name || ''
-              ).toLowerCase();
-              const isCement = typeOrName.includes('cement') || typeOrName.includes('cemento');
-              
-              if (isCement) {
-                totalCementConsumption += Number(material.cantidad_real) || 0;
-              }
-            }
-          });
-        }
-
-        const cementPerM3 = totalVolume > 0 ? totalCementConsumption / totalVolume : 0;
-        
-        trendData.push({
-          month: format(targetDate, 'MMM yyyy', { locale: es }),
-          consumption: cementPerM3
+        (data || []).forEach((row: any) => {
+          const mk = idToMonth.get(row.remision_id);
+          if (!mk) return;
+          const haystack = `${String(row.materials?.category||'').toLowerCase()} ${String(row.materials?.material_name||'').toLowerCase()} ${String(row.materials?.material_code||'').toLowerCase()}`;
+          const isCement = haystack.includes('cement') || haystack.includes('cemento') || haystack.includes('cem ' ) || haystack.includes(' cem') || haystack.includes('cem-') || haystack.includes('cem40') || haystack.includes('cem 40');
+          if (!isCement) return;
+          monthToCement.set(mk, (monthToCement.get(mk) || 0) + (Number(row.cantidad_real) || 0));
         });
       }
 
+      // 5) Build series in correct order
+      let dataPoints = monthKeys.map(key => {
+        const vol = monthToVolume.get(key) || 0;
+        const cementQty = monthToCement.get(key) || 0;
+        return vol > 0 ? cementQty / vol : 0;
+      });
+
+      // Fallback path no longer needed after unified join; keep for safety only if desired
+
       setCementTrendData({
-        categories: trendData.map(d => d.month),
-        series: [{
-          name: 'Consumo Cemento (kg/m³)',
-          data: trendData.map(d => d.consumption)
-        }]
+        categories: monthLabels,
+        series: [{ name: 'Consumo Cemento (kg/m³)', data: dataPoints }]
       });
 
     } catch (error) {
@@ -1610,7 +1173,6 @@ export default function ProduccionDashboard() {
 
     } catch (error) {
       console.error('Error fetching investigation data:', error);
-      setError('Error al cargar datos de investigación');
     } finally {
       setInvestigationLoading(false);
     }
@@ -1669,7 +1231,7 @@ export default function ProduccionDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Todas las resistencias</SelectItem>
-                  {availableStrengths.map(strength => (
+                  {availableStrengths.map((strength: number) => (
                     <SelectItem key={strength} value={strength.toString()}>
                       {strength} kg/cm²
                     </SelectItem>
@@ -1710,7 +1272,7 @@ export default function ProduccionDashboard() {
         </div>
       )}
 
-      <>
+      <div>
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <Card>
@@ -1858,11 +1420,11 @@ export default function ProduccionDashboard() {
                       {historicalTrends?.comparisonAvailable ? (
                         <>
                           <p className={`text-2xl font-bold ${
-                            historicalTrends.costChangeStatus === 'increase' ? 'text-red-600' :
-                            historicalTrends.costChangeStatus === 'decrease' ? 'text-green-600' :
+                            historicalTrends?.costChangeStatus === 'increase' ? 'text-red-600' :
+                            historicalTrends?.costChangeStatus === 'decrease' ? 'text-green-600' :
                             'text-gray-600'
                           }`}>
-                            {historicalTrends.costChange >= 0 ? '+' : ''}{historicalTrends.costChange.toFixed(1)}%
+                            {(historicalTrends?.costChange ?? 0) >= 0 ? '+' : ''}{(historicalTrends?.costChange ?? 0).toFixed(1)}%
                           </p>
                           <p className="text-xs text-muted-foreground">
                             Cambio en costo de materiales
@@ -2068,38 +1630,41 @@ export default function ProduccionDashboard() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {trendLoading ? (
-                  <div className="flex items-center justify-center h-80">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                    <span className="ml-2 text-muted-foreground">Cargando datos de tendencia...</span>
-                  </div>
-                ) : cementTrendData.categories.length > 0 ? (
-                  typeof window !== 'undefined' && (
-                    <Chart
-                      options={{
-                        ...cementTrendChartOptions,
-                        chart: {
-                          ...cementTrendChartOptions.chart,
-                          background: 'transparent'
-                        }
-                      }}
-                      series={cementTrendData.series}
-                      type="line"
-                      height={320}
-                    />
-                  )
+                {useV2 ? (
+                  <CementTrendComponent
+                    categories={trendCatsV2}
+                    data={(trendSeriesV2 && trendSeriesV2[0] && Array.isArray(trendSeriesV2[0].data)) ? trendSeriesV2[0].data as number[] : []}
+                    loading={!!trendLoadingV2}
+                  />
                 ) : (
-                  <div className="flex items-center justify-center h-80">
-                    <div className="text-center">
-                      <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-muted-foreground">
-                        No hay datos suficientes para mostrar la tendencia.
-                      </p>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        Asegúrate de tener una planta seleccionada y datos de producción disponibles.
-                      </p>
-                    </div>
-                  </div>
+                  <>
+                    {trendLoading ? (
+                      <div className="flex items-center justify-center h-80">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                        <span className="ml-2 text-muted-foreground">Cargando datos de tendencia...</span>
+                      </div>
+                    ) : cementTrendData.categories.length > 0 ? (
+                      typeof window !== 'undefined' && (
+                        <Chart
+                          options={{
+                            ...cementTrendChartOptions,
+                            chart: { ...cementTrendChartOptions.chart, background: 'transparent' }
+                          }}
+                          series={cementTrendData.series}
+                          type="line"
+                          height={320}
+                        />
+                      )
+                    ) : (
+                      <div className="flex items-center justify-center h-80">
+                        <div className="text-center">
+                          <AlertTriangle className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                          <p className="text-muted-foreground">No hay datos suficientes para mostrar la tendencia.</p>
+                          <p className="text-sm text-muted-foreground mt-2">Asegúrate de tener una planta seleccionada y datos de producción disponibles.</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -2372,7 +1937,7 @@ export default function ProduccionDashboard() {
                                 <SelectValue placeholder="Selecciona un material..." />
                               </SelectTrigger>
                               <SelectContent>
-                                {availableMaterials.map(material => (
+                                {availableMaterials.map((material: any) => (
                                   <SelectItem key={material.id} value={material.id}>
                                     {material.name} ({material.code}) - {material.category}
                                   </SelectItem>
@@ -2576,7 +2141,7 @@ export default function ProduccionDashboard() {
                                       }
                                     },
                                     xaxis: {
-                                      categories: materialConsumptionData.consumptionByRecipe.map(r => `${r.strength_fc} kg/cm²`),
+                                      categories: materialConsumptionData.consumptionByRecipe.map((r: any) => `${r.strength_fc} kg/cm²`),
                                       labels: {
                                         style: {
                                           fontSize: '12px',
@@ -2625,7 +2190,7 @@ export default function ProduccionDashboard() {
                                   }}
                                   series={[{
                                     name: 'Consumo Total',
-                                    data: materialConsumptionData.consumptionByRecipe.map(r => r.total_consumption)
+                                    data: materialConsumptionData.consumptionByRecipe.map((r: any) => r.total_consumption)
                                   }]}
                                   type="bar"
                                   height={300}
@@ -2667,7 +2232,7 @@ export default function ProduccionDashboard() {
                                       strokeWidth: 2
                                     },
                                     xaxis: {
-                                      categories: materialConsumptionData.consumptionByRecipe.map(r => `${r.strength_fc}`),
+                                      categories: materialConsumptionData.consumptionByRecipe.map((r: any) => `${r.strength_fc}`),
                                       labels: {
                                         style: {
                                           fontSize: '12px',
@@ -2717,7 +2282,7 @@ export default function ProduccionDashboard() {
                                   series={[
                                     {
                                       name: 'Consumo por m³',
-                                      data: materialConsumptionData.consumptionByRecipe.map(r =>
+                                      data: materialConsumptionData.consumptionByRecipe.map((r: any) =>
                                         r.total_volume > 0 ? r.total_consumption / r.total_volume : 0
                                       )
                                     },
@@ -2918,7 +2483,7 @@ export default function ProduccionDashboard() {
                                   <ul className="text-sm text-muted-foreground space-y-1">
                                     <li><strong>Excelente:</strong> ≤90% del promedio (muy eficiente)</li>
                                     <li><strong>Normal:</strong> 90-110% del promedio (óptimo)</li>
-                                    <li><strong>Ineficiente:</strong> >110% del promedio (revisar)</li>
+                                    <li><strong>Ineficiente:</strong> &gt;110% del promedio (revisar)</li>
                                   </ul>
                                 </div>
 
@@ -2990,7 +2555,7 @@ export default function ProduccionDashboard() {
                                 
                                 // Export remisiones
                                 const remisionesSheet = XLSX.utils.json_to_sheet(
-                                  investigationData.remisiones.map(r => ({
+                                  investigationData.remisiones.map((r: any) => ({
                                     'UUID': r.id,
                                     'Número Remisión': r.remision_number,
                                     'Fecha': r.fecha,
@@ -3004,7 +2569,7 @@ export default function ProduccionDashboard() {
                                 
                                 // Export material prices
                                 const pricesSheet = XLSX.utils.json_to_sheet(
-                                  investigationData.materialPrices.map(m => ({
+                                  investigationData.materialPrices.map((m: any) => ({
                                     'ID Material': m.material_id,
                                     'Nombre': m.material_name,
                                     'Código': m.material_code,
@@ -3312,8 +2877,7 @@ export default function ProduccionDashboard() {
               </Tabs>
             </CardContent>
           </Card>
-        </>
-      )}
+        </div>
     </div>
   );
 }
