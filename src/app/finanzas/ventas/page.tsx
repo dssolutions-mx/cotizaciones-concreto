@@ -651,7 +651,7 @@ export default function VentasDashboard() {
                   </div>
                 )}
                  {/* Top Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                     {/* Total de Ventas */}
                     <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-white to-slate-50">
                     <CardHeader className="p-4 pb-0">
@@ -711,32 +711,40 @@ export default function VentasDashboard() {
                             <div className="text-center text-xs text-purple-600 mb-2">
                             Promedio de edad de garantía (días)
                             </div>
-                            {/* Lightweight histogram */}
-                            {guaranteeAgeData && Object.keys(guaranteeAgeData.ageDistribution || {}).length > 0 && (
-                              <div className="px-2">
-                                <div className="grid grid-cols-6 gap-1 items-end">
-                                  {Object.entries(guaranteeAgeData.ageDistribution)
-                                    .sort((a, b) => {
-                                      const an = parseFloat(a[0]);
-                                      const bn = parseFloat(b[0]);
-                                      return an - bn;
-                                    })
-                                    .slice(0, 12)
-                                    .map(([label, count]) => (
-                                      <div key={`ga-bin-${label}`} className="flex flex-col items-center">
-                                        <div
-                                          className="w-3 bg-purple-400 rounded"
-                                          style={{ height: `${Math.min(100, (Number(count) / Math.max(1, guaranteeAgeData.totalRecipes)) * 80 + 10)}px` }}
-                                          title={`${label}: ${count}`}
-                                        />
-                                        <div className="mt-1 text-[10px] text-purple-700 truncate max-w-[24px]" title={label}>
-                                          {label.replace(' días','d')}
-                                        </div>
-                                      </div>
-                                    ))}
-                                </div>
-                              </div>
-                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Resistencia Ponderada */}
+                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-orange-50 to-orange-100">
+                    <CardHeader className="p-4 pb-2">
+                            <CardTitle className="text-center text-2xl font-bold text-orange-800 relative">
+                                       {currentSummaryMetrics.weightedResistance.toFixed(1)}
+                                       {currentSummaryMetrics.resistanceTooltip && (
+                                          <TooltipProvider>
+                                              <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                      <Info className="h-3 w-3 text-orange-500 absolute top-0 right-0 mr-1 mt-1 cursor-help" />
+                                                  </TooltipTrigger>
+                                                  <TooltipContent>
+                                                      <p className="text-xs max-w-xs">{currentSummaryMetrics.resistanceTooltip}</p>
+                                                  </TooltipContent>
+                                              </Tooltip>
+                                          </TooltipProvider>
+                                      )}
+                            </CardTitle>
+                        <CardDescription className='text-center text-xs font-medium text-orange-600 mb-2'>
+                            RESISTENCIA PONDERADA
+                            </CardDescription>
+                        <div className="flex justify-center gap-2 text-xs">
+                            <span className="text-orange-700">
+                                📊 kg/cm²
+                            </span>
+                        </div>
+                        </CardHeader>
+                    <CardContent className='p-2 pt-0'>
+                            <div className="text-center text-xs text-orange-600 mb-2">
+                            Promedio ponderado por volumen
+                            </div>
                         </CardContent>
                     </Card>
                 </div>
@@ -820,6 +828,7 @@ export default function VentasDashboard() {
                             </div>
                          </CardContent>
                      </Card>
+
                  </div>
 
                  {/* Export Button for PowerBI Layout */}
