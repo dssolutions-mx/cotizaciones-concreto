@@ -70,7 +70,7 @@ export default function LandingPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
-            className="max-w-3xl"
+            className="max-w-4xl"
           >
             <h1 className="text-5xl font-bold mb-4 drop-shadow-lg">
               Portal de Clientes: Transparencia, Calidad y Finanzas Claras
@@ -78,7 +78,7 @@ export default function LandingPage() {
             <p className="text-xl mb-8 drop-shadow-sm text-gray-100">
               Consulta el estado de tus pedidos en tiempo real, verifica la calidad con evidencias y controla tu saldo y pagos desde un mismo lugar.
             </p>
-            <div className="flex justify-center">
+            <div className="flex justify-left">
               <a href="/login">
                 <motion.button
                   whileHover={{ scale: 1.05 }}
@@ -270,7 +270,7 @@ export default function LandingPage() {
             </div>
             <div className="relative">
               <Image 
-                src="/images/dcconcretos/hero2.jpg?v=1" 
+                src="/images/dcconcretos/hero2.jpeg?v=1" 
                 alt="Sistema de Gestión DC Concretos" 
                 width={600} 
                 height={400} 
