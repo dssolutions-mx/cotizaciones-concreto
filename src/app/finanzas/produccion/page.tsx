@@ -63,7 +63,7 @@ export default function ComparativaProduccion() {
   const [availablePlants, setAvailablePlants] = useState<Array<{ id: string; code: string; name: string }>>([]);
   const [selectedPlants, setSelectedPlants] = useState<string[]>([]);
   const [previousMonthData, setPreviousMonthData] = useState<PlantProductionData[]>([]);
-  const { data: progData, previousMonthData: progPrev, loading: progLoading, streaming, progress, error: progError } = useProgressiveProductionComparison({
+  const { data: progData, previousMonthData: progPrev, loading: progLoading, streaming, progress, error: progError, comparisonStreaming, comparisonProgress } = useProgressiveProductionComparison({
     startDate,
     endDate,
     selectedPlantIds: selectedPlants,
@@ -598,7 +598,7 @@ export default function ComparativaProduccion() {
             onClick={exportToExcel} 
             variant="outline" 
             className="gap-2"
-            disabled={!comparativeData || comparativeData.section1.length === 0}
+            disabled={streaming || !comparativeData || comparativeData.section1.length === 0}
           >
             <Download className="h-4 w-4" />
             Exportar Excel
@@ -628,10 +628,24 @@ export default function ComparativaProduccion() {
                 <div className="bg-blue-500 h-2" style={{ width: `${Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%` }} />
               </div>
               <div className="text-xs text-muted-foreground mt-1 text-center">
-                Progresando… {Math.round((progress.processed / Math.max(1, progress.total)) * 100)}%
+                Progresando… {Math.round((progress.processed / Math.max(1, progress.total)) * 100)}% ({progress.processed}/{Math.max(1, progress.total)})
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Secondary comparison progress (previous month) */}
+      {(!loading && !streaming && comparisonStreaming) && (
+        <div className="flex items-center justify-center py-4">
+          <div className="w-full max-w-xl">
+            <div className="w-full bg-gray-100 border rounded h-2 overflow-hidden">
+              <div className="bg-purple-500 h-2" style={{ width: `${Math.round((comparisonProgress.processed / Math.max(1, comparisonProgress.total)) * 100)}%` }} />
+            </div>
+            <div className="text-xs text-muted-foreground mt-1 text-center">
+              Comparando con mes anterior… {Math.round((comparisonProgress.processed / Math.max(1, comparisonProgress.total)) * 100)}% ({comparisonProgress.processed}/{Math.max(1, comparisonProgress.total)})
+            </div>
+          </div>
         </div>
       )}
 

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addMonths, endOfMonth, format, startOfMonth } from 'date-fns';
 import { supabase } from '@/lib/supabase/client';
+import { getRemisionesAllPages } from '@/services/remisiones';
 
 export interface PlantProductionData {
   plant_id: string;
@@ -44,6 +45,9 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
   const [progress, setProgress] = useState<{ processed: number; total: number }>({ processed: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<{ aborted: boolean; token: number }>({ aborted: false, token: 0 });
+  // Secondary progress for previous month comparison
+  const [comparisonStreaming, setComparisonStreaming] = useState(false);
+  const [comparisonProgress, setComparisonProgress] = useState<{ processed: number; total: number }>({ processed: 0, total: 0 });
 
   const dateRange = useMemo(() => {
     if (!startDate || !endDate) return null as null | { start: string; end: string };
@@ -61,6 +65,8 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
       setStreaming(false);
       setProgress({ processed: 0, total: 0 });
       setError(null);
+      setComparisonStreaming(false);
+      setComparisonProgress({ processed: 0, total: 0 });
       return;
     }
 
@@ -70,8 +76,11 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
     setLoading(true);
     setStreaming(true);
     setError(null);
-    setProgress({ processed: 0, total: selectedPlantIds.length });
+    // We'll compute total dynamically as we discover pages per plant
+    setProgress({ processed: 0, total: 0 });
     setData({ section1: [], section2: [], section3: [], section4: [] });
+    setComparisonStreaming(false);
+    setComparisonProgress({ processed: 0, total: 0 });
 
     const load = async () => {
       try {
@@ -84,61 +93,146 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
 
         const plantsList = (plants || []).filter(Boolean);
 
-        // 2) Process each plant one by one to stream results
+        // 2) Process each plant progressively with paginated remisiones to avoid overfetching
         let acc: PlantProductionData[] = [];
-        let firstChunk = true;
+        let firstPaintDone = false;
         for (const plant of plantsList) {
           if (abortRef.current.aborted || abortRef.current.token !== token) return;
 
-          const plantData = await fetchPlantProductionData(
-            plant.id,
-            plant.code,
-            plant.name,
-            dateRange.start,
-            dateRange.end
-          );
-          if (plantData) {
-            acc = [...acc, plantData];
-            // Keep a deterministic order by plant_code
-            acc.sort((a, b) => a.plant_code.localeCompare(b.plant_code));
+          // Accumulate remisiones per plant using paginated generator
+          const remisionesForPlant: Array<{
+            id: string;
+            volumen_fabricado: number;
+            recipes?: { id: string; recipe_code: string; strength_fc: number; age_days?: number };
+          }> = [];
+
+          // Discover total pages for this plant and update global total on first page
+          let pagesForPlant = 0;
+
+          // Generator over remisiones pages
+          for await (const { rows, count } of getRemisionesAllPages<any>({
+            plantId: plant.id,
+            from: dateRange.start,
+            to: dateRange.end,
+            pageSize: 150,
+            select: `id, volumen_fabricado, recipe_id, recipes!inner(id, recipe_code, strength_fc, age_days)`,
+            orderBy: { column: 'fecha', ascending: true },
+          })) {
+            if (abortRef.current.aborted || abortRef.current.token !== token) return;
+
+            // Initialize progress total when we know count for this plant
+            if (pagesForPlant === 0) {
+              const totalPages = typeof count === 'number' && count > 0 ? Math.ceil(count / 150) : (rows?.length ? 1 : 0);
+              pagesForPlant = totalPages;
+              // Add pages for this plant + 1 extra step for cost/materials aggregation
+              setProgress((p) => ({ processed: p.processed, total: p.total + totalPages + 1 }));
+            }
+
+            // Accumulate safe rows (ensure recipe join exists)
+            const safe = (rows || []).filter((r: any) => r?.recipes?.strength_fc != null);
+            remisionesForPlant.push(...safe);
+
+            // Early paint after first page overall
+            if (!firstPaintDone) {
+              setLoading(false);
+              firstPaintDone = true;
+            }
+
+            // Mark one page processed
+            setStreaming(true);
+            setProgress((p) => ({ processed: Math.min(p.processed + 1, p.total), total: p.total }));
           }
 
+          // Build plant metrics from accumulated remisiones
+          const totalVolume = remisionesForPlant.reduce((sum, r) => sum + (Number(r.volumen_fabricado) || 0), 0);
+          const remisionIds = remisionesForPlant.map((r) => r.id);
+
+          let fcPonderada = 0;
+          let edadPonderada = 0;
+          if (totalVolume > 0) {
+            let sumFcVolume = 0;
+            let sumEdadVolume = 0;
+            remisionesForPlant.forEach((rem) => {
+              const vol = Number(rem.volumen_fabricado) || 0;
+              const fc = Number(rem.recipes?.strength_fc) || 0;
+              const edad = Number(rem.recipes?.age_days) || 28;
+              sumFcVolume += fc * vol;
+              sumEdadVolume += edad * vol;
+            });
+            fcPonderada = sumFcVolume / totalVolume;
+            edadPonderada = sumEdadVolume / totalVolume;
+          }
+
+          // Calculate materials costs/consumptions (chunked internally)
+          const materialCosts = await calculateMaterialCosts(remisionIds, plant.id);
           if (abortRef.current.aborted || abortRef.current.token !== token) return;
 
+          const plantData: PlantProductionData = {
+            plant_id: plant.id,
+            plant_code: plant.code,
+            plant_name: plant.name,
+            total_volume: totalVolume,
+            total_material_cost: materialCosts.totalCost,
+            cement_consumption: materialCosts.cementConsumption,
+            cement_cost_per_m3: totalVolume > 0 ? materialCosts.cementCost / totalVolume : 0,
+            avg_cost_per_m3: totalVolume > 0 ? materialCosts.totalCost / totalVolume : 0,
+            remisiones_count: remisionesForPlant.length,
+            additive_consumption: materialCosts.additiveConsumption,
+            additive_cost: materialCosts.additiveCost,
+            aggregate_consumption: materialCosts.aggregateConsumption,
+            aggregate_cost: materialCosts.aggregateCost,
+            water_consumption: materialCosts.waterConsumption,
+            fc_ponderada: fcPonderada,
+            edad_ponderada: edadPonderada,
+          };
+
+          acc = [...acc, plantData];
+          acc.sort((a, b) => a.plant_code.localeCompare(b.plant_code));
           setData({ section1: acc, section2: acc, section3: acc, section4: acc });
-          if (firstChunk) {
-            setLoading(false);
-            firstChunk = false;
-          }
-          setProgress(prev => ({ ...prev, processed: Math.min(prev.processed + 1, prev.total) }));
+
+          // Mark the extra step (materials aggregation) as processed
+          setProgress((p) => ({ processed: Math.min(p.processed + 1, p.total), total: p.total }));
         }
 
-        // 3) Fetch previous month data in the background (non-blocking UI)
-        if (!abortRef.current.aborted && acc.length > 0) {
-          try {
-            const prevStart = startOfMonth(addMonths(startDate!, -1));
-            const prevEnd = endOfMonth(addMonths(startDate!, -1));
-            const prevStartStr = format(prevStart, 'yyyy-MM-dd');
-            const prevEndStr = format(prevEnd, 'yyyy-MM-dd');
+        // Stop streaming now that main period processing is done
+        if (!abortRef.current.aborted && abortRef.current.token === token) {
+          setStreaming(false);
+        }
 
-            const prevResults: PlantProductionData[] = [];
-            for (const plant of plantsList) {
-              if (abortRef.current.aborted || abortRef.current.token !== token) return;
-              const prev = await fetchPlantProductionData(
-                plant.id,
-                plant.code,
-                plant.name,
-                prevStartStr,
-                prevEndStr
-              );
-              if (prev) prevResults.push(prev);
+        // 3) Fetch previous month data truly in the background (non-blocking UI)
+        if (!abortRef.current.aborted && acc.length > 0) {
+          (async () => {
+            try {
+              const prevStart = startOfMonth(addMonths(startDate!, -1));
+              const prevEnd = endOfMonth(addMonths(startDate!, -1));
+              const prevStartStr = format(prevStart, 'yyyy-MM-dd');
+              const prevEndStr = format(prevEnd, 'yyyy-MM-dd');
+
+              const prevResults: PlantProductionData[] = [];
+              // Initialize comparison progress
+              setComparisonStreaming(true);
+              setComparisonProgress({ processed: 0, total: plantsList.length });
+              for (const plant of plantsList) {
+                if (abortRef.current.aborted || abortRef.current.token !== token) return;
+                const prev = await fetchPlantProductionData(
+                  plant.id,
+                  plant.code,
+                  plant.name,
+                  prevStartStr,
+                  prevEndStr
+                );
+                if (prev) prevResults.push(prev);
+                setComparisonProgress((p) => ({ processed: Math.min(p.processed + 1, p.total), total: p.total }));
+              }
+              if (!abortRef.current.aborted && abortRef.current.token === token) {
+                setPreviousMonthData(prevResults);
+              }
+              setComparisonStreaming(false);
+            } catch (e) {
+              // ignore background errors
+              setComparisonStreaming(false);
             }
-            if (!abortRef.current.aborted && abortRef.current.token === token) {
-              setPreviousMonthData(prevResults);
-            }
-          } catch (e) {
-            // non-blocking
-          }
+          })();
         }
       } catch (e: any) {
         if (!abortRef.current.aborted && abortRef.current.token === token) {
@@ -147,6 +241,7 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
       } finally {
         if (!abortRef.current.aborted && abortRef.current.token === token) {
           setLoading(false);
+          // streaming may already be false; ensure it's not left true
           setStreaming(false);
         }
       }
@@ -156,7 +251,7 @@ export function useProgressiveProductionComparison({ startDate, endDate, selecte
     return () => { abortRef.current.aborted = true; };
   }, [dateRange, selectedPlantIds]);
 
-  return { data, previousMonthData, loading, streaming, progress, error };
+  return { data, previousMonthData, loading, streaming, progress, error, comparisonStreaming, comparisonProgress };
 }
 
 async function fetchPlantProductionData(

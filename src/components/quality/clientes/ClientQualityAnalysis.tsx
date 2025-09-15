@@ -251,25 +251,26 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
 
   const metrics = calculateAdvancedMetrics();
 
-  // Precompute guarantee-age ensayos once to keep charts consistent
-  const guaranteeAgeEnsayos = React.useMemo(() => {
-    return data.remisiones.flatMap(remision =>
-      remision.muestreos.flatMap(muestreo =>
-        muestreo.muestras.flatMap(muestra =>
+  // Compliance histogram data
+  const complianceHistogram = (() => {
+    // Compute compliance per muestreo (average of valid guarantee-age ensayos)
+    const muestreoCompliances: number[] = [];
+    data.remisiones.forEach(remision => {
+      remision.muestreos.forEach(muestreo => {
+        const validEnsayos = muestreo.muestras.flatMap(muestra =>
           (muestra.ensayos || []).filter(ensayo =>
             ensayo.isEdadGarantia &&
             !ensayo.isEnsayoFueraTiempo &&
             (ensayo.resistenciaCalculada || 0) > 0 &&
             (ensayo.porcentajeCumplimiento || 0) >= 0
           )
-        )
-      )
-    );
-  }, [data]);
-
-  // Compliance histogram data
-  const complianceHistogram = (() => {
-    const allEnsayos = guaranteeAgeEnsayos;
+        );
+        if (validEnsayos.length > 0) {
+          const avg = validEnsayos.reduce((s, e) => s + (e.porcentajeCumplimiento || 0), 0) / validEnsayos.length;
+          muestreoCompliances.push(avg);
+        }
+      });
+    });
     const ranges = [
       { key: '0-80', from: 0, to: 80 },
       { key: '80-85', from: 80, to: 85 },
@@ -279,8 +280,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
       { key: '100-110', from: 100, to: 110 }
     ];
     const counts = Object.fromEntries(ranges.map(r => [r.key, 0]));
-    allEnsayos.forEach(e => {
-      const c = e.porcentajeCumplimiento || 0;
+    muestreoCompliances.forEach(c => {
       const r = ranges.find(rr => c >= rr.from && c < rr.to) || ranges[ranges.length - 1];
       counts[r.key] += 1;
     });
@@ -547,7 +547,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="range" tick={{ fontSize: 12 }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v: any) => [v, 'Ensayos']} />
+                <Tooltip formatter={(v: any) => [v, 'Muestreos']} />
                 <Bar dataKey="count" fill="#10b981" radius={[4,4,0,0]} />
               </BarChart>
             </ResponsiveContainer>
