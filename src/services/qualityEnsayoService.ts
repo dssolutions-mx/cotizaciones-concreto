@@ -147,17 +147,27 @@ export async function createEnsayo(data: {
     };
 
 
-    // Insert ensayo
-    const { data: ensayo, error: ensayoError } = await supabase
-      .from('ensayos')
-      .insert([ensayoData])
-      .select()
-      .single();
+    // Insert ensayo via internal API to bypass RLS using service role
+    const response = await fetch('/api/quality/ensayos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...ensayoData,
+        // API requires these fields; we already calculated on client
+        resistencia_calculada: data.resistencia_calculada,
+        porcentaje_cumplimiento: data.porcentaje_cumplimiento,
+      }),
+    });
 
-    if (ensayoError) {
-      console.error('Error creating ensayo:', ensayoError);
+    if (!response.ok) {
+      try {
+        const err = await response.json();
+        console.error('Error creating ensayo via API:', err);
+      } catch (_) {}
       throw new Error('Error al crear ensayo');
     }
+
+    const { ensayo } = await response.json();
 
     // Handle evidence files if provided
     if (data.evidencia_fotografica && data.evidencia_fotografica.length > 0) {
