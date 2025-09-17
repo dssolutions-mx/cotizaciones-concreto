@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
     // Format the data for insert
     const ensayoToCreate = {
       muestra_id: data.muestra_id,
+      plant_id: data.plant_id || null,
       fecha_ensayo: typeof data.fecha_ensayo === 'string'
         ? data.fecha_ensayo
         : format(data.fecha_ensayo, 'yyyy-MM-dd'),

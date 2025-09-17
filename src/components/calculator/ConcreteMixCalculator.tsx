@@ -71,7 +71,7 @@ import { calculatorService, CalculatorMaterials, CalculatorRecipe } from '@/lib/
 
 const ConcreteMixCalculator = () => {
   const { profile } = useAuthBridge();
-  const { currentPlant } = usePlantContext();
+  const { currentPlant, isLoading: plantLoading, refreshPlantData } = usePlantContext();
   
   // Loading states
   const [loading, setLoading] = useState(false);
@@ -1181,11 +1181,44 @@ const ConcreteMixCalculator = () => {
     }
   }, [currentPlant?.id]);
 
+  // Ensure plant context is hydrated without manual refresh
+  useEffect(() => {
+    if (!plantLoading && !currentPlant) {
+      // Try to refresh plant data to pick up default/selected plant
+      refreshPlantData();
+    }
+  }, [plantLoading, currentPlant, refreshPlantData]);
+
+  // Reset local calculator state when plant changes
+  useEffect(() => {
+    if (!currentPlant?.id) return;
+    // Clear selections and results to avoid cross-plant leakage
+    setAvailableMaterials({ cements: [], sands: [], gravels: [], additives: [] });
+    setMaterialsLoaded(false);
+    setSelectedMaterials({ cement: null, sands: [], gravels: [], additives: [] });
+    setGeneratedRecipes([]);
+    setFcrOverrides({});
+    setActiveTab('materials');
+  }, [currentPlant?.id]);
+
   useEffect(() => {
     if (materials.sands.length > 0 && materials.gravels.length > 0) {
       generateRecipes();
     }
   }, [designParams, recipeParams, designType, materials]);
+
+  if (plantLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="bg-white rounded-lg shadow-sm p-6 flex items-center gap-2 text-blue-600">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>Cargando planta seleccionada...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentPlant) {
     return (
