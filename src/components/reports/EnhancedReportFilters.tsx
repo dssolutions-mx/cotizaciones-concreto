@@ -265,18 +265,32 @@ export default function EnhancedReportFilters({
 
   // Update selection summary
   const updateSelectionSummary = useCallback((updatedData: HierarchicalReportData) => {
-    const selectedClients = updatedData.clients.filter(c => c.selected).map(c => c.id);
-    const selectedOrders = updatedData.clients.flatMap(c => 
-      c.orders.filter(o => o.selected).map(o => o.id)
-    );
-    const selectedRemisiones = updatedData.clients.flatMap(c => 
-      c.orders.flatMap(o => o.remisiones.filter(r => r.selected).map(r => r.id))
-    );
-
+    // Collect selected remisiones
     const selectedRemisionObjects = updatedData.clients.flatMap(c => 
       c.orders.flatMap(o => o.remisiones.filter(r => r.selected))
     );
+    const selectedRemisiones = selectedRemisionObjects.map(r => r.id);
 
+    // Collect orders explicitly selected OR with at least one selected remisión
+    const explicitSelectedOrderIds = new Set<string>();
+    const inferredSelectedOrderIds = new Set<string>();
+    updatedData.clients.forEach(c => {
+      c.orders.forEach(o => {
+        if (o.selected) explicitSelectedOrderIds.add(o.id);
+        if (o.remisiones.some(r => r.selected)) inferredSelectedOrderIds.add(o.id);
+      });
+    });
+    const selectedOrders = Array.from(new Set<string>([...explicitSelectedOrderIds, ...inferredSelectedOrderIds]));
+
+    // Collect clients explicitly selected OR with any selected order/remisión
+    const selectedClientIds = new Set<string>();
+    updatedData.clients.forEach(c => {
+      const hasSelectedAtAnyLevel = c.selected || c.orders.some(o => o.selected || o.remisiones.some(r => r.selected));
+      if (hasSelectedAtAnyLevel) selectedClientIds.add(c.id);
+    });
+    const selectedClients = Array.from(selectedClientIds);
+
+    // Totals
     const totalVolume = selectedRemisionObjects.reduce((sum, r) => sum + r.volumen_fabricado, 0);
     const totalAmount = selectedRemisionObjects.reduce((sum, r) => sum + (r.line_total || 0), 0);
 

@@ -231,19 +231,358 @@ export class ReportDataService {
         throw new Error('Date range is required');
       }
 
-      // Support both single and multiple client selection
+      // Support both single and multiple selection across levels
       const clientIds = filters.clientIds && filters.clientIds.length > 0 ? filters.clientIds : 
                        (filters.clientId ? [filters.clientId] : []);
-      
-      if (clientIds.length === 0) {
-        throw new Error('At least one client must be selected');
+      const orderIdsFilter = filters.orderIds && filters.orderIds.length > 0 ? filters.orderIds : [];
+      const remisionIdsFilter = filters.remisionIds && filters.remisionIds.length > 0 ? filters.remisionIds : [];
+
+      // Require at least one selection at any level
+      if (clientIds.length === 0 && orderIdsFilter.length === 0 && remisionIdsFilter.length === 0) {
+        throw new Error('Debe seleccionar al menos una remisión, orden o cliente');
       }
 
       // Format dates for Supabase query
       const formattedStartDate = format(dateRange.from, 'yyyy-MM-dd');
       const formattedEndDate = format(dateRange.to, 'yyyy-MM-dd');
 
-      // Step 1: Get all orders for the selected clients
+      // Prepare variables used across branches
+      let orders: any[] = [];
+      let orderItems: any[] | null = null;
+
+      // Branch A: Remisión-level selection → fetch remisiones first, then orders/items
+      if (remisionIdsFilter.length > 0) {
+        // Fetch remisiones by IDs only (avoid also filtering by order to keep URL small)
+        let remisionesQuery = supabase
+          .from('remisiones')
+          .select(`
+            *,
+            recipe:recipes (
+              recipe_code,
+              strength_fc,
+              placement_type,
+              max_aggregate_size,
+              slump,
+              age_days
+            ),
+            materiales:remision_materiales(*),
+            plant:plants (
+              id,
+              code,
+              name,
+              business_unit:business_units (
+                id,
+                name,
+                vat_rate
+              )
+            )
+          `)
+          .in('id', remisionIdsFilter);
+
+        // Apply date filtering
+        if (filters.singleDateMode && dateRange.from) {
+          const dateStr = format(dateRange.from, 'yyyy-MM-dd');
+          remisionesQuery = remisionesQuery.eq('fecha', dateStr);
+        } else {
+          remisionesQuery = remisionesQuery
+            .gte('fecha', formattedStartDate)
+            .lte('fecha', formattedEndDate);
+        }
+
+        // Apply plant filter
+        if (filters.plantIds && filters.plantIds.length > 0) {
+          remisionesQuery = remisionesQuery.in('plant_id', filters.plantIds);
+        }
+
+        const { data: remisionesData, error: remisionesError } = await remisionesQuery
+          .order('fecha', { ascending: false });
+        if (remisionesError) throw remisionesError;
+
+        // If nothing found
+        if (!remisionesData || remisionesData.length === 0) {
+          return { data: [], summary: this.createEmptySummary() };
+        }
+
+        // Fetch orders and order_items for these remisiones
+        const orderIds = Array.from(new Set(remisionesData.map(r => r.order_id)));
+        const ordersQuery = supabase
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            construction_site,
+            elemento,
+            requires_invoice,
+            total_amount,
+            final_amount,
+            invoice_amount,
+            client_id,
+            order_status,
+            clients:client_id (
+              id,
+              business_name,
+              client_code,
+              rfc,
+              address,
+              contact_name,
+              email
+            )
+          `)
+          .in('id', orderIds);
+        const { data: ordersData, error: ordersErr } = await ordersQuery;
+        if (ordersErr) throw ordersErr;
+        orders = ordersData || [];
+
+        const { data: itemsData, error: itemsErr } = await supabase
+          .from('order_items')
+          .select('*')
+          .in('order_id', orderIds);
+        if (itemsErr) throw itemsErr;
+        orderItems = itemsData || [];
+
+        // Continue to enrichment step using remisionesData
+        // Enrichment code below will use current scope remisionesData
+        // so we assign it to a common variable via closure
+        var remisionesDataForEnrichment = remisionesData;
+
+        // Enrichment and post-filtering moved below common block
+
+        // Continue after common block
+        // eslint-disable-next-line no-inner-declarations
+        const enrichAndReturn = () => {
+          // Step 4: Enrich remisiones with order and client data
+          const enrichedRemisiones: ReportRemisionData[] = (remisionesDataForEnrichment || []).map(remision => {
+            const order = orders.find(o => o.id === remision.order_id);
+            const client = order?.clients;
+            const orderItem = orderItems?.find(item => 
+              item.order_id === remision.order_id && 
+              (item.product_type === remision.recipe?.recipe_code || 
+               item.recipe_id?.toString() === remision.recipe?.recipe_code)
+            );
+            const unitPrice = orderItem?.unit_price || 0;
+            const lineTotal = unitPrice * remision.volumen_fabricado;
+            const vatRate = remision.plant?.business_unit?.vat_rate || 16;
+            const vatAmount = lineTotal * (vatRate / 100);
+            const finalTotal = lineTotal + vatAmount;
+            return {
+              ...remision,
+              order: order ? {
+                order_number: order.order_number,
+                construction_site: order.construction_site,
+                elemento: order.elemento,
+                requires_invoice: order.requires_invoice,
+                total_amount: order.total_amount,
+                final_amount: order.final_amount,
+                invoice_amount: order.invoice_amount,
+                client_id: order.client_id
+              } : undefined,
+              client: client ? {
+                id: client.id,
+                business_name: client.business_name,
+                client_code: client.client_code,
+                rfc: client.rfc,
+                address: client.address,
+                contact_name: client.contact_name,
+                email: client.email
+              } : undefined,
+              unit_price: unitPrice,
+              line_total: lineTotal,
+              vat_amount: vatAmount,
+              final_total: finalTotal,
+              plant_info: remision.plant ? {
+                plant_id: remision.plant.id,
+                plant_code: remision.plant.code,
+                plant_name: remision.plant.name,
+                vat_percentage: vatRate
+              } : undefined
+            };
+          });
+
+          // Step 5: Apply additional filters (recipe, invoice)
+          let filteredData = enrichedRemisiones;
+          if (filters.recipeCodes && filters.recipeCodes.length > 0) {
+            filteredData = filteredData.filter(item => 
+              item.recipe?.recipe_code && filters.recipeCodes!.includes(item.recipe.recipe_code)
+            );
+          } else if (filters.recipeCode && filters.recipeCode !== 'all') {
+            filteredData = filteredData.filter(item => 
+              item.recipe?.recipe_code === filters.recipeCode
+            );
+          }
+          if (filters.invoiceRequirement && filters.invoiceRequirement !== 'all') {
+            const requiresInvoice = filters.invoiceRequirement === 'with_invoice';
+            filteredData = filteredData.filter(item => 
+              item.order?.requires_invoice === requiresInvoice
+            );
+          }
+
+          const summary = this.generateSummary(filteredData);
+          return { data: filteredData, summary };
+        };
+
+        return enrichAndReturn();
+      }
+
+      // Branch B: Order-level selection → fetch those orders
+      if (orderIdsFilter.length > 0) {
+        let ordersQuery = supabase
+          .from('orders')
+          .select(`
+            id,
+            order_number,
+            construction_site,
+            elemento,
+            requires_invoice,
+            total_amount,
+            final_amount,
+            invoice_amount,
+            client_id,
+            order_status,
+            clients:client_id (
+              id,
+              business_name,
+              client_code,
+              rfc,
+              address,
+              contact_name,
+              email
+            )
+          `)
+          .in('id', orderIdsFilter);
+
+        // Apply construction site filter if specified (multiple sites supported)
+        if (filters.constructionSites && filters.constructionSites.length > 0) {
+          ordersQuery = ordersQuery.in('construction_site', filters.constructionSites);
+        } else if (filters.constructionSite && filters.constructionSite !== 'todos') {
+          ordersQuery = ordersQuery.eq('construction_site', filters.constructionSite);
+        }
+
+        const { data: ordersData, error: ordersError } = await ordersQuery;
+        if (ordersError) throw ordersError;
+        if (!ordersData || ordersData.length === 0) {
+          return { data: [], summary: this.createEmptySummary() };
+        }
+        orders = ordersData;
+
+        const orderIds = orders.map(o => o.id);
+        const { data: itemsData, error: itemsError } = await supabase
+          .from('order_items')
+          .select('*')
+          .in('order_id', orderIds);
+        if (itemsError) throw itemsError;
+        orderItems = itemsData || [];
+
+        // Fetch remisiones for these orders
+        let remisionesQuery = supabase
+          .from('remisiones')
+          .select(`
+            *,
+            recipe:recipes (
+              recipe_code,
+              strength_fc,
+              placement_type,
+              max_aggregate_size,
+              slump,
+              age_days
+            ),
+            materiales:remision_materiales(*),
+            plant:plants (
+              id,
+              code,
+              name,
+              business_unit:business_units (
+                id,
+                name,
+                vat_rate
+              )
+            )
+          `)
+          .in('order_id', orderIds);
+
+        if (filters.singleDateMode && dateRange.from) {
+          const dateStr = format(dateRange.from, 'yyyy-MM-dd');
+          remisionesQuery = remisionesQuery.eq('fecha', dateStr);
+        } else {
+          remisionesQuery = remisionesQuery
+            .gte('fecha', formattedStartDate)
+            .lte('fecha', formattedEndDate);
+        }
+        if (filters.plantIds && filters.plantIds.length > 0) {
+          remisionesQuery = remisionesQuery.in('plant_id', filters.plantIds);
+        }
+        const { data: remisionesData, error: remisionesError } = await remisionesQuery.order('fecha', { ascending: false });
+        if (remisionesError) throw remisionesError;
+
+        // Enrich and return
+        const enrichedRemisiones: ReportRemisionData[] = (remisionesData || []).map(remision => {
+          const order = orders.find(o => o.id === remision.order_id);
+          const client = order?.clients;
+          const orderItem = orderItems?.find(item => 
+            item.order_id === remision.order_id && 
+            (item.product_type === remision.recipe?.recipe_code || 
+             item.recipe_id?.toString() === remision.recipe?.recipe_code)
+          );
+          const unitPrice = orderItem?.unit_price || 0;
+          const lineTotal = unitPrice * remision.volumen_fabricado;
+          const vatRate = remision.plant?.business_unit?.vat_rate || 16;
+          const vatAmount = lineTotal * (vatRate / 100);
+          const finalTotal = lineTotal + vatAmount;
+          return {
+            ...remision,
+            order: order ? {
+              order_number: order.order_number,
+              construction_site: order.construction_site,
+              elemento: order.elemento,
+              requires_invoice: order.requires_invoice,
+              total_amount: order.total_amount,
+              final_amount: order.final_amount,
+              invoice_amount: order.invoice_amount,
+              client_id: order.client_id
+            } : undefined,
+            client: client ? {
+              id: client.id,
+              business_name: client.business_name,
+              client_code: client.client_code,
+              rfc: client.rfc,
+              address: client.address,
+              contact_name: client.contact_name,
+              email: client.email
+            } : undefined,
+            unit_price: unitPrice,
+            line_total: lineTotal,
+            vat_amount: vatAmount,
+            final_total: finalTotal,
+            plant_info: remision.plant ? {
+              plant_id: remision.plant.id,
+              plant_code: remision.plant.code,
+              plant_name: remision.plant.name,
+              vat_percentage: vatRate
+            } : undefined
+          };
+        });
+
+        let filteredData = enrichedRemisiones;
+        if (filters.recipeCodes && filters.recipeCodes.length > 0) {
+          filteredData = filteredData.filter(item => 
+            item.recipe?.recipe_code && filters.recipeCodes!.includes(item.recipe.recipe_code)
+          );
+        } else if (filters.recipeCode && filters.recipeCode !== 'all') {
+          filteredData = filteredData.filter(item => 
+            item.recipe?.recipe_code === filters.recipeCode
+          );
+        }
+        if (filters.invoiceRequirement && filters.invoiceRequirement !== 'all') {
+          const requiresInvoice = filters.invoiceRequirement === 'with_invoice';
+          filteredData = filteredData.filter(item => 
+            item.order?.requires_invoice === requiresInvoice
+          );
+        }
+
+        const summary = this.generateSummary(filteredData);
+        return { data: filteredData, summary };
+      }
+
+      // Branch C: Client-level selection (existing flow)
       let ordersQuery = supabase
         .from('orders')
         .select(`
@@ -269,40 +608,33 @@ export class ReportDataService {
         `)
         .in('client_id', clientIds);
 
-      // Apply construction site filter if specified (multiple sites supported)
       if (filters.constructionSites && filters.constructionSites.length > 0) {
         ordersQuery = ordersQuery.in('construction_site', filters.constructionSites);
       } else if (filters.constructionSite && filters.constructionSite !== 'todos') {
         ordersQuery = ordersQuery.eq('construction_site', filters.constructionSite);
       }
-
-      // Apply specific order filter if specified
       if (filters.orderIds && filters.orderIds.length > 0) {
         ordersQuery = ordersQuery.in('id', filters.orderIds);
       }
 
-      const { data: orders, error: ordersError } = await ordersQuery;
-      
+      const { data: ordersClient, error: ordersError } = await ordersQuery;
       if (ordersError) throw ordersError;
-      
-      if (!orders || orders.length === 0) {
+      if (!ordersClient || ordersClient.length === 0) {
         return {
           data: [],
           summary: this.createEmptySummary()
         };
       }
+      orders = ordersClient;
 
-      // Step 2: Get order items for pricing information
       const orderIds = orders.map(order => order.id);
-      
-      const { data: orderItems, error: itemsError } = await supabase
+      const { data: orderItemsClient, error: itemsError } = await supabase
         .from('order_items')
         .select('*')
         .in('order_id', orderIds);
-      
       if (itemsError) throw itemsError;
+      orderItems = orderItemsClient || [];
 
-      // Step 3: Fetch remisiones with comprehensive joins
       let remisionesQuery = supabase
         .from('remisiones')
         .select(`
@@ -778,9 +1110,7 @@ export class ReportDataService {
       errors.push('Rango de fechas es requerido');
     }
 
-    if (!config.filters.clientId) {
-      errors.push('Cliente es requerido');
-    }
+    // Do not require explicit clientId; selection can be at order/remision level
 
     if (config.selectedColumns.length === 0) {
       errors.push('Al menos una columna debe estar seleccionada');
