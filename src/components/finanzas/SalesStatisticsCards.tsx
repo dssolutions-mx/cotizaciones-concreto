@@ -4,6 +4,8 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Info } from "lucide-react";
 import { formatCurrency } from '@/lib/utils';
 
 interface SummaryMetrics {
@@ -197,6 +199,7 @@ export const SalesStatisticsCards: React.FC<SalesStatisticsCardsProps> = ({
             </div>
           </CardFooter>
         </Card>
+
       </div>
     </>
   );

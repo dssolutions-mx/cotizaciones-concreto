@@ -114,10 +114,7 @@ export default function ReportesClientes() {
       return;
     }
 
-    if (selectionSummary.selectedClients.length === 0) {
-      alert('Por favor selecciona al menos un cliente para el reporte');
-      return;
-    }
+    // No exigir cliente si ya hay órdenes o remisiones seleccionadas
 
     setGeneratingReport(true);
     try {

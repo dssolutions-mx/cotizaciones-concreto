@@ -54,6 +54,7 @@ import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
 
 // Import quality service
 import { ClientQualityService } from '@/services/clientQualityService';
+import { useProgressiveGuaranteeAge } from '@/hooks/useProgressiveGuaranteeAge';
 
 // Dynamically import ApexCharts with SSR disabled
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
@@ -446,34 +447,25 @@ export default function VentasDashboard() {
     return isNaN(pct) ? 0 : Math.min(100, Math.max(0, pct));
   }, [progress]);
 
-  // Load guarantee age data
+  // Progressive guarantee age loading
+  const { data: progressiveGuarantee, streaming: gaStreaming, progress: gaProgress } = useProgressiveGuaranteeAge(
+    startDate,
+    endDate,
+    currentPlant?.id,
+    { newestFirst: true }
+  );
+
   useEffect(() => {
-    const loadGuaranteeAgeData = async () => {
-      if (startDate && endDate) {
-        try {
-          const fromDateStr = format(startDate, 'yyyy-MM-dd');
-          const toDateStr = format(endDate, 'yyyy-MM-dd');
+    if (progressiveGuarantee) {
+      setGuaranteeAgeData(progressiveGuarantee);
+    }
+  }, [progressiveGuarantee]);
 
-          const guaranteeAgeResult = await ClientQualityService.getAverageGuaranteeAge(
-            fromDateStr,
-            toDateStr,
-            currentPlant?.id
-          );
-
-          setGuaranteeAgeData(guaranteeAgeResult);
-        } catch (error) {
-          console.error('Error loading guarantee age data:', error);
-          setGuaranteeAgeData({
-            averageGuaranteeAge: 0,
-            totalRecipes: 0,
-            ageDistribution: {}
-          });
-        }
-      }
-    };
-
-    loadGuaranteeAgeData();
-  }, [startDate, endDate, currentPlant?.id]);
+  const gaPercent = useMemo(() => {
+    if (!gaProgress || !gaProgress.total || gaProgress.total === 0) return 0;
+    const pct = Math.round((gaProgress.processed / gaProgress.total) * 100);
+    return isNaN(pct) ? 0 : Math.min(100, Math.max(0, pct));
+  }, [gaProgress]);
 
   // Excel Export Function using utility
   const exportToExcel = () => {
@@ -659,7 +651,7 @@ export default function VentasDashboard() {
                   </div>
                 )}
                  {/* Top Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                     {/* Total de Ventas */}
                     <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-white to-slate-50">
                     <CardHeader className="p-4 pb-0">
@@ -708,11 +700,50 @@ export default function VentasDashboard() {
                             <span className="text-purple-700">
                                 📋 {guaranteeAgeData?.totalRecipes || 0} fórmulas
                             </span>
+                            {gaStreaming && (
+                              <span className="text-purple-700">
+                                ⏳ {gaPercent}%
+                              </span>
+                            )}
                         </div>
                         </CardHeader>
                     <CardContent className='p-2 pt-0'>
-                            <div className="text-center text-xs text-purple-600">
+                            <div className="text-center text-xs text-purple-600 mb-2">
                             Promedio de edad de garantía (días)
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    {/* Resistencia Ponderada */}
+                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-orange-50 to-orange-100">
+                    <CardHeader className="p-4 pb-2">
+                            <CardTitle className="text-center text-2xl font-bold text-orange-800 relative">
+                                       {currentSummaryMetrics.weightedResistance.toFixed(1)}
+                                       {currentSummaryMetrics.resistanceTooltip && (
+                                          <TooltipProvider>
+                                              <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                      <Info className="h-3 w-3 text-orange-500 absolute top-0 right-0 mr-1 mt-1 cursor-help" />
+                                                  </TooltipTrigger>
+                                                  <TooltipContent>
+                                                      <p className="text-xs max-w-xs">{currentSummaryMetrics.resistanceTooltip}</p>
+                                                  </TooltipContent>
+                                              </Tooltip>
+                                          </TooltipProvider>
+                                      )}
+                            </CardTitle>
+                        <CardDescription className='text-center text-xs font-medium text-orange-600 mb-2'>
+                            RESISTENCIA PONDERADA
+                            </CardDescription>
+                        <div className="flex justify-center gap-2 text-xs">
+                            <span className="text-orange-700">
+                                📊 kg/cm²
+                            </span>
+                        </div>
+                        </CardHeader>
+                    <CardContent className='p-2 pt-0'>
+                            <div className="text-center text-xs text-orange-600 mb-2">
+                            Promedio ponderado por volumen
                             </div>
                         </CardContent>
                     </Card>
@@ -797,6 +828,7 @@ export default function VentasDashboard() {
                             </div>
                          </CardContent>
                      </Card>
+
                  </div>
 
                  {/* Export Button for PowerBI Layout */}

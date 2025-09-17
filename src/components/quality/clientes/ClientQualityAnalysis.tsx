@@ -253,18 +253,24 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
 
   // Compliance histogram data
   const complianceHistogram = (() => {
-    const allEnsayos = data.remisiones.flatMap(remision => 
-      remision.muestreos.flatMap(muestreo => 
-        muestreo.muestras.flatMap(muestra => 
-          muestra.ensayos.filter(ensayo => 
-            ensayo.isEdadGarantia && 
-            !ensayo.isEnsayoFueraTiempo && 
+    // Compute compliance per muestreo (average of valid guarantee-age ensayos)
+    const muestreoCompliances: number[] = [];
+    data.remisiones.forEach(remision => {
+      remision.muestreos.forEach(muestreo => {
+        const validEnsayos = muestreo.muestras.flatMap(muestra =>
+          (muestra.ensayos || []).filter(ensayo =>
+            ensayo.isEdadGarantia &&
+            !ensayo.isEnsayoFueraTiempo &&
             (ensayo.resistenciaCalculada || 0) > 0 &&
             (ensayo.porcentajeCumplimiento || 0) >= 0
           )
-        )
-      )
-    );
+        );
+        if (validEnsayos.length > 0) {
+          const avg = validEnsayos.reduce((s, e) => s + (e.porcentajeCumplimiento || 0), 0) / validEnsayos.length;
+          muestreoCompliances.push(avg);
+        }
+      });
+    });
     const ranges = [
       { key: '0-80', from: 0, to: 80 },
       { key: '80-85', from: 80, to: 85 },
@@ -274,8 +280,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
       { key: '100-110', from: 100, to: 110 }
     ];
     const counts = Object.fromEntries(ranges.map(r => [r.key, 0]));
-    allEnsayos.forEach(e => {
-      const c = e.porcentajeCumplimiento || 0;
+    muestreoCompliances.forEach(c => {
       const r = ranges.find(rr => c >= rr.from && c < rr.to) || ranges[ranges.length - 1];
       counts[r.key] += 1;
     });
@@ -456,13 +461,13 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
             <CardTitle>Perfil de Calidad Multidimensional</CardTitle>
           </CardHeader>
           <CardContent>
-             <ResponsiveContainer width="100%" height={430}>
+             <ResponsiveContainer width="100%" height={420}>
                <RadarChart 
                  data={radarData} 
                  cx="50%" 
-                 cy="53%" 
-                 outerRadius="72%"
-                 margin={{ top: 35, right: 85, bottom: 55, left: 85 }}
+                 cy="52%" 
+                 outerRadius="85%"
+                 margin={{ top: 30, right: 80, bottom: 50, left: 80 }}
                >
                  <defs>
                    <linearGradient id="radarGradient" x1="0" y1="0" x2="0" y2="1">
@@ -472,24 +477,25 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                  </defs>
                  <PolarGrid 
                    stroke="#d1d5db" 
-                   strokeWidth={1.2}
+                   strokeWidth={1}
                    gridType="polygon" 
                    radialLines={false}
-                   opacity={0.8}
                  />
                  <PolarAngleAxis 
                    dataKey="dimension" 
                    tick={{ 
                      fill: '#1f2937', 
-                     fontSize: 13, 
+                     fontSize: 15, 
                      fontWeight: 600,
-                     textAnchor: 'middle'
+                     dy: -10                     
                    }} 
                    className="select-none"
                    tickFormatter={(value) => value}
+                   
+                   tickLine={false}
                  />
                  <PolarRadiusAxis 
-                   angle={135} 
+                   angle={90} 
                    domain={[0, 100]} 
                    tick={{ 
                      fill: '#9ca3af', 
@@ -498,6 +504,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                    }}
                    tickCount={3}
                    axisLine={false}
+                   tickFormatter={(value) => value}
                  />
                  <Tooltip 
                    formatter={(value: any) => [`${formatNumber(Number(value), 1)}%`, 'Puntuación']} 
@@ -540,7 +547,7 @@ export default function ClientQualityAnalysis({ data, summary }: ClientQualityAn
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="range" tick={{ fontSize: 12 }} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v: any) => [v, 'Ensayos']} />
+                <Tooltip formatter={(v: any) => [v, 'Muestreos']} />
                 <Bar dataKey="count" fill="#10b981" radius={[4,4,0,0]} />
               </BarChart>
             </ResponsiveContainer>

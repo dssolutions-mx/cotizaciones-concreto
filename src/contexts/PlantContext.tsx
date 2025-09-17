@@ -20,7 +20,7 @@ interface PlantProviderProps {
 }
 
 export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
-  const { profile, session } = useAuthBridge();
+  const { profile, session, isLoading: authLoading } = useAuthBridge();
   const [currentPlant, setCurrentPlant] = useState<Plant | null>(null);
   const [availablePlants, setAvailablePlants] = useState<Plant[]>([]);
   const [businessUnits, setBusinessUnits] = useState<BusinessUnit[]>([]);
@@ -180,6 +180,7 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
   // Fetch data when auth state changes - but prevent unnecessary refreshes
   const lastProfileRef = React.useRef(profile);
   const lastSessionRef = React.useRef(session);
+  const hasInitialRefreshRef = React.useRef(false);
   
   useEffect(() => {
     // Only refresh if profile or session actually changed in a meaningful way
@@ -196,6 +197,14 @@ export const PlantProvider: React.FC<PlantProviderProps> = ({ children }) => {
       refreshPlantData();
     }
   }, [profile, session, refreshPlantData]);
+
+  // Ensure initial refresh after auth is initialized to avoid indefinite loading
+  useEffect(() => {
+    if (!authLoading && !hasInitialRefreshRef.current) {
+      hasInitialRefreshRef.current = true;
+      refreshPlantData();
+    }
+  }, [authLoading, refreshPlantData]);
 
   const contextValue: PlantContextType = {
     currentPlant,

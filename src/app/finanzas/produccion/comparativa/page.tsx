@@ -193,54 +193,104 @@ export default function ComparativaProduccion() {
 
   // Calculate material costs for remisiones
   const calculateMaterialCosts = async (remisionIds: string[], totalVolume: number) => {
-    let totalCost = 0;
-    let cementConsumption = 0;
-    let cementCost = 0;
-
     try {
-      // Fetch material consumption and costs
-      const { data: materials, error: materialsError } = await supabase
-        .from('remision_materiales')
-        .select(`
-          quantity_used,
-          material_prices!inner(
-            price_per_unit,
-            materials!inner(
-              name,
-              category,
-              unit_of_measure
-            )
-          )
-        `)
-        .in('remision_id', remisionIds);
+      if (!remisionIds || remisionIds.length === 0) {
+        return { totalCost: 0, cementConsumption: 0, cementCost: 0 };
+      }
 
-      if (materialsError) throw materialsError;
+      // 1) Fetch consumptions from remision_materiales with materials relation
+      const selectColumns = `
+        remision_id,
+        material_id,
+        material_type,
+        cantidad_real,
+        quantity_used,
+        materials!inner(
+          id,
+          material_name,
+          unit_of_measure,
+          category,
+          material_code
+        )
+      `;
 
-      materials?.forEach((material: any) => {
-        const quantity = material.quantity_used || 0;
-        const pricePerUnit = material.material_prices?.price_per_unit || 0;
-        const materialName = material.material_prices?.materials?.name || '';
-        const cost = quantity * pricePerUnit;
+      const chunkSize = 10;
+      const materialesResults: any[] = [];
+      for (let i = 0; i < remisionIds.length; i += chunkSize) {
+        const chunk = remisionIds.slice(i, i + chunkSize);
+        const { data, error } = await supabase
+          .from('remision_materiales')
+          .select(selectColumns)
+          .in('remision_id', chunk);
+        if (error) {
+          console.error('Error fetching remision_materiales chunk:', error);
+          continue;
+        }
+        if (data) materialesResults.push(...data);
+      }
 
+      if (!materialesResults.length) {
+        return { totalCost: 0, cementConsumption: 0, cementCost: 0 };
+      }
+
+      // 2) Aggregate by material_id
+      const aggregated = new Map<string, { qty: number; material: any; fallbackType?: string }>();
+      materialesResults.forEach((m: any) => {
+        if (!m.material_id || !m.materials) return;
+        const id = String(m.material_id);
+        const qty = Number(m.cantidad_real ?? m.quantity_used ?? 0) || 0;
+        if (aggregated.has(id)) {
+          aggregated.get(id)!.qty += qty;
+        } else {
+          aggregated.set(id, { qty, material: m.materials, fallbackType: m.material_type || undefined });
+        }
+      });
+
+      if (aggregated.size === 0) return { totalCost: 0, cementConsumption: 0, cementCost: 0 };
+
+      // 3) Fetch prices per material_id (chunked)
+      const materialIds = Array.from(aggregated.keys());
+      const currentDate = format(new Date(), 'yyyy-MM-dd');
+      const priceMap = new Map<string, number>();
+      for (let i = 0; i < materialIds.length; i += chunkSize) {
+        const idsChunk = materialIds.slice(i, i + chunkSize);
+        const { data: chunkPrices, error: priceErr } = await supabase
+          .from('material_prices')
+          .select('material_id, price_per_unit, effective_date, end_date')
+          .in('material_id', idsChunk)
+          .lte('effective_date', currentDate)
+          .or(`end_date.is.null,end_date.gte.${currentDate}`)
+          .order('effective_date', { ascending: false });
+        if (priceErr) {
+          console.error('Error fetching material prices chunk:', priceErr);
+          continue;
+        }
+        chunkPrices?.forEach((p: any) => {
+          if (!priceMap.has(p.material_id)) priceMap.set(p.material_id, Number(p.price_per_unit) || 0);
+        });
+      }
+
+      // 4) Compute totals and cement breakdown
+      let totalCost = 0;
+      let cementConsumption = 0;
+      let cementCost = 0;
+      aggregated.forEach(({ qty, material, fallbackType }, id) => {
+        const price = Number(priceMap.get(id)) || 0;
+        const cost = qty * price;
         totalCost += cost;
-
-        // Check if it's cement
-        if (materialName.toLowerCase().includes('cemento') || 
-            materialName.toLowerCase().includes('cement')) {
-          cementConsumption += quantity;
+        const name = String(material.category || material.material_name || fallbackType || '').toLowerCase();
+        const isCement = name.includes('cement') || name.includes('cemento');
+        if (isCement) {
+          cementConsumption += qty;
           cementCost += cost;
         }
       });
 
-    } catch (error) {
-      console.error('Error calculating material costs:', error);
+      return { totalCost, cementConsumption, cementCost };
+    } catch (e) {
+      console.error('Error calculating material costs:', e);
+      return { totalCost: 0, cementConsumption: 0, cementCost: 0 };
     }
-
-    return {
-      totalCost,
-      cementConsumption,
-      cementCost
-    };
   };
 
   const handleDateRangeChange = (range: DateRange | undefined) => {
@@ -277,8 +327,8 @@ export default function ComparativaProduccion() {
         </div>
         <div className="flex items-center gap-2">
           <DateRangePickerWithPresets
-            date={{ from: startDate, to: endDate }}
-            onDateChange={handleDateRangeChange}
+            dateRange={{ from: startDate, to: endDate }}
+            onDateRangeChange={handleDateRangeChange}
           />
         </div>
       </div>
