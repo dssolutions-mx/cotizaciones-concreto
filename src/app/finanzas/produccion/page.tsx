@@ -513,6 +513,324 @@ export default function ComparativaProduccion() {
     );
   };
 
+  // Helper function to render total material cost cell with monthly comparison
+  const renderTotalMaterialCostCell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevMonthPlant.total_material_cost > 0 && plant.total_material_cost > 0) {
+      monthlyChange = Math.round(((plant.total_material_cost - prevMonthPlant.total_material_cost) / prevMonthPlant.total_material_cost) * 100);
+      hasComparison = true;
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange < 0) return 'bg-green-100 text-green-800 border-green-200'; // Improvement (lower cost)
+      if (monthlyChange > 0) return 'bg-red-100 text-red-700 border-red-200'; // Worse (higher cost)
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up for improvement (lower cost)
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3" />; // Arrow down for worse (higher cost)
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {formatCurrency(prevMonthPlant.total_material_cost)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
+  // Helper function to render average cost per m³ cell with monthly comparison
+  const renderAvgCostPerM3Cell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevMonthPlant.avg_cost_per_m3 > 0 && plant.avg_cost_per_m3 > 0) {
+      monthlyChange = Math.round(((plant.avg_cost_per_m3 - prevMonthPlant.avg_cost_per_m3) / prevMonthPlant.avg_cost_per_m3) * 100);
+      hasComparison = true;
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange < 0) return 'bg-green-100 text-green-800 border-green-200'; // Improvement (lower cost per m³)
+      if (monthlyChange > 0) return 'bg-red-100 text-red-700 border-red-200'; // Worse (higher cost per m³)
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up for improvement (lower cost)
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3" />; // Arrow down for worse (higher cost)
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {formatCurrency(prevMonthPlant.avg_cost_per_m3)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
+  // Helper function to render aggregate cost per m³ cell with monthly comparison
+  const renderAggregateCostPerM3Cell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    const currentAggregatePerM3 = plant.total_volume > 0 ? plant.aggregate_cost / plant.total_volume : 0;
+    const prevAggregatePerM3 = prevMonthPlant && prevMonthPlant.total_volume > 0 ? prevMonthPlant.aggregate_cost / prevMonthPlant.total_volume : 0;
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevAggregatePerM3 > 0 && currentAggregatePerM3 > 0) {
+      monthlyChange = Math.round(((currentAggregatePerM3 - prevAggregatePerM3) / prevAggregatePerM3) * 100);
+      hasComparison = true;
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange < 0) return 'bg-green-100 text-green-800 border-green-200'; // Improvement (lower cost per m³)
+      if (monthlyChange > 0) return 'bg-red-100 text-red-700 border-red-200'; // Worse (higher cost per m³)
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up for improvement (lower cost)
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3" />; // Arrow down for worse (higher cost)
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {formatCurrency(prevAggregatePerM3)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
+  // Helper function to render additive cost per m³ cell with monthly comparison
+  const renderAdditiveCostPerM3Cell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    const currentAdditivePerM3 = plant.total_volume > 0 ? plant.additive_cost / plant.total_volume : 0;
+    const prevAdditivePerM3 = prevMonthPlant && prevMonthPlant.total_volume > 0 ? prevMonthPlant.additive_cost / prevMonthPlant.total_volume : 0;
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevAdditivePerM3 > 0 && currentAdditivePerM3 > 0) {
+      monthlyChange = Math.round(((currentAdditivePerM3 - prevAdditivePerM3) / prevAdditivePerM3) * 100);
+      hasComparison = true;
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange < 0) return 'bg-green-100 text-green-800 border-green-200'; // Improvement (lower cost per m³)
+      if (monthlyChange > 0) return 'bg-red-100 text-red-700 border-red-200'; // Worse (higher cost per m³)
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up for improvement (lower cost)
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3" />; // Arrow down for worse (higher cost)
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {formatCurrency(prevAdditivePerM3)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
+  // Helper function to render aggregate total cost cell with monthly comparison
+  const renderAggregateCostCell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevMonthPlant.aggregate_cost > 0 && plant.aggregate_cost > 0) {
+      monthlyChange = Math.round(((plant.aggregate_cost - prevMonthPlant.aggregate_cost) / prevMonthPlant.aggregate_cost) * 100);
+      hasComparison = true;
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange < 0) return 'bg-green-100 text-green-800 border-green-200'; // Improvement (lower cost)
+      if (monthlyChange > 0) return 'bg-red-100 text-red-700 border-red-200'; // Worse (higher cost)
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up for improvement (lower cost)
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3" />; // Arrow down for worse (higher cost)
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {formatCurrency(prevMonthPlant.aggregate_cost)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
+  // Helper function to render additive total cost cell with monthly comparison
+  const renderAdditiveCostCell = (plant: PlantProductionData, formattedValue: string) => {
+    // Find corresponding previous month data for this plant
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
+    
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevMonthPlant.additive_cost > 0 && plant.additive_cost > 0) {
+      monthlyChange = Math.round(((plant.additive_cost - prevMonthPlant.additive_cost) / prevMonthPlant.additive_cost) * 100);
+      hasComparison = true;
+    }
+
+    const getBadgeColor = () => {
+      if (!hasComparison) return 'bg-gray-100 text-gray-600 border-gray-200';
+      if (monthlyChange < 0) return 'bg-green-100 text-green-800 border-green-200'; // Improvement (lower cost)
+      if (monthlyChange > 0) return 'bg-red-100 text-red-700 border-red-200'; // Worse (higher cost)
+      return 'bg-blue-100 text-blue-700 border-blue-200'; // No change
+    };
+
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // Arrow up for improvement (lower cost)
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3" />; // Arrow down for worse (higher cost)
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // Arrow right for no change
+    };
+
+    return (
+      <TableCell>
+        <div className="flex flex-col gap-1">
+          <span className="font-medium">{formattedValue}</span>
+          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : 
+                  monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {formatCurrency(prevMonthPlant.additive_cost)}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </TableCell>
+    );
+  };
+
   // Show top-level loader only before first chunk
   if (loading && !streaming) {
     return (
@@ -705,7 +1023,7 @@ export default function ComparativaProduccion() {
                           </div>
                         </TableCell>
                         {renderNormalCell(formatCurrency(plant.total_material_cost))}
-                        {renderNormalCell(formatCurrency(plant.avg_cost_per_m3))}
+                        {renderAvgCostPerM3Cell(plant, formatCurrency(plant.avg_cost_per_m3))}
                         {renderFcPonderadaCell(
                           plant,
                           `${plant.fc_ponderada.toLocaleString('es-MX', { 
@@ -840,9 +1158,9 @@ export default function ComparativaProduccion() {
                             maximumFractionDigits: 2 
                           })
                         )}
-                        {renderNormalCell(formatCurrency(plant.cement_cost_per_m3))}
-                        {renderNormalCell(formatCurrency(plant.total_volume > 0 ? plant.aggregate_cost / plant.total_volume : 0))}
-                        {renderNormalCell(formatCurrency(plant.total_volume > 0 ? plant.additive_cost / plant.total_volume : 0))}
+                        {renderCementCostCell(plant, formatCurrency(plant.cement_cost_per_m3))}
+                        {renderAggregateCostPerM3Cell(plant, formatCurrency(plant.total_volume > 0 ? plant.aggregate_cost / plant.total_volume : 0))}
+                        {renderAdditiveCostPerM3Cell(plant, formatCurrency(plant.total_volume > 0 ? plant.additive_cost / plant.total_volume : 0))}
                         <TableCell>
                           {plant.water_consumption > 0 ? '$0.00' : '-'}
                         </TableCell>
@@ -899,8 +1217,8 @@ export default function ComparativaProduccion() {
                           })
                         )}
                         {renderNormalCell(formatCurrency(plant.total_material_cost))}
-                        {renderNormalCell(formatCurrency(plant.aggregate_cost))}
-                        {renderNormalCell(formatCurrency(plant.additive_cost))}
+                        {renderAggregateCostCell(plant, formatCurrency(plant.aggregate_cost))}
+                        {renderAdditiveCostCell(plant, formatCurrency(plant.additive_cost))}
                         <TableCell>
                           {plant.water_consumption > 0 ? '$0.00' : '-'}
                         </TableCell>
