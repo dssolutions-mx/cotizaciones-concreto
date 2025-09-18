@@ -199,47 +199,33 @@ export default function ComparativaProduccion() {
     setSelectedPlants([]);
   };
 
-  // Helper function for ranking indicators (for volume columns)
-  const getRankingIndicator = (position: number, currentValue: number, previousValue: number | null) => {
-    const ranking = position + 1;
-    let percentage = 0;
-    
-    if (position > 0 && previousValue && previousValue > 0) {
-      percentage = Math.round(((previousValue - currentValue) / previousValue) * 100);
-    }
-    
-    return {
-      position: ranking,
-      percentage: percentage,
-      isFirst: position === 0
-    };
-  };
-
-
   // Helper function to render normal cell without indicators
   const renderNormalCell = (formattedValue: string) => {
     return <TableCell>{formattedValue}</TableCell>;
   };
 
-  // Helper function to render volume cell with ranking indicator
-  const renderVolumeCell = (position: number, currentValue: number, previousValue: number | null, formattedValue: string) => {
-    const indicator = getRankingIndicator(position, currentValue, previousValue);
+  // Helper function to render volume cell with monthly comparison (vs previous month)
+  const renderVolumeComparisonCell = (plant: PlantProductionData, formattedValue: string) => {
+    const prevMonthPlant = previousMonthData.find(p => p.plant_id === plant.plant_id);
     
+    let monthlyChange = 0;
+    let hasComparison = false;
+    
+    if (prevMonthPlant && prevMonthPlant.total_volume > 0 && plant.total_volume > 0) {
+      monthlyChange = Math.round(((plant.total_volume - prevMonthPlant.total_volume) / prevMonthPlant.total_volume) * 100);
+      hasComparison = true;
+    }
+
     const getBadgeColor = () => {
-      switch (indicator.position) {
-        case 1: return 'bg-green-100 text-green-800 border-green-200'; // Green for Top 1 (best)
-        case 2: return 'bg-green-50 text-green-700 border-green-200'; // Light green for Top 2
-        case 3: return 'bg-yellow-100 text-yellow-800 border-yellow-200'; // Yellow for Top 3 (warning)
-        default: return 'bg-red-100 text-red-700 border-red-200'; // Red for others (poor performance)
-      }
+      // Neutral styling (volume increase/decrease isn't inherently good/bad)
+      return hasComparison ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-gray-100 text-gray-600 border-gray-200';
     };
 
-    const getRankText = () => {
-      if (indicator.isFirst) {
-        return `Top ${indicator.position}`;
-      } else {
-        return `Top ${indicator.position} (-${indicator.percentage}%)`;
-      }
+    const getIcon = () => {
+      if (!hasComparison) return <TrendingDown className="h-3 w-3" />;
+      if (monthlyChange > 0) return <TrendingDown className="h-3 w-3 rotate-180" />; // up
+      if (monthlyChange < 0) return <TrendingDown className="h-3 w-3" />; // down
+      return <TrendingDown className="h-3 w-3 rotate-90" />; // flat
     };
 
     return (
@@ -247,8 +233,19 @@ export default function ComparativaProduccion() {
         <div className="flex items-center gap-2">
           <span className="font-medium">{formattedValue}</span>
           <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium border ${getBadgeColor()}`}>
-            <TrendingDown className="h-3 w-3" />
-            <span>{getRankText()}</span>
+            {getIcon()}
+            <div className="flex flex-col">
+              <span>
+                {hasComparison ? (
+                  monthlyChange === 0 ? '0%' : monthlyChange > 0 ? `+${monthlyChange}%` : `${monthlyChange}%`
+                ) : 'Sin datos'}
+              </span>
+              {hasComparison && prevMonthPlant && (
+                <span className="text-gray-700 text-xs">
+                  Anterior: {prevMonthPlant.total_volume.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³
+                </span>
+              )}
+            </div>
           </div>
         </div>
       </TableCell>
@@ -1006,6 +1003,7 @@ export default function ComparativaProduccion() {
                   <TableRow>
                     <TableHead>Planta</TableHead>
                     <TableHead>Total $ Materia Prima</TableHead>
+                    <TableHead>Volumen Total (m³)</TableHead>
                     <TableHead>Total $ Materia Prima / m³</TableHead>
                     <TableHead>F'c Ponderada</TableHead>
                     <TableHead>Edad Ponderada</TableHead>
@@ -1023,6 +1021,13 @@ export default function ComparativaProduccion() {
                           </div>
                         </TableCell>
                         {renderNormalCell(formatCurrency(plant.total_material_cost))}
+                        {renderVolumeComparisonCell(
+                          plant,
+                          plant.total_volume.toLocaleString('es-MX', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })
+                        )}
                         {renderAvgCostPerM3Cell(plant, formatCurrency(plant.avg_cost_per_m3))}
                         {renderFcPonderadaCell(
                           plant,
@@ -1081,10 +1086,7 @@ export default function ComparativaProduccion() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {getSortedDataByVolume(comparativeData.section1).map((plant, index) => {
-                    const sortedData = getSortedDataByVolume(comparativeData.section1);
-                    const previousPlant = index > 0 ? sortedData[index - 1] : null;
-
+                  {getSortedDataByVolume(comparativeData.section1).map((plant) => {
                     return (
                       <TableRow key={plant.plant_id}>
                         <TableCell>
@@ -1093,10 +1095,8 @@ export default function ComparativaProduccion() {
                             <div className="text-sm text-muted-foreground">{plant.plant_name}</div>
                           </div>
                         </TableCell>
-                        {renderVolumeCell(
-                          index,
-                          plant.total_volume,
-                          previousPlant?.total_volume || null,
+                        {renderVolumeComparisonCell(
+                          plant,
                           plant.total_volume.toLocaleString('es-MX', { 
                             minimumFractionDigits: 2, 
                             maximumFractionDigits: 2 
@@ -1138,10 +1138,7 @@ export default function ComparativaProduccion() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {getSortedDataByVolume(comparativeData.section2).map((plant, index) => {
-                    const sortedData = getSortedDataByVolume(comparativeData.section2);
-                    const previousPlant = index > 0 ? sortedData[index - 1] : null;
-
+                  {getSortedDataByVolume(comparativeData.section2).map((plant) => {
                     return (
                       <TableRow key={plant.plant_id}>
                         <TableCell>
@@ -1149,10 +1146,8 @@ export default function ComparativaProduccion() {
                             <div className="font-medium">{plant.plant_code}</div>
                           </div>
                         </TableCell>
-                        {renderVolumeCell(
-                          index,
-                          plant.total_volume,
-                          previousPlant?.total_volume || null,
+                        {renderVolumeComparisonCell(
+                          plant,
                           plant.total_volume.toLocaleString('es-MX', { 
                             minimumFractionDigits: 2, 
                             maximumFractionDigits: 2 
@@ -1196,10 +1191,7 @@ export default function ComparativaProduccion() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {getSortedDataByVolume(comparativeData.section3).map((plant, index) => {
-                    const sortedData = getSortedDataByVolume(comparativeData.section3);
-                    const previousPlant = index > 0 ? sortedData[index - 1] : null;
-
+                  {getSortedDataByVolume(comparativeData.section3).map((plant) => {
                     return (
                       <TableRow key={plant.plant_id}>
                         <TableCell>
@@ -1207,10 +1199,8 @@ export default function ComparativaProduccion() {
                             <div className="font-medium">{plant.plant_code}</div>
                           </div>
                         </TableCell>
-                        {renderVolumeCell(
-                          index,
-                          plant.total_volume,
-                          previousPlant?.total_volume || null,
+                        {renderVolumeComparisonCell(
+                          plant,
                           plant.total_volume.toLocaleString('es-MX', { 
                             minimumFractionDigits: 2, 
                             maximumFractionDigits: 2 
