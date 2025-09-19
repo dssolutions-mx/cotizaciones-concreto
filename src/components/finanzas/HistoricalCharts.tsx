@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ApexOptions } from 'apexcharts';
 import { usePlantContext } from '@/contexts/PlantContext';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatNumber } from '@/lib/utils';
 import { useProgressiveHistoricalAggregates } from '@/hooks/useProgressiveHistoricalAggregates';
 
 // Dynamically import ApexCharts with SSR disabled
@@ -46,121 +46,153 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
   const loadedRanges = monthlyData.length;
   const progressPct = totalRanges > 0 ? Math.round((loadedRanges / totalRanges) * 100) : 0;
 
-  // Create chart series data
-  const salesTrendChartSeries = useMemo(() => {
-    console.log('📊 HistoricalCharts: Creating chart series from monthly data:', {
+  // Process and prepare chart data
+  const chartData = useMemo(() => {
+    console.log('📊 HistoricalCharts: Processing monthly data:', {
       monthlyDataLength: monthlyData.length,
-      monthlyDataSample: monthlyData.slice(0, 3)
+      monthlyDataSample: monthlyData.slice(0, 2)
     });
 
     if (monthlyData.length === 0) {
-      console.warn('⚠️ HistoricalCharts: No monthly data available for chart series');
-      return [];
+      console.warn('⚠️ HistoricalCharts: No monthly data available');
+      return null;
     }
 
     // Filter only months with data
-    const filteredMonthlyData = monthlyData.filter(item => item.hasData);
+    const filteredData = monthlyData.filter(item => item.hasData);
     
-    console.log('🔍 HistoricalCharts: Filtered data for chart:', {
-      totalMonths: monthlyData.length,
-      monthsWithData: filteredMonthlyData.length
-    });
-
-    if (filteredMonthlyData.length === 0) {
-      console.warn('⚠️ HistoricalCharts: No months with data available for chart');
-      return [];
+    if (filteredData.length === 0) {
+      console.warn('⚠️ HistoricalCharts: No months with actual data');
+      return null;
     }
 
-    // Create data arrays for each series
-    const historicalSalesData = filteredMonthlyData.map(item => 
+    // Extract base data arrays
+    const categories = filteredData.map(item => item.monthName);
+    const salesData = filteredData.map(item => 
       includeVAT ? item.totalSales * 1.16 : item.totalSales
     );
-    const baseConcrete = filteredMonthlyData.map(item => item.concreteVolume);
-    const basePump = filteredMonthlyData.map(item => item.pumpVolume);
-    const baseClients = filteredMonthlyData.map(item => (item as any).activeClients || 0);
+    const concreteMonthly = filteredData.map(item => item.concreteVolume || 0);
+    const pumpMonthly = filteredData.map(item => item.pumpVolume || 0);
+    const clientsData = filteredData.map(item => (item as any).activeClients || 0);
 
+    // Calculate cumulative data
     const toCumulative = (arr: number[]) => {
-      const out: number[] = [];
-      let run = 0;
-      for (let i = 0; i < arr.length; i++) { run += Number(arr[i] || 0); out.push(run); }
-      return out;
+      const result: number[] = [];
+      let sum = 0;
+      for (let i = 0; i < arr.length; i++) {
+        const value = Number(arr[i] || 0);
+        sum += isNaN(value) ? 0 : value;
+        result.push(sum);
+      }
+      return result;
     };
 
-    const concreteVolumeData = baseConcrete;
-    const pumpVolumeData = basePump;
-    const concreteCumulativeData = toCumulative(baseConcrete);
-    const pumpCumulativeData = toCumulative(basePump);
-    const clientsData = baseClients;
+    const concreteCumulative = toCumulative(concreteMonthly);
+    const pumpCumulative = toCumulative(pumpMonthly);
 
-    console.log('📈 HistoricalCharts: Chart series data created (CONCRETE ONLY):', {
-      salesData: historicalSalesData.filter(val => val > 0).length,
-      concreteData: concreteVolumeData.filter(val => val > 0).length,
-      sampleSales: historicalSalesData.slice(0, 3),
-      sampleConcrete: concreteVolumeData.slice(0, 3),
-      totalSalesSum: historicalSalesData.reduce((sum, val) => sum + val, 0),
-      totalConcreteSum: concreteVolumeData.reduce((sum, val) => sum + val, 0)
+    // Calculate axis ranges for better scaling with safety checks
+    const maxMonthlyConcrete = concreteMonthly.length > 0 ? Math.max(...concreteMonthly) : 0;
+    const maxMonthlyPump = pumpMonthly.length > 0 ? Math.max(...pumpMonthly) : 0;
+    const maxMonthlyVolume = Math.max(maxMonthlyConcrete, maxMonthlyPump);
+    
+    const maxCumulativeConcrete = concreteCumulative.length > 0 ? Math.max(...concreteCumulative) : 0;
+    const maxCumulativePump = pumpCumulative.length > 0 ? Math.max(...pumpCumulative) : 0;
+    const maxCumulativeVolume = Math.max(maxCumulativeConcrete, maxCumulativePump);
+    
+    const maxClients = clientsData.length > 0 ? Math.max(...clientsData) : 0;
+    const maxSales = salesData.length > 0 ? Math.max(...salesData) : 0;
+
+    console.log('📈 HistoricalCharts: Data ranges calculated:', {
+      maxMonthlyVolume,
+      maxCumulativeVolume,
+      maxClients,
+      maxSales,
+      dataPoints: filteredData.length
     });
 
-    const chartSeries = [
+    return {
+      categories,
+      salesData,
+      concreteMonthly,
+      pumpMonthly,
+      concreteCumulative,
+      pumpCumulative,
+      clientsData,
+      ranges: {
+        maxMonthlyVolume,
+        maxCumulativeVolume,
+        maxClients,
+        maxSales
+      }
+    };
+  }, [monthlyData, includeVAT]);
+
+  // Chart series configuration
+  const chartSeries = useMemo(() => {
+    if (!chartData) return [];
+
+    const series = [
       {
-        name: includeVAT ? 'Ventas Históricas (Con IVA)' : 'Ventas Históricas (Sin IVA)',
-        data: historicalSalesData,
+        name: includeVAT ? 'Ventas (Con IVA)' : 'Ventas (Sin IVA)',
+        data: chartData.salesData,
         type: 'area' as const,
-        yAxisIndex: 0
+        yAxisIndex: 0,
       },
       {
         name: 'Volumen Concreto (m³)',
-        data: concreteVolumeData,
+        data: chartData.concreteMonthly,
         type: 'column' as const,
-        yAxisIndex: 1
+        yAxisIndex: 1, // Monthly volume axis
       },
       {
         name: 'Volumen Bombeo (m³)',
-        data: pumpVolumeData,
+        data: chartData.pumpMonthly,
         type: 'column' as const,
-        yAxisIndex: 1
-      },
-      {
-        name: 'Clientes Activos',
-        data: clientsData,
-        type: 'column' as const,
-        yAxisIndex: 3
+        yAxisIndex: 1, // Monthly volume axis
       },
       {
         name: 'Concreto Acumulado (m³)',
-        data: concreteCumulativeData,
+        data: chartData.concreteCumulative,
         type: 'line' as const,
-        yAxisIndex: 2
+        yAxisIndex: 2, // Accumulated volume axis (separate from monthly)
       },
       {
         name: 'Bombeo Acumulado (m³)',
-        data: pumpCumulativeData,
+        data: chartData.pumpCumulative,
         type: 'line' as const,
-        yAxisIndex: 2
+        yAxisIndex: 2, // Accumulated volume axis (separate from monthly)
+      },
+      {
+        name: 'Clientes Activos',
+        data: chartData.clientsData,
+        type: 'line' as const,
+        yAxisIndex: 3, // Clients axis
       }
     ];
 
-    return chartSeries;
-  }, [monthlyData, includeVAT]);
+    console.log('📊 Series created:', series.map(s => ({
+      name: s.name,
+      type: s.type,
+      yAxisIndex: s.yAxisIndex,
+      dataLength: s.data.length,
+      sampleData: s.data.slice(0, 3),
+      maxValue: s.data.length > 0 ? Math.max(...s.data) : 0
+    })));
 
-  // Chart options for historical trends
-  const salesTrendChartOptions = useMemo((): ApexOptions => {
-    // Generate categories from periods with actual data
-    const categories = monthlyData.filter(item => item.hasData).map(item => item.monthName);
-
-    console.log('📊 HistoricalCharts: Chart options created with categories:', {
-      categoryCount: categories.length,
-      categories: categories.slice(0, 5),
-      rawMonthlyData: monthlyData.filter(item => item.hasData).map(item => ({
-        month: item.month,
-        monthName: item.monthName,
-        hasData: item.hasData
-      }))
+    // Special logging for accumulated lines
+    console.log('🔍 Accumulated data check:', {
+      concreteCumulative: chartData.concreteCumulative,
+      pumpCumulative: chartData.pumpCumulative,
+      concreteCumulativeMax: chartData.concreteCumulative.length > 0 ? Math.max(...chartData.concreteCumulative) : 0,
+      pumpCumulativeMax: chartData.pumpCumulative.length > 0 ? Math.max(...chartData.pumpCumulative) : 0
     });
 
-    // Ensure we have at least one category
-    if (categories.length === 0) {
-      console.warn('⚠️ HistoricalCharts: No categories available for chart options');
+    return series;
+  }, [chartData, includeVAT]);
+
+  // Chart options configuration
+  const chartOptions = useMemo((): ApexOptions => {
+    if (!chartData) {
       return {
         chart: { type: 'line' as const },
         series: [],
@@ -168,12 +200,41 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
       };
     }
 
+    // Helper functions for axis scaling
+    const niceMax = (value: number, factor: number = 1.2) => {
+      if (value === 0) return 100;
+      const magnitude = Math.pow(10, Math.floor(Math.log10(value)));
+      const normalized = value / magnitude;
+      let nice;
+      if (normalized <= 1) nice = 1;
+      else if (normalized <= 2) nice = 2;
+      else if (normalized <= 5) nice = 5;
+      else nice = 10;
+      return Math.ceil(nice * magnitude * factor);
+    };
+
+    const { ranges } = chartData;
+    
+    // Calculate nice axis maximums with safety checks
+    const salesMax = ranges.maxSales > 0 ? niceMax(ranges.maxSales) : 1000;
+    // Separate monthly and accumulated volume axes for proper scaling
+    const monthlyVolumeMax = ranges.maxMonthlyVolume > 0 ? niceMax(ranges.maxMonthlyVolume) : 100;
+    const cumulativeVolumeMax = ranges.maxCumulativeVolume > 0 ? niceMax(ranges.maxCumulativeVolume) : 100;
+    const clientsMax = ranges.maxClients > 0 ? Math.max(10, niceMax(ranges.maxClients, 1.1)) : 10;
+
+    console.log('📊 Axis maximums:', {
+      salesMax,
+      monthlyVolumeMax,
+      cumulativeVolumeMax,
+      clientsMax
+    });
+
     return {
       chart: {
         type: 'line' as const,
         background: 'transparent',
         fontFamily: 'Inter, system-ui, -apple-system, sans-serif',
-        height: 400,
+        height: 500,
         toolbar: {
           show: true,
           tools: {
@@ -189,53 +250,60 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         animations: {
           enabled: true,
           speed: 1000,
-          animateGradually: {
-            enabled: true,
-            delay: 150
-          }
-        },
-        dropShadow: {
-          enabled: true,
-          top: 2,
-          left: 2,
-          blur: 4,
-          opacity: 0.3
         },
         foreColor: '#374151'
       },
-      colors: ['#059669', '#2563EB', '#7C3AED', '#6B7280', '#059669', '#2563EB'],
+      
+      // Series colors and styling
+      colors: [
+        '#059669', // Sales - Green
+        '#2563EB', // Concrete - Blue
+        '#7C3AED', // Pump - Purple
+        '#10B981', // Concrete Cumulative - Emerald (more visible)
+        '#8B5CF6', // Pump Cumulative - Violet (more visible)
+        '#6B7280'  // Clients - Gray
+      ],
+      
       stroke: {
         curve: 'smooth',
-        width: [3, 0, 0, 0, 3, 3],
-        dashArray: [0, 0, 0, 0, 5, 5]
+        width: [3, 0, 0, 4, 4, 2],
+        dashArray: [0, 0, 0, 8, 8, 0]
       },
+      
       fill: {
-        type: ['gradient', 'solid', 'solid', 'solid', 'solid', 'solid'] as any,
+        type: ['gradient', 'solid', 'solid', 'solid', 'solid', 'solid'],
         gradient: {
-          shadeIntensity: 0.35,
-          opacityFrom: 0.35,
-          opacityTo: 0.05,
+          shadeIntensity: 0.4,
+          opacityFrom: 0.4,
+          opacityTo: 0.1,
           stops: [0, 90, 100]
         },
-        opacity: [1, 0.9, 0.9, 0.6, 1, 1]
+        opacity: [0.8, 0.9, 0.9, 1, 1, 1]
       },
+      
       plotOptions: {
         bar: {
-          columnWidth: '50%',
+          columnWidth: '60%',
           borderRadius: 4,
+          distributed: false,
+          dataLabels: {
+            position: 'top'
+          }
         }
       },
+      
       markers: {
-        size: [6, 5, 5, 4, 4, 4],
-        colors: ['#059669', '#2563EB', '#7C3AED', '#6B7280', '#059669', '#2563EB'],
+        size: [6, 0, 0, 6, 6, 4],
+        colors: ['#059669', '#2563EB', '#7C3AED', '#10B981', '#8B5CF6', '#6B7280'],
         strokeColors: ['#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'],
         strokeWidth: 2,
         hover: {
           size: 8
         }
       },
+      
       xaxis: {
-        categories,
+        categories: chartData.categories,
         labels: {
           style: {
             fontSize: '12px',
@@ -254,83 +322,12 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         axisTicks: {
           show: true,
           color: '#D1D5DB'
-        },
-        crosshairs: {
-          show: true,
-          width: 1,
-          position: 'back',
-          opacity: 0.9,
-          stroke: {
-            color: '#775DD0',
-            width: 1,
-            dashArray: 3
-          }
         }
       },
+      
       yaxis: [
         {
-          // Primary y-axis for sales (currency)
-          labels: {
-            style: {
-              fontSize: '12px',
-              fontWeight: 500,
-              colors: '#10B981',
-              fontFamily: 'Inter, system-ui, sans-serif'
-            },
-            formatter: (val: number) => {
-              if (val === null || val === undefined || isNaN(val)) {
-                return 'Sin datos';
-              }
-              return formatCurrency(val);
-            }
-          },
-          axisBorder: {
-            show: true,
-            color: '#10B981'
-          },
-          title: {
-            text: includeVAT ? 'Ventas (Con IVA)' : 'Ventas (Sin IVA)',
-            style: {
-              color: '#10B981',
-              fontSize: '12px',
-              fontWeight: '600'
-            }
-          }
-        },
-        {
-          // Secondary y-axis for volumes (m³)
-          opposite: true,
-          labels: {
-            style: {
-              fontSize: '12px',
-              fontWeight: 500,
-              colors: '#3B82F6',
-              fontFamily: 'Inter, system-ui, sans-serif'
-            },
-            formatter: (val: number) => {
-              if (val === null || val === undefined || isNaN(val)) {
-                return 'Sin datos';
-              }
-              return `${val.toFixed(0)} m³`;
-            }
-          },
-          axisBorder: {
-            show: true,
-            color: '#3B82F6'
-          },
-          title: {
-            text: 'Volumen (m³)',
-            style: {
-              color: '#3B82F6',
-              fontSize: '12px',
-              fontWeight: '600'
-            }
-          }
-        },
-        {
-          // Third y-axis for cumulative volumes
-          opposite: true,
-          floating: true,
+          // Axis 0: Sales (Currency)
           labels: {
             style: {
               fontSize: '12px',
@@ -339,26 +336,88 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
               fontFamily: 'Inter, system-ui, sans-serif'
             },
             formatter: (val: number) => {
-              if (val === null || val === undefined || isNaN(val)) {
-                return 'Sin datos';
-              }
-              return `${val.toFixed(0)} m³ acum.`;
+              if (val === null || val === undefined || isNaN(val)) return 'Sin datos';
+              return formatCurrency(val);
+            }
+          },
+          axisBorder: {
+            show: true,
+            color: '#059669'
+          },
+          title: {
+            text: includeVAT ? 'Ventas (Con IVA)' : 'Ventas (Sin IVA)',
+            style: {
+              color: '#059669',
+              fontSize: '12px',
+              fontWeight: '600'
+            }
+          },
+          min: 0,
+          max: salesMax
+        },
+        {
+          // Axis 1: Monthly Volume (m³) - for bars only
+          opposite: true,
+          labels: {
+            style: {
+              fontSize: '12px',
+              fontWeight: 500,
+              colors: '#2563EB',
+              fontFamily: 'Inter, system-ui, sans-serif'
+            },
+            formatter: (val: number) => {
+              if (val === null || val === undefined || isNaN(val)) return 'Sin datos';
+              return `${formatNumber(val, 0)} m³`;
+            }
+          },
+          axisBorder: {
+            show: true,
+            color: '#2563EB'
+          },
+          title: {
+            text: 'Volumen Mensual (m³)',
+            style: {
+              color: '#2563EB',
+              fontSize: '12px',
+              fontWeight: '600'
+            }
+          },
+          min: 0,
+          max: monthlyVolumeMax
+        },
+        {
+          // Axis 2: Accumulated Volume (m³) - for cumulative lines only
+          opposite: true,
+          labels: {
+            style: {
+              fontSize: '12px',
+              fontWeight: 500,
+              colors: '#10B981',
+              fontFamily: 'Inter, system-ui, sans-serif'
+            },
+            offsetX: -10,
+            formatter: (val: number) => {
+              if (val === null || val === undefined || isNaN(val)) return 'Sin datos';
+              return `${formatNumber(val, 0)} m³`;
             }
           },
           axisBorder: {
             show: false
           },
           title: {
-            text: 'Acumulado (m³)',
+            text: 'Volumen Acumulado (m³)',
             style: {
-              color: '#059669',
+              color: '#10B981',
               fontSize: '12px',
               fontWeight: '600'
-            }
-          }
+            },
+            offsetX: -10
+          },
+          min: 0,
+          max: cumulativeVolumeMax
         },
         {
-          // Fourth y-axis for active clients (count)
+          // Axis 3: Clients
           opposite: true,
           labels: {
             style: {
@@ -367,11 +426,10 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
               colors: '#6B7280',
               fontFamily: 'Inter, system-ui, sans-serif'
             },
+            offsetX: -70,
             formatter: (val: number) => {
-              if (val === null || val === undefined || isNaN(val)) {
-                return 'Sin datos';
-              }
-              return `${val.toFixed(0)} clientes`;
+              if (val === null || val === undefined || isNaN(val)) return 'Sin datos';
+              return `${formatNumber(val, 0)}`;
             }
           },
           axisBorder: {
@@ -383,13 +441,18 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
               color: '#6B7280',
               fontSize: '12px',
               fontWeight: '600'
-            }
-          }
+            },
+            offsetX: -70
+          },
+          min: 0,
+          max: clientsMax
         }
       ],
+      
       dataLabels: {
         enabled: false
       },
+      
       tooltip: {
         enabled: true,
         theme: 'light',
@@ -398,34 +461,40 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
           fontFamily: 'Inter, system-ui, sans-serif'
         },
         y: {
-          formatter: (val: number, { seriesIndex }: any) => {
-            if (val === null || val === undefined || isNaN(val)) {
-              return 'Sin datos';
-            }
+          formatter: (val: number, opts: any) => {
+            if (val === null || val === undefined || isNaN(val)) return 'Sin datos';
+
+            const seriesIndex = opts?.seriesIndex;
             
-            // First series (index 0) is sales - format as currency
+            // Sales series (index 0)
             if (seriesIndex === 0) {
               return formatCurrency(val);
             }
             
-            // Other series (index 1-3) are volumes - format as m³
-            return `${val.toFixed(1)} m³`;
+            // Clients series (index 5)
+            if (seriesIndex === 5) {
+              return `${formatNumber(val, 0)} clientes`;
+            }
+            
+            // All volume series (indices 1-4) - monthly and accumulated
+            return `${formatNumber(val, 1)} m³`;
           }
         },
         x: {
           formatter: (val: any) => String(val)
         }
       },
+      
       legend: {
         position: 'top',
         horizontalAlign: 'left',
         fontSize: '14px',
         fontFamily: 'Inter, system-ui, sans-serif',
         markers: {
-          size: 12
+          size: 8
         },
         itemMargin: {
-          horizontal: 20,
+          horizontal: 15,
           vertical: 8
         },
         onItemClick: {
@@ -435,6 +504,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
           highlightDataSeries: true
         }
       },
+      
       grid: {
         borderColor: '#E5E7EB',
         strokeDashArray: 3,
@@ -450,17 +520,18 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         },
         padding: {
           top: 10,
-          right: 10,
+          right: 20,
           bottom: 10,
           left: 10
         }
       },
+      
       responsive: [
         {
           breakpoint: 768,
           options: {
             chart: {
-              height: 300
+              height: 400
             },
             legend: {
               position: 'bottom'
@@ -469,7 +540,7 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
         }
       ]
     };
-  }, [monthlyData, includeVAT]);
+  }, [chartData, includeVAT]);
 
   if (loading) {
     return (
@@ -520,10 +591,10 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
               📊 Tendencias Históricas de Ventas - Múltiples Meses
             </CardTitle>
             <CardDescription className="text-gray-600">
-              Análisis de ventas históricas por mes: Concreto, Bombeo y Vacío de Olla
+              Análisis completo de ventas, volúmenes mensuales y acumulados, y clientes activos
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-6 min-h-[500px]">
+          <CardContent className="p-6 min-h-[600px]">
             <div className="flex items-center justify-between mb-4 gap-2 text-sm">
               <div className="flex items-center gap-3 text-xs text-gray-600">
                 <span className="inline-flex items-center gap-1">
@@ -538,66 +609,68 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
                   <span className="w-2 h-2 rounded-full bg-violet-600"></span>
                   Bombeo
                 </span>
-                <span className="inline-flex items-center gap-1 text-gray-400">(m³)</span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-gray-500"></span>
+                  Clientes
+                </span>
+                <span className="inline-flex items-center gap-1 text-gray-400">
+                  (Líneas punteadas = Acumulado)
+                </span>
               </div>
-              <button
-                className={`px-3 py-1 rounded border ${granularity === 'month' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-700 border-gray-300'}`}
-                onClick={() => setGranularity('month')}
-              >
-                Mes
-              </button>
-              <button
-                className={`px-3 py-1 rounded border ${granularity === 'week' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-700 border-gray-300'}`}
-                onClick={() => setGranularity('week')}
-              >
-                Semana
-              </button>
+              <div className="flex gap-2">
+                <button
+                  className={`px-3 py-1 rounded border text-sm ${
+                    granularity === 'month' 
+                      ? 'bg-gray-800 text-white border-gray-800' 
+                      : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                  onClick={() => setGranularity('month')}
+                >
+                  Mes
+                </button>
+                <button
+                  className={`px-3 py-1 rounded border text-sm ${
+                    granularity === 'week' 
+                      ? 'bg-gray-800 text-white border-gray-800' 
+                      : 'bg-white text-gray-700 border-gray-300'
+                  }`}
+                  onClick={() => setGranularity('week')}
+                >
+                  Semana
+                </button>
+              </div>
             </div>
+            
             {totalRanges > 0 && loadedRanges < totalRanges && (
               <div className="mb-4">
                 <div className="h-2 bg-gray-100 rounded overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-emerald-500 to-blue-500" style={{ width: `${progressPct}%` }} />
+                  <div 
+                    className="h-full bg-gradient-to-r from-emerald-500 to-blue-500" 
+                    style={{ width: `${progressPct}%` }} 
+                  />
                 </div>
-                <div className="mt-1 text-xs text-gray-500 text-right">Cargando {loadedRanges}/{totalRanges} ({progressPct}%)</div>
+                <div className="mt-1 text-xs text-gray-500 text-right">
+                  Cargando {loadedRanges}/{totalRanges} ({progressPct}%)
+                </div>
               </div>
             )}
-            {/* Cumulative lines are always shown on a third axis now */}
+            
             {typeof window !== 'undefined' && 
-             salesTrendChartSeries.length > 0 && 
-             salesTrendChartSeries[0]?.data && 
-             salesTrendChartSeries[0].data.length > 0 &&
-             monthlyData.filter(item => item.hasData).length > 0 ? (
+             chartData && 
+             chartSeries.length > 0 && 
+             chartData.categories.length > 0 &&
+             chartSeries.every(series => Array.isArray(series.data) && series.data.length > 0) ? (
               <div className="h-full">
-                {/* Debug chart data */}
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="mb-2 p-2 bg-blue-50 border border-blue-200 rounded text-xs">
-                    <p className="font-semibold text-blue-800">📊 CHART DATA DEBUG:</p>
-                    <p>Series Count: {salesTrendChartSeries.length}</p>
-                    <p>Categories: {salesTrendChartOptions.xaxis?.categories?.join(', ') || 'None'}</p>
-                    <p>First Series Data: {salesTrendChartSeries[0]?.data?.slice(0, 5).join(', ')}</p>
-                    <p>Monthly Data: {monthlyData.length} months total</p>
-                    <p>Months with Data: {monthlyData.filter(item => item.hasData).length}</p>
-                    <p>Total Sales: {formatCurrency(monthlyData.reduce((sum, m) => sum + m.totalSales, 0))}</p>
-                    <p>Total Concrete Volume: {monthlyData.reduce((sum, m) => sum + m.concreteVolume, 0).toFixed(1)} m³</p>
-                    <p>Total Pump Volume: {monthlyData.reduce((sum, m) => sum + m.pumpVolume, 0).toFixed(1)} m³</p>
-                    <p>Total Vacío Volume: {monthlyData.reduce((sum, m) => sum + m.emptyTruckVolume, 0).toFixed(1)} m³</p>
-                    <p className="font-semibold text-green-700">✅ Using concrete_volume_delivered & pump_volume_delivered</p>
-                    <p className="font-semibold text-blue-700">📊 Using KPI logic: volume × unit_price (not *_delivered fields)</p>
-                    <p className="font-semibold text-purple-700">🎯 Using EXACT SAME logic as ventas page</p>
-                    <p className="font-semibold text-red-700">🔍 DEBUG MODE: Only concrete data</p>
-                  </div>
-                )}
-                
                 <Chart
-                  key={`chart-${monthlyData.length}-${currentPlant?.id || 'all'}-${salesTrendChartSeries[0]?.data?.length || 0}`}
-                  options={salesTrendChartOptions}
-                  series={salesTrendChartSeries}
+                  key={`chart-${monthlyData.length}-${currentPlant?.id || 'all'}-${chartSeries.length}`}
+                  options={chartOptions}
+                  series={chartSeries}
                   type="line"
-                  height={400}
+                  height={500}
                 />
-                {monthlyData.length > 0 && (
+                {chartData.categories.length > 0 && (
                   <div className="mt-2 text-center text-xs text-gray-500">
-                    Datos disponibles: {monthlyData[0]?.monthName} a {monthlyData[monthlyData.length - 1]?.monthName}
+                    Datos disponibles: {chartData.categories[0]} a {chartData.categories[chartData.categories.length - 1]}
                   </div>
                 )}
               </div>
@@ -611,13 +684,6 @@ export const HistoricalCharts: React.FC<HistoricalChartsProps> = ({
                       : 'Los datos están siendo procesados, por favor espere...'
                     }
                   </div>
-                  {process.env.NODE_ENV === 'development' && (
-                    <div className="mt-2 text-xs text-gray-400">
-                      Debug: Series={salesTrendChartSeries.length}, 
-                      Data={salesTrendChartSeries[0]?.data?.length || 0}, 
-                      Months={monthlyData.length}
-                    </div>
-                  )}
                 </div>
               </div>
             )}

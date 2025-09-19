@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 export interface MonthlyAggregate {
   month: string; // yyyy-MM
   monthName: string; // localized month name
+  periodStart: string; // yyyy-MM-dd start of period (month or week)
   concreteVolume: number;
   pumpVolume: number;
   emptyTruckVolume: number;
@@ -135,6 +136,7 @@ export function useProgressiveHistoricalAggregates(
           const monthEntry: MonthlyAggregate = {
             month: range.key,
             monthName: range.name,
+            periodStart: range.start,
             concreteVolume,
             pumpVolume,
             emptyTruckVolume,

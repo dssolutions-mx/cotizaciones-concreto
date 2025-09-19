@@ -9,16 +9,32 @@ import { formatCurrency } from '@/lib/utils';
 import { usePlantContext } from '@/contexts/PlantContext';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { HistoricalCharts } from '@/components/finanzas/HistoricalCharts';
-import { useWeeklyProjection } from '@/hooks/useWeeklyProjection';
 import dynamic from 'next/dynamic';
+import { useWeeklyProjection } from '@/hooks/useWeeklyProjection';
+import { useProgressiveHistoricalAggregates } from '@/hooks/useProgressiveHistoricalAggregates';
+const ApexChart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 export default function HistoricalDataPage() {
   const { currentPlant } = usePlantContext();
   const [includeVAT, setIncludeVAT] = useState<boolean>(false);
-  const { data: projectionData, actual, projected, loading: projLoading } = useWeeklyProjection({
+  // Build weeklyInputs from the same progressive weekly data used by HistoricalCharts when granularity='week'.
+  const { monthlyData: weeklyAgg, loading: weeklyAggLoading } = useProgressiveHistoricalAggregates(
+    currentPlant?.id || null,
+    7,
+    { granularity: 'week' }
+  );
+  const weeklyInputs = (weeklyAgg || []).filter(w => w.hasData).map(w => ({
+    weekStart: w.periodStart,
+    label: w.monthName,
+    volume: (w.concreteVolume || 0) + (w.pumpVolume || 0),
+    activeClients: (w as any).activeClients || 0
+  }));
+  // Note: We'll feed the projection hook with weeklyInputs if present; otherwise it falls back to querying.
+  const { data: projectionData, actual, projected, dailyProjected, loading: projLoading } = useWeeklyProjection({
     plantId: currentPlant?.id || null,
     weeksBack: 26,
-    weeksForward: 8
+    weeksForward: 8,
+    weeklyInputs
   });
 
   // Helper functions for the SalesCharts component
@@ -202,7 +218,6 @@ export default function HistoricalDataPage() {
             <div className="text-xs text-gray-500 mb-2">
               {projLoading ? 'Calculando proyección…' : `Semanas analizadas: ${actual.length} • Semanas proyectadas: ${projected.length}`}
             </div>
-            {/* Lightweight inline chart rendering via any preferred lib can be added later; show quick stats for now */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
               <div className="p-3 rounded border bg-white">
                 <div className="text-gray-500">Volumen medio histórico semanal</div>
@@ -223,6 +238,43 @@ export default function HistoricalDataPage() {
                 </div>
               </div>
             </div>
+            {/* Inline area/line chart */}
+            {typeof window !== 'undefined' && projectionData.length > 0 && (
+              <div className="mt-6">
+                <ApexChart
+                  type="line"
+                  height={320}
+                  options={{
+                    chart: { background: 'transparent', toolbar: { show: false } },
+                    stroke: { curve: 'smooth', width: [2, 2] },
+                    xaxis: { categories: projectionData.map(d => d.label) },
+                    yaxis: [
+                      {
+                        labels: { formatter: (v: number) => `${v.toFixed(0)} m³` },
+                        title: { text: 'Volumen (m³)' }
+                      }
+                    ],
+                    colors: ['#2563EB', '#059669'],
+                    legend: { position: 'top', horizontalAlign: 'left' },
+                    tooltip: {
+                      y: { formatter: (val: number, opts: any) => `${val.toFixed(1)} m³` }
+                    }
+                  }}
+                  series={[
+                    { name: 'Volumen Semanal', data: projectionData.slice(0, actual.length).map((_, i) => actual[i]?.actualVolume ?? 0) },
+                    { name: 'Proyección', data: projectionData.map((_, i) => {
+                        // Show backtest for history and projection for future
+                        if (i < actual.length) {
+                          // Approximate backtest using same horizon; for clarity, reuse actual for now if fewer points
+                          return 0; // optional: wire seriesProjected from hook for true backtest display
+                        }
+                        return projected[i - actual.length]?.projectedVolume ?? 0;
+                      })
+                    }
+                  ]}
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
