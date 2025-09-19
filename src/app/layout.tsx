@@ -152,6 +152,7 @@ const qualitySubMenuItems: QualityNavItem[] = [
   { title: "Dashboard Calidad", href: "/quality", IconComponent: BarChart },
   { type: 'group', title: "Análisis" },
   { title: "Análisis por Cliente", href: "/quality/clientes", IconComponent: Users },
+  { title: "Análisis por Receta", href: "/quality/recetas-analisis", IconComponent: FileBarChart2 },
   { type: 'group', title: "Operación" },
   { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
   { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
@@ -169,6 +170,7 @@ const qualitySubMenuItems: QualityNavItem[] = [
 const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
   { type: 'group', title: "Análisis" },
   { title: "Análisis por Cliente", href: "/quality/clientes", IconComponent: Users },
+  { title: "Análisis por Receta", href: "/quality/recetas-analisis", IconComponent: FileBarChart2 },
   { type: 'group', title: "Operación" },
   { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
   { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
@@ -186,6 +188,7 @@ const qualitySubMenuItemsForQualityTeam: QualityNavItem[] = [
 const qualitySubMenuItemsForRestrictedPlants: QualityNavItem[] = [
   { type: 'group', title: "Análisis" },
   { title: "Análisis por Cliente", href: "/quality/clientes", IconComponent: Users },
+  { title: "Análisis por Receta", href: "/quality/recetas-analisis", IconComponent: FileBarChart2 },
   { type: 'group', title: "Operación" },
   { title: "Muestreos", href: "/quality/muestreos", IconComponent: Beaker },
   { title: "Ensayos", href: "/quality/ensayos", IconComponent: FlaskConical },
