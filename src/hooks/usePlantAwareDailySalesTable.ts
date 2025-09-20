@@ -28,6 +28,7 @@ interface OrderWithDetails {
   vat: number;
   totalWithVAT: number;
   productNames: string;
+  concreteVolumesByRecipe: Record<string, { volume: number; recipeCode: string; strengthFc?: number }>;
 }
 
 export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTableOptions) {
@@ -63,7 +64,14 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
       // STEP 1: Fetch remisiones for the selected LOCAL date (do not convert to UTC)
       let remisionesQuery = supabase
         .from('remisiones')
-        .select('*')
+        .select(`
+          *,
+          recipe:recipes(
+            id,
+            recipe_code,
+            strength_fc
+          )
+        `)
         .eq('fecha', date);
 
       // Apply plant filtering to remisiones first
@@ -187,6 +195,7 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
           // Calculate daily concrete/pump volumes from remisiones of this date
           let dailyConcreteVolume = 0;
           let dailyPumpVolume = 0;
+          
           todaysRemisiones.forEach((r: any) => {
             const vol = Number(r.volumen_fabricado || 0);
             if (r.tipo_remision === 'BOMBEO') {
@@ -208,8 +217,11 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
           const totalWithVAT = fullTotalWithVAT * ratio;
           const vat = totalWithVAT - subtotal;
 
-          // Collect product names from items
+          // Collect product names from items and create detailed volume breakdown
           const productNamesSet = new Set<string>();
+          const detailedVolumesByRecipe: Record<string, { volume: number; recipeCode: string; strengthFc?: number }> = {};
+          
+          // First, collect from order items (for display purposes)
           (orderItems || [])
             .filter((i: any) => i.order_id === order.id)
             .forEach((i: any) => {
@@ -218,15 +230,62 @@ export function usePlantAwareDailySalesTable(options: UsePlantAwareDailySalesTab
               }
             });
 
-          return {
+          // Then, collect detailed volume breakdown from remisiones
+          todaysRemisiones.forEach((r: any) => {
+            if (r.tipo_remision !== 'BOMBEO') {
+              const volume = Number(r.volumen_fabricado || 0);
+              
+              // Use recipe_id if available, otherwise use designacion_ehe as fallback
+              const recipeId = r.recipe_id || r.designacion_ehe || 'unknown';
+              const recipeCode = r.recipe?.recipe_code || r.designacion_ehe || 'Unknown';
+              const strengthFc = r.recipe?.strength_fc;
+              
+              // Debug logging for troubleshooting
+              if (process.env.NODE_ENV === 'development') {
+                console.log('Processing remision:', {
+                  remisionNumber: r.remision_number,
+                  recipeId,
+                  recipeCode,
+                  volume,
+                  hasRecipe: !!r.recipe,
+                  designacion_ehe: r.designacion_ehe,
+                  recipeIdFromDB: r.recipe_id
+                });
+              }
+              
+              if (!detailedVolumesByRecipe[recipeId]) {
+                detailedVolumesByRecipe[recipeId] = {
+                  volume: 0,
+                  recipeCode,
+                  strengthFc
+                };
+              }
+              detailedVolumesByRecipe[recipeId].volume += volume;
+            }
+          });
+
+          const result = {
             ...order,
             concreteVolume: dailyConcreteVolume,
             pumpingVolume: dailyPumpVolume,
             subtotal,
             vat,
             totalWithVAT,
-            productNames: Array.from(productNamesSet).join(', ')
+            productNames: Array.from(productNamesSet).join(', '),
+            concreteVolumesByRecipe: detailedVolumesByRecipe
           };
+
+          // Debug logging for troubleshooting
+          if (process.env.NODE_ENV === 'development' && Object.keys(detailedVolumesByRecipe).length > 0) {
+            console.log('Order processed:', {
+              orderNumber: order.order_number,
+              totalConcreteVolume: dailyConcreteVolume,
+              detailedVolumes: detailedVolumesByRecipe,
+              remisionesCount: todaysRemisiones.length
+            });
+          }
+
+          return result;
         })
       );
 
