@@ -26,6 +26,8 @@ import { DateRange } from "react-day-picker";
 import { ApexOptions } from 'apexcharts';
 import { Download, Info } from "lucide-react";
 import { usePlantContext } from '@/contexts/PlantContext';
+import * as XLSX from 'xlsx';
+import { supabase } from '@/lib/supabase';
 
 // Import modular components
 import { SalesFilters } from '@/components/finanzas/SalesFilters';
@@ -45,7 +47,6 @@ import {
   getClientChartOptions,
   getSalesTrendChartOptions,
   getActiveClientsChartOptions,
-  getPaymentPerformanceChartOptions,
   getOutstandingAmountsChartOptions
 } from '@/configs/chartConfigs';
 
@@ -60,7 +61,7 @@ import { useProgressiveGuaranteeAge } from '@/hooks/useProgressiveGuaranteeAge';
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
 export default function VentasDashboard() {
-  const { currentPlant } = usePlantContext();
+  const { currentPlant, availablePlants } = usePlantContext();
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
   const [searchTerm, setSearchTerm] = useState('');
@@ -84,6 +85,13 @@ export default function VentasDashboard() {
     totalRecipes: number;
     ageDistribution: { [key: string]: number };
   } | null>(null);
+
+  // Per-plant comparative data (for table) - independent progressive loading
+  const [avgGuaranteeByPlant, setAvgGuaranteeByPlant] = useState<Record<string, number>>({});
+  const [plantTableData, setPlantTableData] = useState<any[]>([]);
+  const [plantTableLoading, setPlantTableLoading] = useState(false);
+  const [plantTableProgress, setPlantTableProgress] = useState({ processed: 0, total: 0 });
+  const [plantOrderData, setPlantOrderData] = useState<any[]>([]);
 
   // Use custom hook for data fetching
   const {
@@ -367,7 +375,6 @@ export default function VentasDashboard() {
     getClientChartOptions(includeVAT, clientAmountData, clientVolumeData), [includeVAT, clientAmountData, clientVolumeData]);
   const salesTrendChartOptions = useMemo(() => getSalesTrendChartOptions(includeVAT), [includeVAT]);
   const activeClientsChartOptions = useMemo(() => getActiveClientsChartOptions(), []);
-  const paymentPerformanceChartOptions = useMemo(() => getPaymentPerformanceChartOptions(), []);
   const outstandingAmountsChartOptions = useMemo(() => getOutstandingAmountsChartOptions(), []);
 
   // Chart Series Data
@@ -414,8 +421,6 @@ export default function VentasDashboard() {
     return series;
   }, [clientVolumeData, clientAmountData, includeVAT]);
 
-  // Payment performance series for PowerBI charts
-  const paymentPerformanceChartSeries = useMemo(() => [85], []); // Mock data - would need actual calculation
     
   // Calculate date range for display
   const dateRangeText = useMemo(() => SalesDataProcessor.getDateRangeText(startDate, endDate), [startDate, endDate]);
@@ -482,6 +487,190 @@ export default function VentasDashboard() {
     if (!result.success) {
       console.error('Export failed:', result.error);
     }
+  };
+
+  // --- Per-plant comparative calculations ---
+  const plantIdsInData = useMemo(() => {
+    const ids = new Set<string>();
+    plantTableData.forEach((r: any) => {
+      if (r.plant_id) ids.add(String(r.plant_id));
+    });
+    return Array.from(ids);
+  }, [plantTableData]);
+
+  const perPlantRows = useMemo(() => {
+    return plantIdsInData.map((plantId) => {
+      const plantInfo = availablePlants.find(p => String(p.id) === String(plantId));
+      const rems = plantTableData.filter((r: any) => String(r.plant_id) === String(plantId));
+      const orders = plantOrderData.filter((o: any) => rems.some((r: any) => r.order_id === o.id));
+
+      // Extract order items from orders for sophisticated price matching (EXACT same logic as main ventas page)
+      const orderItems = orders.flatMap((order: any) => order.items || []);
+
+      // Use the EXACT same proven logic as the main ventas page
+      const metrics = SalesDataProcessor.calculateSummaryMetrics(
+        rems as any, 
+        orders as any, 
+        'all', // clientFilter = 'all' to include all clients per plant
+        orderItems // Pass order items for sophisticated price matching
+      );
+
+      // Use the proven metrics from SalesDataProcessor (EXACT same as main page)
+      const concreteVolume = metrics.concreteVolume || 0;
+      const weightedResistance = metrics.weightedResistance || 0;
+      
+      // VENTAS TOTALES: Only concrete products (subtotal - no VAT) - be analytical and careful
+      // Always use subtotal for consistency in comparative analysis
+      const concreteVentas = metrics.concreteAmount;
+      
+      const avgGuarantee = avgGuaranteeByPlant[plantId] ?? 0;
+
+      return {
+        plantId,
+        plantCode: plantInfo?.code || 'N/A',
+        plantName: plantInfo?.name || 'Sin nombre',
+        concreteVolume,
+        weightedResistance,
+        weightedGuaranteeAge: avgGuarantee,
+        totalVentas: concreteVentas // Only concrete sales, not pumping/empty truck
+      };
+    }).sort((a, b) => b.concreteVolume - a.concreteVolume);
+  }, [plantIdsInData, plantTableData, plantOrderData, includeVAT, availablePlants, avgGuaranteeByPlant]);
+
+  // Fetch average guarantee age per plant (weighted by volume) using existing service
+  useEffect(() => {
+    const run = async () => {
+      if (!startDate || !endDate) return;
+      if (plantIdsInData.length === 0) return;
+      const from = format(startDate, 'yyyy-MM-dd');
+      const to = format(endDate, 'yyyy-MM-dd');
+      const updates: Record<string, number> = {};
+      for (const plantId of plantIdsInData) {
+        try {
+          const res = await ClientQualityService.getAverageGuaranteeAge(from, to, plantId);
+          updates[plantId] = res.averageGuaranteeAge || 0;
+        } catch (e) {
+          updates[plantId] = 0;
+        }
+      }
+      setAvgGuaranteeByPlant(prev => ({ ...prev, ...updates }));
+    };
+    run();
+  }, [plantIdsInData, startDate, endDate]);
+
+  // Progressive loading for plant comparative table using the EXACT same logic as production page
+  useEffect(() => {
+    const loadPlantTableDataProgressively = async () => {
+      try {
+        if (!startDate || !endDate || availablePlants.length === 0) {
+          setPlantTableData([]);
+          setPlantOrderData([]);
+          setPlantTableLoading(false);
+          return;
+        }
+
+        setPlantTableLoading(true);
+        setPlantTableProgress({ processed: 0, total: 0 });
+
+        const from = format(startDate, 'yyyy-MM-dd');
+        const to = format(endDate, 'yyyy-MM-dd');
+
+        // Use the EXACT same progressive approach as production page:
+        // Process each plant individually to avoid query limits
+        let accumulatedRemisiones: any[] = [];
+        let accumulatedOrders: any[] = [];
+        let processedCount = 0;
+        
+        // Set total to number of plants * 2 (remisiones + orders per plant)
+        setPlantTableProgress({ processed: 0, total: availablePlants.length * 2 });
+
+        for (const plant of availablePlants) {
+          // Fetch remisiones for this specific plant (EXACTLY like production page)
+          const { data: plantRemisiones, error: remError } = await supabase
+            .from('remisiones')
+            .select(`
+              id,
+              fecha,
+              plant_id,
+              order_id,
+              tipo_remision,
+              volumen_fabricado,
+              recipe:recipes(id, recipe_code, strength_fc, age_days, age_hours)
+            `)
+            .eq('plant_id', plant.id)  // Filter by specific plant (like production page)
+            .gte('fecha', from)
+            .lte('fecha', to)
+            .order('fecha', { ascending: false });
+
+          if (remError) throw remError;
+
+          if (plantRemisiones && plantRemisiones.length > 0) {
+            accumulatedRemisiones = [...accumulatedRemisiones, ...plantRemisiones];
+            setPlantTableData([...accumulatedRemisiones]);
+
+            // Get unique order IDs from this plant's remisiones
+            const orderIds = Array.from(new Set(plantRemisiones.map(r => r.order_id).filter(Boolean)));
+            
+            if (orderIds.length > 0) {
+              // Fetch orders for these remisiones
+              const { data: plantOrders, error: orderError } = await supabase
+                .from('orders')
+                .select(`
+                  id,
+                  order_number,
+                  requires_invoice,
+                  client_id,
+                  clients(business_name),
+                  items:order_items(*)
+                `)
+                .in('id', orderIds)
+                .not('order_status', 'eq', 'CANCELLED');
+
+              if (orderError) throw orderError;
+
+              if (plantOrders && plantOrders.length > 0) {
+                accumulatedOrders = [...accumulatedOrders, ...plantOrders];
+                setPlantOrderData([...accumulatedOrders]);
+              }
+            }
+          }
+
+          processedCount += 2; // remisiones + orders
+          setPlantTableProgress({ processed: processedCount, total: availablePlants.length * 2 });
+        }
+
+      } catch (e) {
+        console.error('Error fetching plant table data:', e);
+        setPlantTableData([]);
+        setPlantOrderData([]);
+      } finally {
+        setPlantTableLoading(false);
+      }
+    };
+
+    loadPlantTableDataProgressively();
+  }, [startDate, endDate, availablePlants]);
+
+  // Export per-plant table to Excel
+  const exportPlantsTable = () => {
+    const data = perPlantRows.map(row => ({
+      'Planta': `${row.plantCode} - ${row.plantName}`,
+      'Volumen Concreto (m³)': Number(row.concreteVolume.toFixed(1)),
+      'Resistencia Ponderada (kg/cm²)': Number(row.weightedResistance.toFixed(1)),
+      'Edad Garantía Ponderada (días)': Number(row.weightedGuaranteeAge.toFixed(1)),
+      'Ventas Concreto (Subtotal)': Number(row.totalVentas.toFixed(2))
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [
+      { wch: 28 }, { wch: 20 }, { wch: 26 }, { wch: 26 }, { wch: 18 }
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Comparativo_Plantas');
+    const sd = startDate ? format(startDate, 'dd-MM-yyyy') : 'fecha';
+    const ed = endDate ? format(endDate, 'dd-MM-yyyy') : 'fecha';
+    const filename = `Comparativo_Plantas_${sd}_${ed}${includeVAT ? '_IVA' : ''}.xlsx`;
+    XLSX.writeFile(wb, filename);
   };
 
   if (loading) {
@@ -650,80 +839,65 @@ export default function VentasDashboard() {
                     </div>
                   </div>
                 )}
-                 {/* Top Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                 {/* Top Summary Cards - Professional Design */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     {/* Total de Ventas */}
-                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-white to-slate-50">
-                    <CardHeader className="p-4 pb-0">
-                        <CardTitle className="text-center text-2xl font-bold text-slate-800">
+                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
+                        <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
                                       {includeVAT ? formatCurrency(currentSummaryMetrics.totalAmountWithVAT) : formatCurrency(currentSummaryMetrics.totalAmount)}
                          </CardTitle>
-                        <CardDescription className='text-center text-xs font-medium text-slate-500'>
+                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
                             Total de ventas {includeVAT ? '(Con IVA)' : '(Subtotal)'}
                         </CardDescription>
                     </CardHeader>
-                    <CardContent className='p-2'></CardContent>
                     </Card>
 
-                    {/* Volumen Total (Incluyendo todo) */}
-                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-blue-50 to-blue-100">
-                    <CardHeader className="p-4 pb-2">
-                         <CardTitle className="text-center text-2xl font-bold text-blue-800">
+                    {/* Volumen Total */}
+                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
+                         <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
                                        {(currentSummaryMetrics.totalVolume + currentSummaryMetrics.emptyTruckVolume).toFixed(1)}
                          </CardTitle>
-                        <CardDescription className='text-center text-xs font-medium text-blue-600 mb-2'>
-                            VOLUMEN TOTAL (m³)
+                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
+                            Volumen Total (m³)
                         </CardDescription>
-                        <div className="flex justify-center gap-2 text-xs">
-                            <span className="text-blue-700">
-                                🏗️ Concreto + Bombeo + Vacio de Olla
-                            </span>
+                        <div className="text-center text-xs text-gray-500 mt-2">
+                            Concreto + Bombeo + Vacío de Olla
                         </div>
                     </CardHeader>
-                    <CardContent className='p-2 pt-0'>
-                        <div className="text-center text-xs text-blue-600">
-                            Producción + Servicios ({currentSummaryMetrics.totalVolume.toFixed(1)}m³ + {currentSummaryMetrics.emptyTruckVolume} cargas)
-                        </div>
-                    </CardContent>
                     </Card>
 
                      {/* Edad Promedio de Garantía */}
-                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-purple-50 to-indigo-100">
-                    <CardHeader className="p-4 pb-2">
-                            <CardTitle className="text-center text-2xl font-bold text-purple-800">
+                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
+                            <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
                                        {guaranteeAgeData?.averageGuaranteeAge.toFixed(1) || '0.0'}
                             </CardTitle>
-                        <CardDescription className='text-center text-xs font-medium text-purple-600 mb-2'>
-                            EDAD DE GARANTÍA
+                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
+                            Edad de Garantía (días)
                             </CardDescription>
-                        <div className="flex justify-center gap-2 text-xs">
-                            <span className="text-purple-700">
-                                📋 {guaranteeAgeData?.totalRecipes || 0} fórmulas
-                            </span>
+                        <div className="text-center text-xs text-gray-500 mt-2">
+                            {guaranteeAgeData?.totalRecipes || 0} fórmulas
                             {gaStreaming && (
-                              <span className="text-purple-700">
-                                ⏳ {gaPercent}%
+                              <span className="ml-2">
+                                Cargando {gaPercent}%
                               </span>
                             )}
                         </div>
                         </CardHeader>
-                    <CardContent className='p-2 pt-0'>
-                            <div className="text-center text-xs text-purple-600 mb-2">
-                            Promedio de edad de garantía (días)
-                            </div>
-                        </CardContent>
                     </Card>
 
                     {/* Resistencia Ponderada */}
-                    <Card className="overflow-hidden border-0 shadow-md bg-gradient-to-br from-orange-50 to-orange-100">
-                    <CardHeader className="p-4 pb-2">
-                            <CardTitle className="text-center text-2xl font-bold text-orange-800 relative">
+                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
+                            <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums relative">
                                        {currentSummaryMetrics.weightedResistance.toFixed(1)}
                                        {currentSummaryMetrics.resistanceTooltip && (
                                           <TooltipProvider>
                                               <Tooltip>
                                                   <TooltipTrigger asChild>
-                                                      <Info className="h-3 w-3 text-orange-500 absolute top-0 right-0 mr-1 mt-1 cursor-help" />
+                                                      <Info className="h-4 w-4 text-gray-400 absolute top-0 right-0 cursor-help" />
                                                   </TooltipTrigger>
                                                   <TooltipContent>
                                                       <p className="text-xs max-w-xs">{currentSummaryMetrics.resistanceTooltip}</p>
@@ -732,98 +906,97 @@ export default function VentasDashboard() {
                                           </TooltipProvider>
                                       )}
                             </CardTitle>
-                        <CardDescription className='text-center text-xs font-medium text-orange-600 mb-2'>
-                            RESISTENCIA PONDERADA
+                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
+                            Resistencia Ponderada
                             </CardDescription>
-                        <div className="flex justify-center gap-2 text-xs">
-                            <span className="text-orange-700">
-                                📊 kg/cm²
-                            </span>
+                        <div className="text-center text-xs text-gray-500 mt-2">
+                            kg/cm² promedio por volumen
                         </div>
                         </CardHeader>
-                    <CardContent className='p-2 pt-0'>
-                            <div className="text-center text-xs text-orange-600 mb-2">
-                            Promedio ponderado por volumen
-                            </div>
-                        </CardContent>
                     </Card>
                 </div>
 
-                 {/* Product Breakdown Section */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                 {/* Product Breakdown Section - Professional Design */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                     {/* Concrete */}
-                    <Card className="overflow-hidden border-0 shadow-md">
-                        <CardHeader className="p-3 pb-1 bg-gradient-to-r from-blue-50 to-blue-100 border-b">
-                            <CardTitle className="text-sm font-semibold text-blue-700">CONCRETO PREMEZCLADO</CardTitle>
+                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                        <CardHeader className="border-b border-gray-200/80 bg-gray-50/80 rounded-t-xl px-4 py-3">
+                            <CardTitle className="text-sm font-semibold text-gray-800">Concreto Premezclado</CardTitle>
                         </CardHeader>
-                         <CardContent className='p-3'>
-                             <div className="flex justify-between items-start mb-2">
+                         <CardContent className='p-4'>
+                             <div className="flex justify-between items-start mb-3">
                                  <div>
-                                     <div className="text-2xl font-bold text-slate-800">
+                                     <div className="text-xl font-semibold text-gray-900 tabular-nums">
                                                    {currentSummaryMetrics.concreteVolume.toFixed(1)}
                                      </div>
-                                    <p className="text-xs text-slate-500 font-medium">Volumen (m³)</p>
+                                    <p className="text-xs text-gray-500 font-medium">Volumen (m³)</p>
                                 </div>
                                  <div>
-                                     <div className="text-2xl font-bold text-slate-800">
+                                     <div className="text-xl font-semibold text-gray-900 tabular-nums">
                                                    ${includeVAT ? currentSummaryMetrics.weightedConcretePriceWithVAT.toFixed(2) : currentSummaryMetrics.weightedConcretePrice.toFixed(2)}
                                      </div>
-                                    <p className="text-xs text-slate-500 font-medium text-right">
-                                        PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                    <p className="text-xs text-gray-500 font-medium text-right">
+                                        Precio Ponderado {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
                                     </p>
                                 </div>
                             </div>
-                            <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
+                            <div className="flex flex-wrap gap-1 mt-2 max-h-16 overflow-y-auto">
                               {Object.entries(concreteByRecipe)
                                 .sort(([, a], [, b]) => b.volume - a.volume)
+                                .slice(0, 3)
                                 .map(([recipe, data], index) => (
-                                  <Badge key={`ventas-recipe-${index}-${recipe}`} variant="outline" className="bg-blue-50 text-xs">
+                                  <Badge key={`ventas-recipe-${index}-${recipe}`} variant="outline" className="bg-white text-gray-600 border-gray-300 text-xs">
                                     {recipe}: {data.volume.toFixed(1)} m³
                                   </Badge>
                                 ))}
+                              {Object.entries(concreteByRecipe).length > 3 && (
+                                <Badge variant="outline" className="bg-white text-gray-500 border-gray-300 text-xs">
+                                  +{Object.entries(concreteByRecipe).length - 3} más
+                                </Badge>
+                              )}
                             </div>
                         </CardContent>
                      </Card>
                      {/* Pumping */}
-                    <Card className="overflow-hidden border-0 shadow-md">
-                        <CardHeader className="p-3 pb-1 bg-gradient-to-r from-emerald-50 to-emerald-100 border-b">
-                            <CardTitle className="text-sm font-semibold text-emerald-700">SERVICIO DE BOMBEO</CardTitle>
+                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                        <CardHeader className="border-b border-gray-200/80 bg-gray-50/80 rounded-t-xl px-4 py-3">
+                            <CardTitle className="text-sm font-semibold text-gray-800">Servicio de Bombeo</CardTitle>
                         </CardHeader>
-                        <CardContent className='p-3 flex justify-between items-start'>
+                        <CardContent className='p-4 flex justify-between items-start'>
                             <div>
-                                <div className="text-2xl font-bold text-slate-800">
+                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
                                               {currentSummaryMetrics.pumpVolume.toFixed(1)}
                                 </div>
-                                <p className="text-xs text-slate-500 font-medium">Volumen (m³)</p>
+                                <p className="text-xs text-gray-500 font-medium">Volumen (m³)</p>
                             </div>
                             <div>
-                                <div className="text-2xl font-bold text-slate-800">
+                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
                                               ${includeVAT ? currentSummaryMetrics.weightedPumpPriceWithVAT.toFixed(2) : currentSummaryMetrics.weightedPumpPrice.toFixed(2)}
                                 </div>
-                                <p className="text-xs text-slate-500 font-medium text-right">
-                                    PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                <p className="text-xs text-gray-500 font-medium text-right">
+                                    Precio Ponderado {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
                                 </p>
                             </div>
                          </CardContent>
                     </Card>
                      {/* Empty Truck */}
-                    <Card className="overflow-hidden border-0 shadow-md">
-                        <CardHeader className="p-3 pb-1 bg-gradient-to-r from-amber-50 to-amber-100 border-b">
-                            <CardTitle className="text-sm font-semibold text-amber-700">VACIO DE OLLA</CardTitle>
+                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                        <CardHeader className="border-b border-gray-200/80 bg-gray-50/80 rounded-t-xl px-4 py-3">
+                            <CardTitle className="text-sm font-semibold text-gray-800">Vacío de Olla</CardTitle>
                         </CardHeader>
-                        <CardContent className='p-3 flex justify-between items-start'>
+                        <CardContent className='p-4 flex justify-between items-start'>
                             <div>
-                                <div className="text-2xl font-bold text-slate-800">
+                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
                                                {currentSummaryMetrics.emptyTruckVolume.toFixed(1)}
                                 </div>
-                                <p className="text-xs text-slate-500 font-medium">Volumen (m³)</p>
+                                <p className="text-xs text-gray-500 font-medium">Volumen (m³)</p>
                             </div>
                             <div>
-                                <div className="text-2xl font-bold text-slate-800">
+                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
                                                ${includeVAT ? currentSummaryMetrics.weightedEmptyTruckPriceWithVAT.toFixed(2) : currentSummaryMetrics.weightedEmptyTruckPrice.toFixed(2)}
                                 </div>
-                                <p className="text-xs text-slate-500 font-medium text-right">
-                                    PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
+                                <p className="text-xs text-gray-500 font-medium text-right">
+                                    Precio Ponderado {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
                                 </p>
                             </div>
                          </CardContent>
@@ -913,16 +1086,15 @@ export default function VentasDashboard() {
                 </div>
               ) : (
               <div className="space-y-12 mt-12">
-                {/* Row 1: Key Performance Indicators - Full Width Charts */}
+                {/* Row 1: Key Performance Indicators - Apple-like Design */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Payment Distribution - Professional Donut */}
-                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 to-blue-500" />
-                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                      <CardTitle className="text-lg font-bold text-gray-800 flex items-center justify-between">
-                        <span>EFECTIVO/FISCAL</span>
+                  {/* Payment Distribution - Clean Design */}
+                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
+                      <CardTitle className="text-xl font-medium text-gray-900 tracking-tight flex items-center justify-between">
+                        <span>Efectivo/Fiscal</span>
                         {includeVAT && (
-                          <Badge variant="default" className="text-xs bg-green-100 text-green-700 border-green-200">
+                          <Badge variant="outline" className="text-xs border-gray-200 text-gray-600 bg-gray-50/50">
                             Con IVA
                           </Badge>
                         )}
@@ -957,11 +1129,10 @@ export default function VentasDashboard() {
                     </CardContent>
                   </Card>
 
-                  {/* Product Performance - Enhanced Bar Chart */}
-                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-purple-500" />
-                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                      <CardTitle className="text-lg font-bold text-gray-800">RENDIMIENTO POR PRODUCTO</CardTitle>
+                  {/* Product Performance - Clean Design */}
+                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
+                      <CardTitle className="text-xl font-medium text-gray-900 tracking-tight">Rendimiento por Producto</CardTitle>
                     </CardHeader>
                     <CardContent className="p-6 h-96">
                       {typeof window !== 'undefined' && productCodeChartSeries.length > 0 && productCodeChartSeries[0].data.length > 0 ? (
@@ -985,12 +1156,11 @@ export default function VentasDashboard() {
                   </Card>
                 </div>
 
-                {/* Row 2: Client Distribution - Full Width */}
+                {/* Row 2: Client Distribution - Clean Design */}
                 <div className="grid grid-cols-1 gap-8">
-                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-pink-500" />
-                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                      <CardTitle className="text-lg font-bold text-gray-800">DISTRIBUCIÓN DE CLIENTES</CardTitle>
+                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
+                      <CardTitle className="text-xl font-medium text-gray-900 tracking-tight">Distribución de Clientes</CardTitle>
                     </CardHeader>
                     <CardContent className="p-6 h-96">
                       {typeof window !== 'undefined' && clientChartSeries.length > 0 ? (
@@ -1028,31 +1198,101 @@ export default function VentasDashboard() {
                   </Card>
                 </div>
 
-                {/* Row 3: Historical Trends - Full Width */}
+                {/* Row 3: Comparative Table by Plant - Apple-like Design */}
                 <div className="grid grid-cols-1 gap-8">
-                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 to-red-500" />
-                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                      <CardTitle className="text-lg font-bold text-gray-800">TENDENCIA DE VENTAS HISTÓRICA</CardTitle>
+                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="text-xl font-medium text-gray-900 tracking-tight">Comparativo por Planta</CardTitle>
+                          <CardDescription className="text-sm text-gray-500 mt-2 font-normal">
+                            Resumen por planta: volumen de concreto, resistencia ponderada, edad de garantía y ventas totales
+                          </CardDescription>
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={exportPlantsTable} 
+                          disabled={perPlantRows.length === 0 || plantTableLoading} 
+                          className="gap-2 border-gray-200 text-gray-600 hover:bg-gray-50/80 hover:border-gray-300 transition-all duration-200 rounded-lg px-4 py-2"
+                        >
+                          <Download className="h-4 w-4" />
+                          Exportar
+                        </Button>
+                      </div>
                     </CardHeader>
-                    <CardContent className="p-6 h-96">
-                        <div className="h-full flex items-center justify-center">
-                          <div className="text-center text-gray-500">
-                                    <div className="text-lg font-semibold mb-2">Datos históricos próximamente</div>
-                                    <div className="text-sm">Funcionalidad en desarrollo</div>
+                    <CardContent className="p-0">
+                      {plantTableLoading ? (
+                        <div className="h-48 flex items-center justify-center">
+                          <div className="text-center">
+                            <div className="text-base font-medium mb-6 text-gray-700">Cargando datos comparativos...</div>
+                            <div className="w-80 bg-gray-100 rounded-full h-1.5 mb-3">
+                              <div 
+                                className="bg-blue-500 h-1.5 rounded-full transition-all duration-500 ease-out" 
+                                style={{ width: `${plantTableProgress.total > 0 ? (plantTableProgress.processed / plantTableProgress.total) * 100 : 0}%` }}
+                              />
+                            </div>
+                            <div className="text-sm text-gray-500 font-medium">
+                              {plantTableProgress.processed}/{plantTableProgress.total} operaciones completadas
+                            </div>
                           </div>
                         </div>
+                      ) : perPlantRows.length === 0 ? (
+                        <div className="h-48 flex items-center justify-center">
+                          <div className="text-center text-gray-400">
+                            <div className="text-base font-medium mb-2">No hay datos disponibles</div>
+                            <div className="text-sm">Ajusta los filtros o el rango de fechas</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="overflow-hidden">
+                          <Table>
+                            <TableHeader>
+                              <TableRow className="border-b border-gray-100/80 bg-gray-50/40">
+                                <TableHead className="font-medium text-gray-700 py-4 px-8 text-left">Planta</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-6 text-right">Volumen Concreto (m³)</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-6 text-right">Resistencia Ponderada (kg/cm²)</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-6 text-right">Edad Garantía (días)</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-8 text-right">Ventas Concreto (subtotal)</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {perPlantRows.map((row, index) => (
+                                <TableRow key={row.plantId} className={`border-b border-gray-50/80 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/20'} hover:bg-blue-50/30 transition-colors duration-200`}>
+                                  <TableCell className="py-5 px-8">
+                                    <div>
+                                      <div className="font-semibold text-gray-900 text-sm">{row.plantCode}</div>
+                                      <div className="text-xs text-gray-500 mt-0.5">{row.plantName}</div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="py-5 px-6 text-right text-sm text-gray-900 tabular-nums">
+                                    {row.concreteVolume.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                  </TableCell>
+                                  <TableCell className="py-5 px-6 text-right text-sm text-gray-900 tabular-nums">
+                                    {row.weightedResistance.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                  </TableCell>
+                                  <TableCell className="py-5 px-6 text-right text-sm text-gray-900 tabular-nums">
+                                    {row.weightedGuaranteeAge.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                  </TableCell>
+                                  <TableCell className="py-5 px-8 text-right text-sm text-gray-900 font-medium tabular-nums">
+                                    {formatCurrency(row.totalVentas)}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </div>
 
-                {/* Row 4: Commercial Performance KPIs */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Row 4: Commercial Performance KPIs - Clean Design */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   {/* Active Clients Monthly */}
-                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 to-blue-500" />
-                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                      <CardTitle className="text-lg font-bold text-gray-800">CLIENTES ACTIVOS MENSUALES</CardTitle>
+                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-4">
+                      <CardTitle className="text-lg font-medium text-gray-900 tracking-tight">Clientes Activos Mensuales</CardTitle>
                     </CardHeader>
                     <CardContent className="p-6 h-80">
                         <div className="h-full flex items-center justify-center">
@@ -1064,38 +1304,10 @@ export default function VentasDashboard() {
                     </CardContent>
                   </Card>
 
-                  {/* Payment Performance */}
-                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-green-500 to-emerald-500" />
-                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                      <CardTitle className="text-lg font-bold text-gray-800">RENDIMIENTO DE COBRO</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 h-80">
-                      {typeof window !== 'undefined' && paymentPerformanceChartSeries.length > 0 ? (
-                        <div className="h-full">
-                          <Chart
-                            options={paymentPerformanceChartOptions}
-                            series={paymentPerformanceChartSeries}
-                            type="radialBar"
-                            height="100%"
-                          />
-                        </div>
-                      ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <div className="text-center text-gray-500">
-                            <div className="text-lg font-semibold mb-2">No hay datos de cobro</div>
-                            <div className="text-sm">Selecciona un período con datos de ventas</div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
                   {/* Outstanding Amounts */}
-                  <Card className="relative overflow-hidden hover:shadow-lg transition-shadow border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
-                    <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 to-pink-500" />
-                    <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                      <CardTitle className="text-lg font-bold text-gray-800">MONTOS PENDIENTES</CardTitle>
+                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-4">
+                      <CardTitle className="text-lg font-medium text-gray-900 tracking-tight">Montos Pendientes</CardTitle>
                     </CardHeader>
                     <CardContent className="p-6 h-80">
                         <div className="h-full flex items-center justify-center">
@@ -1111,10 +1323,10 @@ export default function VentasDashboard() {
               )}
 
                {/* Información Contextual y Guía de Interpretación */}
-               <Card className="mt-8 border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/30">
-                 <CardHeader className="p-6 pb-4 bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200">
-                   <CardTitle className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                     <Info className="h-5 w-5 text-blue-600" />
+               <Card className="mt-8 border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
+                 <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
+                   <CardTitle className="text-xl font-medium text-gray-900 tracking-tight flex items-center gap-2">
+                     <Info className="h-5 w-5 text-gray-600" />
                      Guía de Interpretación del Dashboard
                    </CardTitle>
                    <CardDescription>
