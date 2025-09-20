@@ -414,13 +414,16 @@ export class ArkikRawParser {
     
     for (let i = 0; i < preHeader.length; i++) {
       const cell = String(preHeader[i] || '').trim();
-      
-      // Material code criteria: non-empty, not dash, reasonable length, alphanumeric pattern
-      if (cell && 
-          cell !== '-' && 
-          cell.length >= 1 && 
-          cell.length <= 10 && 
-          /^[A-Z0-9]+$/i.test(cell)) {
+
+      // Material code criteria: non-empty, not just dashes/spaces, reasonable length,
+      // and allow letters/numbers with internal spaces or hyphens (e.g., "ARENA 1", "CEM-TIPO I")
+      if (
+        cell &&
+        !/^[-\s]+$/.test(cell) &&
+        cell.length >= 1 &&
+        cell.length <= 10 &&
+        /^[A-Z0-9][A-Z0-9\s-]*$/i.test(cell)
+      ) {
         materialCandidates.push({ code: cell.toUpperCase(), idx: i });
         if (isDevelopment) console.log(`[ArkikRawParser] Material candidate: "${cell}" at column ${i}`);
       }
