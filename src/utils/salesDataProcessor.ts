@@ -137,13 +137,16 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
   
   // For SER002 (Bombeo)
   if (productType === 'SER002') {
-    // First try to find pump product in the specific order
+    const isPumpProduct = (p: any) => {
+      const t = (p.product_type || '').toString().toUpperCase();
+      return t === 'SER002' || t.includes('BOMBEO');
+    };
+
+    // 1) Order-specific pump service line (by product_type only)
     const orderSpecificPump = orderItems.find(p => 
-      (p.has_pump_service || p.product_type === 'SER002') && String(p.order_id) === String(remisionOrderId)
+      String(p.order_id) === String(remisionOrderId) && isPumpProduct(p)
     );
-    
     if (orderSpecificPump) {
-      // Prefer explicit pump_price, then unit_price, then quote_details.final_price
       const qd = getQuoteDetails(orderSpecificPump);
       return (
         orderSpecificPump.pump_price ??
@@ -152,16 +155,21 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
         0
       );
     }
-    
-    // Fallback to any pump product
-    const pumpProduct = orderItems.find(p => p.has_pump_service || p.product_type === 'SER002');
-    const qd = pumpProduct ? getQuoteDetails(pumpProduct) : undefined;
-    return (
-      pumpProduct?.pump_price ??
-      pumpProduct?.unit_price ??
-      qd?.final_price ??
-      0
-    );
+
+    // 2) Any pump service line (by product_type only)
+    const anyPump = orderItems.find(isPumpProduct);
+    if (anyPump) {
+      const qd = getQuoteDetails(anyPump);
+      return (
+        anyPump.pump_price ??
+        anyPump.unit_price ??
+        qd?.final_price ??
+        0
+      );
+    }
+
+    // Final fallback: 0 (avoid using concrete lines with has_pump_service)
+    return 0;
   }
   
   // For concrete products, first try to find in the specific order
@@ -607,7 +615,8 @@ export class SalesDataProcessor {
     const resistanceTooltipNotes: string[] = [];
 
     remisiones.forEach(remision => {
-      if (remision.tipo_remision === 'CONCRETO' || remision.tipo_remision === 'PISO INDUSTRIAL') {
+      // Treat all non-pump and non-empty-truck as concrete for resistance purposes
+      if (remision.tipo_remision !== 'BOMBEO' && remision.tipo_remision !== 'VACÍO DE OLLA') {
         const volume = remision.volumen_fabricado || 0;
         const resistance = remision.recipe?.strength_fc;
 

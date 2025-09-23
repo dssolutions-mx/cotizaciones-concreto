@@ -38,7 +38,7 @@ import { SalesVATIndicators, SalesInfoGuide } from '@/components/finanzas/SalesV
 
 // Import utilities
 import { exportSalesToExcel } from '@/utils/salesExport';
-import { SalesDataProcessor, SummaryMetrics, ConcreteByRecipe } from '@/utils/salesDataProcessor';
+import { SalesDataProcessor, SummaryMetrics, ConcreteByRecipe, findProductPrice } from '@/utils/salesDataProcessor';
 
 // Import chart configurations
 import {
@@ -54,7 +54,6 @@ import {
 import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
 
 // Import quality service
-import { ClientQualityService } from '@/services/clientQualityService';
 import { useProgressiveGuaranteeAge } from '@/hooks/useProgressiveGuaranteeAge';
 
 // Dynamically import ApexCharts with SSR disabled
@@ -325,34 +324,27 @@ export default function VentasDashboard() {
 
       const volume = remision.volumen_fabricado || 0;
       const order = salesData.find(o => o.id === remision.order_id);
-      const orderItems = order?.items || [];
       const recipeCode = remision.recipe?.recipe_code;
-      
-      // Find the right order item based on product type
-      const orderItem = orderItems.find((item: any) => {
-        if (remision.tipo_remision === 'BOMBEO' && item.has_pump_service) {
-          return true;
-        }
-        return item.product_type === recipeCode || 
-          (item.recipe_id && item.recipe_id.toString() === recipeCode);
-      });
-      
+
+      // Resolve price with shared logic for BOMBEo to avoid using concrete unit prices
       let price = 0;
-      if (orderItem) {
-        if (remision.tipo_remision === 'BOMBEO') {
-          price = orderItem.pump_price || 0;
-        } else {
-          price = orderItem.unit_price || 0;
-        }
+      if (remision.tipo_remision === 'BOMBEO') {
+        price = findProductPrice('SER002', remision.order_id, (remision as any).recipe?.id, order?.items || []);
+      } else {
+        // Keep existing behavior for non-pump items
+        const orderItem = (order?.items || []).find((item: any) =>
+          item.product_type === recipeCode || (item.recipe_id && item.recipe_id.toString() === recipeCode)
+        );
+        price = orderItem?.unit_price || 0;
       }
-      
+
       let amount = price * volume;
-      
+
       // Apply VAT if enabled and order requires invoice
       if (includeVAT && order?.requires_invoice) {
         amount *= (1 + VAT_RATE);
       }
-      
+
       acc[clientId].volume += volume;
       acc[clientId].amount += amount;
       return acc;
@@ -431,6 +423,30 @@ export default function VentasDashboard() {
     if (range?.to) setEndDate(range.to);
   };
 
+  // Filter-aware weighted guarantee age (exclude BOMBEo and Vacío de Olla)
+  const filteredWeightedGuaranteeAge = useMemo(() => {
+    const relevant = filteredRemisiones.filter(r => r.tipo_remision !== 'BOMBEO' && r.tipo_remision !== 'VACÍO DE OLLA');
+    let sum = 0;
+    let vol = 0;
+    for (const r of relevant) {
+      const volume = Number(r?.volumen_fabricado) || 0;
+      if (volume <= 0) continue;
+      const rawDays = (r as any)?.recipe?.age_days;
+      const rawHours = (r as any)?.recipe?.age_hours;
+      const daysNum = rawDays !== undefined && rawDays !== null ? Number(rawDays) : NaN;
+      const hoursNum = rawHours !== undefined && rawHours !== null ? Number(rawHours) : NaN;
+      // If days is provided and finite, prefer it; otherwise, use hours/24 if finite
+      const days = Number.isFinite(daysNum) && daysNum > 0
+        ? daysNum
+        : (Number.isFinite(hoursNum) && hoursNum > 0 ? hoursNum / 24 : 0);
+      if (days > 0) {
+        sum += days * volume;
+        vol += volume;
+      }
+    }
+    return vol > 0 ? sum / vol : 0;
+  }, [filteredRemisiones]);
+
   const handleClientFilterChange = (value: string) => {
     setClientFilter(value);
   };
@@ -498,6 +514,34 @@ export default function VentasDashboard() {
     return Array.from(ids);
   }, [plantTableData]);
 
+  // Compute per-plant weighted guarantee age from fetched remisiones
+  const avgGuaranteeByPlantComputed = useMemo(() => {
+    const accum: Record<string, { sum: number; vol: number }> = {};
+    plantTableData.forEach((r: any) => {
+      if (r.tipo_remision === 'BOMBEO' || r.tipo_remision === 'VACÍO DE OLLA') return;
+      const pid = r?.plant_id != null ? String(r.plant_id) : undefined;
+      if (!pid) return;
+      const volume = Number(r?.volumen_fabricado) || 0;
+      if (volume <= 0) return;
+      const rawDays = r?.recipe?.age_days;
+      const rawHours = r?.recipe?.age_hours;
+      const daysNum = rawDays !== undefined && rawDays !== null ? Number(rawDays) : NaN;
+      const hoursNum = rawHours !== undefined && rawHours !== null ? Number(rawHours) : NaN;
+      const days = Number.isFinite(daysNum) && daysNum > 0 ? daysNum : (Number.isFinite(hoursNum) && hoursNum > 0 ? hoursNum / 24 : 0);
+      if (days > 0) {
+        const a = accum[pid] || { sum: 0, vol: 0 };
+        a.sum += days * volume;
+        a.vol += volume;
+        accum[pid] = a;
+      }
+    });
+    const map: Record<string, number> = {};
+    Object.entries(accum).forEach(([pid, a]) => {
+      map[pid] = a.vol > 0 ? a.sum / a.vol : 0;
+    });
+    return map;
+  }, [plantTableData]);
+
   const perPlantRows = useMemo(() => {
     return plantIdsInData.map((plantId) => {
       const plantInfo = availablePlants.find(p => String(p.id) === String(plantId));
@@ -523,7 +567,7 @@ export default function VentasDashboard() {
       // Always use subtotal for consistency in comparative analysis
       const concreteVentas = metrics.concreteAmount;
       
-      const avgGuarantee = avgGuaranteeByPlant[plantId] ?? 0;
+      const avgGuarantee = avgGuaranteeByPlantComputed[plantId] ?? 0;
 
       return {
         plantId,
@@ -535,28 +579,9 @@ export default function VentasDashboard() {
         totalVentas: concreteVentas // Only concrete sales, not pumping/empty truck
       };
     }).sort((a, b) => b.concreteVolume - a.concreteVolume);
-  }, [plantIdsInData, plantTableData, plantOrderData, includeVAT, availablePlants, avgGuaranteeByPlant]);
+  }, [plantIdsInData, plantTableData, plantOrderData, includeVAT, availablePlants, avgGuaranteeByPlantComputed]);
 
-  // Fetch average guarantee age per plant (weighted by volume) using existing service
-  useEffect(() => {
-    const run = async () => {
-      if (!startDate || !endDate) return;
-      if (plantIdsInData.length === 0) return;
-      const from = format(startDate, 'yyyy-MM-dd');
-      const to = format(endDate, 'yyyy-MM-dd');
-      const updates: Record<string, number> = {};
-      for (const plantId of plantIdsInData) {
-        try {
-          const res = await ClientQualityService.getAverageGuaranteeAge(from, to, plantId);
-          updates[plantId] = res.averageGuaranteeAge || 0;
-        } catch (e) {
-          updates[plantId] = 0;
-        }
-      }
-      setAvgGuaranteeByPlant(prev => ({ ...prev, ...updates }));
-    };
-    run();
-  }, [plantIdsInData, startDate, endDate]);
+  // Remove remote service usage: using computed values from plantTableData instead
 
   // Progressive loading for plant comparative table using the EXACT same logic as production page
   useEffect(() => {
@@ -872,13 +897,13 @@ export default function VentasDashboard() {
                     <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
                     <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
                             <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
-                                       {guaranteeAgeData?.averageGuaranteeAge.toFixed(1) || '0.0'}
+                                      {(filteredWeightedGuaranteeAge || 0).toFixed(1)}
                             </CardTitle>
                         <CardDescription className='text-center text-sm font-medium text-gray-600'>
                             Edad de Garantía (días)
                             </CardDescription>
                         <div className="text-center text-xs text-gray-500 mt-2">
-                            {guaranteeAgeData?.totalRecipes || 0} fórmulas
+                            {/* volume-weighted over remisiones filtradas */}
                             {gaStreaming && (
                               <span className="ml-2">
                                 Cargando {gaPercent}%
