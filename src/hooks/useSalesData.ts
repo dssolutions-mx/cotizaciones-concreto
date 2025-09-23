@@ -86,7 +86,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
             .from('remisiones')
             .select(`
               *,
-              recipe:recipes(id, recipe_code, strength_fc),
+              recipe:recipes(id, recipe_code, strength_fc, age_days, age_hours),
               order:orders(
                 id,
                 order_number,
