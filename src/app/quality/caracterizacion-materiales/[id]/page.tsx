@@ -54,6 +54,7 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { formatDate } from '@/lib/utils';
+import EstudioFormModal from '@/components/quality/caracterizacion/EstudioFormModal';
 
 interface EstudioDetalle {
   id: string;
@@ -96,6 +97,8 @@ export default function EstudioDetallePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingEstado, setUpdatingEstado] = useState<string | null>(null);
+  const [selectedEstudio, setSelectedEstudio] = useState<EstudioSeleccionadoDetalle | null>(null);
+  const [showFormModal, setShowFormModal] = useState(false);
 
   // Cargar detalle del estudio
   useEffect(() => {
@@ -188,11 +191,43 @@ export default function EstudioDetallePage() {
     }
   };
 
+  const handleOpenFormModal = (estudioSeleccionado: EstudioSeleccionadoDetalle) => {
+    setSelectedEstudio(estudioSeleccionado);
+    setShowFormModal(true);
+  };
+
+  const handleCloseFormModal = () => {
+    setSelectedEstudio(null);
+    setShowFormModal(false);
+  };
+
+  const handleSaveEstudio = async (estudioId: string, resultados: any) => {
+    // Actualizar el estado local
+    setEstudio(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        estudios_seleccionados: prev.estudios_seleccionados.map(est => 
+          est.id === estudioId 
+            ? { 
+                ...est, 
+                resultados: resultados,
+                estado: 'completado' as const,
+                fecha_completado: new Date().toISOString().split('T')[0]
+              }
+            : est
+        )
+      };
+    });
+
+    toast.success('Estudio completado y resultados guardados exitosamente');
+  };
+
   const getEstadoColor = (estado: string) => {
     switch (estado) {
-      case 'completado': return 'bg-blue-700 text-white';
-      case 'en_proceso': return 'bg-blue-500 text-white';
-      case 'pendiente': return 'bg-blue-100 text-blue-800';
+      case 'completado': return 'bg-primary text-white';
+      case 'en_proceso': return 'bg-yellow-500 text-white';
+      case 'pendiente': return 'bg-primary/10 text-primary';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -498,7 +533,7 @@ export default function EstudioDetallePage() {
                   
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-500">Completados</span>
-                    <Badge className="bg-green-100 text-green-800">
+                    <Badge className="bg-primary/10 text-primary">
                       {estudio.estudios_seleccionados.filter(e => e.estado === 'completado').length}
                     </Badge>
                   </div>
@@ -512,7 +547,7 @@ export default function EstudioDetallePage() {
                   
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-500">Pendientes</span>
-                    <Badge className="bg-blue-100 text-blue-800">
+                    <Badge className="bg-gray-100 text-gray-800">
                       {estudio.estudios_seleccionados.filter(e => e.estado === 'pendiente').length}
                     </Badge>
                   </div>
@@ -522,11 +557,11 @@ export default function EstudioDetallePage() {
             {/* Resumen de Pruebas del Estudio */}
             <div>
               <div className="mb-3">
-                <h3 className="flex items-center gap-2 text-lg font-semibold text-blue-900">
-                  <FileText className="h-5 w-5 text-blue-600" />
+                <h3 className="flex items-center gap-2 text-lg font-semibold text-primary">
+                  <FileText className="h-5 w-5 text-primary" />
                   Resumen de Pruebas del Estudio
                 </h3>
-                <p className="text-sm text-blue-700">Resultados de los estudios completados</p>
+                <p className="text-sm text-primary/70">Resultados de los estudios completados</p>
               </div>
 
               {(() => {
@@ -534,10 +569,10 @@ export default function EstudioDetallePage() {
                 
                 if (completados.length === 0) {
                   return (
-                    <div className="text-center py-8 bg-blue-50 rounded-lg border border-blue-200">
-                      <TestTube className="h-12 w-12 text-blue-400 mx-auto mb-3" />
-                      <p className="text-blue-600 font-medium">No hay estudios completados</p>
-                      <p className="text-blue-500 text-sm">Los resultados aparecerán aquí una vez completados</p>
+                    <div className="text-center py-8 bg-primary/5 rounded-lg border border-primary/20">
+                      <TestTube className="h-12 w-12 text-primary/40 mx-auto mb-3" />
+                      <p className="text-primary font-medium">No hay estudios completados</p>
+                      <p className="text-primary/70 text-sm">Los resultados aparecerán aquí una vez completados</p>
                     </div>
                   );
                 }
@@ -547,22 +582,22 @@ export default function EstudioDetallePage() {
                     {completados.map((estudioSel) => {
                       const IconComponent = getEstudioIcon(estudioSel.nombre_estudio);
                       return (
-                        <div key={estudioSel.id} className="border border-blue-200 bg-blue-50 rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div key={estudioSel.id} className="border border-primary/20 bg-primary/5 rounded-lg p-4 hover:shadow-md transition-shadow">
                           <div className="flex items-center gap-2 mb-3">
-                            <IconComponent className="h-5 w-5 text-blue-600" />
-                            <h4 className="font-semibold text-blue-900 text-sm">{estudioSel.nombre_estudio}</h4>
+                            <IconComponent className="h-5 w-5 text-primary" />
+                            <h4 className="font-semibold text-primary text-sm">{estudioSel.nombre_estudio}</h4>
                           </div>
                           
                           <div className="space-y-2">
                             <div className="flex items-center justify-between text-xs">
-                              <span className="text-blue-600">Completado:</span>
-                              <span className="text-blue-800 font-medium">
+                              <span className="text-primary/70">Completado:</span>
+                              <span className="text-primary font-medium">
                                 {formatDate(estudioSel.fecha_completado)}
                               </span>
                             </div>
                             
-                            <div className="pt-2 border-t border-blue-200">
-                              <p className="text-xs text-blue-600 mb-2 font-medium">Resultados:</p>
+                            <div className="pt-2 border-t border-primary/20">
+                              <p className="text-xs text-primary/70 mb-2 font-medium">Resultados:</p>
                               <ResumenResultados e={estudioSel} />
                             </div>
                           </div>
@@ -604,11 +639,11 @@ export default function EstudioDetallePage() {
                     return (
                       <Card 
                         key={estudioSel.id} 
-                        className={`relative overflow-hidden transition-all duration-200 hover:shadow-lg border-blue-200 bg-blue-50`}
+                        className={`relative overflow-hidden transition-all duration-200 hover:shadow-lg border-primary/20 bg-primary/5`}
                       >
                         {/* Status indicator */}
                         <div className={`absolute top-0 right-0 w-0 h-0 border-l-[40px] border-b-[40px] border-l-transparent ${
-                          isCompleted ? 'border-b-blue-700' : isInProgress ? 'border-b-blue-500' : 'border-b-blue-400'
+                          isCompleted ? 'border-b-primary' : isInProgress ? 'border-b-yellow-500' : 'border-b-gray-400'
                         }`}>
                           <IconComponent className={`absolute -bottom-7 -right-7 h-4 w-4 text-white`} />
                         </div>
@@ -617,11 +652,11 @@ export default function EstudioDetallePage() {
                           <div className="flex items-start gap-4 mb-4">
                             <div className={`p-3 rounded-xl bg-white/60`}>
                               <EstudioIcon className={`h-6 w-6 ${
-                                isCompleted ? 'text-blue-700' : isInProgress ? 'text-blue-600' : 'text-blue-500'
+                                isCompleted ? 'text-primary' : isInProgress ? 'text-yellow-600' : 'text-gray-500'
                               }`} />
                             </div>
                             <div className="flex-1">
-                              <h3 className={`font-bold text-lg mb-1 text-blue-900`}>
+                              <h3 className={`font-bold text-lg mb-1 text-primary`}>
                                 {estudioSel.nombre_estudio}
                               </h3>
                               <Badge className={`${getEstadoColor(estudioSel.estado)} text-xs`}>
@@ -630,11 +665,11 @@ export default function EstudioDetallePage() {
                             </div>
                           </div>
 
-                          <p className={`text-sm mb-4 text-blue-700`}>
+                          <p className={`text-sm mb-4 text-primary/70`}>
                             {estudioSel.descripcion}
                           </p>
 
-                          <div className={`space-y-2 text-xs mb-4 text-blue-600`}>
+                          <div className={`space-y-2 text-xs mb-4 text-primary/70`}>
                             <div className="flex items-center gap-2">
                               <FileText className="h-3 w-3" />
                               <span><strong>Norma:</strong> {estudioSel.norma_referencia}</span>
@@ -658,11 +693,8 @@ export default function EstudioDetallePage() {
                             <Button
                               variant={isCompleted ? "outline" : "default"}
                               size="sm"
-                              className={`w-full ${isCompleted ? 'border-blue-300 text-blue-700 hover:bg-blue-50' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
-                              onClick={() => {
-                                // Aquí iría la lógica para abrir el formulario específico
-                                toast.info(`Abriendo formulario para ${estudioSel.nombre_estudio}`);
-                              }}
+                              className={`w-full ${isCompleted ? 'border-primary/30 text-primary hover:bg-primary/5' : 'bg-primary hover:bg-primary/90 text-white'}`}
+                              onClick={() => handleOpenFormModal(estudioSel)}
                             >
                               <Edit3 className="h-4 w-4 mr-2" />
                               {isCompleted ? 'Ver/Editar Datos' : 'Dar de Alta'}
@@ -702,7 +734,7 @@ export default function EstudioDetallePage() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      className="flex-1 text-xs text-blue-700 hover:text-blue-800 hover:bg-blue-50"
+                                      className="flex-1 text-xs text-primary hover:text-primary/80 hover:bg-primary/5"
                                       onClick={() => handleEstadoChange(estudioSel.id, 'completado')}
                                     >
                                       <CheckCircle className="h-3 w-3 mr-1" />
@@ -729,6 +761,16 @@ export default function EstudioDetallePage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Modal de Formulario */}
+      {selectedEstudio && (
+        <EstudioFormModal
+          isOpen={showFormModal}
+          onClose={handleCloseFormModal}
+          estudio={selectedEstudio}
+          onSave={handleSaveEstudio}
+        />
+      )}
     </div>
   );
 }
