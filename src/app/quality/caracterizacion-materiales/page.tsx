@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,7 +31,8 @@ import {
   ArrowRight,
   CheckCircle,
   Clock,
-  AlertCircle
+  AlertCircle,
+  Factory
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
@@ -196,11 +197,11 @@ export default function CaracterizacionMaterialesHistoricoPage() {
     const pendientes = estudiosSeleccionados.filter(e => e.estado === 'pendiente').length;
     
     if (completados === estudiosSeleccionados.length) {
-      return { estado: 'completado', label: 'Completado', color: 'text-green-600', icon: CheckCircle };
+      return { estado: 'completado', label: 'Completado', color: 'text-[#069e2d]', icon: CheckCircle };
     } else if (enProceso > 0 || completados > 0) {
-      return { estado: 'en_proceso', label: 'En proceso', color: 'text-yellow-600', icon: Clock };
+      return { estado: 'en_proceso', label: 'En proceso', color: 'text-amber-600', icon: Clock };
     } else {
-      return { estado: 'pendiente', label: 'Pendiente', color: 'text-blue-600', icon: Clock };
+      return { estado: 'pendiente', label: 'Pendiente', color: 'text-gray-600', icon: Clock };
     }
   };
 
@@ -213,10 +214,10 @@ export default function CaracterizacionMaterialesHistoricoPage() {
   };
 
   const getTipoEstudioBadgeColor = (tipos: string[]) => {
-    if (tipos.includes('Caracterización interna')) return 'bg-blue-100 text-blue-800';
-    if (tipos.includes('Validación')) return 'bg-green-100 text-green-800';
-    if (tipos.includes('Nuevo prospecto')) return 'bg-purple-100 text-purple-800';
-    return 'bg-gray-100 text-gray-800';
+    if (tipos.includes('Caracterización interna')) return 'bg-[#069e2d]/10 text-[#069e2d] border-[#069e2d]/20';
+    if (tipos.includes('Validación')) return 'bg-[#069e2d]/15 text-[#069e2d] border-[#069e2d]/25';
+    if (tipos.includes('Nuevo prospecto')) return 'bg-[#069e2d]/20 text-[#069e2d] border-[#069e2d]/30';
+    return 'bg-gray-100 text-gray-800 border-gray-200';
   };
 
   if (isLoading || loading) {
@@ -264,19 +265,27 @@ export default function CaracterizacionMaterialesHistoricoPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <FlaskConical className="h-8 w-8 text-blue-600" />
+              <FlaskConical className="h-8 w-8 text-[#069e2d]" />
               Histórico de Caracterización de Materiales
             </h1>
             <p className="text-gray-600 mt-2">
               Gestione y revise todos los estudios de caracterización de agregados
             </p>
           </div>
-          <Link href="/quality/caracterizacion-materiales/nuevo">
-            <Button className="flex items-center gap-2">
-              <Plus className="h-4 w-4" />
-              Nuevo Estudio
-            </Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link href="/quality/caracterizacion-materiales/diagnostico">
+              <Button variant="outline" className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" />
+                Diagnóstico DB
+              </Button>
+            </Link>
+            <Link href="/quality/caracterizacion-materiales/nuevo">
+              <Button className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Nuevo Estudio
+              </Button>
+            </Link>
+          </div>
         </div>
 
         {/* Filtros */}
@@ -385,9 +394,9 @@ export default function CaracterizacionMaterialesHistoricoPage() {
           </CardHeader>
           <CardContent>
             {filteredEstudios.length === 0 ? (
-              <div className="text-center py-8">
-                <FlaskConical className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500 text-lg">No se encontraron estudios</p>
+              <div className="text-center py-12">
+                <FlaskConical className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500 text-lg font-medium">No se encontraron estudios</p>
                 <p className="text-gray-400">
                   {estudios.length === 0 
                     ? 'Aún no hay estudios de caracterización registrados'
@@ -396,148 +405,203 @@ export default function CaracterizacionMaterialesHistoricoPage() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID Muestra</TableHead>
-                      <TableHead>Planta</TableHead>
-                      <TableHead>Material</TableHead>
-                      <TableHead>Mina</TableHead>
-                      <TableHead>Técnico</TableHead>
-                      <TableHead>Tipo de Análisis</TableHead>
-                      <TableHead>Estudios Programados</TableHead>
-                      <TableHead>Estado</TableHead>
-                      <TableHead className="text-center">Ver Detalle</TableHead>
-                      <TableHead className="text-center">Acciones</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredEstudios.map((estudio) => (
-                      <TableRow key={estudio.id}>
-                        <TableCell className="font-medium">
-                          {estudio.id_muestra}
-                        </TableCell>
-                        <TableCell>
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                {filteredEstudios.map((estudio) => {
+                  const estadoInfo = getEstadoGeneral(estudio);
+                  const IconComponent = estadoInfo.icon;
+                  const completados = estudio.estudios_seleccionados?.filter(e => e.estado === 'completado').length || 0;
+                  const total = estudio.estudios_seleccionados?.length || 0;
+                  const progreso = total > 0 ? (completados / total) * 100 : 0;
+                  
+                  return (
+                    <Card 
+                      key={estudio.id} 
+                      className="relative overflow-hidden hover:shadow-lg transition-all duration-300 border-l-4 border-l-[#069e2d] bg-white"
+                    >
+                      {/* Header de la tarjeta */}
+                      <CardHeader className="pb-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <FlaskConical className="h-5 w-5 text-[#069e2d]" />
+                              <CardTitle className="text-lg font-bold text-gray-900">
+                                {estudio.id_muestra}
+                              </CardTitle>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-gray-600">
+                              <Building className="h-4 w-4" />
+                              <span className="font-medium">{estudio.planta}</span>
+                            </div>
+                          </div>
+                          
+                          {/* Estado general */}
                           <div className="flex items-center gap-2">
-                            <Building className="h-4 w-4 text-gray-400" />
-                            {estudio.planta}
+                            <IconComponent className={`h-4 w-4 ${estadoInfo.color}`} />
+                            <Badge className={`text-xs ${
+                              estadoInfo.estado === 'completado' ? 'bg-[#069e2d] text-white' :
+                              estadoInfo.estado === 'en_proceso' ? 'bg-amber-500 text-white' :
+                              'bg-gray-500 text-white'
+                            }`}>
+                              {estadoInfo.label}
+                            </Badge>
                           </div>
-                        </TableCell>
-                        <TableCell>
+                        </div>
+                      </CardHeader>
+
+                      <CardContent className="space-y-4">
+                        {/* Información del material */}
+                        <div className="grid grid-cols-2 gap-4 p-3 bg-gray-50 rounded-lg">
                           <div>
-                            <div className="font-medium">{estudio.nombre_material}</div>
-                            <div className="text-sm text-gray-500">{estudio.tipo_material}</div>
+                            <p className="text-xs text-gray-500 uppercase tracking-wide">Material</p>
+                            <p className="font-semibold text-gray-900">{estudio.nombre_material}</p>
+                            <p className="text-sm text-gray-600">{estudio.tipo_material}</p>
                           </div>
-                        </TableCell>
-                        <TableCell className="max-w-[150px] truncate">
-                          {estudio.mina_procedencia}
-                        </TableCell>
-                        <TableCell>{estudio.tecnico}</TableCell>
-                        <TableCell>
+                          <div>
+                            <p className="text-xs text-gray-500 uppercase tracking-wide">Técnico</p>
+                            <p className="font-semibold text-gray-900">{estudio.tecnico}</p>
+                          </div>
+                        </div>
+
+                        {/* Mina de procedencia */}
+                        <div className="flex items-center gap-2 text-sm">
+                          <Factory className="h-4 w-4 text-gray-400" />
+                          <span className="text-gray-600">Mina:</span>
+                          <span className="font-medium text-gray-900 truncate">{estudio.mina_procedencia}</span>
+                        </div>
+
+                        {/* Tipos de análisis */}
+                        <div>
+                          <p className="text-xs text-gray-500 uppercase tracking-wide mb-2">Tipos de Análisis</p>
                           <div className="flex flex-wrap gap-1">
                             {estudio.tipo_estudio.map((tipo, index) => (
                               <Badge 
                                 key={index}
-                                className={getTipoEstudioBadgeColor(estudio.tipo_estudio)}
-                                variant="secondary"
+                                className={`${getTipoEstudioBadgeColor(estudio.tipo_estudio)} border text-xs`}
+                                variant="outline"
                               >
                                 {tipo}
                               </Badge>
                             ))}
                           </div>
-                        </TableCell>
-                        <TableCell>
-                          {estudio.estudios_seleccionados && estudio.estudios_seleccionados.length > 0 ? (
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-2">
-                                <Badge variant="outline" className="text-xs">
-                                  {estudio.estudios_seleccionados.length} estudios
-                                </Badge>
+                        </div>
+
+                        {/* Estudios programados */}
+                        <div className="border-t pt-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-sm font-semibold text-gray-900">Estudios Programados</p>
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 rounded-full bg-[#069e2d]"></div>
+                              <span className="text-sm font-bold text-[#069e2d]">
+                                {completados}/{total}
+                              </span>
+                            </div>
+                          </div>
+
+                          {total > 0 ? (
+                            <div className="space-y-3">
+                              {/* Barra de progreso */}
+                              <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className="bg-gradient-to-r from-[#069e2d] to-[#069e2d]/80 h-2 rounded-full transition-all duration-500"
+                                  style={{ width: `${progreso}%` }}
+                                ></div>
                               </div>
-                              <div className="flex flex-wrap gap-1">
-                                {estudio.estudios_seleccionados.slice(0, 2).map((est, idx) => (
-                                  <Badge 
+
+                              {/* Lista de estudios */}
+                              <div className="space-y-1 max-h-32 overflow-y-auto">
+                                {estudio.estudios_seleccionados?.slice(0, 5).map((est, idx) => (
+                                  <div 
                                     key={idx}
-                                    variant="secondary"
-                                    className={`text-xs ${
-                                      est.estado === 'completado' ? 'bg-green-100 text-green-800' :
-                                      est.estado === 'en_proceso' ? 'bg-yellow-100 text-yellow-800' :
-                                      'bg-gray-100 text-gray-800'
-                                    }`}
+                                    className="flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-gray-50 transition-colors"
                                   >
-                                    {est.nombre_estudio.split(' ')[0]}
-                                  </Badge>
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                      {est.estado === 'completado' ? (
+                                        <CheckCircle className="h-3 w-3 text-[#069e2d] flex-shrink-0" />
+                                      ) : est.estado === 'en_proceso' ? (
+                                        <Clock className="h-3 w-3 text-amber-500 flex-shrink-0" />
+                                      ) : (
+                                        <AlertCircle className="h-3 w-3 text-gray-400 flex-shrink-0" />
+                                      )}
+                                      <span className="text-xs text-gray-700 truncate">
+                                        {est.nombre_estudio}
+                                      </span>
+                                    </div>
+                                    <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                                      est.estado === 'completado' 
+                                        ? 'bg-[#069e2d]' :
+                                      est.estado === 'en_proceso' 
+                                        ? 'bg-amber-500' :
+                                        'bg-gray-300'
+                                    }`}></div>
+                                  </div>
                                 ))}
-                                {estudio.estudios_seleccionados.length > 2 && (
-                                  <Badge variant="outline" className="text-xs">
-                                    +{estudio.estudios_seleccionados.length - 2}
-                                  </Badge>
+                                {total > 5 && (
+                                  <div className="text-center py-1">
+                                    <span className="text-xs text-[#069e2d] font-medium">
+                                      +{total - 5} estudios más
+                                    </span>
+                                  </div>
                                 )}
                               </div>
                             </div>
                           ) : (
-                            <span className="text-gray-400 text-sm">Sin estudios</span>
+                            <div className="flex items-center justify-center gap-2 text-gray-400 py-4 bg-gray-50 rounded-lg">
+                              <AlertCircle className="h-4 w-4" />
+                              <span className="text-sm">Sin estudios programados</span>
+                            </div>
                           )}
-                        </TableCell>
-                        <TableCell>
-                          {(() => {
-                            const estadoInfo = getEstadoGeneral(estudio);
-                            const IconComponent = estadoInfo.icon;
-                            return (
-                              <div className="flex items-center gap-2">
-                                <IconComponent className={`h-4 w-4 ${estadoInfo.color}`} />
-                                <span className={`text-sm font-medium ${estadoInfo.color}`}>
-                                  {estadoInfo.label}
-                                </span>
-                              </div>
-                            );
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0 hover:bg-blue-50"
-                            title="Ver detalle y registrar resultados"
-                            onClick={() => handleNavigateToDetail(estudio)}
-                          >
-                            <ArrowRight className="h-4 w-4 text-blue-600" />
-                          </Button>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
+                        </div>
+                      </CardContent>
+
+                      {/* Footer con acciones */}
+                      <CardFooter className="pt-4 border-t bg-gray-50/50">
+                        <div className="flex items-center justify-between w-full">
+                          <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <Calendar className="h-3 w-3" />
+                            <span>Muestreo: {formatDate(estudio.fecha_muestreo)}</span>
+                          </div>
+                          
+                          <div className="flex items-center gap-1">
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0"
+                              className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
                               title="Ver detalles"
                             >
-                              <Eye className="h-4 w-4" />
+                              <Eye className="h-4 w-4 text-gray-600" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0"
+                              className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
                               title="Editar"
                             >
-                              <Edit className="h-4 w-4" />
+                              <Edit className="h-4 w-4 text-gray-600" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                              className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
+                              title="Ver detalle y registrar resultados"
+                              onClick={() => handleNavigateToDetail(estudio)}
+                            >
+                              <ArrowRight className="h-4 w-4 text-[#069e2d]" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
                               title="Eliminar"
                               onClick={() => handleDelete(estudio.id, estudio.id_muestra)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        </div>
+                      </CardFooter>
+                    </Card>
+                  );
+                })}
               </div>
             )}
         </CardContent>

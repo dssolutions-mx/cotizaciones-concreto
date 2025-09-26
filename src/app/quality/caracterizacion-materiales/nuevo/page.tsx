@@ -246,6 +246,8 @@ export default function CaracterizacionMaterialesPage() {
   };
 
   const handleEstudioToggle = (estudio: any) => {
+    console.log('Toggle estudio:', estudio.nombre);
+    
     const estudioSeleccionado: EstudioSeleccionado = {
       tipo_estudio: estudio.categoria,
       nombre_estudio: estudio.nombre,
@@ -256,12 +258,19 @@ export default function CaracterizacionMaterialesPage() {
 
     setEstudiosSeleccionados(prev => {
       const exists = prev.find(e => e.nombre_estudio === estudio.nombre);
+      console.log('Estudio exists:', exists);
+      console.log('Previous estudios:', prev);
+      
       if (exists) {
         // Remover si ya existe
-        return prev.filter(e => e.nombre_estudio !== estudio.nombre);
+        const newList = prev.filter(e => e.nombre_estudio !== estudio.nombre);
+        console.log('Removing estudio, new list:', newList);
+        return newList;
       } else {
         // Agregar si no existe
-        return [...prev, estudioSeleccionado];
+        const newList = [...prev, estudioSeleccionado];
+        console.log('Adding estudio, new list:', newList);
+        return newList;
       }
     });
   };
@@ -368,6 +377,22 @@ export default function CaracterizacionMaterialesPage() {
         throw error;
       }
 
+      // Crear registro en caracterizacion automáticamente
+      const { error: caracError } = await supabase
+        .from('caracterizacion')
+        .insert([{
+          alta_estudio_id: data.id
+        }]);
+
+      if (caracError) {
+        console.error('Error creating caracterizacion record:', caracError);
+        // No fallar completamente, solo registrar el error
+      }
+
+      // Debug: Verificar estudios seleccionados
+      console.log('Estudios seleccionados antes de guardar:', estudiosSeleccionados);
+      console.log('Cantidad de estudios seleccionados:', estudiosSeleccionados.length);
+      
       // Guardar estudios seleccionados si existen
       if (estudiosSeleccionados.length > 0) {
         const estudiosData = estudiosSeleccionados.map(estudio => ({
@@ -404,12 +429,19 @@ export default function CaracterizacionMaterialesPage() {
       // Intentar extraer información del error
       let errorMessage = 'Error al guardar el estudio de caracterización';
       
+      console.error('Full error object:', error);
+      
       if (error) {
         if (typeof error === 'string') {
           errorMessage += `: ${error}`;
         } else if (error && typeof error === 'object') {
           if ('message' in error && error.message) {
             errorMessage += `: ${error.message}`;
+            
+            // Verificar si es un error de tabla no encontrada
+            if (error.message.includes('relation') && error.message.includes('does not exist')) {
+              errorMessage = 'Error: Las tablas de caracterización no existen en la base de datos. Ve a "Diagnóstico DB" para más información.';
+            }
           } else if ('details' in error && error.details) {
             errorMessage += `: ${error.details}`;
           } else if ('hint' in error && error.hint) {
@@ -420,7 +452,9 @@ export default function CaracterizacionMaterialesPage() {
         }
       }
       
-      toast.error(errorMessage);
+      toast.error(errorMessage, {
+        duration: 8000, // Mostrar por más tiempo para errores importantes
+      });
     } finally {
       setSaving(false);
     }
@@ -726,12 +760,12 @@ export default function CaracterizacionMaterialesPage() {
                               ? 'border-blue-500 bg-blue-50'
                               : 'border-gray-200 hover:border-gray-300'
                           }`}
-                          onClick={() => handleEstudioToggle(estudio)}
+                          onClick={() => handleEstudioToggle({...estudio, categoria: categoria.categoria})}
                         >
                           <div className="flex items-start space-x-3">
                             <Checkbox
                               checked={isEstudioSelected(estudio.nombre)}
-                              onChange={() => handleEstudioToggle(estudio)}
+                              onChange={() => handleEstudioToggle({...estudio, categoria: categoria.categoria})}
                               className="mt-1"
                             />
                             <div className="flex-1">
