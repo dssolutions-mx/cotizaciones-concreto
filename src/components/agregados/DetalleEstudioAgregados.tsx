@@ -1,557 +1,344 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { 
-  FileText, 
-  Calendar, 
-  User, 
-  Building, 
-  MapPin,
-  Scale,
-  Beaker,
-  Droplets,
-  BarChart3,
-  Download,
-  Edit,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Calculator
-} from 'lucide-react';
-import { EstudioAgregados } from '@/types/agregados';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ArrowLeft, FileText, BarChart3, Scale, TestTube, CheckCircle2, Clock } from 'lucide-react';
+import FormularioMasaEspecifica from './FormularioMasaEspecifica';
+import FormularioGranulometria from './FormularioGranulometria';
+import { caracterizacionService } from '@/services/caracterizacionService';
+import type { AltaEstudio } from '@/types/agregados';
 
 interface DetalleEstudioAgregadosProps {
-  estudio: EstudioAgregados;
-  onEditar?: () => void;
-  onDescargarPDF?: () => void;
-  onCambiarEstado?: (nuevoEstado: EstudioAgregados['estado']) => void;
-  soloLectura?: boolean;
+  estudio: AltaEstudio;
+  onVolver: () => void;
 }
 
-const ICONOS_ESTADO = {
-  borrador: Clock,
-  completado: CheckCircle,
-  aprobado: CheckCircle,
-  rechazado: XCircle
-};
-
-const COLORES_ESTADO = {
-  borrador: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-  completado: 'bg-blue-100 text-blue-800 border-blue-200',
-  aprobado: 'bg-green-100 text-green-800 border-green-200',
-  rechazado: 'bg-red-100 text-red-800 border-red-200'
-};
-
-const ETIQUETAS_ESTADO = {
-  borrador: 'Borrador',
-  completado: 'Completado',
-  aprobado: 'Aprobado',
-  rechazado: 'Rechazado'
-};
+interface EstadoFormulario {
+  completado: boolean;
+  fechaActualizacion?: string;
+}
 
 export default function DetalleEstudioAgregados({
   estudio,
-  onEditar,
-  onDescargarPDF,
-  onCambiarEstado,
-  soloLectura = false
+  onVolver
 }: DetalleEstudioAgregadosProps) {
-  
-  const IconoEstado = ICONOS_ESTADO[estudio.estado];
-  
-  const formatearFecha = (fecha: string) => {
-    return format(new Date(fecha), "dd 'de' MMMM 'de' yyyy 'a las' HH:mm", { locale: es });
-  };
+  const [vistaActual, setVistaActual] = useState<'resumen' | 'masa-especifica' | 'granulometria'>('resumen');
+  const [estadosFormularios, setEstadosFormularios] = useState<Record<string, EstadoFormulario>>({});
+  const [isLoading, setIsLoading] = useState(false);
 
-  const renderEncabezadoLaboratorio = () => (
-    <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-6 rounded-lg border border-blue-200">
-      <div className="text-center mb-6">
-        <h1 className="text-2xl font-bold text-blue-900 mb-2">
-          LABORATORIO DE MATERIALES
-        </h1>
-        <h2 className="text-lg font-semibold text-blue-800">
-          ESTUDIO DE AGREGADOS - CARACTERIZACIÓN FÍSICA
-        </h2>
-      </div>
+  // Verificar qué formularios están disponibles según los estudios seleccionados
+  const estudiosDisponibles = estudio.tipo_estudio || [];
+  
+  const formularios = [
+    {
+      id: 'masa-especifica',
+      titulo: 'Masa Específica',
+      descripcion: 'Determinación de la masa específica (s.s.s. y seca)',
+      icono: Scale,
+      disponible: estudiosDisponibles.includes('Masa específica (s.s.s. y seca)'),
+      vista: 'masa-especifica' as const
+    },
+    {
+      id: 'granulometria',
+      titulo: 'Granulometría',
+      descripcion: 'Análisis granulométrico por tamizado',
+      icono: BarChart3,
+      disponible: estudiosDisponibles.includes('Granulometría'),
+      vista: 'granulometria' as const
+    },
+    {
+      id: 'masa-volumetrica',
+      titulo: 'Masa Volumétrica',
+      descripción: 'Masa volumétrica suelta y compactada',
+      icono: TestTube,
+      disponible: estudiosDisponibles.includes('Masa volumétrica (suelta y compactada)'),
+      vista: null // Por implementar
+    },
+    {
+      id: 'absorcion',
+      titulo: 'Absorción',
+      descripcion: 'Determinación del porcentaje de absorción',
+      icono: TestTube,
+      disponible: estudiosDisponibles.includes('Absorción (%)'),
+      vista: null // Por implementar
+    }
+  ];
+
+  useEffect(() => {
+    // Aquí podrías cargar el estado de los formularios desde la base de datos
+    // Por ahora, simulamos que están pendientes
+    const estados: Record<string, EstadoFormulario> = {};
+    formularios.forEach(formulario => {
+      if (formulario.disponible) {
+        estados[formulario.id] = {
+          completado: false
+        };
+      }
+    });
+    setEstadosFormularios(estados);
+  }, [estudio.id]);
+
+  const manejarGuardarMasaEspecifica = async (datos: any) => {
+    setIsLoading(true);
+    try {
+      console.log('Guardando datos de masa específica:', datos);
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <span className="font-medium text-gray-700">Mina de procedencia:</span>
-            <span className="text-right">{estudio.datosGenerales.minaProcedencia}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="font-medium text-gray-700">Ubicación:</span>
-            <span className="text-right">{estudio.datosGenerales.ubicacion || 'N/A'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="font-medium text-gray-700">Muestreada por:</span>
-            <span className="text-right">{estudio.datosGenerales.muestreaPor || 'N/A'}</span>
-          </div>
-        </div>
-        
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <span className="font-medium text-gray-700">Tamaño de la grava:</span>
-            <span className="text-right font-mono">
-              {estudio.datosGenerales.tamanoGrava} mm
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span className="font-medium text-gray-700">Origen de la Grava:</span>
-            <span className="text-right">{estudio.datosGenerales.origenGrava || 'N/A'}</span>
-          </div>
-        </div>
-        
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <span className="font-medium text-gray-700">Cliente:</span>
-            <span className="text-right">{estudio.datosGenerales.cliente}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="font-medium text-gray-700">ID de la Muestra:</span>
-            <span className="text-right font-mono">{estudio.datosGenerales.idMuestra || 'N/A'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="font-medium text-gray-700">Planta de procedencia:</span>
-            <span className="text-right">{estudio.datosGenerales.plantaProcedencia}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderMasaEspecifica = () => {
-    if (!estudio.masaEspecifica) return null;
-    
-    const me = estudio.masaEspecifica;
-    
-    return (
-      <Card className="border-gray-300">
-        <CardHeader className="bg-gray-800 text-white">
-          <CardTitle className="flex items-center gap-2 text-center justify-center">
-            <Scale className="h-5 w-5" />
-            Masa específica (s.s.s. y seca) (Ref. NMX-C-164-ONNCCE-2014)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Fórmulas y cálculos */}
-            <div className="space-y-4">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-blue-900 mb-3">Fórmulas utilizadas:</h4>
-                <div className="space-y-2 text-sm font-mono">
-                  <div>Me<sub>sss</sub> = A - (B - C)</div>
-                  <div>Me<sub>s</sub> = A/V × Me<sub>sss</sub> = 900/340 = 2.65 kg/dm³</div>
-                  <div>Me<sub>s</sub> = M<sub>s</sub>/(M<sub>s</sub> + B + C)</div>
-                </div>
-              </div>
-              
-              <div className="space-y-3">
-                <h4 className="font-semibold text-gray-800">Definiciones:</h4>
-                <div className="text-sm space-y-1">
-                  <div><strong>A=</strong> Masa de la muestra S.S.S (Masa en el aire). (kg)</div>
-                  <div><strong>B=</strong> Masa de la canastilla incluyendo la muestra, dentro del agua. (kg)</div>
-                  <div><strong>C=</strong> Masa de canastilla dentro del tanque de agua. (kg)</div>
-                  <div><strong>V=</strong> Volumen desplazado de agua en (dm3)</div>
-                  <div><strong>Me<sub>sss</sub>=</strong> Masa específica saturada superficialmente seca</div>
-                  <div><strong>Me<sub>s</sub>=</strong> Masa específica seca</div>
-                  <div><strong>M<sub>s</sub>=</strong> Masa de la muestra seca (kg)</div>
-                </div>
-              </div>
-            </div>
-            
-            {/* Valores medidos */}
-            <div className="space-y-4">
-              <div className="bg-green-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-green-900 mb-3">Valores medidos:</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span>A =</span>
-                    <span className="font-mono">{me.a} kg</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>B =</span>
-                    <span className="font-mono">{me.b} kg</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>C =</span>
-                    <span className="font-mono">{me.c} kg</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>V =</span>
-                    <span className="font-mono">{me.v} dm³</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>M<sub>s</sub> =</span>
-                    <span className="font-mono">{me.ms} kg</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-yellow-50 p-4 rounded-lg border-l-4 border-yellow-400">
-                <h4 className="font-semibold text-yellow-900 mb-3">Resultados calculados:</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-lg font-semibold">
-                    <span>Me<sub>sss</sub> =</span>
-                    <span className="font-mono text-blue-600">{me.messsCalculado} kg/dm³</span>
-                  </div>
-                  <div className="flex justify-between text-lg font-semibold">
-                    <span>Me<sub>s</sub> =</span>
-                    <span className="font-mono text-green-600">{me.mesCalculado} kg/dm³</span>
-                  </div>
-                  <div className="flex justify-between text-lg font-semibold">
-                    <span>Me =</span>
-                    <span className="font-mono text-purple-600">{me.meCalculado} kg/dm³</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
+      // Guardar en la tabla caracterizacion
+      await caracterizacionService.guardarCaracterizacion(estudio.id!, {
+        masa_especifica: datos.mes || null,
+        masa_especifica_sss: datos.messs || null,
+        masa_especifica_seca: datos.me || null,
+        masa_muestra_sss: datos.a || null,
+        masa_muestra_seca_lavada: datos.ms || null,
+        volumen_desplazado: datos.v || null
+      });
+      
+      // Actualizar estado
+      setEstadosFormularios(prev => ({
+        ...prev,
+        'masa-especifica': {
+          completado: true,
+          fechaActualizacion: new Date().toISOString()
+        }
+      }));
+      
+      setVistaActual('resumen');
+    } catch (error) {
+      console.error('Error al guardar masa específica:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const renderMasaVolumetrica = () => {
-    if (!estudio.masaVolumetrica) return null;
-    
-    const mv = estudio.masaVolumetrica;
-    
-    return (
-      <Card className="border-gray-300">
-        <CardHeader className="bg-gray-800 text-white">
-          <CardTitle className="flex items-center gap-2 text-center justify-center">
-            <Beaker className="h-5 w-5" />
-            Masa volumétrica (Ref. NMX-C-073-ONNCCE-2004)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-blue-900 mb-3">Masa v. suelta:</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span>{mv.masaVSuelta} kg × Factor =</span>
-                    <span className="font-mono text-lg font-semibold text-blue-600">
-                      {mv.resultadoVSuelta} kg/m³
-                    </span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-green-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-green-900 mb-3">Masa v. compactada:</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span>{mv.masaVCompactada} kg × Factor =</span>
-                    <span className="font-mono text-lg font-semibold text-green-600">
-                      {mv.resultadoVCompactada} kg/m³
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-yellow-50 p-4 rounded-lg">
-              <h4 className="font-semibold text-yellow-900 mb-3">Factor calculado:</h4>
-              <div className="text-center">
-                <span className="text-2xl font-mono font-bold text-yellow-700">
-                  {mv.factorCalculado} 1/m³
-                </span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
+  const manejarGuardarGranulometria = async (datos: any) => {
+    setIsLoading(true);
+    try {
+      console.log('Guardando datos de granulometría:', datos);
+      
+      // Guardar en la tabla granulometrias
+      await caracterizacionService.guardarGranulometria(estudio.id!, datos);
+      
+      // Actualizar estado
+      setEstadosFormularios(prev => ({
+        ...prev,
+        'granulometria': {
+          completado: true,
+          fechaActualizacion: new Date().toISOString()
+        }
+      }));
+      
+      setVistaActual('resumen');
+    } catch (error) {
+      console.error('Error al guardar granulometría:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const renderAbsorcion = () => {
-    if (!estudio.absorcion) return null;
-    
-    const abs = estudio.absorcion;
-    
+  // Renderizar vista específica
+  if (vistaActual === 'masa-especifica') {
     return (
-      <Card className="border-gray-300">
-        <CardHeader className="bg-gray-800 text-white">
-          <CardTitle className="flex items-center gap-2 text-center justify-center">
-            <Droplets className="h-5 w-5" />
-            Absorción (Ref. NMX-C-164-ONNCCE-2014)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-blue-900 mb-3">Fórmula:</h4>
-                <div className="text-center font-mono text-lg">
-                  % Absorción = <span className="block mt-2">
-                    (masa muestra SSS (g) - masa muestra seca (g)) / masa muestra seca (g) × 100
-                  </span>
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span>Masa muestra SSS:</span>
-                  <span className="font-mono">{abs.masaMuestraSSS} g</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Masa muestra seca:</span>
-                  <span className="font-mono">{abs.masaMuestraSeca} g</span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-green-50 p-4 rounded-lg flex items-center justify-center">
-              <div className="text-center">
-                <h4 className="font-semibold text-green-900 mb-2">% Absorción =</h4>
-                <div className="text-4xl font-mono font-bold text-green-600">
-                  {abs.porcentajeAbsorcion}%
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <FormularioMasaEspecifica
+        altaEstudioId={estudio.id!}
+        onGuardar={manejarGuardarMasaEspecifica}
+        onCancelar={() => setVistaActual('resumen')}
+        isLoading={isLoading}
+      />
     );
-  };
+  }
 
-  const renderPerdidaPorLavado = () => {
-    if (!estudio.perdidaPorLavado) return null;
-    
-    const ppl = estudio.perdidaPorLavado;
-    
+  if (vistaActual === 'granulometria') {
     return (
-      <Card className="border-gray-300">
-        <CardHeader className="bg-gray-800 text-white">
-          <CardTitle className="flex items-center gap-2 text-center justify-center">
-            <Droplets className="h-5 w-5" />
-            Pérdida por lavado (Ref. NMX-C-084-ONNCCE-2018)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-blue-900 mb-3">Secado a masa constante</h4>
-                <p className="text-sm">{ppl.secadoMasaConstante ? 'Sí' : 'No'}</p>
-              </div>
-              
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span>Masa muestra seca "Ms" (g) =</span>
-                  <span className="font-mono">{ppl.masaMuestraSeca} g</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Masa muestra seca lavada "Msl" (g) =</span>
-                  <span className="font-mono">{ppl.masaMuestraSecaLavada} g</span>
-                </div>
-              </div>
-              
-              <div className="bg-yellow-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-yellow-900 mb-2">Fórmula:</h4>
-                <div className="font-mono text-sm text-center">
-                  % P × L = (Ms - Msl) / Ms × 100 = 
-                  <div className="mt-2 text-lg">
-                    {ppl.masaMuestraSeca} - {ppl.masaMuestraSecaLavada} / {ppl.masaMuestraSeca} × 100
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div className="bg-red-50 p-4 rounded-lg flex items-center justify-center">
-              <div className="text-center">
-                <h4 className="font-semibold text-red-900 mb-2">% P × L =</h4>
-                <div className="text-4xl font-mono font-bold text-red-600">
-                  {ppl.porcentajePerdida}%
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <FormularioGranulometria
+        altaEstudioId={estudio.id!}
+        onGuardar={manejarGuardarGranulometria}
+        onCancelar={() => setVistaActual('resumen')}
+        isLoading={isLoading}
+      />
     );
-  };
+  }
 
-  const renderGranulometria = () => {
-    if (!estudio.granulometria) return null;
-    
-    const gran = estudio.granulometria;
-    
-    return (
-      <Card className="border-gray-300">
-        <CardHeader className="bg-gray-800 text-white">
-          <CardTitle className="flex items-center gap-2 text-center justify-center">
-            <BarChart3 className="h-5 w-5" />
-            Granulometría (Ref. NMX-C-077-ONNCCE-2019)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Tabla de datos */}
-            <div>
-              <h4 className="font-semibold text-gray-900 mb-4">
-                Gráfica Grava {gran.tamanoGrava}
-              </h4>
-              
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-gray-300 text-sm">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border border-gray-300 p-2">No Malla</th>
-                      <th className="border border-gray-300 p-2">Retenido g</th>
-                      <th className="border border-gray-300 p-2">% Ret.</th>
-                      <th className="border border-gray-300 p-2">% Acum.</th>
-                      <th className="border border-gray-300 p-2">% Pasa</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {gran.datos.map((dato, index) => (
-                      <tr key={index} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                        <td className="border border-gray-300 p-2 text-center font-mono">
-                          {dato.noMalla}
-                        </td>
-                        <td className="border border-gray-300 p-2 text-right font-mono">
-                          {dato.retenidoG}
-                        </td>
-                        <td className="border border-gray-300 p-2 text-right font-mono">
-                          {dato.porcentajeRetenido}
-                        </td>
-                        <td className="border border-gray-300 p-2 text-right font-mono">
-                          {dato.porcentajeAcumulado}
-                        </td>
-                        <td className="border border-gray-300 p-2 text-right font-mono">
-                          {dato.porcentajePasa}
-                        </td>
-                      </tr>
-                    ))}
-                    <tr className="bg-blue-100 font-semibold">
-                      <td className="border border-gray-300 p-2 text-center">Total</td>
-                      <td className="border border-gray-300 p-2 text-right font-mono">
-                        {gran.total}
-                      </td>
-                      <td className="border border-gray-300 p-2"></td>
-                      <td className="border border-gray-300 p-2"></td>
-                      <td className="border border-gray-300 p-2"></td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            
-            {/* Gráfica */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h4 className="font-semibold text-gray-900 mb-4 text-center">
-                Gráfica Grava {gran.tamanoGrava}
-              </h4>
-              <div className="h-64 flex items-center justify-center border-2 border-dashed border-gray-300 rounded">
-                <div className="text-center text-gray-500">
-                  <BarChart3 className="h-12 w-12 mx-auto mb-2" />
-                  <p>Gráfica de granulometría</p>
-                  <p className="text-sm">(Se implementará con Chart.js)</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  };
-
+  // Vista principal del detalle
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-6">
-      {/* Encabezado con acciones */}
-      <div className="flex justify-between items-start mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">
-            Estudio de Agregados - Detalle
-          </h1>
-          <div className="flex items-center gap-4 text-sm text-gray-600">
-            <div className="flex items-center gap-1">
-              <Calendar className="h-4 w-4" />
-              <span>Creado: {formatearFecha(estudio.fechaCreacion)}</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <User className="h-4 w-4" />
-              <span>Técnico: {estudio.tecnicoResponsable}</span>
-            </div>
-            <Badge className={COLORES_ESTADO[estudio.estado]}>
-              <IconoEstado className="h-3 w-3 mr-1" />
-              {ETIQUETAS_ESTADO[estudio.estado]}
-            </Badge>
-          </div>
-        </div>
+    <div className="max-w-6xl mx-auto p-6">
+      <div className="mb-6">
+        <Button
+          variant="ghost"
+          onClick={onVolver}
+          className="mb-4 flex items-center gap-2"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Volver a la Lista
+        </Button>
         
-        {!soloLectura && (
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={onDescargarPDF}>
-              <Download className="h-4 w-4 mr-2" />
-              Descargar PDF
-            </Button>
-            <Button variant="outline" onClick={onEditar}>
-              <Edit className="h-4 w-4 mr-2" />
-              Editar
-            </Button>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">
+              Estudio de {estudio.tipo_material} - {estudio.nombre_material}
+            </h1>
+            <p className="text-gray-600">
+              Creado el {new Date(estudio.created_at || '').toLocaleDateString('es-ES')}
+            </p>
           </div>
-        )}
+          <Badge variant="outline" className="text-lg px-4 py-2">
+            {estudio.tipo_material}
+          </Badge>
+        </div>
       </div>
 
-      {/* Encabezado del laboratorio */}
-      {renderEncabezadoLaboratorio()}
-
-      {/* Estudios realizados */}
-      <div className="space-y-6">
-        {renderMasaEspecifica()}
-        {renderMasaVolumetrica()}
-        {renderAbsorcion()}
-        {renderPerdidaPorLavado()}
-        {renderGranulometria()}
-      </div>
-
-      {/* Observaciones */}
-      {estudio.observaciones && (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Información General */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Observaciones
-            </CardTitle>
+            <CardTitle className="text-lg">Información General</CardTitle>
+        </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <span className="text-sm font-medium text-gray-600">Material:</span>
+              <p className="text-sm">{estudio.nombre_material}</p>
+                </div>
+            <div>
+              <span className="text-sm font-medium text-gray-600">Mina de Procedencia:</span>
+              <p className="text-sm">{estudio.mina_procedencia}</p>
+            </div>
+            <div>
+              <span className="text-sm font-medium text-gray-600">Técnico Responsable:</span>
+              <p className="text-sm">{estudio.tecnico}</p>
+            </div>
+            <div>
+              <span className="text-sm font-medium text-gray-600">Planta:</span>
+              <p className="text-sm">{estudio.planta}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+        {/* Progreso */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Progreso del Estudio</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-700 whitespace-pre-wrap">{estudio.observaciones}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Información de aprobación */}
-      {estudio.estado === 'aprobado' && estudio.supervisorAprobacion && (
-        <Card className="border-green-200 bg-green-50">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <span className="font-medium text-green-900">
-                  Aprobado por: {estudio.supervisorAprobacion}
-                </span>
-              </div>
-              <span className="text-sm text-green-700">
-                {estudio.fechaAprobacion && formatearFecha(estudio.fechaAprobacion)}
-              </span>
+            <div className="space-y-3">
+              {formularios.filter(f => f.disponible).map(formulario => {
+                const estado = estadosFormularios[formulario.id];
+    return (
+                  <div key={formulario.id} className="flex items-center justify-between">
+                    <span className="text-sm">{formulario.titulo}</span>
+                    {estado?.completado ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    ) : (
+                      <Clock className="h-4 w-4 text-orange-500" />
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <div className="mt-4 pt-4 border-t">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Completado:</span>
+                <span className="text-sm font-bold">
+                  {Object.values(estadosFormularios).filter(e => e.completado).length} / {Object.keys(estadosFormularios).length}
+                </span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+        {/* Estudios Solicitados */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Estudios Solicitados</CardTitle>
+        </CardHeader>
+          <CardContent>
+              <div className="space-y-2">
+              {estudiosDisponibles.map((estudio, index) => (
+                <Badge key={index} variant="secondary" className="block w-full text-center py-1">
+                  {estudio}
+                </Badge>
+              ))}
+          </div>
+        </CardContent>
+      </Card>
+      </div>
+
+      {/* Formularios Disponibles */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Formularios de Laboratorio
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {formularios.filter(f => f.disponible).map(formulario => {
+              const estado = estadosFormularios[formulario.id];
+              const IconoFormulario = formulario.icono;
+              
+              return (
+                <Card 
+                  key={formulario.id} 
+                  className={`cursor-pointer transition-all hover:shadow-md ${
+                    estado?.completado ? 'border-green-200 bg-green-50' : 'border-gray-200'
+                  }`}
+                  onClick={() => formulario.vista && setVistaActual(formulario.vista)}
+                >
+                  <CardContent className="p-4">
+                    <div className="flex items-start justify-between mb-3">
+                      <IconoFormulario className={`h-6 w-6 ${
+                        estado?.completado ? 'text-green-600' : 'text-blue-600'
+                      }`} />
+                      {estado?.completado ? (
+                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                      ) : (
+                        <Clock className="h-5 w-5 text-orange-500" />
+                      )}
+              </div>
+              
+                    <h3 className="font-semibold text-sm mb-1">{formulario.titulo}</h3>
+                    <p className="text-xs text-gray-600 mb-3">{formulario.descripcion}</p>
+                    
+                    <div className="flex justify-between items-center">
+                      <Badge 
+                        variant={estado?.completado ? "default" : "secondary"}
+                        className="text-xs"
+                      >
+                        {estado?.completado ? "Completado" : "Pendiente"}
+                      </Badge>
+                      
+                      {formulario.vista ? (
+                        <Button size="sm" variant="outline">
+                          {estado?.completado ? "Ver/Editar" : "Iniciar"}
+                        </Button>
+                      ) : (
+                        <Badge variant="outline" className="text-xs">
+                          Próximamente
+                        </Badge>
+                      )}
+            </div>
+            
+                    {estado?.fechaActualizacion && (
+                      <p className="text-xs text-gray-500 mt-2">
+                        Actualizado: {new Date(estado.fechaActualizacion).toLocaleDateString('es-ES')}
+                      </p>
+                    )}
+        </CardContent>
+      </Card>
+    );
+            })}
+            </div>
+            
+          {formularios.filter(f => f.disponible).length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p>No hay formularios disponibles para este estudio.</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
-
-
