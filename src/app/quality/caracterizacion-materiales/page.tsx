@@ -8,6 +8,13 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { 
   Table, 
   TableBody, 
@@ -32,7 +39,12 @@ import {
   CheckCircle,
   Clock,
   AlertCircle,
-  Factory
+  Factory,
+  MapPin,
+  User,
+  TestTube,
+  Layers,
+  X
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
@@ -182,7 +194,7 @@ export default function CaracterizacionMaterialesHistoricoPage() {
   };
 
   const handleNavigateToDetail = (estudio: EstudioHistorico) => {
-    window.location.href = `/quality/caracterizacion-materiales/${estudio.id}`;
+    window.location.href = `/quality/caracterizacion-materiales/${estudio.id}?tab=estudios`;
   };
 
   const getEstadoGeneral = (estudio: EstudioHistorico) => {
@@ -562,14 +574,204 @@ export default function CaracterizacionMaterialesHistoricoPage() {
                           </div>
                           
                           <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
-                              title="Ver detalles"
-                            >
-                              <Eye className="h-4 w-4 text-gray-600" />
-                            </Button>
+                            {/* Modal de información general */}
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
+                                  title="Ver información general"
+                                >
+                                  <Eye className="h-4 w-4 text-gray-600" />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+                                <DialogHeader>
+                                  <DialogTitle className="flex items-center gap-2 text-xl">
+                                    <FlaskConical className="h-6 w-6 text-[#069e2d]" />
+                                    Información General - {estudio.id_muestra}
+                                  </DialogTitle>
+                                </DialogHeader>
+                                
+                                <div className="space-y-6 mt-4">
+                                  {/* Información principal */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    <div className="p-4 bg-[#069e2d]/5 rounded-lg border border-[#069e2d]/20">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <TestTube className="h-4 w-4 text-[#069e2d]" />
+                                        <p className="text-xs uppercase text-[#069e2d] font-semibold tracking-wide">ID de Muestra</p>
+                                      </div>
+                                      <p className="font-bold text-gray-900 text-lg">{estudio.id_muestra}</p>
+                                    </div>
+                                    
+                                    <div className="p-4 bg-gray-50 rounded-lg border">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <Building className="h-4 w-4 text-gray-600" />
+                                        <p className="text-xs uppercase text-gray-600 font-semibold tracking-wide">Planta</p>
+                                      </div>
+                                      <p className="font-bold text-gray-900">{estudio.planta}</p>
+                                    </div>
+                                    
+                                    <div className="p-4 bg-gray-50 rounded-lg border">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <User className="h-4 w-4 text-gray-600" />
+                                        <p className="text-xs uppercase text-gray-600 font-semibold tracking-wide">Técnico</p>
+                                      </div>
+                                      <p className="font-bold text-gray-900">{estudio.tecnico}</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Material y ubicación */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="p-4 bg-gray-50 rounded-lg border">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <Layers className="h-4 w-4 text-gray-600" />
+                                        <p className="text-xs uppercase text-gray-600 font-semibold tracking-wide">Material</p>
+                                      </div>
+                                      <p className="font-bold text-gray-900">{estudio.nombre_material}</p>
+                                      <p className="text-sm text-gray-600">{estudio.tipo_material}</p>
+                                      {estudio.tamaño && <p className="text-sm text-gray-600">Tamaño: {estudio.tamaño}</p>}
+                                    </div>
+                                    
+                                    <div className="p-4 bg-gray-50 rounded-lg border">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <MapPin className="h-4 w-4 text-gray-600" />
+                                        <p className="text-xs uppercase text-gray-600 font-semibold tracking-wide">Ubicación</p>
+                                      </div>
+                                      <p className="font-bold text-gray-900">{estudio.ubicacion}</p>
+                                      <p className="text-sm text-gray-600">Origen: {estudio.origen_material}</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Mina de procedencia */}
+                                  <div className="p-4 bg-gray-50 rounded-lg border">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <Factory className="h-4 w-4 text-gray-600" />
+                                      <p className="text-xs uppercase text-gray-600 font-semibold tracking-wide">Mina de Procedencia</p>
+                                    </div>
+                                    <p className="font-bold text-gray-900">{estudio.mina_procedencia}</p>
+                                  </div>
+
+                                  {/* Fechas */}
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="p-4 bg-gray-50 rounded-lg border">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <Calendar className="h-4 w-4 text-gray-600" />
+                                        <p className="text-xs uppercase text-gray-600 font-semibold tracking-wide">Fecha de Muestreo</p>
+                                      </div>
+                                      <p className="font-bold text-gray-900">{formatDate(estudio.fecha_muestreo)}</p>
+                                    </div>
+                                    
+                                    <div className="p-4 bg-gray-50 rounded-lg border">
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <Calendar className="h-4 w-4 text-gray-600" />
+                                        <p className="text-xs uppercase text-gray-600 font-semibold tracking-wide">Fecha de Elaboración</p>
+                                      </div>
+                                      <p className="font-bold text-gray-900">{formatDate(estudio.fecha_elaboracion)}</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Tipos de análisis */}
+                                  <div className="p-4 bg-[#069e2d]/5 rounded-lg border border-[#069e2d]/20">
+                                    <div className="flex items-center gap-2 mb-3">
+                                      <FlaskConical className="h-4 w-4 text-[#069e2d]" />
+                                      <p className="text-xs uppercase text-[#069e2d] font-semibold tracking-wide">Tipos de Análisis</p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {estudio.tipo_estudio.map((tipo, index) => (
+                                        <Badge 
+                                          key={index}
+                                          className={`${getTipoEstudioBadgeColor(estudio.tipo_estudio)} border text-sm px-3 py-1`}
+                                          variant="outline"
+                                        >
+                                          {tipo}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Resumen de Estudios Programados */}
+                                  <div className="border-t pt-6">
+                                    <div className="flex items-center gap-2 mb-4">
+                                      <TestTube className="h-5 w-5 text-[#069e2d]" />
+                                      <h3 className="text-lg font-semibold text-[#069e2d]">Resumen de Estudios</h3>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                                      <div className="text-center p-3 bg-gray-50 rounded-lg">
+                                        <p className="text-2xl font-bold text-gray-900">{total}</p>
+                                        <p className="text-xs text-gray-600 uppercase tracking-wide">Total</p>
+                                      </div>
+                                      <div className="text-center p-3 bg-[#069e2d]/10 rounded-lg">
+                                        <p className="text-2xl font-bold text-[#069e2d]">{completados}</p>
+                                        <p className="text-xs text-[#069e2d] uppercase tracking-wide">Completados</p>
+                                      </div>
+                                      <div className="text-center p-3 bg-amber-50 rounded-lg">
+                                        <p className="text-2xl font-bold text-amber-600">{estudio.estudios_seleccionados?.filter(e => e.estado === 'en_proceso').length || 0}</p>
+                                        <p className="text-xs text-amber-600 uppercase tracking-wide">En Proceso</p>
+                                      </div>
+                                      <div className="text-center p-3 bg-gray-50 rounded-lg">
+                                        <p className="text-2xl font-bold text-gray-600">{estudio.estudios_seleccionados?.filter(e => e.estado === 'pendiente').length || 0}</p>
+                                        <p className="text-xs text-gray-600 uppercase tracking-wide">Pendientes</p>
+                                      </div>
+                                    </div>
+
+                                    {/* Barra de progreso general */}
+                                    <div className="space-y-2 mb-4">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-sm font-medium text-gray-700">Progreso General</span>
+                                        <span className="text-sm font-bold text-[#069e2d]">{Math.round(progreso)}%</span>
+                                      </div>
+                                      <div className="w-full bg-gray-200 rounded-full h-3">
+                                        <div 
+                                          className="bg-gradient-to-r from-[#069e2d] to-[#069e2d]/80 h-3 rounded-full transition-all duration-500"
+                                          style={{ width: `${progreso}%` }}
+                                        ></div>
+                                      </div>
+                                    </div>
+
+                                    {/* Lista de estudios con estados */}
+                                    {total > 0 && (
+                                      <div className="space-y-2">
+                                        <h4 className="text-sm font-semibold text-gray-700 mb-3">Estudios Programados:</h4>
+                                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                                          {estudio.estudios_seleccionados?.map((est, idx) => (
+                                            <div 
+                                              key={idx}
+                                              className="flex items-center justify-between p-3 bg-white rounded-lg border hover:shadow-sm transition-shadow"
+                                            >
+                                              <div className="flex items-center gap-3">
+                                                {est.estado === 'completado' ? (
+                                                  <CheckCircle className="h-4 w-4 text-[#069e2d]" />
+                                                ) : est.estado === 'en_proceso' ? (
+                                                  <Clock className="h-4 w-4 text-amber-500" />
+                                                ) : (
+                                                  <AlertCircle className="h-4 w-4 text-gray-400" />
+                                                )}
+                                                <div>
+                                                  <p className="font-medium text-gray-900 text-sm">{est.nombre_estudio}</p>
+                                                  <p className="text-xs text-gray-500">{est.norma_referencia}</p>
+                                                </div>
+                                              </div>
+                                              <Badge className={`text-xs ${
+                                                est.estado === 'completado' ? 'bg-[#069e2d] text-white' :
+                                                est.estado === 'en_proceso' ? 'bg-amber-500 text-white' :
+                                                'bg-gray-400 text-white'
+                                              }`}>
+                                                {est.estado === 'completado' ? 'Completado' : 
+                                                 est.estado === 'en_proceso' ? 'En Proceso' : 'Pendiente'}
+                                              </Badge>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </DialogContent>
+                            </Dialog>
+
                             <Button
                               variant="ghost"
                               size="sm"
@@ -582,7 +784,7 @@ export default function CaracterizacionMaterialesHistoricoPage() {
                               variant="ghost"
                               size="sm"
                               className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
-                              title="Ver detalle y registrar resultados"
+                              title="Ir a estudios programados"
                               onClick={() => handleNavigateToDetail(estudio)}
                             >
                               <ArrowRight className="h-4 w-4 text-[#069e2d]" />

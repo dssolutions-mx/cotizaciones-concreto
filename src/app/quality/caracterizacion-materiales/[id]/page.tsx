@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import {
@@ -22,25 +22,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Loader2, 
   AlertTriangle, 
   ChevronLeft, 
   FileText, 
   Calendar,
-  Building,
-  User,
-  FlaskConical,
   CheckCircle,
   Clock,
   AlertCircle,
-  Plus,
-  ArrowUpRight,
-  Beaker,
-  MapPin,
-  Factory,
-  TestTube,
   Edit3,
   Play,
   Pause,
@@ -92,6 +82,7 @@ interface EstudioSeleccionadoDetalle {
 export default function EstudioDetallePage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { session, profile, isLoading } = useAuthBridge();
   const [estudio, setEstudio] = useState<EstudioDetalle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -422,196 +413,12 @@ export default function EstudioDetallePage() {
         </div>
       </div>
       
-      {/* Tabbed Interface */}
-      <Tabs defaultValue="general" className="mb-8">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="general">Información General</TabsTrigger>
-          <TabsTrigger value="estudios">Estudios Programados</TabsTrigger>
-        </TabsList>
+      {/* Estudios Programados - Página simplificada */}
+      <div className="mb-8">
+        {/* Contenido de información general ahora está en el modal del ojito */}
         
-        <TabsContent value="general" className="mt-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-            {/* Información del Estudio - estilo tabloide sin cartas */}
-            <div className="lg:col-span-2">
-              <div className="mb-3">
-                <h3 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-                  <FlaskConical className="h-5 w-5 text-gray-600" />
-                  Información del Estudio
-                </h3>
-                <p className="text-sm text-gray-500">Detalles del estudio de caracterización de materiales</p>
-              </div>
-
-              <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                      <Beaker className="h-4 w-4" /> ID de Muestra
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">{estudio.id_muestra}</p>
-                  </div>
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                      <Building className="h-4 w-4" /> Planta
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">{estudio.planta}</p>
-                  </div>
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                      <TestTube className="h-4 w-4" /> Material
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">{estudio.nombre_material}</p>
-                    <p className="text-xs text-gray-500">{estudio.tipo_material}</p>
-                  </div>
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                      <MapPin className="h-4 w-4" /> Ubicación
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">{estudio.ubicacion}</p>
-                  </div>
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                      <Factory className="h-4 w-4" /> Mina de Procedencia
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">{estudio.mina_procedencia}</p>
-                  </div>
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                      <User className="h-4 w-4" /> Técnico
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">{estudio.tecnico}</p>
-                  </div>
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                      <Calendar className="h-4 w-4" /> Fecha de Muestreo
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">{formatDate(estudio.fecha_muestreo)}</p>
-                  </div>
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                      <Calendar className="h-4 w-4" /> Fecha de Elaboración
-                    </p>
-                    <p className="mt-1 font-semibold text-gray-900">{formatDate(estudio.fecha_elaboracion)}</p>
-                  </div>
-                  <div className="px-4 py-3 border-b border-gray-100">
-                    <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                      <FlaskConical className="h-4 w-4" /> Tipo de Análisis
-                    </p>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {estudio.tipo_estudio.map((tipo, index) => (
-                        <Badge key={index} variant="secondary" className="text-blue-700 bg-blue-100">
-                          {tipo}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  {estudio.tamaño && (
-                    <div className="px-4 py-3 border-b border-gray-100">
-                      <p className="text-xs uppercase text-gray-500 flex items-center gap-2">
-                        <Layers className="h-4 w-4" /> Tamaño
-                      </p>
-                      <p className="mt-1 font-semibold text-gray-900">{estudio.tamaño}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            {/* Summary Card */}
-            <Card className="border border-gray-200 bg-white shadow-sm">
-              <CardHeader className="pb-4">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <FileText className="h-5 w-5 text-gray-600" />
-                  Resumen de Estudios
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-500">Total Programados</span>
-                    <Badge variant="outline">{estudio.estudios_seleccionados.length}</Badge>
-                  </div>
-                  
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-500">Completados</span>
-                    <Badge className="bg-primary/10 text-primary">
-                      {estudio.estudios_seleccionados.filter(e => e.estado === 'completado').length}
-                    </Badge>
-                  </div>
-                  
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-500">En Proceso</span>
-                    <Badge className="bg-yellow-100 text-yellow-800">
-                      {estudio.estudios_seleccionados.filter(e => e.estado === 'en_proceso').length}
-                    </Badge>
-                  </div>
-                  
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-500">Pendientes</span>
-                    <Badge className="bg-gray-100 text-gray-800">
-                      {estudio.estudios_seleccionados.filter(e => e.estado === 'pendiente').length}
-                    </Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            {/* Resumen de Pruebas del Estudio */}
-            <div>
-              <div className="mb-3">
-                <h3 className="flex items-center gap-2 text-lg font-semibold text-primary">
-                  <FileText className="h-5 w-5 text-primary" />
-                  Resumen de Pruebas del Estudio
-                </h3>
-                <p className="text-sm text-primary/70">Resultados de los estudios completados</p>
-              </div>
-
-              {(() => {
-                const completados = estudio.estudios_seleccionados.filter(e => e.estado === 'completado' && e.resultados);
-                
-                if (completados.length === 0) {
-                  return (
-                    <div className="text-center py-8 bg-primary/5 rounded-lg border border-primary/20">
-                      <TestTube className="h-12 w-12 text-primary/40 mx-auto mb-3" />
-                      <p className="text-primary font-medium">No hay estudios completados</p>
-                      <p className="text-primary/70 text-sm">Los resultados aparecerán aquí una vez completados</p>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {completados.map((estudioSel) => {
-                      const IconComponent = getEstudioIcon(estudioSel.nombre_estudio);
-                      return (
-                        <div key={estudioSel.id} className="border border-primary/20 bg-primary/5 rounded-lg p-4 hover:shadow-md transition-shadow">
-                          <div className="flex items-center gap-2 mb-3">
-                            <IconComponent className="h-5 w-5 text-primary" />
-                            <h4 className="font-semibold text-primary text-sm">{estudioSel.nombre_estudio}</h4>
-                          </div>
-                          
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-primary/70">Completado:</span>
-                              <span className="text-primary font-medium">
-                                {formatDate(estudioSel.fecha_completado)}
-                              </span>
-                            </div>
-                            
-                            <div className="pt-2 border-t border-primary/20">
-                              <p className="text-xs text-primary/70 mb-2 font-medium">Resultados:</p>
-                              <ResumenResultados e={estudioSel} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-        </TabsContent>
-        
-        <TabsContent value="estudios" className="mt-6">
+        {/* Estudios Programados - Contenido principal */}
+        <div className="mt-6">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -629,7 +436,7 @@ export default function EstudioDetallePage() {
                   <p>No hay estudios programados para esta muestra</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                   {estudio.estudios_seleccionados.map((estudioSel) => {
                     const IconComponent = getEstadoIcon(estudioSel.estado);
                     const EstudioIcon = getEstudioIcon(estudioSel.nombre_estudio);
@@ -639,72 +446,127 @@ export default function EstudioDetallePage() {
                     return (
                       <Card 
                         key={estudioSel.id} 
-                        className={`relative overflow-hidden transition-all duration-200 hover:shadow-lg border-primary/20 bg-primary/5`}
+                        className={`relative overflow-hidden transition-all duration-300 hover:shadow-xl hover:scale-[1.02] border-l-4 ${
+                          isCompleted ? 'border-l-[#069e2d] bg-gradient-to-br from-[#069e2d]/5 to-[#069e2d]/10' :
+                          isInProgress ? 'border-l-amber-500 bg-gradient-to-br from-amber-50 to-amber-100/50' :
+                          'border-l-gray-400 bg-gradient-to-br from-gray-50 to-gray-100/50'
+                        }`}
                       >
-                        {/* Status indicator */}
-                        <div className={`absolute top-0 right-0 w-0 h-0 border-l-[40px] border-b-[40px] border-l-transparent ${
-                          isCompleted ? 'border-b-primary' : isInProgress ? 'border-b-yellow-500' : 'border-b-gray-400'
-                        }`}>
-                          <IconComponent className={`absolute -bottom-7 -right-7 h-4 w-4 text-white`} />
-                        </div>
-
-                        <CardContent className="p-6">
-                          <div className="flex items-start gap-4 mb-4">
-                            <div className={`p-3 rounded-xl bg-white/60`}>
-                              <EstudioIcon className={`h-6 w-6 ${
-                                isCompleted ? 'text-primary' : isInProgress ? 'text-yellow-600' : 'text-gray-500'
-                              }`} />
+                        {/* Header con estado */}
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className={`p-3 rounded-xl shadow-sm ${
+                                isCompleted ? 'bg-[#069e2d]/10 text-[#069e2d]' :
+                                isInProgress ? 'bg-amber-100 text-amber-600' :
+                                'bg-gray-100 text-gray-500'
+                              }`}>
+                                <EstudioIcon className="h-6 w-6" />
+                              </div>
+                              <div>
+                                <h3 className="font-bold text-lg text-gray-900 leading-tight">
+                                  {estudioSel.nombre_estudio}
+                                </h3>
+                                <p className="text-sm text-gray-600 mt-1">
+                                  {estudioSel.descripcion}
+                                </p>
+                              </div>
                             </div>
-                            <div className="flex-1">
-                              <h3 className={`font-bold text-lg mb-1 text-primary`}>
-                                {estudioSel.nombre_estudio}
-                              </h3>
-                              <Badge className={`${getEstadoColor(estudioSel.estado)} text-xs`}>
+                            
+                            {/* Badge de estado flotante */}
+                            <div className="flex flex-col items-end gap-2">
+                              <Badge className={`${getEstadoColor(estudioSel.estado)} text-xs font-semibold px-3 py-1 shadow-sm`}>
+                                <IconComponent className="h-3 w-3 mr-1" />
                                 {estudioSel.estado.charAt(0).toUpperCase() + estudioSel.estado.slice(1)}
                               </Badge>
                             </div>
                           </div>
+                        </CardHeader>
 
-                          <p className={`text-sm mb-4 text-primary/70`}>
-                            {estudioSel.descripcion}
-                          </p>
-
-                          <div className={`space-y-2 text-xs mb-4 text-primary/70`}>
-                            <div className="flex items-center gap-2">
-                              <FileText className="h-3 w-3" />
-                              <span><strong>Norma:</strong> {estudioSel.norma_referencia}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Calendar className="h-3 w-3" />
-                              <span><strong>Programado:</strong> {formatDate(estudioSel.fecha_programada)}</span>
-                            </div>
-                            {estudioSel.fecha_completado && (
-                              <div className="flex items-center gap-2">
-                                <CheckCircle className="h-3 w-3" />
-                                <span><strong>Completado:</strong> {formatDate(estudioSel.fecha_completado)}</span>
+                        <CardContent className="space-y-4">
+                          {/* Información técnica */}
+                          <div className="grid grid-cols-1 gap-3">
+                            <div className="flex items-center gap-2 p-2 bg-white/60 rounded-lg">
+                              <FileText className="h-4 w-4 text-gray-500" />
+                              <div>
+                                <p className="text-xs text-gray-500 uppercase tracking-wide">Norma de Referencia</p>
+                                <p className="text-sm font-medium text-gray-900">{estudioSel.norma_referencia}</p>
                               </div>
-                            )}
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="flex items-center gap-2 p-2 bg-white/60 rounded-lg">
+                                <Calendar className="h-4 w-4 text-gray-500" />
+                                <div>
+                                  <p className="text-xs text-gray-500 uppercase tracking-wide">Programado</p>
+                                  <p className="text-sm font-medium text-gray-900">{formatDate(estudioSel.fecha_programada)}</p>
+                                </div>
+                              </div>
+                              
+                              {estudioSel.fecha_completado && (
+                                <div className="flex items-center gap-2 p-2 bg-[#069e2d]/10 rounded-lg">
+                                  <CheckCircle className="h-4 w-4 text-[#069e2d]" />
+                                  <div>
+                                    <p className="text-xs text-[#069e2d] uppercase tracking-wide font-semibold">Completado</p>
+                                    <p className="text-sm font-medium text-[#069e2d]">{formatDate(estudioSel.fecha_completado)}</p>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
 
-                          <Separator className="my-4" />
+                          {/* Progreso visual */}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-gray-600">Progreso del Estudio</span>
+                              <span className="text-xs font-bold text-[#069e2d]">
+                                {isCompleted ? '100%' : isInProgress ? '50%' : '0%'}
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div 
+                                className={`h-2 rounded-full transition-all duration-500 ${
+                                  isCompleted ? 'bg-gradient-to-r from-[#069e2d] to-[#069e2d]/80 w-full' :
+                                  isInProgress ? 'bg-gradient-to-r from-amber-400 to-amber-500 w-1/2' :
+                                  'bg-gray-300 w-0'
+                                }`}
+                              ></div>
+                            </div>
+                          </div>
 
-                          <div className="flex flex-col gap-2">
-                            {/* Botón principal para dar de alta información */}
+                          {/* Observaciones si existen */}
+                          {estudioSel.observaciones && (
+                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                              <p className="text-xs text-blue-600 font-semibold mb-1">Observaciones:</p>
+                              <p className="text-sm text-blue-800">{estudioSel.observaciones}</p>
+                            </div>
+                          )}
+                        </CardContent>
+
+                        {/* Footer con acciones */}
+                        <CardFooter className="pt-4 border-t bg-white/30">
+                          <div className="w-full space-y-3">
+                            {/* Botón principal */}
                             <Button
                               variant={isCompleted ? "outline" : "default"}
                               size="sm"
-                              className={`w-full ${isCompleted ? 'border-primary/30 text-primary hover:bg-primary/5' : 'bg-primary hover:bg-primary/90 text-white'}`}
+                              className={`w-full font-semibold ${
+                                isCompleted 
+                                  ? 'border-[#069e2d]/30 text-[#069e2d] hover:bg-[#069e2d]/5 bg-white' 
+                                  : 'bg-[#069e2d] hover:bg-[#069e2d]/90 text-white shadow-md'
+                              }`}
                               onClick={() => handleOpenFormModal(estudioSel)}
                             >
                               <Edit3 className="h-4 w-4 mr-2" />
-                              {isCompleted ? 'Ver/Editar Datos' : 'Dar de Alta'}
+                              {isCompleted ? 'Ver/Editar Resultados' : 'Registrar Datos'}
                             </Button>
 
                             {/* Botones de cambio de estado */}
                             <div className="flex gap-1">
                               {updatingEstado === estudioSel.id ? (
                                 <div className="flex items-center justify-center w-full py-2">
-                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  <Loader2 className="h-4 w-4 animate-spin text-[#069e2d]" />
+                                  <span className="ml-2 text-sm text-[#069e2d]">Actualizando...</span>
                                 </div>
                               ) : (
                                 <>
@@ -712,7 +574,7 @@ export default function EstudioDetallePage() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      className="flex-1 text-xs"
+                                      className="flex-1 text-xs hover:bg-gray-100"
                                       onClick={() => handleEstadoChange(estudioSel.id, 'pendiente')}
                                     >
                                       <Pause className="h-3 w-3 mr-1" />
@@ -723,7 +585,7 @@ export default function EstudioDetallePage() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      className="flex-1 text-xs"
+                                      className="flex-1 text-xs hover:bg-amber-50 text-amber-600"
                                       onClick={() => handleEstadoChange(estudioSel.id, 'en_proceso')}
                                     >
                                       <Play className="h-3 w-3 mr-1" />
@@ -734,7 +596,7 @@ export default function EstudioDetallePage() {
                                     <Button
                                       variant="ghost"
                                       size="sm"
-                                      className="flex-1 text-xs text-primary hover:text-primary/80 hover:bg-primary/5"
+                                      className="flex-1 text-xs text-[#069e2d] hover:text-[#069e2d]/80 hover:bg-[#069e2d]/5"
                                       onClick={() => handleEstadoChange(estudioSel.id, 'completado')}
                                     >
                                       <CheckCircle className="h-3 w-3 mr-1" />
@@ -745,13 +607,7 @@ export default function EstudioDetallePage() {
                               )}
                             </div>
                           </div>
-
-                          {estudioSel.observaciones && (
-                            <div className="mt-4 p-3 bg-white/50 rounded-lg border">
-                              <p className="text-xs"><strong>Observaciones:</strong> {estudioSel.observaciones}</p>
-                            </div>
-                          )}
-                        </CardContent>
+                        </CardFooter>
                       </Card>
                     );
                   })}
@@ -759,8 +615,8 @@ export default function EstudioDetallePage() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+        </div>
+      </div>
 
       {/* Modal de Formulario */}
       {selectedEstudio && (
