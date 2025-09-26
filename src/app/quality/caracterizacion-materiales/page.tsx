@@ -1,654 +1,548 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { 
-  Beaker, 
-  Droplets, 
-  Mountain, 
-  FlaskConical,
-  Upload,
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableHead, 
+  TableHeader, 
+  TableRow 
+} from '@/components/ui/table';
+import { 
+  Loader2, 
+  FlaskConical, 
+  Plus, 
+  Search, 
+  Filter, 
+  Eye, 
+  Edit, 
+  Trash2,
   Calendar,
+  Building,
   FileText,
-  Plus,
-  Eye,
-  Search,
-  ArrowLeft
+  ArrowRight,
+  CheckCircle,
+  Clock,
+  AlertCircle
 } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
+import Link from 'next/link';
 
-// Componentes de agregados
-import FormularioAgregados from '@/components/agregados/FormularioAgregados';
-import DetalleEstudioAgregados from '@/components/agregados/DetalleEstudioAgregados';
-import ListaEstudiosAgregados from '@/components/agregados/ListaEstudiosAgregados';
-import { 
-  EstudioAgregados, 
-  VistaListaAgregados, 
-  FormularioAgregados as FormularioAgregadosType 
-} from '@/types/agregados';
-
-// Tipos para los materiales
-type MaterialType = 'agregados' | 'agua' | 'cemento' | 'aditivos';
-
-interface MaterialAnalysis {
+interface Plant {
   id: string;
-  type: MaterialType;
-  date: string;
-  plant: string;
-  status: 'pending' | 'approved' | 'rejected';
-  studyName: string;
-  supplier?: string;
+  code: string;
+  name: string;
 }
 
-// Datos de ejemplo
-const mockAnalyses: MaterialAnalysis[] = [
-  {
-    id: '1',
-    type: 'agregados',
-    date: '2024-01-15',
-    plant: 'P1',
-    status: 'approved',
-    studyName: 'Análisis granulométrico - Arena',
-    supplier: 'Proveedor A'
-  },
-  {
-    id: '2',
-    type: 'cemento',
-    date: '2024-01-10',
-    plant: 'P2',
-    status: 'pending',
-    studyName: 'Análisis químico - Cemento CPC 30R',
-    supplier: 'Cemex'
-  },
-  {
-    id: '3',
-    type: 'agua',
-    date: '2024-01-08',
-    plant: 'P1',
-    status: 'approved',
-    studyName: 'Análisis fisicoquímico - Agua de mezclado',
-    supplier: 'Pozo propio'
-  }
-];
+interface EstudioHistorico {
+  id: string;
+  id_planta: string;
+  planta: string;
+  tipo_material: string;
+  nombre_material: string;
+  mina_procedencia: string;
+  ubicacion: string;
+  tamaño: string;
+  origen_material: string;
+  tecnico: string;
+  id_muestra: string;
+  tipo_estudio: string[];
+  fecha_muestreo: string;
+  fecha_elaboracion: string;
+  created_at: string;
+  updated_at: string;
+  estudios_seleccionados?: EstudioSeleccionadoHistorico[];
+}
 
-const materialIcons = {
-  agregados: Mountain,
-  agua: Droplets,
-  cemento: Beaker,
-  aditivos: FlaskConical
-};
+interface EstudioSeleccionadoHistorico {
+  id: string;
+  tipo_estudio: string;
+  nombre_estudio: string;
+  descripcion: string;
+  norma_referencia: string;
+  estado: 'pendiente' | 'en_proceso' | 'completado';
+  fecha_programada: string;
+  fecha_completado?: string;
+}
 
-const materialLabels = {
-  agregados: 'Agregados',
-  agua: 'Agua',
-  cemento: 'Cemento',
-  aditivos: 'Aditivos'
-};
+export default function CaracterizacionMaterialesHistoricoPage() {
+  const { session, profile, isLoading } = useAuthBridge();
+  const [estudios, setEstudios] = useState<EstudioHistorico[]>([]);
+  const [plants, setPlants] = useState<Plant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedPlant, setSelectedPlant] = useState<string>('all');
+  const [selectedMaterial, setSelectedMaterial] = useState<string>('all');
+  const [selectedTipoEstudio, setSelectedTipoEstudio] = useState<string>('all');
 
-const statusLabels = {
-  pending: 'Pendiente',
-  approved: 'Aprobado',
-  rejected: 'Rechazado'
-};
+  // Cargar plantas
+  useEffect(() => {
+    const loadPlants = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('plants')
+          .select('id, code, name')
+          .order('code');
 
-const statusColors = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  approved: 'bg-green-100 text-green-800',
-  rejected: 'bg-red-100 text-red-800'
-};
+        if (error) throw error;
+        setPlants(data || []);
+      } catch (error) {
+        console.error('Error loading plants:', error);
+        toast.error('Error al cargar las plantas');
+      }
+    };
 
-// Datos de ejemplo para estudios de agregados
-const mockEstudiosAgregados: VistaListaAgregados[] = [
-  {
-    id: '1',
-    fechaCreacion: '2024-01-15T10:30:00Z',
-    cliente: 'Constructora ABC',
-    plantaProcedencia: 'P1',
-    tipoMaterial: 'Arena Volcánica 40-4 mm',
-    estado: 'aprobado',
-    tecnicoResponsable: 'Ing. María González',
-    estudiosRealizados: ['Masa Específica', 'Absorción', 'Granulometría']
-  },
-  {
-    id: '2',
-    fechaCreacion: '2024-01-10T14:20:00Z',
-    cliente: 'Desarrollos XYZ',
-    plantaProcedencia: 'P2',
-    tipoMaterial: 'Grava Basáltica 19-4 mm',
-    estado: 'completado',
-    tecnicoResponsable: 'Tec. Carlos Ruiz',
-    estudiosRealizados: ['Masa Específica', 'Masa Volumétrica', 'Pérdida por Lavado']
-  },
-  {
-    id: '3',
-    fechaCreacion: '2024-01-08T09:15:00Z',
-    cliente: 'Concretos del Norte',
-    plantaProcedencia: 'P1',
-    tipoMaterial: 'Agregado Mixto 25-4 mm',
-    estado: 'borrador',
-    tecnicoResponsable: 'Ing. Ana López',
-    estudiosRealizados: ['Granulometría']
-  }
-];
-
-// Datos de ejemplo para estudio completo
-const mockEstudioCompleto: EstudioAgregados = {
-  id: '1',
-  fechaCreacion: '2024-01-15T10:30:00Z',
-  fechaActualizacion: '2024-01-15T16:45:00Z',
-  datosGenerales: {
-    minaProcedencia: 'Mina San Juan',
-    ubicacion: 'Km 45 Carretera Federal',
-    tamanoGrava: '40-4 (1/2)',
-    origenGrava: 'Volcánica',
-    muestreaPor: 'Ing. María González',
-    cliente: 'Constructora ABC',
-    idMuestra: 'AGR-2024-001',
-    plantaProcedencia: 'P1'
-  },
-  masaEspecifica: {
-    a: 0.9,
-    b: 0.6,
-    c: 0.25,
-    v: 0.34,
-    ms: 0.888,
-    messsCalculado: 2.65,
-    mesCalculado: 2.65,
-    meCalculado: 1.35
-  },
-  absorcion: {
-    masaMuestraSSS: 0.9,
-    masaMuestraSeca: 0.888,
-    porcentajeAbsorcion: 1.35
-  },
-  perdidaPorLavado: {
-    secadoMasaConstante: true,
-    masaMuestraSeca: 1231,
-    masaMuestraSecaLavada: 1222,
-    porcentajePerdida: 0.7
-  },
-  granulometria: {
-    tamanoGrava: '40-4 mm (1/2)',
-    datos: [
-      { noMalla: '2', retenidoG: 0, porcentajeRetenido: 0.0, porcentajeAcumulado: 0.0, porcentajePasa: 100.0 },
-      { noMalla: '1 1/2', retenidoG: 3230, porcentajeRetenido: 2.8, porcentajeAcumulado: 2.8, porcentajePasa: 97.21 },
-      { noMalla: '1', retenidoG: 111120, porcentajeRetenido: 96.1, porcentajeAcumulado: 98.9, porcentajePasa: 1.09 },
-      { noMalla: '3/4', retenidoG: 1080, porcentajeRetenido: 0.9, porcentajeAcumulado: 99.8, porcentajePasa: 0.15 },
-      { noMalla: '1/2', retenidoG: 140, porcentajeRetenido: 0.1, porcentajeAcumulado: 100.0, porcentajePasa: 0.03 },
-      { noMalla: '3/8', retenidoG: 20, porcentajeRetenido: 0.0, porcentajeAcumulado: 100.0, porcentajePasa: 0.01 },
-      { noMalla: 'Charola', retenidoG: 17, porcentajeRetenido: 0.0, porcentajeAcumulado: 100.0, porcentajePasa: 0.0 }
-    ],
-    total: 115607,
-    graficaData: {
-      x: ['2', '1 1/2', '1', '3/4', '1/2', '3/8'],
-      y: [100.0, 97.21, 1.09, 0.15, 0.03, 0.01]
+    if (session && profile) {
+      loadPlants();
     }
-  },
-  estado: 'aprobado',
-  tecnicoResponsable: 'Ing. María González',
-  supervisorAprobacion: 'Ing. Roberto Martínez',
-  fechaAprobacion: '2024-01-15T16:45:00Z'
-};
+  }, [session, profile]);
 
-type VistaActual = 'lista' | 'formulario' | 'detalle';
+  // Cargar estudios
+  useEffect(() => {
+    const loadEstudios = async () => {
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from('alta_estudio')
+          .select(`
+            *,
+            estudios_seleccionados (
+              id,
+              tipo_estudio,
+              nombre_estudio,
+              descripcion,
+              norma_referencia,
+              estado,
+              fecha_programada,
+              fecha_completado
+            )
+          `)
+          .order('created_at', { ascending: false });
 
-export default function CaracterizacionMaterialesPage() {
-  const [activeTab, setActiveTab] = useState<MaterialType>('agregados');
-  const [vistaActual, setVistaActual] = useState<VistaActual>('lista');
-  const [estudiosAgregados, setEstudiosAgregados] = useState<VistaListaAgregados[]>(mockEstudiosAgregados);
-  const [estudioSeleccionado, setEstudioSeleccionado] = useState<string | null>(null);
-  const [modoFormulario, setModoFormulario] = useState<'crear' | 'editar'>('crear');
+        if (error) throw error;
+        setEstudios(data || []);
+      } catch (error) {
+        console.error('Error loading estudios:', error);
+        toast.error('Error al cargar el histórico de estudios');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const getAnalysisCount = (type: MaterialType) => {
-    if (type === 'agregados') {
-      return estudiosAgregados.length;
+    if (session && profile) {
+      loadEstudios();
     }
-    return mockAnalyses.filter(analysis => analysis.type === type).length;
-  };
+  }, [session, profile]);
 
-  // Funciones para manejar estudios de agregados
-  const handleNuevoEstudioAgregados = () => {
-    setModoFormulario('crear');
-    setVistaActual('formulario');
-  };
+  // Filtrar estudios
+  const filteredEstudios = estudios.filter(estudio => {
+    const matchesSearch = 
+      estudio.id_muestra.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      estudio.nombre_material.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      estudio.tecnico.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      estudio.mina_procedencia.toLowerCase().includes(searchTerm.toLowerCase());
 
-  const handleEditarEstudioAgregados = (id: string) => {
-    setEstudioSeleccionado(id);
-    setModoFormulario('editar');
-    setVistaActual('formulario');
-  };
+    const matchesPlant = !selectedPlant || selectedPlant === 'all' || estudio.id_planta === selectedPlant;
+    const matchesMaterial = !selectedMaterial || selectedMaterial === 'all' || estudio.tipo_material === selectedMaterial;
+    const matchesTipoEstudio = !selectedTipoEstudio || selectedTipoEstudio === 'all' || estudio.tipo_estudio.includes(selectedTipoEstudio);
 
-  const handleVerDetalleAgregados = (id: string) => {
-    setEstudioSeleccionado(id);
-    setVistaActual('detalle');
-  };
+    return matchesSearch && matchesPlant && matchesMaterial && matchesTipoEstudio;
+  });
 
-  const handleGuardarEstudioAgregados = (datos: FormularioAgregadosType) => {
-    console.log('Guardando estudio de agregados:', datos);
-    // Aquí se implementaría la lógica para guardar en la base de datos
-    setVistaActual('lista');
-  };
+  const handleDelete = async (id: string, idMuestra: string) => {
+    if (!confirm(`¿Está seguro de eliminar el estudio ${idMuestra}?`)) {
+      return;
+    }
 
-  const handleCancelarFormulario = () => {
-    setVistaActual('lista');
-    setEstudioSeleccionado(null);
-  };
+    try {
+      const { error } = await supabase
+        .from('alta_estudio')
+        .delete()
+        .eq('id', id);
 
-  const handleDescargarPDF = (id: string) => {
-    console.log('Descargando PDF del estudio:', id);
-    // Aquí se implementaría la lógica para generar y descargar el PDF
-  };
+      if (error) throw error;
 
-  const volverALista = () => {
-    setVistaActual('lista');
-    setEstudioSeleccionado(null);
-  };
-
-  // Renderizar vista de agregados según el estado actual
-  const renderVistaAgregados = () => {
-    switch (vistaActual) {
-      case 'formulario':
-        return (
-          <FormularioAgregados
-            onGuardar={handleGuardarEstudioAgregados}
-            onCancelar={handleCancelarFormulario}
-            modo={modoFormulario}
-          />
-        );
-      
-      case 'detalle':
-        return (
-          <div>
-            <Button
-              variant="ghost"
-              onClick={volverALista}
-              className="mb-4 flex items-center gap-2"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Volver a la lista
-            </Button>
-            <DetalleEstudioAgregados
-              estudio={mockEstudioCompleto}
-              onEditar={() => handleEditarEstudioAgregados(estudioSeleccionado!)}
-              onDescargarPDF={() => handleDescargarPDF(estudioSeleccionado!)}
-            />
-          </div>
-        );
-      
-      default:
-        return (
-          <ListaEstudiosAgregados
-            estudios={estudiosAgregados}
-            onVerDetalle={handleVerDetalleAgregados}
-            onEditar={handleEditarEstudioAgregados}
-            onNuevoEstudio={handleNuevoEstudioAgregados}
-            onDescargarPDF={handleDescargarPDF}
-          />
-        );
+      setEstudios(prev => prev.filter(e => e.id !== id));
+      toast.success('Estudio eliminado exitosamente');
+    } catch (error) {
+      console.error('Error deleting estudio:', error);
+      toast.error('Error al eliminar el estudio');
     }
   };
 
-  return (
-    <div className="container mx-auto p-6 space-y-6">
-      {/* Encabezado principal */}
-      {vistaActual === 'lista' && (
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Caracterización de Materiales</h1>
-            <p className="text-gray-600 mt-2">
-              Gestión de análisis y estudios de materiales por planta
-            </p>
-          </div>
+  const handleNavigateToDetail = (estudio: EstudioHistorico) => {
+    window.location.href = `/quality/caracterizacion-materiales/${estudio.id}`;
+  };
+
+  const getEstadoGeneral = (estudio: EstudioHistorico) => {
+    const estudiosSeleccionados = estudio.estudios_seleccionados || [];
+    
+    if (estudiosSeleccionados.length === 0) {
+      return { estado: 'sin_estudios', label: 'Sin estudios', color: 'text-gray-500', icon: AlertCircle };
+    }
+    
+    const completados = estudiosSeleccionados.filter(e => e.estado === 'completado').length;
+    const enProceso = estudiosSeleccionados.filter(e => e.estado === 'en_proceso').length;
+    const pendientes = estudiosSeleccionados.filter(e => e.estado === 'pendiente').length;
+    
+    if (completados === estudiosSeleccionados.length) {
+      return { estado: 'completado', label: 'Completado', color: 'text-green-600', icon: CheckCircle };
+    } else if (enProceso > 0 || completados > 0) {
+      return { estado: 'en_proceso', label: 'En proceso', color: 'text-yellow-600', icon: Clock };
+    } else {
+      return { estado: 'pendiente', label: 'Pendiente', color: 'text-blue-600', icon: Clock };
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('es-MX', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
+
+  const getTipoEstudioBadgeColor = (tipos: string[]) => {
+    if (tipos.includes('Caracterización interna')) return 'bg-blue-100 text-blue-800';
+    if (tipos.includes('Validación')) return 'bg-green-100 text-green-800';
+    if (tipos.includes('Nuevo prospecto')) return 'bg-purple-100 text-purple-800';
+    return 'bg-gray-100 text-gray-800';
+  };
+
+  if (isLoading || loading) {
+        return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span>{isLoading ? 'Verificando autenticación...' : 'Cargando histórico...'}</span>
         </div>
-      )}
-
-      {/* Tabs de Materiales - Solo mostrar en vista de lista */}
-      {vistaActual === 'lista' && (
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as MaterialType)}>
-          <TabsList className="grid w-full grid-cols-4">
-            {Object.entries(materialLabels).map(([key, label]) => {
-              const Icon = materialIcons[key as MaterialType];
-              const count = getAnalysisCount(key as MaterialType);
-              return (
-                <TabsTrigger key={key} value={key} className="flex items-center gap-2">
-                  <Icon className="h-4 w-4" />
-                  {label}
-                  <Badge variant="secondary" className="ml-1">
-                    {count}
-                  </Badge>
-                </TabsTrigger>
-              );
-            })}
-          </TabsList>
-
-          {/* Contenido de cada pestaña */}
-          <TabsContent value="agregados" className="space-y-6">
-            {renderVistaAgregados()}
-          </TabsContent>
-
-          {/* Otras pestañas mantienen la funcionalidad original */}
-          {Object.keys(materialLabels)
-            .filter(key => key !== 'agregados')
-            .map((materialType) => (
-              <TabsContent key={materialType} value={materialType} className="space-y-6">
-                <MaterialSection 
-                  materialType={materialType as MaterialType}
-                  analyses={mockAnalyses.filter(analysis => analysis.type === materialType)}
-                />
-              </TabsContent>
-            ))}
-        </Tabs>
-      )}
-
-      {/* Vista completa para formulario y detalle */}
-      {vistaActual !== 'lista' && renderVistaAgregados()}
-    </div>
-  );
-}
-
-interface MaterialSectionProps {
-  materialType: MaterialType;
-  analyses: MaterialAnalysis[];
-}
-
-function MaterialSection({ materialType, analyses }: MaterialSectionProps) {
-  const Icon = materialIcons[materialType];
-  const label = materialLabels[materialType];
-  const [selectedAggregate, setSelectedAggregate] = useState<string>('all');
-  const [certificateName, setCertificateName] = useState<string>('');
-  const [certificateDate, setCertificateDate] = useState<string>('');
-  const [certificateProvider, setCertificateProvider] = useState<string>('');
-
-  // Para agregados, mostramos estudios internos con filtro
-  if (materialType === 'agregados') {
-    return (
-      <div className="space-y-6">
-        {/* Sección de Estudios Internos con Filtro */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Eye className="h-5 w-5" />
-              Estudios Realizados Internamente - {label}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {/* Filtro para agregados específicos */}
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <Search className="h-4 w-4 text-gray-500" />
-                  <label className="text-sm font-medium">Filtrar por agregado:</label>
-                </div>
-                <Select value={selectedAggregate} onValueChange={setSelectedAggregate}>
-                  <SelectTrigger className="w-64">
-                    <SelectValue placeholder="Seleccionar agregado" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todos los agregados</SelectItem>
-                    <SelectItem value="arena_volcanica">Arena Volcánica</SelectItem>
-                    <SelectItem value="arena_basaltica">Arena Basáltica</SelectItem>
-                    <SelectItem value="grava_19mm">Grava 19mm</SelectItem>
-                    <SelectItem value="grava_40mm">Grava 40mm</SelectItem>
-                    <SelectItem value="agregado_fino">Agregado Fino</SelectItem>
-                    <SelectItem value="agregado_grueso">Agregado Grueso</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Lista de estudios internos */}
-              {analyses.length > 0 ? (
-                <div className="grid gap-4">
-                  {analyses.map((analysis) => (
-                    <div
-                      key={analysis.id}
-                      className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Icon className="h-6 w-6 text-blue-600" />
-                        <div>
-                          <h4 className="font-medium">{analysis.studyName}</h4>
-                          <div className="flex items-center gap-4 text-sm text-gray-500">
-                            <span>Fecha: {analysis.date}</span>
-                            <span>Planta: {analysis.plant}</span>
-                            <span>Estudio Interno</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge className={statusColors[analysis.status]}>
-                          {statusLabels[analysis.status]}
-                        </Badge>
-                        <Button variant="outline" size="sm">
-                          <FileText className="h-4 w-4 mr-2" />
-                          Ver Detalle
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  <Icon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                  <p>No hay estudios internos registrados para el agregado seleccionado</p>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Sección de Certificados de Proveedor */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
-              Certificados del Proveedor - {label}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors cursor-pointer">
-                <Upload className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                <h3 className="text-lg font-medium mb-2">Subir certificados del proveedor</h3>
-                <p className="text-gray-500 mb-4">
-                  Arrastra y suelta archivos aquí, o haz clic para seleccionar
-                </p>
-                <Button variant="outline">
-                  Seleccionar Archivos
-                </Button>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Nombre del Producto</label>
-                  <Input
-                    value={certificateName}
-                    onChange={(e) => setCertificateName(e.target.value)}
-                    placeholder="ej. Arena Volcánica Tipo A"
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Fecha del Certificado</label>
-                  <Input
-                    type="date"
-                    value={certificateDate}
-                    onChange={(e) => setCertificateDate(e.target.value)}
-                  />
-                </div>
-                
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Proveedor</label>
-                  <Input
-                    value={certificateProvider}
-                    onChange={(e) => setCertificateProvider(e.target.value)}
-                    placeholder="Nombre del proveedor"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <Button variant="outline">Cancelar</Button>
-                <Button>Subir Certificado</Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     );
   }
 
-  // Para agua, cemento y aditivos, solo certificados de proveedor
+  if (!session || !profile) {
+        return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Alert className="max-w-md">
+          <AlertDescription>
+            No se pudo verificar la autenticación. Por favor, inicie sesión nuevamente.
+          </AlertDescription>
+        </Alert>
+          </div>
+        );
+  }
+
+  // Verificar permisos de acceso a la página
+  const hasPageAccess = profile.role === 'QUALITY_TEAM' || profile.role === 'EXECUTIVE';
+      
+  if (!hasPageAccess) {
+        return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Alert className="max-w-md">
+          <AlertDescription>
+            No tiene permisos para acceder a esta página. Solo usuarios con rol QUALITY_TEAM o EXECUTIVE pueden ver el histórico de caracterización.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Sección de Visualización de Certificados Subidos */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Eye className="h-5 w-5" />
-            Certificados Subidos - {label}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {analyses.length > 0 ? (
-              <div className="grid gap-4">
-                {analyses.map((analysis) => (
-                  <div
-                    key={analysis.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Icon className="h-6 w-6 text-blue-600" />
-                      <div>
-                        <h4 className="font-medium">{analysis.studyName}</h4>
-                        <div className="flex items-center gap-4 text-sm text-gray-500">
-                          <span>Fecha: {analysis.date}</span>
-                          <span>Proveedor: {analysis.supplier}</span>
-                        </div>
+    <div className="min-h-screen bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+              <FlaskConical className="h-8 w-8 text-blue-600" />
+              Histórico de Caracterización de Materiales
+            </h1>
+            <p className="text-gray-600 mt-2">
+              Gestione y revise todos los estudios de caracterización de agregados
+            </p>
+          </div>
+          <Link href="/quality/caracterizacion-materiales/nuevo">
+            <Button className="flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Nuevo Estudio
+            </Button>
+          </Link>
+        </div>
+
+        {/* Filtros */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Filter className="h-5 w-5" />
+              Filtros de Búsqueda
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              {/* Búsqueda general */}
+              <div className="space-y-2">
+                <Label htmlFor="search">Búsqueda General</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    id="search"
+                    placeholder="ID, material, técnico..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
+              {/* Filtro por planta */}
+              <div className="space-y-2">
+                <Label htmlFor="plant-filter">Planta</Label>
+                <Select value={selectedPlant} onValueChange={setSelectedPlant}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todas las plantas" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todas las plantas</SelectItem>
+                    {plants.map((plant) => (
+                      <SelectItem key={plant.id} value={plant.id}>
+                        {plant.code} - {plant.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Filtro por tipo de material */}
+              <div className="space-y-2">
+                <Label htmlFor="material-filter">Tipo de Material</Label>
+                <Select value={selectedMaterial} onValueChange={setSelectedMaterial}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos los materiales" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los materiales</SelectItem>
+                    <SelectItem value="Arena">Arena</SelectItem>
+                    <SelectItem value="Grava">Grava</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Filtro por tipo de estudio */}
+              <div className="space-y-2">
+                <Label htmlFor="tipo-estudio-filter">Tipo de Análisis</Label>
+                <Select value={selectedTipoEstudio} onValueChange={setSelectedTipoEstudio}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Todos los tipos" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Todos los tipos</SelectItem>
+                    <SelectItem value="Caracterización interna">Caracterización interna</SelectItem>
+                    <SelectItem value="Validación">Validación</SelectItem>
+                    <SelectItem value="Nuevo prospecto">Nuevo prospecto</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Botón limpiar filtros */}
+              <div className="space-y-2">
+                <Label>&nbsp;</Label>
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedPlant('all');
+                    setSelectedMaterial('all');
+                    setSelectedTipoEstudio('all');
+                  }}
+                  className="w-full"
+                >
+                  Limpiar Filtros
+                </Button>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge className={statusColors[analysis.status]}>
-                        {statusLabels[analysis.status]}
-                      </Badge>
-                      <Button variant="outline" size="sm">
-                        <FileText className="h-4 w-4 mr-2" />
-                        Ver Certificado
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Tabla de Estudios */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <span className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Estudios de Caracterización ({filteredEstudios.length})
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {filteredEstudios.length === 0 ? (
+              <div className="text-center py-8">
+                <FlaskConical className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-gray-500 text-lg">No se encontraron estudios</p>
+                <p className="text-gray-400">
+                  {estudios.length === 0 
+                    ? 'Aún no hay estudios de caracterización registrados'
+                    : 'Intente ajustar los filtros de búsqueda'
+                  }
+                </p>
               </div>
             ) : (
-              <div className="text-center py-8 text-gray-500">
-                <Icon className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>No hay certificados subidos para {label.toLowerCase()}</p>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID Muestra</TableHead>
+                      <TableHead>Planta</TableHead>
+                      <TableHead>Material</TableHead>
+                      <TableHead>Mina</TableHead>
+                      <TableHead>Técnico</TableHead>
+                      <TableHead>Tipo de Análisis</TableHead>
+                      <TableHead>Estudios Programados</TableHead>
+                      <TableHead>Estado</TableHead>
+                      <TableHead className="text-center">Ver Detalle</TableHead>
+                      <TableHead className="text-center">Acciones</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredEstudios.map((estudio) => (
+                      <TableRow key={estudio.id}>
+                        <TableCell className="font-medium">
+                          {estudio.id_muestra}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Building className="h-4 w-4 text-gray-400" />
+                            {estudio.planta}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{estudio.nombre_material}</div>
+                            <div className="text-sm text-gray-500">{estudio.tipo_material}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-[150px] truncate">
+                          {estudio.mina_procedencia}
+                        </TableCell>
+                        <TableCell>{estudio.tecnico}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {estudio.tipo_estudio.map((tipo, index) => (
+                              <Badge 
+                                key={index}
+                                className={getTipoEstudioBadgeColor(estudio.tipo_estudio)}
+                                variant="secondary"
+                              >
+                                {tipo}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {estudio.estudios_seleccionados && estudio.estudios_seleccionados.length > 0 ? (
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {estudio.estudios_seleccionados.length} estudios
+                                </Badge>
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {estudio.estudios_seleccionados.slice(0, 2).map((est, idx) => (
+                                  <Badge 
+                                    key={idx}
+                                    variant="secondary"
+                                    className={`text-xs ${
+                                      est.estado === 'completado' ? 'bg-green-100 text-green-800' :
+                                      est.estado === 'en_proceso' ? 'bg-yellow-100 text-yellow-800' :
+                                      'bg-gray-100 text-gray-800'
+                                    }`}
+                                  >
+                                    {est.nombre_estudio.split(' ')[0]}
+                                  </Badge>
+                                ))}
+                                {estudio.estudios_seleccionados.length > 2 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    +{estudio.estudios_seleccionados.length - 2}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-sm">Sin estudios</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const estadoInfo = getEstadoGeneral(estudio);
+                            const IconComponent = estadoInfo.icon;
+                            return (
+                              <div className="flex items-center gap-2">
+                                <IconComponent className={`h-4 w-4 ${estadoInfo.color}`} />
+                                <span className={`text-sm font-medium ${estadoInfo.color}`}>
+                                  {estadoInfo.label}
+                                </span>
+                              </div>
+                            );
+                          })()}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0 hover:bg-blue-50"
+                            title="Ver detalle y registrar resultados"
+                            onClick={() => handleNavigateToDetail(estudio)}
+                          >
+                            <ArrowRight className="h-4 w-4 text-blue-600" />
+                          </Button>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                              title="Ver detalles"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                              title="Editar"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
+                              title="Eliminar"
+                              onClick={() => handleDelete(estudio.id, estudio.id_muestra)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             )}
-          </div>
         </CardContent>
       </Card>
-
-      {/* Sección de Subida de Certificados */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            Subir Certificados del Proveedor - {label}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors cursor-pointer">
-              <Upload className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-              <h3 className="text-lg font-medium mb-2">Subir certificados del proveedor</h3>
-              <p className="text-gray-500 mb-4">
-                Arrastra y suelta archivos aquí, o haz clic para seleccionar
-              </p>
-              <Button variant="outline">
-                Seleccionar Archivos
-              </Button>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Nombre del Producto</label>
-                <Input
-                  value={certificateName}
-                  onChange={(e) => setCertificateName(e.target.value)}
-                  placeholder={`ej. ${label} Tipo Premium`}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Fecha del Certificado</label>
-                <Input
-                  type="date"
-                  value={certificateDate}
-                  onChange={(e) => setCertificateDate(e.target.value)}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Proveedor</label>
-                <Input
-                  value={certificateProvider}
-                  onChange={(e) => setCertificateProvider(e.target.value)}
-                  placeholder="Nombre del proveedor"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <Button variant="outline">Cancelar</Button>
-              <Button>Subir Certificado</Button>
-            </div>
           </div>
-        </CardContent>
-      </Card>
     </div>
   );
-}
-
-// Función auxiliar para obtener tipos de análisis por material
-function getAnalysisTypesForMaterial(materialType: MaterialType) {
-  const analysisTypes = {
-    agregados: [
-      { value: 'granulometrico', label: 'Análisis Granulométrico' },
-      { value: 'densidad', label: 'Densidad y Absorción' },
-      { value: 'desgaste', label: 'Desgaste Los Angeles' },
-      { value: 'sanidad', label: 'Sanidad' },
-      { value: 'impurezas', label: 'Impurezas Orgánicas' },
-      { value: 'equivalente_arena', label: 'Equivalente de Arena' }
-    ],
-    agua: [
-      { value: 'fisicoquimico', label: 'Análisis Fisicoquímico' },
-      { value: 'ph', label: 'pH' },
-      { value: 'sulfatos', label: 'Contenido de Sulfatos' },
-      { value: 'cloruros', label: 'Contenido de Cloruros' },
-      { value: 'solidos_totales', label: 'Sólidos Totales Disueltos' }
-    ],
-    cemento: [
-      { value: 'quimico', label: 'Análisis Químico' },
-      { value: 'fisico', label: 'Análisis Físico' },
-      { value: 'finura', label: 'Finura Blaine' },
-      { value: 'tiempo_fraguado', label: 'Tiempo de Fraguado' },
-      { value: 'expansion', label: 'Expansión en Autoclave' },
-      { value: 'resistencia', label: 'Resistencia a Compresión' }
-    ],
-    aditivos: [
-      { value: 'densidad', label: 'Densidad' },
-      { value: 'ph', label: 'pH' },
-      { value: 'solidos', label: 'Contenido de Sólidos' },
-      { value: 'cloruros', label: 'Contenido de Cloruros' },
-      { value: 'compatibilidad', label: 'Compatibilidad con Cemento' }
-    ]
-  };
-
-  return analysisTypes[materialType] || [];
 }

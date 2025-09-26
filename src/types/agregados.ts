@@ -2,6 +2,8 @@
 
 export interface DatosGeneralesMuestra {
   // Información de la muestra
+  tipoMaterial?: string; // Arena o Grava
+  nombreMaterial?: string; // Nombre específico del material seleccionado
   minaProcedencia: string;
   ubicacion: string;
   tamanoGrava: string; // ej: "40-4 (1/2)"
@@ -81,6 +83,21 @@ export interface Granulometria {
     x: string[]; // tamaños de malla
     y: number[]; // porcentajes que pasan
   };
+}
+
+export interface AltaEstudio {
+  id?: string;
+  id_planta: string;
+  tipo_material: 'Arena' | 'Grava';
+  mina_procedencia: string;
+  nombre_material: string;
+  origen_material?: string;
+  tecnico: string;
+  tipo_estudio?: string[];
+  planta?: string;
+  fecha_elaboracion: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface EstudioAgregados {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription as AlertDesc } from "@/components/ui/alert";
 import { 
   ChevronLeft, 
   ChevronRight, 
@@ -20,7 +21,10 @@ import {
   Scale,
   Droplets,
   BarChart3,
-  CheckCircle
+  CheckCircle,
+  CheckCircle2,
+  Info,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   FormularioAgregados as FormularioAgregadosType,
@@ -30,13 +34,16 @@ import {
   PLANTAS_DISPONIBLES,
   MALLAS_GRANULOMETRICAS
 } from '@/types/agregados';
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { caracterizacionService } from '@/services/caracterizacionService';
+import { Material } from '@/types/recipes';
+import { usePlantContext } from '@/contexts/PlantContext';
 
 interface FormularioAgregadosProps {
   onGuardar: (datos: FormularioAgregadosType) => void;
   onCancelar: () => void;
   datosIniciales?: Partial<FormularioAgregadosType>;
   modo?: 'crear' | 'editar';
+  isLoading?: boolean;
 }
 
 const PASOS_FORMULARIO = [
@@ -49,14 +56,8 @@ const PASOS_FORMULARIO = [
   { 
     id: 2, 
     titulo: 'Estudios a Realizar', 
-    descripcion: 'Selección de análisis',
+    descripcion: 'Selección de análisis y resumen',
     icono: CheckCircle
-  },
-  { 
-    id: 3, 
-    titulo: 'Datos de Laboratorio', 
-    descripcion: 'Ingreso de mediciones',
-    icono: Calculator
   }
 ];
 
@@ -97,8 +98,10 @@ export default function FormularioAgregados({
   onGuardar,
   onCancelar,
   datosIniciales,
-  modo = 'crear'
+  modo = 'crear',
+  isLoading = false
 }: FormularioAgregadosProps) {
+  const { currentPlant } = usePlantContext();
   const [pasoActual, setPasoActual] = useState(1);
   const [formulario, setFormulario] = useState<FormularioAgregadosType>({
     datosGenerales: datosIniciales?.datosGenerales || {},
@@ -113,12 +116,75 @@ export default function FormularioAgregados({
   });
 
   const [errores, setErrores] = useState<Record<string, string>>({});
+  const [materialesDisponibles, setMaterialesDisponibles] = useState<Material[]>([]);
+  const [cargandoMateriales, setCargandoMateriales] = useState(false);
+
+  // Cargar materiales cuando cambie el tipo de material
+  useEffect(() => {
+    const cargarMateriales = async () => {
+      if (!currentPlant?.id || !formulario.datosGenerales.tipoMaterial) {
+        setMaterialesDisponibles([]);
+        return;
+      }
+
+      try {
+        setCargandoMateriales(true);
+        const materiales = await caracterizacionService.getMaterialesPorTipoYPlanta(
+          currentPlant.id, 
+          formulario.datosGenerales.tipoMaterial as 'Arena' | 'Grava'
+        );
+        
+        setMaterialesDisponibles(materiales);
+        
+        // Limpiar errores si se cargaron materiales exitosamente
+        if (errores.nombreMaterial && materiales.length > 0) {
+          setErrores(prev => {
+            const nuevos = { ...prev };
+            delete nuevos.nombreMaterial;
+            return nuevos;
+          });
+        }
+      } catch (error) {
+        console.error('Error al cargar materiales:', error);
+        setMaterialesDisponibles([]);
+        // Mostrar error al usuario si es necesario
+        setErrores(prev => ({
+          ...prev,
+          nombreMaterial: 'Error al cargar materiales. Intente de nuevo.'
+        }));
+      } finally {
+        setCargandoMateriales(false);
+      }
+    };
+
+    cargarMateriales();
+  }, [currentPlant?.id, formulario.datosGenerales.tipoMaterial]);
+
+  // Limpiar material seleccionado cuando cambie el tipo
+  useEffect(() => {
+    if (formulario.datosGenerales.nombreMaterial && formulario.datosGenerales.tipoMaterial) {
+      // Verificar si el material seleccionado sigue siendo válido para el nuevo tipo
+      const materialValido = materialesDisponibles.some(
+        m => m.material_name === formulario.datosGenerales.nombreMaterial
+      );
+      
+      if (!materialValido) {
+        actualizarDatosGenerales('nombreMaterial', '');
+      }
+    }
+  }, [materialesDisponibles, formulario.datosGenerales.tipoMaterial]);
 
   // Validación del paso actual
   const validarPaso = (paso: number): boolean => {
     const nuevosErrores: Record<string, string> = {};
 
     if (paso === 1) {
+      if (!formulario.datosGenerales.tipoMaterial) {
+        nuevosErrores.tipoMaterial = 'Campo requerido';
+      }
+      if (!formulario.datosGenerales.nombreMaterial) {
+        nuevosErrores.nombreMaterial = 'Campo requerido';
+      }
       if (!formulario.datosGenerales.minaProcedencia) {
         nuevosErrores.minaProcedencia = 'Campo requerido';
       }
@@ -189,6 +255,73 @@ export default function FormularioAgregados({
   const renderPaso1 = () => (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="space-y-2">
+          <Label htmlFor="tipoMaterial">Tipo de Material *</Label>
+          <Select
+            value={formulario.datosGenerales.tipoMaterial || ''}
+            onValueChange={(value) => actualizarDatosGenerales('tipoMaterial', value)}
+          >
+            <SelectTrigger className={errores.tipoMaterial ? 'border-red-500' : ''}>
+              <SelectValue placeholder="Seleccionar tipo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Arena">Arena</SelectItem>
+              <SelectItem value="Grava">Grava</SelectItem>
+            </SelectContent>
+          </Select>
+          {errores.tipoMaterial && (
+            <p className="text-sm text-red-500">{errores.tipoMaterial}</p>
+          )}
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="nombreMaterial">Nombre del Material *</Label>
+          <Select
+            value={formulario.datosGenerales.nombreMaterial || ''}
+            onValueChange={(value) => actualizarDatosGenerales('nombreMaterial', value)}
+            disabled={!formulario.datosGenerales.tipoMaterial || cargandoMateriales}
+          >
+            <SelectTrigger className={errores.nombreMaterial ? 'border-red-500' : ''}>
+              <SelectValue placeholder={
+                !formulario.datosGenerales.tipoMaterial 
+                  ? "Primero seleccione el tipo" 
+                  : cargandoMateriales 
+                    ? "Cargando materiales..." 
+                    : materialesDisponibles.length === 0
+                      ? "No hay materiales disponibles"
+                      : "Seleccionar material"
+              } />
+            </SelectTrigger>
+            <SelectContent>
+              {materialesDisponibles
+                .filter(material => {
+                  // Filtrar materiales con nombres válidos
+                  const hasValidName = material.material_name && 
+                                      typeof material.material_name === 'string' && 
+                                      material.material_name.trim() !== '';
+                  const hasValidId = material.id && material.id.trim() !== '';
+                  return hasValidName && hasValidId;
+                })
+                .map((material) => (
+                  <SelectItem 
+                    key={material.id} 
+                    value={material.material_name.trim()}
+                  >
+                    {material.material_name} ({material.material_code || 'Sin código'})
+                  </SelectItem>
+                ))}
+              {materialesDisponibles.length === 0 && formulario.datosGenerales.tipoMaterial && !cargandoMateriales && (
+                <div className="px-2 py-1.5 text-sm text-gray-500 text-center">
+                  No hay materiales de tipo {formulario.datosGenerales.tipoMaterial} disponibles
+                </div>
+              )}
+            </SelectContent>
+          </Select>
+          {errores.nombreMaterial && (
+            <p className="text-sm text-red-500">{errores.nombreMaterial}</p>
+          )}
+        </div>
+
         <div className="space-y-2">
           <Label htmlFor="minaProcedencia">Mina de Procedencia *</Label>
           <Input
@@ -310,117 +443,169 @@ export default function FormularioAgregados({
     </div>
   );
 
-  const renderPaso2 = () => (
-    <div className="space-y-6">
-      <div className="text-center mb-6">
-        <h3 className="text-lg font-semibold mb-2">Seleccione los estudios a realizar</h3>
-        <p className="text-gray-600">
-          Marque los análisis que desea incluir en el estudio de agregados
-        </p>
-      </div>
+  const renderPaso2 = () => {
+    const todosSeleccionados = Object.values(formulario.estudiosSeleccionados).every(Boolean);
+    const algunoSeleccionado = Object.values(formulario.estudiosSeleccionados).some(Boolean);
 
-      {errores.estudios && (
-        <Alert className="border-red-200 bg-red-50">
-          <AlertDescription className="text-red-600">
-            {errores.estudios}
-          </AlertDescription>
-        </Alert>
-      )}
+    const toggleTodos = () => {
+      const nuevoEstado = !todosSeleccionados;
+      setFormulario(prev => ({
+        ...prev,
+        estudiosSeleccionados: {
+          masaEspecifica: nuevoEstado,
+          masaVolumetrica: nuevoEstado,
+          absorcion: nuevoEstado,
+          perdidaPorLavado: nuevoEstado,
+          granulometria: nuevoEstado
+        }
+      }));
+    };
 
-      <div className="grid gap-4">
-        {ESTUDIOS_DISPONIBLES.map(estudio => {
-          const Icono = estudio.icono;
-          const seleccionado = formulario.estudiosSeleccionados[estudio.key];
-          
-          return (
-            <Card 
-              key={estudio.key}
-              className={`cursor-pointer transition-all ${
-                seleccionado 
-                  ? 'border-blue-500 bg-blue-50 shadow-md' 
-                  : 'hover:border-gray-300 hover:shadow-sm'
-              }`}
-              onClick={() => toggleEstudio(estudio.key)}
-            >
-              <CardContent className="p-4">
-                <div className="flex items-center space-x-4">
-                  <Checkbox
-                    checked={seleccionado}
-                    onChange={() => toggleEstudio(estudio.key)}
-                    className="pointer-events-none"
-                  />
-                  <Icono className={`h-6 w-6 ${seleccionado ? 'text-blue-600' : 'text-gray-400'}`} />
-                  <div className="flex-1">
-                    <h4 className={`font-medium ${seleccionado ? 'text-blue-900' : 'text-gray-900'}`}>
-                      {estudio.nombre}
-                    </h4>
-                    <p className={`text-sm ${seleccionado ? 'text-blue-700' : 'text-gray-600'}`}>
-                      {estudio.descripcion}
-                    </p>
-                  </div>
-                  {seleccionado && (
-                    <Badge className="bg-blue-100 text-blue-800">
-                      Seleccionado
-                    </Badge>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-    </div>
-  );
+    return (
+      <div className="space-y-6">
+        <div className="text-center mb-6">
+          <h3 className="text-lg font-semibold mb-2">Seleccione los estudios a realizar</h3>
+          <p className="text-gray-600">
+            Marque los análisis que desea incluir en el estudio de agregados
+          </p>
+        </div>
 
-  const renderPaso3 = () => (
-    <div className="space-y-6">
-      <div className="text-center mb-6">
-        <h3 className="text-lg font-semibold mb-2">Datos de Laboratorio</h3>
-        <p className="text-gray-600">
-          Los campos de datos se mostrarán según los estudios seleccionados. 
-          Los cálculos se realizarán automáticamente.
-        </p>
-      </div>
+        <div className="flex justify-center mb-4">
+          <Button
+            type="button"
+            variant={todosSeleccionados ? "destructive" : "default"}
+            onClick={toggleTodos}
+            className="flex items-center gap-2"
+          >
+            <CheckCircle className="h-4 w-4" />
+            {todosSeleccionados ? 'Deseleccionar Todo' : 'Seleccionar Todo'}
+          </Button>
+        </div>
 
-      <Alert>
-        <Calculator className="h-4 w-4" />
-        <AlertDescription>
-          Esta sección se desarrollará completamente una vez que confirme la estructura de datos. 
-          Incluirá formularios específicos para cada tipo de estudio seleccionado con cálculos automáticos.
-        </AlertDescription>
-      </Alert>
+        {errores.estudios && (
+          <Alert className="border-red-200 bg-red-50">
+            <AlertDesc className="text-red-600">
+              {errores.estudios}
+            </AlertDesc>
+          </Alert>
+        )}
 
-      <div className="grid gap-4">
-        {Object.entries(formulario.estudiosSeleccionados)
-          .filter(([_, seleccionado]) => seleccionado)
-          .map(([key, _]) => {
-            const estudio = ESTUDIOS_DISPONIBLES.find(e => e.key === key);
-            if (!estudio) return null;
-            
+        <div className="grid gap-4">
+          {ESTUDIOS_DISPONIBLES.map(estudio => {
             const Icono = estudio.icono;
+            const seleccionado = formulario.estudiosSeleccionados[estudio.key];
             
             return (
-              <Card key={key}>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <Icono className="h-5 w-5" />
-                    {estudio.nombre}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-gray-600 mb-4">{estudio.descripcion}</p>
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <p className="text-sm text-gray-600">
-                      Formulario específico para {estudio.nombre.toLowerCase()} se implementará aquí
-                    </p>
+              <Card 
+                key={estudio.key}
+                className={`cursor-pointer transition-all ${
+                  seleccionado 
+                    ? 'border-blue-500 bg-blue-50 shadow-md' 
+                    : 'hover:border-gray-300 hover:shadow-sm'
+                }`}
+                onClick={() => toggleEstudio(estudio.key)}
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-4">
+                    <Checkbox
+                      checked={seleccionado}
+                      onChange={() => toggleEstudio(estudio.key)}
+                      className="pointer-events-none"
+                    />
+                    <Icono className={`h-6 w-6 ${seleccionado ? 'text-blue-600' : 'text-gray-400'}`} />
+                    <div className="flex-1">
+                      <h4 className={`font-medium ${seleccionado ? 'text-blue-900' : 'text-gray-900'}`}>
+                        {estudio.nombre}
+                      </h4>
+                      <p className={`text-sm ${seleccionado ? 'text-blue-700' : 'text-gray-600'}`}>
+                        {estudio.descripcion}
+                      </p>
+                    </div>
+                    {seleccionado && (
+                      <Badge className="bg-blue-100 text-blue-800">
+                        Seleccionado
+                      </Badge>
+                    )}
                   </div>
                 </CardContent>
               </Card>
             );
           })}
+        </div>
+
+        {/* Resumen cuando hay estudios seleccionados */}
+        {Object.entries(formulario.estudiosSeleccionados).filter(([_, sel]) => sel).length > 0 && (
+          <div className="border-t pt-6 mt-8">
+            <h3 className="text-lg font-semibold mb-4">Resumen del Estudio</h3>
+            
+            {/* Resumen de datos generales */}
+            <Card className="mb-4">
+              <CardHeader>
+                <CardTitle className="text-base">Datos Generales</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-600">Tipo de Material:</span>
+                    <p>{formulario.datosGenerales.tipoMaterial}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-600">Material:</span>
+                    <p>{formulario.datosGenerales.nombreMaterial}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-600">Mina de Procedencia:</span>
+                    <p>{formulario.datosGenerales.minaProcedencia}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-600">Técnico:</span>
+                    <p>{formulario.datosGenerales.muestreaPor}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Estudios seleccionados */}
+            <Card className="mb-4">
+              <CardHeader>
+                <CardTitle className="text-base">Estudios Seleccionados</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {Object.entries(formulario.estudiosSeleccionados)
+                    .filter(([_, seleccionado]) => seleccionado)
+                    .map(([key, _]) => {
+                      const estudio = ESTUDIOS_DISPONIBLES.find(e => e.key === key);
+                      if (!estudio) return null;
+                      
+                      const Icono = estudio.icono;
+                      
+                      return (
+                        <div key={key} className="flex items-center gap-3 p-2 bg-gray-50 rounded">
+                          <Icono className="h-4 w-4 text-blue-600" />
+                          <span className="text-sm font-medium">{estudio.nombre}</span>
+                          <CheckCircle2 className="h-4 w-4 text-green-500 ml-auto" />
+                        </div>
+                      );
+                    })}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Alert>
+              <Info className="h-4 w-4" />
+              <AlertDesc>
+                <strong>¿Qué sucede después?</strong><br />
+                Una vez creado el estudio, podrá acceder a los formularios específicos de cada prueba 
+                desde la vista de detalle para ingresar los datos de laboratorio.
+              </AlertDesc>
+            </Alert>
+          </div>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
+
 
   return (
     <div className="max-w-4xl mx-auto p-6">
@@ -471,7 +656,6 @@ export default function FormularioAgregados({
         <CardContent className="p-6">
           {pasoActual === 1 && renderPaso1()}
           {pasoActual === 2 && renderPaso2()}
-          {pasoActual === 3 && renderPaso3()}
         </CardContent>
       </Card>
 
@@ -480,21 +664,31 @@ export default function FormularioAgregados({
         <Button
           variant="outline"
           onClick={pasoActual === 1 ? onCancelar : pasoAnterior}
+          disabled={isLoading}
         >
           <ChevronLeft className="h-4 w-4 mr-2" />
           {pasoActual === 1 ? 'Cancelar' : 'Anterior'}
         </Button>
 
         <div className="flex gap-2">
-          {pasoActual < 3 ? (
-            <Button onClick={siguientePaso}>
+          {pasoActual < 2 ? (
+            <Button onClick={siguientePaso} disabled={isLoading}>
               Siguiente
               <ChevronRight className="h-4 w-4 ml-2" />
             </Button>
           ) : (
-            <Button onClick={manejarGuardar}>
-              <Save className="h-4 w-4 mr-2" />
-              {modo === 'crear' ? 'Crear Estudio' : 'Guardar Cambios'}
+            <Button onClick={manejarGuardar} disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  {modo === 'crear' ? 'Crear Estudio' : 'Guardar Cambios'}
+                </>
+              )}
             </Button>
           )}
         </div>
