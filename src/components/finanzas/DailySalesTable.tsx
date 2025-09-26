@@ -104,6 +104,7 @@ export function DailySalesTable({ date }: DailySalesTableProps) {
                   <TableHead>Tipo</TableHead>
                   <TableHead>Productos</TableHead>
                   <TableHead className="text-right">Volumen Concreto</TableHead>
+                  <TableHead className="text-right">Detalle por Producto</TableHead>
                   <TableHead className="text-right">Volumen Bombeo</TableHead>
                   <TableHead className="text-right">Subtotal</TableHead>
                   <TableHead className="text-right">IVA</TableHead>
@@ -118,6 +119,20 @@ export function DailySalesTable({ date }: DailySalesTableProps) {
                     <TableCell>{order.requires_invoice ? 'Fiscal' : 'Efectivo'}</TableCell>
                     <TableCell>{order.productNames || 'N/A'}</TableCell>
                     <TableCell className="text-right">{order.concreteVolume.toFixed(2)} m³</TableCell>
+                    <TableCell className="text-right">
+                      {Object.keys(order.concreteVolumesByRecipe || {}).length > 0 ? (
+                        Object.values(order.concreteVolumesByRecipe || {}).map((recipe, index) => (
+                          <div key={index} className="text-xs">
+                            {recipe.recipeCode}: {recipe.volume.toFixed(2)} m³
+                            {recipe.strengthFc && ` (${recipe.strengthFc} kg/cm²)`}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-muted-foreground">
+                          {order.concreteVolume.toFixed(2)} m³ total
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">{order.pumpingVolume.toFixed(2)} m³</TableCell>
                     <TableCell className="text-right">{formatCurrency(order.subtotal)}</TableCell>
                     <TableCell className="text-right">{formatCurrency(order.vat)}</TableCell>
@@ -137,6 +152,7 @@ export function DailySalesTable({ date }: DailySalesTableProps) {
                   <TableHead>Cliente</TableHead>
                   <TableHead>Productos</TableHead>
                   <TableHead className="text-right">Volumen Concreto</TableHead>
+                  <TableHead className="text-right">Detalle por Producto</TableHead>
                   <TableHead className="text-right">Volumen Bombeo</TableHead>
                   <TableHead className="text-right">Total</TableHead>
                 </TableRow>
@@ -150,6 +166,20 @@ export function DailySalesTable({ date }: DailySalesTableProps) {
                       <TableCell>{order.clients?.business_name}</TableCell>
                       <TableCell>{order.productNames || 'N/A'}</TableCell>
                       <TableCell className="text-right">{order.concreteVolume.toFixed(2)} m³</TableCell>
+                      <TableCell className="text-right">
+                        {Object.keys(order.concreteVolumesByRecipe || {}).length > 0 ? (
+                          Object.values(order.concreteVolumesByRecipe || {}).map((recipe, index) => (
+                            <div key={index} className="text-xs">
+                              {recipe.recipeCode}: {recipe.volume.toFixed(2)} m³
+                              {recipe.strengthFc && ` (${recipe.strengthFc} kg/cm²)`}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-xs text-muted-foreground">
+                            {order.concreteVolume.toFixed(2)} m³ total
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">{order.pumpingVolume.toFixed(2)} m³</TableCell>
                       <TableCell className="text-right">{formatCurrency(order.subtotal)}</TableCell>
                     </TableRow>
@@ -168,6 +198,7 @@ export function DailySalesTable({ date }: DailySalesTableProps) {
                   <TableHead>Cliente</TableHead>
                   <TableHead>Productos</TableHead>
                   <TableHead className="text-right">Volumen Concreto</TableHead>
+                  <TableHead className="text-right">Detalle por Producto</TableHead>
                   <TableHead className="text-right">Volumen Bombeo</TableHead>
                   <TableHead className="text-right">Subtotal</TableHead>
                   <TableHead className="text-right">IVA</TableHead>
@@ -183,6 +214,20 @@ export function DailySalesTable({ date }: DailySalesTableProps) {
                       <TableCell>{order.clients?.business_name}</TableCell>
                       <TableCell>{order.productNames || 'N/A'}</TableCell>
                       <TableCell className="text-right">{order.concreteVolume.toFixed(2)} m³</TableCell>
+                      <TableCell className="text-right">
+                        {Object.keys(order.concreteVolumesByRecipe || {}).length > 0 ? (
+                          Object.values(order.concreteVolumesByRecipe || {}).map((recipe, index) => (
+                            <div key={index} className="text-xs">
+                              {recipe.recipeCode}: {recipe.volume.toFixed(2)} m³
+                              {recipe.strengthFc && ` (${recipe.strengthFc} kg/cm²)`}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-xs text-muted-foreground">
+                            {order.concreteVolume.toFixed(2)} m³ total
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">{order.pumpingVolume.toFixed(2)} m³</TableCell>
                       <TableCell className="text-right">{formatCurrency(order.subtotal)}</TableCell>
                       <TableCell className="text-right">{formatCurrency(order.vat)}</TableCell>

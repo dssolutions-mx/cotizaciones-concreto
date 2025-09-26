@@ -148,16 +148,29 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
     try {
       const payload: any = {
         ...formData,
-        density: formData.density ? parseFloat(formData.density) : undefined,
-        specific_gravity: formData.specific_gravity ? parseFloat(formData.specific_gravity) : undefined,
-        absorption_rate: formData.absorption_rate ? parseFloat(formData.absorption_rate) : undefined,
-        fineness_modulus: formData.fineness_modulus ? parseFloat(formData.fineness_modulus) : undefined,
+        // Convert numeric fields; use null to clear if empty
+        density: formData.density ? parseFloat(formData.density) : null,
+        specific_gravity: formData.specific_gravity ? parseFloat(formData.specific_gravity) : null,
+        absorption_rate: formData.absorption_rate ? parseFloat(formData.absorption_rate) : null,
+        fineness_modulus: formData.fineness_modulus ? parseFloat(formData.fineness_modulus) : null,
+        // Normalize optional foreign keys / enums
+        supplier_id: formData.supplier_id || null,
+        subcategory: formData.subcategory || null,
+        strength_class: formData.strength_class || null,
+        notes: formData.notes || null,
       };
-      if (formData.category !== 'agregado') {
-        payload.aggregate_type = undefined;
-        payload.aggregate_size = undefined;
-        payload.aggregate_lithology = undefined;
-        payload.aggregate_extraction = undefined;
+
+      // Aggregate protocol fields
+      if (formData.category === 'agregado') {
+        payload.aggregate_type = formData.aggregate_type || null;
+        payload.aggregate_size = formData.aggregate_size ? parseInt(formData.aggregate_size, 10) : null;
+        payload.aggregate_lithology = formData.aggregate_lithology || null;
+        payload.aggregate_extraction = formData.aggregate_extraction || null;
+      } else {
+        payload.aggregate_type = null;
+        payload.aggregate_size = null;
+        payload.aggregate_lithology = null;
+        payload.aggregate_extraction = null;
       }
       await recipeService.updateMaterial(material.id, payload);
 
