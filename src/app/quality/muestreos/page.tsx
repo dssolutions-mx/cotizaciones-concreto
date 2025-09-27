@@ -431,7 +431,8 @@ export default function MuestreosPage() {
         </Card>
       ) : (
         <div className="bg-white rounded-lg border shadow-sm overflow-hidden">
-          <Table>
+          <div className="overflow-x-auto -mx-4 md:mx-0">
+          <Table className="min-w-[720px] md:min-w-0">
             <TableHeader>
               <TableRow>
                 <TableHead 
@@ -527,6 +528,7 @@ export default function MuestreosPage() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </div>
       )}
     </div>
