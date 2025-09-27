@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { Search, Filter, Eye } from 'lucide-react';
 import { recipeService } from '@/lib/supabase/recipes';
 import { supabase } from '@/lib/supabase';
@@ -26,6 +26,7 @@ export const RecipeSearchModal: React.FC<RecipeSearchModalProps> = ({
   onRecipeSelect
 }) => {
   const { currentPlant } = usePlantContext();
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<RecipeSearchResult[]>([]);
   const [displayedResults, setDisplayedResults] = useState<RecipeSearchResult[]>([]);
@@ -54,6 +55,12 @@ export const RecipeSearchModal: React.FC<RecipeSearchModalProps> = ({
     const t = setTimeout(() => setDebouncedQuery(query.trim()), 350);
     return () => clearTimeout(t);
   }, [query]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 50);
+    }
+  }, [isOpen]);
 
   const handleSearch = async () => {
     setIsSearching(true);
@@ -348,157 +355,167 @@ export const RecipeSearchModal: React.FC<RecipeSearchModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-6xl">
-        <DialogHeader>
-          <DialogTitle>Buscar Recetas por Especificaciones</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="w-screen max-w-none sm:max-w-6xl sm:w-full h-[90dvh] sm:h-auto p-0">
+        <div className="flex flex-col h-full">
+          <div className="sticky top-0 z-10 bg-white/95 backdrop-blur border-b p-4">
+            <DialogHeader>
+              <DialogTitle>Buscar Recetas por Especificaciones</DialogTitle>
+            </DialogHeader>
 
-        {error && (
-          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-            {error}
-          </div>
-        )}
+            {error && (
+              <div className="mt-3 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+                {error}
+              </div>
+            )}
 
-        {/* Search Filters */}
-        <div className="mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-            <div className="flex-1">
-              <Label htmlFor="recipe-code">Buscar por código de receta</Label>
-              <Input id="recipe-code" placeholder="Ej. 250-14-D-20" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <div className="mt-4">
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+                <div className="flex-1">
+                  <Label htmlFor="recipe-code">Buscar por código de receta</Label>
+                  <Input id="recipe-code" ref={searchInputRef} placeholder="Ej. 250-14-D-20" value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') handleSearch(); }} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button type="button" onClick={() => setShowFilters(!showFilters)} variant="secondary" className="whitespace-nowrap">
+                    <Filter size={16} className="mr-2" /> {showFilters ? 'Ocultar Filtros' : 'Más Filtros'}
+                  </Button>
+                  <Button type="button" onClick={handleSearch} disabled={isSearching}>
+                    <Search size={16} className="mr-2" /> {isSearching ? 'Buscando...' : 'Buscar'}
+                  </Button>
+                </div>
+              </div>
+
+              {showFilters && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 border rounded-lg mt-4">
+                  {/* Strength */}
+                  <div>
+                    <Label>Resistencia f'c (MPa)</Label>
+                    <Input type="number" value={filters.strength_fc || ''} onChange={(e) => handleFilterChange('strength_fc', e.target.value)} step="0.1" placeholder="25" />
+                  </div>
+
+                  {/* Age Days */}
+                  <div>
+                    <Label>Edad (días)</Label>
+                    <Input type="number" value={filters.age_days || ''} onChange={(e) => handleFilterChange('age_days', e.target.value)} placeholder="28" />
+                  </div>
+
+                  {/* Placement Type */}
+                  <div>
+                    <Label>Tipo de Colocación</Label>
+                    <select
+                      value={filters.placement_type || ''}
+                      onChange={(e) => handleFilterChange('placement_type', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Todos</option>
+                      <option value="D">Directa</option>
+                      <option value="B">Bombeado</option>
+                    </select>
+                  </div>
+
+                  {/* Max Aggregate Size */}
+                  <div>
+                    <Label>Tamaño Máx. Agregado (mm)</Label>
+                    <Input type="number" value={filters.max_aggregate_size || ''} onChange={(e) => handleFilterChange('max_aggregate_size', e.target.value)} step="0.1" placeholder="20" />
+                  </div>
+
+                  {/* Slump */}
+                  <div>
+                    <Label>Revenimiento (cm)</Label>
+                    <Input type="number" value={filters.slump || ''} onChange={(e) => handleFilterChange('slump', e.target.value)} step="0.1" placeholder="10" />
+                  </div>
+
+                  {/* Application Type */}
+                  <div>
+                    <Label>Tipo de Aplicación</Label>
+                    <select
+                      value={filters.application_type || ''}
+                      onChange={(e) => handleFilterChange('application_type', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Todos</option>
+                      <option value="standard">Estándar</option>
+                      <option value="pavimento">Pavimento</option>
+                      <option value="relleno_fluido">Relleno Fluido</option>
+                      <option value="mortero">Mortero</option>
+                    </select>
+                  </div>
+
+                  {/* Performance Grade */}
+                  <div>
+                    <Label>Grado de Rendimiento</Label>
+                    <select
+                      value={filters.performance_grade || ''}
+                      onChange={(e) => handleFilterChange('performance_grade', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Todos</option>
+                      <option value="standard">Estándar</option>
+                      <option value="high_performance">Alto Rendimiento</option>
+                      <option value="rapid">Rápido</option>
+                    </select>
+                  </div>
+
+                  {/* Has Waterproofing */}
+                  <div>
+                    <Label>Impermeabilización</Label>
+                    <select
+                      value={filters.has_waterproofing === undefined ? '' : filters.has_waterproofing.toString()}
+                      onChange={(e) => handleFilterChange('has_waterproofing', e.target.value === '' ? undefined : e.target.value === 'true')}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Todos</option>
+                      <option value="true">Con Impermeabilización</option>
+                      <option value="false">Sin Impermeabilización</option>
+                    </select>
+                  </div>
+
+                  {/* Recipe Type */}
+                  <div>
+                    <Label>Tipo de Receta</Label>
+                    <select
+                      value={filters.recipe_type || ''}
+                      onChange={(e) => handleFilterChange('recipe_type', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Todos los tipos</option>
+                      <option value="FC">Receta de Concreto (FC)</option>
+                      <option value="MR">Receta de Mortero (MR)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
-            <Button type="button" onClick={() => setShowFilters(!showFilters)} variant="secondary" className="whitespace-nowrap">
-              <Filter size={16} className="mr-2" /> {showFilters ? 'Ocultar Filtros' : 'Más Filtros'}
-            </Button>
-            <Button type="button" onClick={handleSearch} disabled={isSearching}>
-              <Search size={16} className="mr-2" /> {isSearching ? 'Buscando...' : 'Buscar'}
-            </Button>
           </div>
 
-          {showFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4 border rounded-lg">
-              {/* Strength */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {(searchResults && searchResults.length > 0) && (
               <div>
-                <Label>Resistencia f'c (MPa)</Label>
-                <Input type="number" value={filters.strength_fc || ''} onChange={(e) => handleFilterChange('strength_fc', e.target.value)} step="0.1" placeholder="25" />
-              </div>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                  <h3 className="text-lg font-semibold">
+                    Resultados ({displayedResults.length} de {searchResults.length} recetas)
+                  </h3>
+                  <div className="text-xs text-gray-500">
+                    Mostrando solo recetas con datos de calidad (muestreos o registros en obra)
+                  </div>
+                </div>
 
-              {/* Age Days */}
-              <div>
-                <Label>Edad (días)</Label>
-                <Input type="number" value={filters.age_days || ''} onChange={(e) => handleFilterChange('age_days', e.target.value)} placeholder="28" />
+                <ProfessionalRecipeList results={displayedResults} onSelect={(r) => handleRecipeSelect(r)} />
               </div>
+            )}
 
-              {/* Placement Type */}
-              <div>
-                <Label>Tipo de Colocación</Label>
-                <select
-                  value={filters.placement_type || ''}
-                  onChange={(e) => handleFilterChange('placement_type', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Todos</option>
-                  <option value="D">Directa</option>
-                  <option value="B">Bombeado</option>
-                </select>
+            {(!searchResults || searchResults.length === 0) && !isSearching && (
+              <div className="text-center text-gray-500 py-16">
+                <Search size={48} className="mx-auto mb-4 text-gray-300" />
+                <p>No se han realizado búsquedas aún</p>
+                <p className="text-sm">Usa los filtros arriba para buscar recetas</p>
               </div>
+            )}
 
-              {/* Max Aggregate Size */}
-              <div>
-                <Label>Tamaño Máx. Agregado (mm)</Label>
-                <Input type="number" value={filters.max_aggregate_size || ''} onChange={(e) => handleFilterChange('max_aggregate_size', e.target.value)} step="0.1" placeholder="20" />
-              </div>
-
-              {/* Slump */}
-              <div>
-                <Label>Revenimiento (cm)</Label>
-                <Input type="number" value={filters.slump || ''} onChange={(e) => handleFilterChange('slump', e.target.value)} step="0.1" placeholder="10" />
-              </div>
-
-              {/* Application Type */}
-              <div>
-                <Label>Tipo de Aplicación</Label>
-                <select
-                  value={filters.application_type || ''}
-                  onChange={(e) => handleFilterChange('application_type', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Todos</option>
-                  <option value="standard">Estándar</option>
-                  <option value="pavimento">Pavimento</option>
-                  <option value="relleno_fluido">Relleno Fluido</option>
-                  <option value="mortero">Mortero</option>
-                </select>
-              </div>
-
-              {/* Performance Grade */}
-              <div>
-                <Label>Grado de Rendimiento</Label>
-                <select
-                  value={filters.performance_grade || ''}
-                  onChange={(e) => handleFilterChange('performance_grade', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Todos</option>
-                  <option value="standard">Estándar</option>
-                  <option value="high_performance">Alto Rendimiento</option>
-                  <option value="rapid">Rápido</option>
-                </select>
-              </div>
-
-              {/* Has Waterproofing */}
-              <div>
-                <Label>Impermeabilización</Label>
-                <select
-                  value={filters.has_waterproofing === undefined ? '' : filters.has_waterproofing.toString()}
-                  onChange={(e) => handleFilterChange('has_waterproofing', e.target.value === '' ? undefined : e.target.value === 'true')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Todos</option>
-                  <option value="true">Con Impermeabilización</option>
-                  <option value="false">Sin Impermeabilización</option>
-                </select>
-              </div>
-
-              {/* Recipe Type */}
-              <div>
-                <Label>Tipo de Receta</Label>
-                <select
-                  value={filters.recipe_type || ''}
-                  onChange={(e) => handleFilterChange('recipe_type', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Todos los tipos</option>
-                  <option value="FC">Receta de Concreto (FC)</option>
-                  <option value="MR">Receta de Mortero (MR)</option>
-                </select>
-              </div>
-            </div>
-          )}
+            {isSearching && (
+              <div className="text-center text-gray-600 py-8">Buscando recetas…</div>
+            )}
+          </div>
         </div>
-
-        {/* Search Results */}
-        {(searchResults && searchResults.length > 0) && (
-          <div>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-              <h3 className="text-lg font-semibold">
-                Resultados ({displayedResults.length} de {searchResults.length} recetas)
-              </h3>
-              <div className="text-xs text-gray-500">
-                Mostrando solo recetas con datos de calidad (muestreos o registros en obra)
-              </div>
-            </div>
-
-            <ProfessionalRecipeList results={displayedResults} onSelect={(r) => handleRecipeSelect(r)} />
-          </div>
-        )}
-
-        {(!searchResults || searchResults.length === 0) && !isSearching && (
-          <div className="text-center text-gray-500 py-8">
-            <Search size={48} className="mx-auto mb-4 text-gray-300" />
-            <p>No se han realizado búsquedas aún</p>
-            <p className="text-sm">Usa los filtros arriba para buscar recetas</p>
-          </div>
-        )}
       </DialogContent>
     </Dialog>
   );

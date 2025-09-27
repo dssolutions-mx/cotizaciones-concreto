@@ -799,8 +799,8 @@ function Navigation({ children }: { children: React.ReactNode }) {
         
         {/* Menú móvil: Sheet lateral */}
         <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
-          <SheetContent side="left" className="w-64 p-0">
-            <div className="p-4 border-b">
+          <SheetContent side="left" className="w-64 p-0 flex flex-col overscroll-contain">
+            <div className="p-4 border-b shrink-0">
               <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)} className="inline-flex items-center gap-2">
                 <Image
                   src="/images/dcconcretos/logo-dark.svg"
@@ -812,7 +812,7 @@ function Navigation({ children }: { children: React.ReactNode }) {
                 />
               </Link>
             </div>
-            <div className="p-2">
+            <div className="p-2 flex-1 overflow-y-auto">
               {navItems.map((item, index) => {
                 const Icon = item.IconComponent;
                 const isCurrentItemActive = item.href === '/finanzas'

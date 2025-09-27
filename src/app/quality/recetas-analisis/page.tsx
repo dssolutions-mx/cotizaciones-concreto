@@ -179,15 +179,16 @@ export default function RecipeAnalysisPage() {
               </Button>
 
               {selectedRecipeIds.length > 0 && (
-                <div className="space-y-2 max-h-32 overflow-y-auto">
+                <div className="space-y-2 max-h-40 overflow-y-auto -mr-2 pr-2">
                   {selectedRecipeIds.map((recipeId) => (
                     <div key={recipeId} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                      <span className="text-sm font-medium">{recipeId}</span>
+                      <span className="text-sm font-medium truncate mr-2">{recipeId}</span>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => removeRecipe(recipeId)}
                         className="h-6 w-6 p-0"
+                        aria-label={`Quitar receta ${recipeId}`}
                       >
                         ×
                       </Button>
@@ -307,8 +308,8 @@ export default function RecipeAnalysisPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
+                  <div className="overflow-x-auto -mx-4 md:mx-0">
+                    <table className="min-w-[760px] md:min-w-0 text-sm">
                       <thead>
                         <tr className="text-left text-gray-600">
                           <th className="py-2 pr-4">Fecha</th>
