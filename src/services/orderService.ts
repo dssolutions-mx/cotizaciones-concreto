@@ -239,7 +239,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           has_pump_service: true,
           pump_price: pumpServiceData.unit_price,
           pump_volume: pumpServiceData.volume,
-          pump_volume_delivered: pumpServiceData.volume, // Add for automatic recalculation
+          pump_volume_delivered: null, // Should be null initially, updated when remisiones confirm delivery
           has_empty_truck_charge: false
         });
       
