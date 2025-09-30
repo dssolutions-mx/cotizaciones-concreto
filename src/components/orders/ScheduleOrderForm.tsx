@@ -328,11 +328,7 @@ export default function ScheduleOrderForm({
         console.log('Active prices fetched:', activePrices);
         
         if (!activePrices || activePrices.length === 0) {
-          console.log('No active prices/quotes found for this client/site.');
-          setAvailableQuotes([]);
-          setSelectedProducts([]);
-          setIsLoading(false);
-          return;
+          console.log('No active recipe-based prices; proceeding to check standalone pumping quotes.');
         }
         
         // Double-check that all prices are actually active
@@ -340,11 +336,7 @@ export default function ScheduleOrderForm({
         console.log(`Found ${trulyActivePrices.length} truly active prices out of ${activePrices.length} returned prices`);
         
         if (trulyActivePrices.length === 0) {
-          console.log('No prices with is_active=true found despite query filter.');
-          setAvailableQuotes([]);
-          setSelectedProducts([]);
-          setIsLoading(false);
-          return;
+          console.log('No prices with is_active=true found; relying on standalone pumping quotes if available.');
         }
         
         // 1.5. Also fetch standalone pumping service quotes directly from quote_details
@@ -398,6 +390,14 @@ export default function ScheduleOrderForm({
         console.log('Unique quote IDs from active prices:', recipeBasedQuoteIds);
         console.log('Standalone pumping quote IDs:', standalonePumpingQuoteIdsArray);
         console.log('All unique quote IDs:', uniqueQuoteIds);
+        
+        if (uniqueQuoteIds.length === 0) {
+          console.log('No quotes found with active recipe prices or standalone pumping services.');
+          setAvailableQuotes([]);
+          setSelectedProducts([]);
+          setIsLoading(false);
+          return;
+        }
         
         // Create a set of active quote-recipe combinations
         // This ensures we only display recipes that are active for a specific quote
@@ -568,9 +568,18 @@ export default function ScheduleOrderForm({
         
         // Detect service types available
         const allProducts = nonEmptyQuotes.flatMap(quote => quote.products);
+        console.log('All products from quotes:', allProducts.map(p => ({ 
+          code: p.recipeCode, 
+          placementType: p.placementType, 
+          pumpService: p.pumpService,
+          quoteDetailId: p.quoteDetailId 
+        })));
+        
         const concreteProducts = allProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0);
         const standalonePumpingProducts = allProducts.filter(p => p.placementType === 'BOMBEO' && p.pumpService);
         const concreteWithPumpService = allProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0 && p.pumpService);
+        
+        console.log('Standalone pumping products filtered:', standalonePumpingProducts);
         
         // Combined pumping products (both standalone and concrete with pump service)
         const pumpingProducts = [...standalonePumpingProducts, ...concreteWithPumpService];
@@ -580,7 +589,8 @@ export default function ScheduleOrderForm({
         
         setHasConcreteProducts(concreteProducts.length > 0);
         setHasStandalonePumping(pumpingProducts.length > 0);
-        setStandalonePumpingProducts(pumpingProducts);
+        // For pumping-only orders we should only consider true standalone pumping items
+        setStandalonePumpingProducts(standalonePumpingProducts);
         
         // Determine order type based on available services
         if (concreteProducts.length > 0 && pumpingProducts.length > 0) {
@@ -892,10 +902,21 @@ export default function ScheduleOrderForm({
       let quoteId: string | undefined;
       
       if (orderType === 'pumping') {
-        // For pumping-only mode, get quote from standalone pumping products
-        quoteId = availableQuotes.find(q => 
-          q.products.some(p => p.placementType === 'BOMBEO' && p.pumpService)
-        )?.id;
+        // For pumping-only mode, we need to find any quote with pump service
+        // This could be either standalone pumping products OR concrete with pump service
+        if (standalonePumpingProducts.length > 0) {
+          // Find the quote that contains this standalone pumping product
+          quoteId = availableQuotes.find(q => 
+            q.products.some(p => p.quoteDetailId === standalonePumpingProducts[0].quoteDetailId)
+          )?.id;
+        } else if (availableQuotes.length > 0) {
+          // If no standalone pumping products, use the first quote with pump service
+          // (this handles the case where concrete products have pump service)
+          const quoteWithPump = availableQuotes.find(q => 
+            q.products.some(p => p.pumpService === true)
+          );
+          quoteId = quoteWithPump?.id;
+        }
       } else {
         // For normal mode, get quote from selected products
         quoteId = availableQuotes.find(q => 
@@ -904,6 +925,12 @@ export default function ScheduleOrderForm({
       }
       
       if (!quoteId) {
+        console.error('Failed to determine quote ID:', {
+          orderType,
+          availableQuotes,
+          standalonePumpingProducts,
+          selectedProducts
+        });
         throw new Error('No se pudo determinar la cotización');
       }
       
@@ -936,20 +963,28 @@ export default function ScheduleOrderForm({
         // Add Google Maps URL for convenience
         delivery_google_maps_url: generateGoogleMapsUrl(latitude, longitude),
         // Add selected products with volumes
+        // For pumping-only orders with no standalone pumping products, pass empty array
+        // The pump service will be handled by pumpServiceData below
         order_items: orderType === 'pumping'
-          ? standalonePumpingProducts.map(p => ({
-              quote_detail_id: p.quoteDetailId,
-              volume: pumpVolume // Use the pump volume from the form
-            }))
+          ? (standalonePumpingProducts.length > 0 
+              ? standalonePumpingProducts.map(p => ({
+                  quote_detail_id: p.quoteDetailId,
+                  volume: pumpVolume // Use the pump volume from the form
+                }))
+              : [] // Empty array for pumping-only orders without standalone pumping products
+            )
           : selectedProducts.map(p => ({
               quote_detail_id: p.quoteDetailId,
               volume: p.scheduledVolume
             }))
       };
       
-      // Prepare pump service data separately (only for traditional concrete orders with pump service)
+      // Prepare pump service data separately
+      // This applies to:
+      // 1. Traditional concrete orders with pump service (orderType !== 'pumping')
+      // 2. Pumping-only orders where we use pumpServiceData (orderType === 'pumping')
       let pumpServiceData: PumpServiceDetails | null = null;
-      if (hasPumpService && pumpVolume > 0 && pumpPrice !== null && orderType !== 'pumping') {
+      if (hasPumpService && pumpVolume > 0 && pumpPrice !== null) {
         pumpServiceData = {
           volume: pumpVolume,
           unit_price: pumpPrice,
