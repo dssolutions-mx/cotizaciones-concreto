@@ -86,6 +86,8 @@ interface EstudioSeleccionadoHistorico {
   estado: 'pendiente' | 'en_proceso' | 'completado';
   fecha_programada: string;
   fecha_completado?: string;
+  resultados?: any;
+  observaciones?: string;
 }
 
 export default function CaracterizacionMaterialesHistoricoPage() {
@@ -137,7 +139,9 @@ export default function CaracterizacionMaterialesHistoricoPage() {
               norma_referencia,
               estado,
               fecha_programada,
-              fecha_completado
+              fecha_completado,
+              resultados,
+              observaciones
             )
           `)
           .order('created_at', { ascending: false });
@@ -195,6 +199,35 @@ export default function CaracterizacionMaterialesHistoricoPage() {
 
   const handleNavigateToDetail = (estudio: EstudioHistorico) => {
     window.location.href = `/quality/caracterizacion-materiales/${estudio.id}?tab=estudios`;
+  };
+
+  // Función para recargar estudios (útil después de actualizar datos)
+  const reloadEstudios = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('alta_estudio')
+        .select(`
+          *,
+          estudios_seleccionados (
+            id,
+            tipo_estudio,
+            nombre_estudio,
+            descripcion,
+            norma_referencia,
+            estado,
+            fecha_programada,
+            fecha_completado,
+            resultados,
+            observaciones
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setEstudios(data || []);
+    } catch (error) {
+      console.error('Error reloading estudios:', error);
+    }
   };
 
   const getEstadoGeneral = (estudio: EstudioHistorico) => {
@@ -691,11 +724,11 @@ export default function CaracterizacionMaterialesHistoricoPage() {
                                     </div>
                                   </div>
 
-                                  {/* Resumen de Estudios Programados */}
+                                  {/* Resumen de Resultados de Pruebas */}
                                   <div className="border-t pt-6">
                                     <div className="flex items-center gap-2 mb-4">
                                       <TestTube className="h-5 w-5 text-[#069e2d]" />
-                                      <h3 className="text-lg font-semibold text-[#069e2d]">Resumen de Estudios</h3>
+                                      <h3 className="text-lg font-semibold text-[#069e2d]">Resumen de Resultados</h3>
                                     </div>
                                     
                                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
@@ -731,42 +764,131 @@ export default function CaracterizacionMaterialesHistoricoPage() {
                                       </div>
                                     </div>
 
-                                    {/* Lista de estudios con estados */}
-                                    {total > 0 && (
-                                      <div className="space-y-2">
-                                        <h4 className="text-sm font-semibold text-gray-700 mb-3">Estudios Programados:</h4>
-                                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                                          {estudio.estudios_seleccionados?.map((est, idx) => (
-                                            <div 
-                                              key={idx}
-                                              className="flex items-center justify-between p-3 bg-white rounded-lg border hover:shadow-sm transition-shadow"
-                                            >
-                                              <div className="flex items-center gap-3">
-                                                {est.estado === 'completado' ? (
-                                                  <CheckCircle className="h-4 w-4 text-[#069e2d]" />
-                                                ) : est.estado === 'en_proceso' ? (
-                                                  <Clock className="h-4 w-4 text-amber-500" />
-                                                ) : (
-                                                  <AlertCircle className="h-4 w-4 text-gray-400" />
-                                                )}
-                                                <div>
-                                                  <p className="font-medium text-gray-900 text-sm">{est.nombre_estudio}</p>
-                                                  <p className="text-xs text-gray-500">{est.norma_referencia}</p>
+                                    {/* Resultados de Pruebas Completadas */}
+                                    {(() => {
+                                      // Debug: Log para verificar datos
+                                      const completadosConResultados = estudio.estudios_seleccionados?.filter(est => est.estado === 'completado' && est.resultados && Object.keys(est.resultados).length > 0) || [];
+                                      console.log('Debug - Estudios completados:', estudio.estudios_seleccionados?.filter(est => est.estado === 'completado'));
+                                      console.log('Debug - Estudios con resultados:', completadosConResultados);
+                                      
+                                      return completadosConResultados.length > 0 ? (
+                                        <div className="space-y-3">
+                                          <h4 className="text-sm font-semibold text-gray-700 mb-3">Resultados de Pruebas Evaluadas:</h4>
+                                          <div className="space-y-3 max-h-64 overflow-y-auto">
+                                            {completadosConResultados.map((est, idx) => {
+                                            const renderResultados = (est: any) => {
+                                              const nombre = est.nombre_estudio;
+                                              const r: any = est.resultados || {};
+                                              
+                                              const Pill = ({ label, value }: { label: string; value: string | number }) => (
+                                                <span className="inline-flex items-center rounded-md bg-blue-100 text-blue-800 text-[10px] font-medium px-2 py-0.5 mr-1 mb-1">
+                                                  {label}: {value}
+                                                </span>
+                                              );
+
+                                              if (!est.resultados) {
+                                                return <span className="text-xs text-gray-500">Sin resultados</span>;
+                                              }
+
+                                              switch (nombre) {
+                                                case 'Análisis Granulométrico': {
+                                                  const mallas = Array.isArray(r.mallas) ? r.mallas : [];
+                                                  const totalRet = mallas.reduce((sum: number, m: any) => sum + (m.retenido || 0), 0);
+                                                  const conDatos = mallas.filter((m: any) => m.retenido !== null && m.retenido !== undefined).length;
+                                                  return (
+                                                    <div>
+                                                      <Pill label="Mallas c/datos" value={conDatos} />
+                                                      <Pill label="Suma retenidos (g)" value={Number(totalRet.toFixed(1))} />
+                                                    </div>
+                                                  );
+                                                }
+                                                case 'Densidad': {
+                                                  return (
+                                                    <div>
+                                                      {r.densidad_relativa != null && <Pill label="Relativa" value={r.densidad_relativa} />}
+                                                      {r.densidad_sss != null && <Pill label="SSS" value={r.densidad_sss} />}
+                                                      {r.absorcion != null && <Pill label="Absorción (%)" value={r.absorcion} />}
+                                                    </div>
+                                                  );
+                                                }
+                                                case 'Masa Volumétrico': {
+                                                  return (
+                                                    <div>
+                                                      {r.masa_volumetrica_suelta != null && (
+                                                        <Pill label="Suelta (kg/m³)" value={r.masa_volumetrica_suelta} />
+                                                      )}
+                                                      {r.masa_volumetrica_compactada != null && (
+                                                        <Pill label="Compactada (kg/m³)" value={r.masa_volumetrica_compactada} />
+                                                      )}
+                                                    </div>
+                                                  );
+                                                }
+                                                case 'Pérdida por Lavado': {
+                                                  return (
+                                                    <div>
+                                                      {r.perdida_lavado != null && <Pill label="Pérdida (g)" value={r.perdida_lavado} />}
+                                                      {r.porcentaje_perdida != null && <Pill label="Pérdida (%)" value={r.porcentaje_perdida} />}
+                                                    </div>
+                                                  );
+                                                }
+                                                case 'Absorción': {
+                                                  return (
+                                                    <div>
+                                                      {r.absorcion_porcentaje != null && (
+                                                        <Pill label="Absorción (%)" value={r.absorcion_porcentaje} />
+                                                      )}
+                                                    </div>
+                                                  );
+                                                }
+                                                default:
+                                                  return <span className="text-xs text-gray-500">Resultados registrados</span>;
+                                              }
+                                            };
+
+                                            return (
+                                              <div 
+                                                key={idx}
+                                                className="p-4 bg-gradient-to-r from-[#069e2d]/5 to-[#069e2d]/10 rounded-lg border border-[#069e2d]/20"
+                                              >
+                                                <div className="flex items-start justify-between mb-3">
+                                                  <div className="flex items-center gap-3">
+                                                    <CheckCircle className="h-5 w-5 text-[#069e2d] flex-shrink-0" />
+                                                    <div>
+                                                      <h5 className="font-semibold text-[#069e2d] text-sm">{est.nombre_estudio}</h5>
+                                                      <p className="text-xs text-gray-600">{est.norma_referencia}</p>
+                                                    </div>
+                                                  </div>
+                                                  <Badge className="bg-[#069e2d] text-white text-xs">
+                                                    Completado
+                                                  </Badge>
                                                 </div>
+                                                
+                                                {/* Mostrar resumen de resultados */}
+                                                <div className="bg-white/60 p-3 rounded-md">
+                                                  <p className="text-xs text-gray-600 mb-2 font-medium">Resultados:</p>
+                                                  {renderResultados(est)}
+                                                </div>
+                                                
+                                                {est.fecha_completado && (
+                                                  <div className="mt-2 text-xs text-gray-500">
+                                                    Completado el: {formatDate(est.fecha_completado)}
+                                                  </div>
+                                                )}
                                               </div>
-                                              <Badge className={`text-xs ${
-                                                est.estado === 'completado' ? 'bg-[#069e2d] text-white' :
-                                                est.estado === 'en_proceso' ? 'bg-amber-500 text-white' :
-                                                'bg-gray-400 text-white'
-                                              }`}>
-                                                {est.estado === 'completado' ? 'Completado' : 
-                                                 est.estado === 'en_proceso' ? 'En Proceso' : 'Pendiente'}
-                                              </Badge>
-                                            </div>
-                                          ))}
+                                            );
+                                          })}
                                         </div>
                                       </div>
-                                    )}
+                                    ) : (
+                                      <div className="text-center py-6 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+                                        <TestTube className="h-8 w-8 text-gray-400 mx-auto mb-2" />
+                                        <p className="text-sm text-gray-500 font-medium">No hay resultados disponibles</p>
+                                        <p className="text-xs text-gray-400 mt-1">
+                                          Los resultados aparecerán aquí una vez que se completen las pruebas
+                                        </p>
+                                      </div>
+                                    );
+                                    })()}
                                   </div>
                                 </div>
                               </DialogContent>
