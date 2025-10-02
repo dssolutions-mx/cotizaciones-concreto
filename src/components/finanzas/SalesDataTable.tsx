@@ -30,6 +30,9 @@ export const SalesDataTable: React.FC<SalesDataTableProps> = ({
   onExportToExcel,
 }) => {
   // Extract all order items from salesData for sophisticated price matching
+  // Note: order items include quote_details relationship which contains recipe_id
+  // when the order_item.recipe_id is null. The findProductPrice utility prioritizes
+  // quote_details.recipe_id as the first matching strategy.
   const allOrderItems = useMemo(() => {
     return salesData.flatMap(order => 
       (order.items || []).map((item: any) => ({
