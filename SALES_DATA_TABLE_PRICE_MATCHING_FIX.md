@@ -87,6 +87,27 @@ const allOrderItems = useMemo(() => {
    - Apply the same sophisticated price matching
    - Ensure consistent volume calculations
 
+### File: `src/utils/salesExport.ts`
+
+1. **Added imports:**
+   - `findProductPrice` from `./salesDataProcessor`
+
+2. **Updated TypeScript interfaces:**
+   - Added `recipe_id`, `order_id`, and `quote_details` to `OrderItem` interface
+   - Added `id` (UUID) to `recipe` in `Remision` interface
+
+3. **Replaced old matching logic:**
+   - Removed `findOrderItemForRemisionExport` helper function
+   - Added `allOrderItems` extraction to flatten order items with quote_details
+   - Use `findProductPrice` for sophisticated price lookup
+
+4. **Updated export data generation (lines 130-151):**
+   - Extract `recipe.id` (UUID) for matching
+   - Use same product type determination logic as table
+   - Apply `findProductPrice` for consistent pricing
+
+**Result:** Excel exports now use the same sophisticated price matching as the UI table, ensuring data consistency between display and export.
+
 ## Benefits
 
 1. **Accurate Price Matching:** Remisiones now correctly match with their order items using UUIDs
@@ -102,12 +123,21 @@ const allOrderItems = useMemo(() => {
    - Bombeo (pumping service - SER002)
    - Vacío de olla (empty truck - SER001)
 3. **Test client summary tab** to ensure totals are accurate
-4. **Compare with remisiones page** to verify consistency
+4. **Test Excel export:**
+   - Verify exported prices match UI table prices
+   - Check all product types export correctly
+   - Ensure totals in Excel match summary metrics
+5. **Compare with remisiones page** to verify consistency
+6. **Test edge cases:**
+   - Orders where `order_item.recipe_id` is null (should use `quote_details.recipe_id`)
+   - Orders with multiple items of different types
+   - Virtual vacío de olla entries
 
 ## Related Files
 
 - `src/utils/salesDataProcessor.ts` - Contains the `findProductPrice` utility function
-- `src/hooks/useSalesData.ts` - Fetches remisiones with proper `recipe.id` field
+- `src/utils/salesExport.ts` - Excel export function with price matching
+- `src/hooks/useSalesData.ts` - Fetches remisiones with proper `recipe.id` and `quote_details`
 - `src/app/finanzas/ventas/page.tsx` - Parent component that uses SalesDataTable
 - `src/app/finanzas/remisiones/page.tsx` - Reference implementation with correct matching logic
 

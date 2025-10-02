@@ -193,6 +193,13 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
           const accTipos = Array.from(new Set((accRemisiones || [])
             .map(r => r?.tipo_remision)
             .filter(Boolean) as string[])).sort();
+          
+          // Always add "VACÍO DE OLLA" to tipos since it's a virtual remision type
+          if (!accTipos.includes('VACÍO DE OLLA')) {
+            accTipos.push('VACÍO DE OLLA');
+            accTipos.sort(); // Re-sort after adding
+          }
+          
           const accProductCodes = Array.from(new Set((accRemisiones || [])
             .map(r => r?.recipe?.recipe_code)
             .filter(Boolean) as string[])).sort();
