@@ -220,7 +220,7 @@ export default function AbsorcionForm({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <TestTube className="h-5 w-5 text-blue-600" />
+            <TestTube className="h-5 w-5 text-[#069e2d]" />
             Análisis de Absorción
           </CardTitle>
         </CardHeader>
@@ -276,7 +276,7 @@ export default function AbsorcionForm({
               <Input
                 value={formData.incremento_peso.toFixed(1)}
                 disabled
-                className="bg-blue-50 font-semibold text-blue-700"
+                className="bg-[#069e2d]/10 font-semibold text-[#069e2d]"
               />
             </div>
           </div>
@@ -360,12 +360,12 @@ export default function AbsorcionForm({
               <h3 className="font-semibold text-gray-900 border-b pb-2">Absorción</h3>
               
               <div className="space-y-3">
-                <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg">
+                <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
                   <div className="flex items-center gap-2">
-                    <TestTube className="h-5 w-5 text-blue-600" />
-                    <span className="font-medium text-blue-900">Absorción:</span>
+                    <TestTube className="h-5 w-5 text-[#069e2d]" />
+                    <span className="font-medium text-[#069e2d]">Absorción:</span>
                   </div>
-                  <Badge className="bg-blue-600 text-white text-xl px-4 py-2">
+                  <Badge className="bg-[#069e2d] text-white text-xl px-4 py-2">
                     {formData.absorcion_porcentaje.toFixed(2)}%
                   </Badge>
                 </div>
@@ -401,9 +401,9 @@ export default function AbsorcionForm({
               </div>
 
               {/* Guía de interpretación */}
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <h4 className="text-sm font-medium text-blue-900 mb-2">Guía de Interpretación:</h4>
-                <div className="text-xs text-blue-700 space-y-1">
+                <div className="p-3 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/20">
+                  <h4 className="text-sm font-medium text-[#069e2d] mb-2">Guía de Interpretación:</h4>
+                <div className="text-xs text-gray-700 space-y-1">
                   <div>• &lt; 0.5%: Muy baja absorción ✅</div>
                   <div>• 0.5-1.0%: Baja absorción ✅</div>
                   <div>• 1.0-2.0%: Absorción moderada ⚠️</div>
@@ -418,7 +418,7 @@ export default function AbsorcionForm({
 
           {/* Análisis Técnico */}
           <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-            <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
               <AlertCircle className="h-4 w-4" />
               Análisis Técnico
             </h4>

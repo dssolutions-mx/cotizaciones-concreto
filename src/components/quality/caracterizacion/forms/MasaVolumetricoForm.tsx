@@ -201,7 +201,7 @@ export default function MasaVolumetricoForm({
     if (factor < 1.1) return { texto: 'Baja compactabilidad', color: 'text-red-600' };
     if (factor < 1.2) return { texto: 'Compactabilidad moderada', color: 'text-yellow-600' };
     if (factor < 1.3) return { texto: 'Buena compactabilidad', color: 'text-green-600' };
-    return { texto: 'Excelente compactabilidad', color: 'text-blue-600' };
+    return { texto: 'Excelente compactabilidad', color: 'text-[#069e2d]' };
   };
 
   const interpretacionFactor = getInterpretacionFactorCompactacion(formData.factor_compactacion);
@@ -212,7 +212,7 @@ export default function MasaVolumetricoForm({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Layers className="h-5 w-5 text-blue-600" />
+            <Layers className="h-5 w-5 text-[#069e2d]" />
             Análisis de Masa Volumétrico
           </CardTitle>
         </CardHeader>
@@ -337,7 +337,7 @@ export default function MasaVolumetricoForm({
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Package className="h-5 w-5 text-blue-600" />
+                <Package className="h-5 w-5 text-[#069e2d]" />
             Masa Volumétrica Compactada
           </CardTitle>
         </CardHeader>
@@ -373,9 +373,9 @@ export default function MasaVolumetricoForm({
                 <Input
                   value={formData.masa_volumetrica_compactada.toFixed(1)}
                   disabled
-                  className="bg-blue-50 font-semibold"
+                  className="bg-[#069e2d]/10 font-semibold"
                 />
-                <Badge className="bg-blue-600 text-white">
+                <Badge className="bg-[#069e2d] text-white">
                   Compactada
                 </Badge>
               </div>
@@ -399,9 +399,9 @@ export default function MasaVolumetricoForm({
               <h3 className="font-semibold text-gray-900 border-b pb-2">Factor de Compactación</h3>
               
               <div className="space-y-3">
-                <div className="flex justify-between items-center p-4 bg-purple-50 rounded-lg">
-                  <span className="font-medium text-purple-900">Factor de Compactación:</span>
-                  <Badge className="bg-purple-600 text-white text-lg px-3 py-1">
+                <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
+                  <span className="font-medium text-[#069e2d]">Factor de Compactación:</span>
+                  <Badge className="bg-[#069e2d] text-white text-lg px-3 py-1">
                     {formData.factor_compactacion.toFixed(3)}
                   </Badge>
                 </div>
@@ -417,9 +417,9 @@ export default function MasaVolumetricoForm({
               </div>
 
               {/* Guía de interpretación */}
-              <div className="p-3 bg-purple-50 rounded-lg">
-                <h4 className="text-sm font-medium text-purple-900 mb-2">Guía de Interpretación:</h4>
-                <div className="text-xs text-purple-700 space-y-1">
+                <div className="p-3 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/20">
+                  <h4 className="text-sm font-medium text-[#069e2d] mb-2">Guía de Interpretación:</h4>
+                  <div className="text-xs text-gray-700 space-y-1">
                   <div>• &lt; 1.1: Baja compactabilidad</div>
                   <div>• 1.1-1.2: Compactabilidad moderada</div>
                   <div>• 1.2-1.3: Buena compactabilidad</div>
@@ -440,16 +440,16 @@ export default function MasaVolumetricoForm({
                   </Badge>
                 </div>
                 
-                <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                  <span className="font-medium text-blue-900">Vacíos Compactada:</span>
-                  <Badge className="bg-blue-600 text-white">
+                <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
+                  <span className="font-medium text-[#069e2d]">Vacíos Compactada:</span>
+                  <Badge className="bg-[#069e2d] text-white">
                     {formData.porcentaje_vacios_compactada.toFixed(1)}%
                   </Badge>
                 </div>
                 
-                <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
-                  <span className="font-medium text-orange-900">Reducción de Vacíos:</span>
-                  <Badge className="bg-orange-600 text-white">
+                <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
+                  <span className="font-medium text-[#069e2d]">Reducción de Vacíos:</span>
+                  <Badge className="bg-[#069e2d] text-white">
                     {(formData.porcentaje_vacios_suelta - formData.porcentaje_vacios_compactada).toFixed(1)}%
                   </Badge>
                 </div>

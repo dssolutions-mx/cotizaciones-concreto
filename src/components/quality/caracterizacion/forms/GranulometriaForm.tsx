@@ -235,7 +235,7 @@ export default function GranulometriaForm({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-blue-600" />
+            <BarChart3 className="h-5 w-5 text-[#069e2d]" />
             Análisis Granulométrico
           </CardTitle>
         </CardHeader>
@@ -372,16 +372,16 @@ export default function GranulometriaForm({
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                <span className="font-medium text-blue-900">Módulo de Finura:</span>
-                <Badge className="bg-blue-600 text-white">
+              <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
+                <span className="font-medium text-[#069e2d]">Módulo de Finura:</span>
+                <Badge className="bg-[#069e2d] text-white">
                   {formData.modulo_finura.toFixed(2)}
                 </Badge>
               </div>
               
-              <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                <span className="font-medium text-green-900">Tamaño Máximo Nominal:</span>
-                <Badge className="bg-green-600 text-white">
+              <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
+                <span className="font-medium text-[#069e2d]">Tamaño Máximo Nominal:</span>
+                <Badge className="bg-[#069e2d] text-white">
                   {formData.tamaño_maximo_nominal || 'N/A'}
                 </Badge>
               </div>

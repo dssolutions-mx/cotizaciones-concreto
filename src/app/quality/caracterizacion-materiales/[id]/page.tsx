@@ -38,7 +38,8 @@ import {
   Microscope,
   Scale,
   Droplets,
-  Layers
+  Layers,
+  TestTube
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
@@ -261,7 +262,7 @@ export default function EstudioDetallePage() {
     const nombre = e.nombre_estudio;
     const r: any = e.resultados || {};
     const Pill = ({ label, value }: { label: string; value: string | number }) => (
-      <span className="inline-flex items-center rounded-md bg-blue-100 text-blue-800 text-[10px] font-medium px-2 py-0.5 mr-1 mb-1">
+      <span className="inline-flex items-center rounded-md bg-[#069e2d]/10 text-[#069e2d] text-[10px] font-medium px-2 py-0.5 mr-1 mb-1">
         {label}: {value}
       </span>
     );
@@ -536,9 +537,9 @@ export default function EstudioDetallePage() {
 
                           {/* Observaciones si existen */}
                           {estudioSel.observaciones && (
-                            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                              <p className="text-xs text-blue-600 font-semibold mb-1">Observaciones:</p>
-                              <p className="text-sm text-blue-800">{estudioSel.observaciones}</p>
+                            <div className="p-3 bg-[#069e2d]/10 border border-[#069e2d]/20 rounded-lg">
+                              <p className="text-xs text-[#069e2d] font-semibold mb-1">Observaciones:</p>
+                              <p className="text-sm text-gray-800">{estudioSel.observaciones}</p>
                             </div>
                           )}
                         </CardContent>
@@ -561,51 +562,7 @@ export default function EstudioDetallePage() {
                               {isCompleted ? 'Ver/Editar Resultados' : 'Registrar Datos'}
                             </Button>
 
-                            {/* Botones de cambio de estado */}
-                            <div className="flex gap-1">
-                              {updatingEstado === estudioSel.id ? (
-                                <div className="flex items-center justify-center w-full py-2">
-                                  <Loader2 className="h-4 w-4 animate-spin text-[#069e2d]" />
-                                  <span className="ml-2 text-sm text-[#069e2d]">Actualizando...</span>
-                                </div>
-                              ) : (
-                                <>
-                                  {estudioSel.estado !== 'pendiente' && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="flex-1 text-xs hover:bg-gray-100"
-                                      onClick={() => handleEstadoChange(estudioSel.id, 'pendiente')}
-                                    >
-                                      <Pause className="h-3 w-3 mr-1" />
-                                      Pendiente
-                                    </Button>
-                                  )}
-                                  {estudioSel.estado !== 'en_proceso' && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="flex-1 text-xs hover:bg-amber-50 text-amber-600"
-                                      onClick={() => handleEstadoChange(estudioSel.id, 'en_proceso')}
-                                    >
-                                      <Play className="h-3 w-3 mr-1" />
-                                      En Proceso
-                                    </Button>
-                                  )}
-                                  {estudioSel.estado !== 'completado' && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="flex-1 text-xs text-[#069e2d] hover:text-[#069e2d]/80 hover:bg-[#069e2d]/5"
-                                      onClick={() => handleEstadoChange(estudioSel.id, 'completado')}
-                                    >
-                                      <CheckCircle className="h-3 w-3 mr-1" />
-                                      Completar
-                                    </Button>
-                                  )}
-                                </>
-                              )}
-                            </div>
+                            {/* Botones de cambio de estado - Ocultos por solicitud */}
                           </div>
                         </CardFooter>
                       </Card>
