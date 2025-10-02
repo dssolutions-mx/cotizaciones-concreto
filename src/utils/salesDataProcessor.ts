@@ -522,14 +522,7 @@ export class SalesDataProcessor {
           unitPrice = findProductPrice('SER001', remision.order_id, recipeId, allOrderItems);
           calculatedAmount = unitPrice * unitCount;
           result.emptyTruckAmount += calculatedAmount;
-          console.log('🚛 Processing VACÍO DE OLLA remision:', {
-            isVirtual: (remision as any).isVirtualVacioDeOlla,
-            orderId: remision.order_id,
-            volume: unitCount,
-            unitPrice,
-            calculatedAmount,
-            currentTotal: result.emptyTruckAmount
-          });
+          // debug removed
 
         } else {
           // Regular concrete - use recipe code for sophisticated matching
