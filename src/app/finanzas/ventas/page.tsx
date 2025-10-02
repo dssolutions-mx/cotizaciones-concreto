@@ -244,28 +244,17 @@ export default function VentasDashboard() {
       tipoFilter.length === 0 || 
       tipoFilter.includes('VACÍO DE OLLA');
     
-    console.log('🔍 Should include vacío de olla?', {
-      shouldInclude: shouldIncludeVacioDeOlla,
-      tipoFilter,
-      tipoFilterLength: tipoFilter.length
-    });
+    // debug removed
     
     // If filter excludes VACÍO DE OLLA, return empty array - simple!
-    if (!shouldIncludeVacioDeOlla) {
-      console.log('❌ Not creating virtual remisiones - filter excludes VACÍO DE OLLA');
-      return [];
-    }
+    if (!shouldIncludeVacioDeOlla) return [];
     
     // If product code filter is set and doesn't include SER001, don't create them
     if (layoutType === 'powerbi' && codigoProductoFilter.length > 0) {
-      if (!codigoProductoFilter.includes('SER001')) {
-        console.log('❌ Not creating virtual remisiones - product filter excludes SER001');
-        return [];
-      }
+      if (!codigoProductoFilter.includes('SER001')) return [];
     }
     
     // Create virtual remisiones with all filters applied
-    console.log('✅ Creating virtual remisiones for vacío de olla');
     const virtuals = SalesDataProcessor.createVirtualVacioDeOllaRemisiones(
       salesData,
       remisionesData,
@@ -275,8 +264,6 @@ export default function VentasDashboard() {
       tipoFilter,
       efectivoFiscalFilter
     );
-    
-    console.log('📦 Created virtual remisiones:', virtuals.length);
     return virtuals;
   }, [salesData, remisionesData, clientFilter, searchTerm, layoutType, tipoFilter, efectivoFiscalFilter, codigoProductoFilter]);
 
@@ -294,28 +281,11 @@ export default function VentasDashboard() {
     const regularVacioCount = filteredRemisionesWithVacioDeOlla.filter(r => r.tipo_remision === 'VACÍO DE OLLA' && !r.isVirtualVacioDeOlla).length;
     const concreteCount = filteredRemisionesWithVacioDeOlla.filter(r => r.tipo_remision === 'CONCRETO' || (!r.tipo_remision && r.recipe?.recipe_code !== 'SER001' && r.recipe?.recipe_code !== 'SER002')).length;
     
-    console.log('📊 MAIN KPI - Calculating metrics with:', {
-      currentPlant: currentPlant?.code || 'ALL',
-      total: filteredRemisionesWithVacioDeOlla.length,
-      concreteRemisiones: concreteCount,
-      virtualVacio: virtualCount,
-      regularVacio: regularVacioCount,
-      tipoFilter: tipoFilter,
-      orderItemsCount: orderItems.length,
-      salesDataCount: salesData.length,
-      remisionesDataCount: remisionesData.length
-    });
+    // debug removed
     
     const metrics = SalesDataProcessor.calculateSummaryMetrics(filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems);
     
-    console.log('💰 MAIN KPI - Calculated metrics:', {
-      concreteVolume: metrics.concreteVolume,
-      emptyTruckVolume: metrics.emptyTruckVolume,
-      emptyTruckAmount: metrics.emptyTruckAmount,
-      concreteAmount: metrics.concreteAmount,
-      pumpAmount: metrics.pumpAmount,
-      totalAmount: metrics.totalAmount
-    });
+    // debug removed
     
     setSummaryMetrics(metrics);
   }, [filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems, tipoFilter]);
@@ -727,13 +697,7 @@ export default function VentasDashboard() {
       // Combine real and virtual remisiones
       const combinedRems = [...rems, ...virtualVacioForPlant];
 
-      console.log(`🏭 Plant ${plantInfo?.code}:`, {
-        realRemisiones: rems.length,
-        virtualVacio: virtualVacioForPlant.length,
-        orders: orders.length,
-        total: combinedRems.length,
-        plantOrderItems: plantOrderItems.length
-      });
+      // debug removed
 
       // Calculate metrics with order items
       // Prefer hook orderItems when this row matches the currently selected plant,
@@ -749,14 +713,7 @@ export default function VentasDashboard() {
         itemsForPricing
       );
 
-      console.log(`💰 TABLE Plant ${plantInfo?.code} Metrics:`, {
-        concreteVolume: metrics.concreteVolume,
-        concreteAmount: metrics.concreteAmount,
-        pumpAmount: metrics.pumpAmount,
-        emptyTruckAmount: metrics.emptyTruckAmount,
-        totalAmount: metrics.totalAmount,
-        remisionesUsed: combinedRems.length
-      });
+      // debug removed
 
       // Use the proven metrics from SalesDataProcessor (EXACT same as main page)
       const concreteVolume = metrics.concreteVolume || 0;
