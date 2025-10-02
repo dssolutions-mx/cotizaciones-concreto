@@ -1,6 +1,7 @@
 import { format, isValid } from 'date-fns';
 import { es } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
+import { findProductPrice } from './salesDataProcessor';
 
 interface OrderItem {
   id: string;
@@ -13,6 +14,15 @@ interface OrderItem {
   has_pump_service?: boolean;
   has_empty_truck_charge?: boolean;
   empty_truck_price?: number;
+  recipe_id?: string;
+  order_id?: string;
+  quote_details?: {
+    recipe_id?: string;
+    final_price?: number;
+  } | Array<{
+    recipe_id?: string;
+    final_price?: number;
+  }>;
 }
 
 interface Order {
@@ -36,6 +46,7 @@ interface Remision {
   isVirtualVacioDeOlla?: boolean;
   originalOrderItem?: OrderItem;
   recipe?: {
+    id?: string; // UUID for proper matching
     recipe_code: string;
   };
 }
@@ -63,43 +74,16 @@ export const exportSalesToExcel = (
   endDate: Date | undefined
 ) => {
   try {
-    // Helper function for Excel export (same logic as table display)
-    const findOrderItemForRemisionExport = (order: Order, remision: Remision) => {
-      if (!order?.items) return null;
-
-      const recipeCode = remision.recipe?.recipe_code;
-
-      // For BOMBEO, find item with pump service
-      if (remision.tipo_remision === 'BOMBEO') {
-        return order.items.find((item: any) => item.has_pump_service === true);
-      }
-
-      // For VACÍO DE OLLA, find empty truck item
-      if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
-        return order.items.find((item: any) =>
-          item.product_type === 'VACÍO DE OLLA' ||
-          item.product_type === 'EMPTY_TRUCK_CHARGE' ||
-          item.has_empty_truck_charge === true
-        );
-      }
-
-      // For concrete, match by recipe_id or product_type
-      return order.items.find((item: any) => {
-        // First try exact recipe_id match
-        if (item.recipe_id && remision.recipe?.id) {
-          return item.recipe_id === remision.recipe.id;
-        }
-        // Then try recipe_id as string match with recipe_code
-        if (item.recipe_id && recipeCode) {
-          return item.recipe_id.toString() === recipeCode;
-        }
-        // Finally try product_type match
-        if (item.product_type && recipeCode) {
-          return item.product_type === recipeCode;
-        }
-        return false;
-      });
-    };
+    // Extract all order items from salesData for sophisticated price matching
+    // Note: order items include quote_details relationship which contains recipe_id
+    // when the order_item.recipe_id is null. The findProductPrice utility prioritizes
+    // quote_details.recipe_id as the first matching strategy.
+    const allOrderItems = salesData.flatMap(order => 
+      (order.items || []).map((item: any) => ({
+        ...item,
+        order_id: order.id // Ensure order_id is present
+      }))
+    );
 
     // Prepare data for export - using consistent calculation logic
     const excelData: ExportData[] = filteredRemisionesWithVacioDeOlla.map((remision) => {
@@ -143,42 +127,28 @@ export const exportSalesToExcel = (
         };
       }
 
-      // Handle regular remisiones with improved matching
+      // Handle regular remisiones with sophisticated price matching
       const recipeCode = remision.recipe?.recipe_code;
-      const orderItem = findOrderItemForRemisionExport(order!, remision);
-
-      let unitPrice = 0;
-      let calculatedAmount = 0;
+      const recipeId = remision.recipe?.id; // Use the UUID for proper matching
       const volume = remision.volumen_fabricado || 0;
+
+      // Determine product type for price lookup
+      let productType = recipeCode || 'PRODUCTO';
       let displayVolume = volume;
-
-      if (orderItem) {
-        if (remision.tipo_remision === 'BOMBEO') {
-          // Pump service
-          unitPrice = parseFloat(orderItem.pump_price?.toString() || '0');
-          calculatedAmount = unitPrice * volume;
-          displayVolume = volume;
-
-        } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
-          // Empty truck charge
-          const unitCount = parseFloat(orderItem.empty_truck_volume?.toString() || '') || parseFloat(orderItem.volume?.toString() || '') || 1;
-
-          if (orderItem.total_price) {
-            calculatedAmount = parseFloat(orderItem.total_price.toString());
-            unitPrice = unitCount > 0 ? calculatedAmount / unitCount : 0;
-          } else {
-            unitPrice = parseFloat(orderItem.unit_price?.toString() || '') || parseFloat(orderItem.empty_truck_price?.toString() || '') || 0;
-            calculatedAmount = unitPrice * unitCount;
-          }
-          displayVolume = unitCount;
-
-        } else {
-          // Regular concrete
-          unitPrice = parseFloat(orderItem.unit_price?.toString() || '0');
-          calculatedAmount = unitPrice * volume;
-          displayVolume = volume;
-        }
+      
+      const isEmptyTruck = recipeCode === 'SER001';
+      const isBombeo = remision.tipo_remision === 'BOMBEO';
+      
+      if (isBombeo) {
+        productType = 'SER002'; // Bombeo service code
+      } else if (isEmptyTruck) {
+        productType = 'SER001'; // Empty truck code
+        displayVolume = 1; // Empty truck is counted as 1 unit
       }
+
+      // Use sophisticated price matching (same as table display)
+      const unitPrice = findProductPrice(productType, remision.order_id, recipeId, allOrderItems);
+      const calculatedAmount = unitPrice * displayVolume;
 
       // Fix date handling to avoid timezone issues
       const date = remision.fecha ?
@@ -192,11 +162,11 @@ export const exportSalesToExcel = (
         'Remisión': remision.remision_number,
         'Fecha': formattedDate,
         'Cliente': order?.clientName || order?.clients?.business_name || 'N/A',
-        'Código Producto': remision.tipo_remision === 'BOMBEO' ? 'SER002' :
-          recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA' ? 'SER001' :
+        'Código Producto': isBombeo ? 'SER002' :
+          isEmptyTruck ? 'SER001' :
           recipeCode || 'N/A',
-        'Producto': remision.tipo_remision === 'BOMBEO' ? 'SERVICIO DE BOMBEO' :
-          recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA' ? 'VACIO DE OLLA' :
+        'Producto': isBombeo ? 'SERVICIO DE BOMBEO' :
+          isEmptyTruck ? 'VACIO DE OLLA' :
           'CONCRETO PREMEZCLADO',
         'Volumen (m³)': displayVolume.toFixed(1),
         'Precio de Venta': `$${unitPrice.toFixed(2)}`,
