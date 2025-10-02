@@ -216,23 +216,23 @@ export default function EstudioFormModal({
         
         <div className="space-y-4">
           {/* Información del estudio */}
-          <div className="bg-primary/5 p-4 rounded-lg border border-primary/20">
+          <div className="bg-[#069e2d]/5 p-4 rounded-lg border border-[#069e2d]/20">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-primary">
+                <p className="text-[#069e2d]">
                   <strong>Descripción:</strong> {estudio.descripcion}
                 </p>
               </div>
               <div>
-                <p className="text-primary">
+                <p className="text-[#069e2d]">
                   <strong>Norma:</strong> {estudio.norma_referencia}
                 </p>
               </div>
               <div>
-                <p className="text-primary">
+                <p className="text-[#069e2d]">
                   <strong>Estado:</strong> 
                   <span className={`ml-2 px-2 py-1 rounded text-xs font-medium ${
-                    estudio.estado === 'completado' ? 'bg-primary/10 text-primary' :
+                    estudio.estado === 'completado' ? 'bg-[#069e2d]/10 text-[#069e2d]' :
                     estudio.estado === 'en_proceso' ? 'bg-yellow-100 text-yellow-800' :
                     'bg-gray-100 text-gray-800'
                   }`}>
@@ -241,7 +241,7 @@ export default function EstudioFormModal({
                 </p>
               </div>
               <div>
-                <p className="text-primary">
+                <p className="text-[#069e2d]">
                   <strong>Fecha Programada:</strong> {new Date(estudio.fecha_programada).toLocaleDateString('es-MX')}
                 </p>
               </div>

@@ -212,7 +212,7 @@ export default function PerdidaLavadoForm({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Droplets className="h-5 w-5 text-blue-600" />
+            <Droplets className="h-5 w-5 text-[#069e2d]" />
             Análisis de Pérdida por Lavado
           </CardTitle>
         </CardHeader>
@@ -382,9 +382,9 @@ export default function PerdidaLavadoForm({
               </div>
 
               {/* Guía de interpretación */}
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <h4 className="text-sm font-medium text-blue-900 mb-2">Guía de Interpretación:</h4>
-                <div className="text-xs text-blue-700 space-y-1">
+                <div className="p-3 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/20">
+                  <h4 className="text-sm font-medium text-[#069e2d] mb-2">Guía de Interpretación:</h4>
+                <div className="text-xs text-gray-700 space-y-1">
                   <div>• &lt; 1%: Muy limpio ✅</div>
                   <div>• 1-3%: Limpio ✅</div>
                   <div>• 3-5%: Moderadamente sucio ⚠️</div>

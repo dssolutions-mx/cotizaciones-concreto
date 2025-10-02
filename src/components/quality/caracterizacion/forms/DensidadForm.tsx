@@ -188,7 +188,7 @@ export default function DensidadForm({
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Scale className="h-5 w-5 text-blue-600" />
+            <Scale className="h-5 w-5 text-[#069e2d]" />
             Análisis de Densidad
           </CardTitle>
         </CardHeader>
@@ -302,23 +302,23 @@ export default function DensidadForm({
               <h3 className="font-semibold text-gray-900 border-b pb-2">Densidades</h3>
               
               <div className="space-y-3">
-                <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
-                  <span className="font-medium text-blue-900">Densidad Relativa:</span>
-                  <Badge className="bg-blue-600 text-white">
+                <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
+                  <span className="font-medium text-[#069e2d]">Densidad Relativa:</span>
+                  <Badge className="bg-[#069e2d] text-white">
                     {formData.densidad_relativa.toFixed(3)}
                   </Badge>
                 </div>
                 
-                <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                  <span className="font-medium text-green-900">Densidad SSS:</span>
-                  <Badge className="bg-green-600 text-white">
+                <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
+                  <span className="font-medium text-[#069e2d]">Densidad SSS:</span>
+                  <Badge className="bg-[#069e2d] text-white">
                     {formData.densidad_sss.toFixed(3)}
                   </Badge>
                 </div>
                 
-                <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
-                  <span className="font-medium text-purple-900">Densidad Aparente:</span>
-                  <Badge className="bg-purple-600 text-white">
+                <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
+                  <span className="font-medium text-[#069e2d]">Densidad Aparente:</span>
+                  <Badge className="bg-[#069e2d] text-white">
                     {formData.densidad_aparente.toFixed(3)}
                   </Badge>
                 </div>
@@ -330,12 +330,12 @@ export default function DensidadForm({
               <h3 className="font-semibold text-gray-900 border-b pb-2">Absorción</h3>
               
               <div className="space-y-3">
-                <div className="flex justify-between items-center p-4 bg-orange-50 rounded-lg">
+                <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
                   <div className="flex items-center gap-2">
-                    <Droplets className="h-5 w-5 text-orange-600" />
-                    <span className="font-medium text-orange-900">Absorción:</span>
+                    <Droplets className="h-5 w-5 text-[#069e2d]" />
+                    <span className="font-medium text-[#069e2d]">Absorción:</span>
                   </div>
-                  <Badge className="bg-orange-600 text-white text-lg px-3 py-1">
+                  <Badge className="bg-[#069e2d] text-white text-lg px-3 py-1">
                     {formData.absorcion.toFixed(2)}%
                   </Badge>
                 </div>
@@ -351,9 +351,9 @@ export default function DensidadForm({
               </div>
 
               {/* Guía de interpretación */}
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <h4 className="text-sm font-medium text-blue-900 mb-2">Guía de Interpretación:</h4>
-                <div className="text-xs text-blue-700 space-y-1">
+              <div className="p-3 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/20">
+                <h4 className="text-sm font-medium text-[#069e2d] mb-2">Guía de Interpretación:</h4>
+                <div className="text-xs text-gray-700 space-y-1">
                   <div>• &lt; 1%: Muy baja absorción</div>
                   <div>• 1-2%: Baja absorción</div>
                   <div>• 2-3%: Absorción moderada</div>
