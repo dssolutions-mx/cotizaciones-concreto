@@ -92,7 +92,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       console.log('Using plant_id from orderData as fallback:', plantId);
     }
 
-    // Start a transaction
+    // Revert to direct insert to avoid PostgREST schema cache issues
     const orderInsertData: any = {
       quote_id: orderData.quote_id,
       client_id: orderData.client_id,
@@ -108,13 +108,10 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       credit_status: orderData.credit_status,
       created_by: userId
     };
-    
+
     // Add plant_id if inherited from quote
     if (plantId) {
       orderInsertData.plant_id = plantId;
-      console.log('Adding plant_id to orderInsertData:', plantId);
-    } else {
-      console.log('No plant_id found - this will cause issues for executives');
     }
 
     // Include optional delivery coordinates and URL if provided
@@ -127,13 +124,13 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
     if (orderData.delivery_google_maps_url) {
       orderInsertData.delivery_google_maps_url = orderData.delivery_google_maps_url;
     }
-    
+
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert(orderInsertData)
       .select('id')
       .single();
-    
+
     if (orderError) throw orderError;
     
     // If order_items are provided, insert them
@@ -142,9 +139,9 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       const { data: quoteDetails, error: quoteDetailsError } = await supabase
         .from('quote_details')
         .select(`
-          id, 
-          final_price, 
-          pump_service, 
+          id,
+          final_price,
+          pump_service,
           pump_price,
           product_id,
           recipe_id,
@@ -153,13 +150,13 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           )
         `)
         .in('id', orderData.order_items.map(item => item.quote_detail_id));
-      
+
       if (quoteDetailsError) throw quoteDetailsError;
-      
+
       // Insert order items
       const orderItems = orderData.order_items.map((item: any) => {
         const quoteDetail = quoteDetails.find(qd => qd.id === item.quote_detail_id);
-        
+
         console.log('Processing order item:', {
           quoteDetailId: item.quote_detail_id,
           quoteDetail: quoteDetail,
@@ -168,7 +165,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           recipeId: quoteDetail?.recipe_id,
           recipes: quoteDetail?.recipes
         });
-        
+
         // Determine product type based on quote detail type
         let productType = 'Unknown';
         if (quoteDetail?.pump_service && quoteDetail?.product_id) {
@@ -177,13 +174,13 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           console.log('Identified as standalone pumping service');
         } else if (quoteDetail?.recipes) {
           // This is a concrete product
-          productType = typeof quoteDetail.recipes === 'object' ? 
+          productType = typeof quoteDetail.recipes === 'object' ?
             (quoteDetail.recipes as any).recipe_code : 'Unknown';
           console.log('Identified as concrete product:', productType);
         } else {
           console.log('Could not determine product type, using Unknown');
         }
-        
+
         // No longer include pump_volume field for individual items (legacy approach removed)
         return {
           order_id: order.id,
@@ -197,11 +194,11 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           pump_volume: null // Always null for individual items in new approach
         };
       });
-      
+
       const { error: itemsError } = await supabase
         .from('order_items')
         .insert(orderItems);
-      
+
       if (itemsError) throw itemsError;
     }
     
@@ -221,10 +218,10 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           empty_truck_volume: emptyTruckData.emptyTruckVolume,
           empty_truck_price: emptyTruckData.emptyTruckPrice
         });
-      
+
       if (emptyTruckError) throw emptyTruckError;
     }
-    
+
     // If pump service data is provided, add it as a separate "SERVICIO DE BOMBEO" order item
     if (pumpServiceData && pumpServiceData.volume > 0) {
       const { error: pumpServiceError } = await supabase
@@ -242,10 +239,10 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           pump_volume_delivered: null, // Should be null initially, updated when remisiones confirm delivery
           has_empty_truck_charge: false
         });
-      
+
       if (pumpServiceError) throw pumpServiceError;
     }
-    
+
     return order;
   } catch (error) {
     console.error('Error in createOrder:', error);
