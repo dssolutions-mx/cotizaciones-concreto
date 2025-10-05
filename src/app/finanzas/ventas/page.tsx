@@ -59,20 +59,72 @@ import { useProgressiveGuaranteeAge } from '@/hooks/useProgressiveGuaranteeAge';
 // Dynamically import ApexCharts with SSR disabled
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
+// Filter cache key
+const FILTER_CACHE_KEY = 'ventas_dashboard_filters';
+
+// Helper to load cached filters with migration support
+const loadCachedFilters = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cached = localStorage.getItem(FILTER_CACHE_KEY);
+    if (!cached) return null;
+    
+    const parsed = JSON.parse(cached);
+    
+    // Migrate old tipoFilter from string to array
+    if (parsed && typeof parsed.tipoFilter === 'string') {
+      if (parsed.tipoFilter === 'all' || !parsed.tipoFilter) {
+        parsed.tipoFilter = [];
+      } else {
+        parsed.tipoFilter = [parsed.tipoFilter];
+      }
+    }
+    
+    // Ensure tipoFilter is always an array
+    if (parsed && !Array.isArray(parsed.tipoFilter)) {
+      parsed.tipoFilter = [];
+    }
+    
+    // Ensure codigoProductoFilter is always an array
+    if (parsed && !Array.isArray(parsed.codigoProductoFilter)) {
+      parsed.codigoProductoFilter = [];
+    }
+    
+    return parsed;
+  } catch (e) {
+    console.error('Failed to load cached filters:', e);
+    return null;
+  }
+};
+
+// Helper to save filters to cache
+const saveCachedFilters = (filters: any) => {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(FILTER_CACHE_KEY, JSON.stringify(filters));
+  } catch (e) {
+    console.error('Failed to save filters:', e);
+  }
+};
+
 export default function VentasDashboard() {
   const { currentPlant, availablePlants } = usePlantContext();
+  
+  // Load cached filters on mount
+  const cachedFilters = loadCachedFilters();
+  
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
   const [searchTerm, setSearchTerm] = useState('');
-  const [clientFilter, setClientFilter] = useState<string>('all');
-  const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>('powerbi');
+  const [clientFilter, setClientFilter] = useState<string>(cachedFilters?.clientFilter || 'all');
+  const [layoutType, setLayoutType] = useState<'current' | 'powerbi'>(cachedFilters?.layoutType || 'powerbi');
 
-  // PowerBI Filters
-  const [resistanceFilter, setResistanceFilter] = useState<string>('all');
-  const [efectivoFiscalFilter, setEfectivoFiscalFilter] = useState<string>('all');
-  const [tipoFilter, setTipoFilter] = useState<string>('all');
-  const [codigoProductoFilter, setCodigoProductoFilter] = useState<string>('all');
-  const [includeVAT, setIncludeVAT] = useState<boolean>(false);
+  // PowerBI Filters with caching
+  const [resistanceFilter, setResistanceFilter] = useState<string>(cachedFilters?.resistanceFilter || 'all');
+  const [efectivoFiscalFilter, setEfectivoFiscalFilter] = useState<string>(cachedFilters?.efectivoFiscalFilter || 'all');
+  const [tipoFilter, setTipoFilter] = useState<string[]>(cachedFilters?.tipoFilter || []); // Multi-select: CONCRETO, BOMBEO, VACÍO DE OLLA
+  const [codigoProductoFilter, setCodigoProductoFilter] = useState<string[]>(cachedFilters?.codigoProductoFilter || []);
+  const [includeVAT, setIncludeVAT] = useState<boolean>(cachedFilters?.includeVAT || false);
 
   // Processed data state
   const [summaryMetrics, setSummaryMetrics] = useState<SummaryMetrics | null>(null);
@@ -91,6 +143,20 @@ export default function VentasDashboard() {
   const [plantTableLoading, setPlantTableLoading] = useState(false);
   const [plantTableProgress, setPlantTableProgress] = useState({ processed: 0, total: 0 });
   const [plantOrderData, setPlantOrderData] = useState<any[]>([]);
+
+  // Cache filters whenever they change
+  useEffect(() => {
+    const filters = {
+      clientFilter,
+      layoutType,
+      resistanceFilter,
+      efectivoFiscalFilter,
+      tipoFilter,
+      codigoProductoFilter,
+      includeVAT
+    };
+    saveCachedFilters(filters);
+  }, [clientFilter, layoutType, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, includeVAT]);
 
   // Use custom hook for data fetching
   const {
@@ -151,36 +217,45 @@ export default function VentasDashboard() {
           return order?.requires_invoice === requiresInvoice;
         });
       }
-      if (tipoFilter && tipoFilter !== 'all') {
-        filtered = filtered.filter(r => r.tipo_remision === tipoFilter);
+      // Multi-select tipo filter (CONCRETO, BOMBEO, VACÍO DE OLLA)
+      if (tipoFilter && tipoFilter.length > 0) {
+        filtered = filtered.filter(r => 
+          r.tipo_remision && tipoFilter.includes(r.tipo_remision)
+        );
       }
-      if (codigoProductoFilter && codigoProductoFilter !== 'all') {
-        filtered = filtered.filter(r => r.recipe?.recipe_code === codigoProductoFilter);
+      // Multi-select product code filter
+      if (codigoProductoFilter && codigoProductoFilter.length > 0) {
+        filtered = filtered.filter(r => 
+          r.recipe?.recipe_code && codigoProductoFilter.includes(r.recipe.recipe_code)
+        );
       }
     }
 
     return filtered;
   }, [remisionesData, clientFilter, searchTerm, layoutType, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, salesData]);
   
-  // Calculate summary metrics using the utility with sophisticated price matching
-  useMemo(() => {
-    const metrics = SalesDataProcessor.calculateSummaryMetrics(filteredRemisiones, salesData, clientFilter, orderItems);
-    setSummaryMetrics(metrics);
-  }, [filteredRemisiones, salesData, clientFilter, orderItems]);
-
-  // Calculate concrete by recipe using the utility
-  useMemo(() => {
-    const concreteRemisiones = filteredRemisiones.filter(r =>
-      r.tipo_remision === 'CONCRETO' ||
-      (r.isVirtualVacioDeOlla && r.tipo_remision === 'VACÍO DE OLLA')
-    );
-    const result = SalesDataProcessor.calculateConcreteByRecipe(concreteRemisiones);
-    setConcreteByRecipe(result);
-  }, [filteredRemisiones]);
-
-  // Create virtual vacío de olla remisiones
-  const virtualVacioDeOllaRemisiones = useMemo(() =>
-    SalesDataProcessor.createVirtualVacioDeOllaRemisiones(
+  // Create virtual vacío de olla remisiones (BEFORE calculating metrics)
+  // Simple logic: if tipo filter doesn't include "VACÍO DE OLLA", don't create them at all
+  const virtualVacioDeOllaRemisiones = useMemo(() => {
+    // Only create virtual remisiones if:
+    // 1. No tipo filter is set (showing all), OR  
+    // 2. Tipo filter includes "VACÍO DE OLLA"
+    const shouldIncludeVacioDeOlla = 
+      tipoFilter.length === 0 || 
+      tipoFilter.includes('VACÍO DE OLLA');
+    
+    // debug removed
+    
+    // If filter excludes VACÍO DE OLLA, return empty array - simple!
+    if (!shouldIncludeVacioDeOlla) return [];
+    
+    // If product code filter is set and doesn't include SER001, don't create them
+    if (layoutType === 'powerbi' && codigoProductoFilter.length > 0) {
+      if (!codigoProductoFilter.includes('SER001')) return [];
+    }
+    
+    // Create virtual remisiones with all filters applied
+    const virtuals = SalesDataProcessor.createVirtualVacioDeOllaRemisiones(
       salesData,
       remisionesData,
       clientFilter,
@@ -188,13 +263,42 @@ export default function VentasDashboard() {
       layoutType,
       tipoFilter,
       efectivoFiscalFilter
-    ), [salesData, remisionesData, clientFilter, searchTerm, layoutType, tipoFilter, efectivoFiscalFilter]);
+    );
+    return virtuals;
+  }, [salesData, remisionesData, clientFilter, searchTerm, layoutType, tipoFilter, efectivoFiscalFilter, codigoProductoFilter]);
 
   // Combine regular and virtual remisiones
   const filteredRemisionesWithVacioDeOlla = useMemo(() =>
     [...filteredRemisiones, ...virtualVacioDeOllaRemisiones],
     [filteredRemisiones, virtualVacioDeOllaRemisiones]
   );
+
+  // Calculate summary metrics using the utility with sophisticated price matching
+  // IMPORTANT: Calculate with combined remisiones (including vacío de olla)
+  useMemo(() => {
+    // Debug: Check what we're passing
+    const virtualCount = filteredRemisionesWithVacioDeOlla.filter(r => r.isVirtualVacioDeOlla).length;
+    const regularVacioCount = filteredRemisionesWithVacioDeOlla.filter(r => r.tipo_remision === 'VACÍO DE OLLA' && !r.isVirtualVacioDeOlla).length;
+    const concreteCount = filteredRemisionesWithVacioDeOlla.filter(r => r.tipo_remision === 'CONCRETO' || (!r.tipo_remision && r.recipe?.recipe_code !== 'SER001' && r.recipe?.recipe_code !== 'SER002')).length;
+    
+    // debug removed
+    
+    const metrics = SalesDataProcessor.calculateSummaryMetrics(filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems);
+    
+    // debug removed
+    
+    setSummaryMetrics(metrics);
+  }, [filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems, tipoFilter]);
+
+  // Calculate concrete by recipe using the utility
+  useMemo(() => {
+    const concreteRemisiones = filteredRemisionesWithVacioDeOlla.filter(r =>
+      r.tipo_remision === 'CONCRETO' ||
+      (r.isVirtualVacioDeOlla && r.tipo_remision === 'VACÍO DE OLLA')
+    );
+    const result = SalesDataProcessor.calculateConcreteByRecipe(concreteRemisiones);
+    setConcreteByRecipe(result);
+  }, [filteredRemisionesWithVacioDeOlla]);
 
   // Use processed summary metrics from state
   const currentSummaryMetrics = summaryMetrics || {
@@ -229,7 +333,7 @@ export default function VentasDashboard() {
 
   // Enhanced product code data with VAT support - shows amounts instead of just volume
   const productCodeAmountData = useMemo(() => {
-    const grouped = filteredRemisiones.reduce((acc, r) => {
+    const grouped = filteredRemisionesWithVacioDeOlla.reduce((acc, r) => {
       const recipeCode = r.recipe?.recipe_code || 'N/A';
       if (r.tipo_remision !== 'BOMBEO' && recipeCode !== 'SER001') { // Only concrete
         const volume = r.volumen_fabricado || 0;
@@ -266,10 +370,10 @@ export default function VentasDashboard() {
         amount: (data as { volume: number; amount: number }).amount 
       }))
       .sort((a, b) => b.amount - a.amount); // Sort by amount instead of volume
-  }, [filteredRemisiones, salesData, includeVAT]);
+  }, [filteredRemisionesWithVacioDeOlla, salesData, includeVAT]);
 
   const productCodeVolumeData = useMemo(() => {
-    const grouped = filteredRemisiones.reduce((acc, r) => {
+    const grouped = filteredRemisionesWithVacioDeOlla.reduce((acc, r) => {
       const recipeCode = r.recipe?.recipe_code || 'N/A';
       if (r.tipo_remision !== 'BOMBEO' && recipeCode !== 'SER001') { // Only concrete
         acc[recipeCode] = (acc[recipeCode] || 0) + (r.volumen_fabricado || 0);
@@ -283,10 +387,10 @@ export default function VentasDashboard() {
     return entries
       .map(([name, value]) => ({ name, volume: value }))
       .sort((a, b) => b.volume - a.volume); // Sort descending by volume
-  }, [filteredRemisiones]);
+  }, [filteredRemisionesWithVacioDeOlla]);
 
   const clientVolumeData = useMemo(() => {
-     const clientSummary = filteredRemisiones.reduce((acc: Record<string, { clientName: string; volume: number }>, remision) => {
+     const clientSummary = filteredRemisionesWithVacioDeOlla.reduce((acc: Record<string, { clientName: string; volume: number }>, remision) => {
         const clientId = remision.order?.client_id || 'unknown';
         const clientName = remision.order.clients ?
           (typeof remision.order.clients === 'object' ?
@@ -307,11 +411,11 @@ export default function VentasDashboard() {
       const mappedData: { name: string; value: number }[] = clientValues.map(summary => ({ name: summary.clientName, value: summary.volume }));
 
       return mappedData.sort((a, b) => b.value - a.value);
-  }, [filteredRemisiones, salesData]);
+  }, [filteredRemisionesWithVacioDeOlla, salesData]);
 
   // Enhanced client data with VAT support - shows amounts instead of just volume
   const clientAmountData = useMemo(() => {
-    const clientSummary = filteredRemisiones.reduce((acc: Record<string, { clientName: string; volume: number; amount: number }>, remision) => {
+    const clientSummary = filteredRemisionesWithVacioDeOlla.reduce((acc: Record<string, { clientName: string; volume: number; amount: number }>, remision) => {
       const clientId = remision.order?.client_id || 'unknown';
       const clientName = remision.order.clients ?
         (typeof remision.order.clients === 'object' ?
@@ -357,7 +461,7 @@ export default function VentasDashboard() {
         volume: summary.volume 
       }))
       .sort((a, b) => b.value - a.value); // Sort by amount
-  }, [filteredRemisiones, salesData, includeVAT]);
+  }, [filteredRemisionesWithVacioDeOlla, salesData, includeVAT]);
 
   // Chart Options
   const cashInvoiceChartOptions = useMemo(() => getCashInvoiceChartOptions(), []);
@@ -425,7 +529,7 @@ export default function VentasDashboard() {
 
   // Filter-aware weighted guarantee age (exclude BOMBEo and Vacío de Olla)
   const filteredWeightedGuaranteeAge = useMemo(() => {
-    const relevant = filteredRemisiones.filter(r => r.tipo_remision !== 'BOMBEO' && r.tipo_remision !== 'VACÍO DE OLLA');
+    const relevant = filteredRemisionesWithVacioDeOlla.filter(r => r.tipo_remision !== 'BOMBEO' && r.tipo_remision !== 'VACÍO DE OLLA');
     let sum = 0;
     let vol = 0;
     for (const r of relevant) {
@@ -445,7 +549,7 @@ export default function VentasDashboard() {
       }
     }
     return vol > 0 ? sum / vol : 0;
-  }, [filteredRemisiones]);
+  }, [filteredRemisionesWithVacioDeOlla]);
 
   const handleClientFilterChange = (value: string) => {
     setClientFilter(value);
@@ -457,8 +561,8 @@ export default function VentasDashboard() {
   
   const handleResistanceFilterChange = (value: string) => setResistanceFilter(value);
   const handleEfectivoFiscalFilterChange = (value: string) => setEfectivoFiscalFilter(value);
-  const handleTipoFilterChange = (value: string) => setTipoFilter(value);
-  const handleCodigoProductoFilterChange = (value: string) => setCodigoProductoFilter(value);
+  const handleTipoFilterChange = (values: string[]) => setTipoFilter(values);
+  const handleCodigoProductoFilterChange = (values: string[]) => setCodigoProductoFilter(values);
   const handleIncludeVATChange = (checked: boolean) => setIncludeVAT(checked);
 
   // Streaming progress percentage for progressive loading
@@ -506,6 +610,7 @@ export default function VentasDashboard() {
   };
 
   // --- Per-plant comparative calculations ---
+  // Get unique plant IDs from loaded table data (ALL plants, not filtered)
   const plantIdsInData = useMemo(() => {
     const ids = new Set<string>();
     plantTableData.forEach((r: any) => {
@@ -514,9 +619,10 @@ export default function VentasDashboard() {
     return Array.from(ids);
   }, [plantTableData]);
 
-  // Compute per-plant weighted guarantee age from fetched remisiones
+  // Compute per-plant weighted guarantee age from ALL plant data (for comparative table)
   const avgGuaranteeByPlantComputed = useMemo(() => {
     const accum: Record<string, { sum: number; vol: number }> = {};
+    // Use plantTableData which has data from ALL plants
     plantTableData.forEach((r: any) => {
       if (r.tipo_remision === 'BOMBEO' || r.tipo_remision === 'VACÍO DE OLLA') return;
       const pid = r?.plant_id != null ? String(r.plant_id) : undefined;
@@ -545,27 +651,81 @@ export default function VentasDashboard() {
   const perPlantRows = useMemo(() => {
     return plantIdsInData.map((plantId) => {
       const plantInfo = availablePlants.find(p => String(p.id) === String(plantId));
-      const rems = plantTableData.filter((r: any) => String(r.plant_id) === String(plantId));
-      const orders = plantOrderData.filter((o: any) => rems.some((r: any) => r.order_id === o.id));
+      
+      // Get remisiones for this plant from the loaded table data (ALL plants data)
+      let rems = plantTableData.filter((r: any) => String(r.plant_id) === String(plantId));
 
-      // Extract order items from orders for sophisticated price matching (EXACT same logic as main ventas page)
-      const orderItems = orders.flatMap((order: any) => order.items || []);
+      // CRITICAL: Apply tipo filter to remisiones (same as main KPIs)
+      if (layoutType === 'powerbi' && tipoFilter && tipoFilter.length > 0) {
+        rems = rems.filter((r: any) => 
+          r.tipo_remision && tipoFilter.includes(r.tipo_remision)
+        );
+      }
 
-      // Use the EXACT same proven logic as the main ventas page
-      const metrics = SalesDataProcessor.calculateSummaryMetrics(
-        rems as any, 
-        orders as any, 
-        'all', // clientFilter = 'all' to include all clients per plant
-        orderItems // Pass order items for sophisticated price matching
+      // Get unique order IDs from this plant's FILTERED remisiones
+      const orderIds = Array.from(new Set(rems.map((r: any) => r.order_id).filter(Boolean)));
+      
+      // Get orders for this plant
+      const orders = plantOrderData.filter((o: any) => orderIds.includes(o.id));
+
+      // Extract order items for THIS PLANT ONLY (critical for correct price matching)
+      const plantOrderItems = orders.flatMap(order => 
+        (order.items || []).map((item: any) => ({
+          ...item,
+          order_id: order.id
+        }))
       );
+
+      // Create virtual vacío de olla remisiones for this plant
+      // Check if we should include based on the tipo filter
+      const shouldIncludeVacioDeOlla = 
+        tipoFilter.length === 0 || 
+        tipoFilter.includes('VACÍO DE OLLA');
+      
+      const virtualVacioForPlant = shouldIncludeVacioDeOlla 
+        ? SalesDataProcessor.createVirtualVacioDeOllaRemisiones(
+            orders,  // Orders for this plant
+            rems as any,  // Remisiones for this plant
+            'all',  // No client filter
+            '',  // No search filter
+            layoutType,
+            tipoFilter,
+            'all'  // No efectivo/fiscal filter for comparative table
+          )
+        : [];
+
+      // Combine real and virtual remisiones
+      const combinedRems = [...rems, ...virtualVacioForPlant];
+
+      // debug removed
+
+      // Calculate metrics with order items
+      // Prefer hook orderItems when this row matches the currently selected plant,
+      // to ensure parity with main KPI calculations; otherwise use this plant's items
+      const itemsForPricing = (currentPlant && plantInfo?.code === currentPlant.code)
+        ? orderItems
+        : plantOrderItems;
+
+      const metrics = SalesDataProcessor.calculateSummaryMetrics(
+        combinedRems as any, 
+        orders as any,
+        'all',
+        itemsForPricing
+      );
+
+      // debug removed
 
       // Use the proven metrics from SalesDataProcessor (EXACT same as main page)
       const concreteVolume = metrics.concreteVolume || 0;
+      const pumpVolume = metrics.pumpVolume || 0;
+      const emptyTruckVolume = metrics.emptyTruckVolume || 0;
       const weightedResistance = metrics.weightedResistance || 0;
       
-      // VENTAS TOTALES: Only concrete products (subtotal - no VAT) - be analytical and careful
-      // Always use subtotal for consistency in comparative analysis
-      const concreteVentas = metrics.concreteAmount;
+      // Separate sales amounts for each product type (subtotal - no VAT for consistency)
+      const concreteVentas = metrics.concreteAmount || 0;
+      const pumpVentas = metrics.pumpAmount || 0;
+      const emptyTruckVentas = metrics.emptyTruckAmount || 0;
+      const totalVentas = concreteVentas + pumpVentas + emptyTruckVentas;
       
       const avgGuarantee = avgGuaranteeByPlantComputed[plantId] ?? 0;
 
@@ -574,12 +734,17 @@ export default function VentasDashboard() {
         plantCode: plantInfo?.code || 'N/A',
         plantName: plantInfo?.name || 'Sin nombre',
         concreteVolume,
+        pumpVolume,
+        emptyTruckVolume,
         weightedResistance,
         weightedGuaranteeAge: avgGuarantee,
-        totalVentas: concreteVentas // Only concrete sales, not pumping/empty truck
+        concreteVentas,
+        pumpVentas,
+        emptyTruckVentas,
+        totalVentas
       };
-    }).sort((a, b) => b.concreteVolume - a.concreteVolume);
-  }, [plantIdsInData, plantTableData, plantOrderData, includeVAT, availablePlants, avgGuaranteeByPlantComputed]);
+    }).sort((a, b) => b.totalVentas - a.totalVentas); // Sort by total ventas for better business insight
+  }, [plantIdsInData, plantTableData, plantOrderData, availablePlants, avgGuaranteeByPlantComputed, tipoFilter, layoutType]);
 
   // Remove remote service usage: using computed values from plantTableData instead
 
@@ -638,6 +803,7 @@ export default function VentasDashboard() {
             
             if (orderIds.length > 0) {
               // Fetch orders for these remisiones
+              // IMPORTANT: Include quote_details for sophisticated price matching
               const { data: plantOrders, error: orderError } = await supabase
                 .from('orders')
                 .select(`
@@ -646,7 +812,13 @@ export default function VentasDashboard() {
                   requires_invoice,
                   client_id,
                   clients(business_name),
-                  items:order_items(*)
+                  items:order_items(
+                    *,
+                    quote_details (
+                      final_price,
+                      recipe_id
+                    )
+                  )
                 `)
                 .in('id', orderIds)
                 .not('order_status', 'eq', 'CANCELLED');
@@ -680,16 +852,22 @@ export default function VentasDashboard() {
   const exportPlantsTable = () => {
     const data = perPlantRows.map(row => ({
       'Planta': `${row.plantCode} - ${row.plantName}`,
-      'Volumen Concreto (m³)': Number(row.concreteVolume.toFixed(1)),
+      'Vol. Concreto (m³)': Number(row.concreteVolume.toFixed(1)),
+      'Vol. Bombeo (m³)': Number(row.pumpVolume.toFixed(1)),
+      'Vol. Vacío de Olla (m³)': Number(row.emptyTruckVolume.toFixed(1)),
       'Resistencia Ponderada (kg/cm²)': Number(row.weightedResistance.toFixed(1)),
-      'Edad Garantía Ponderada (días)': Number(row.weightedGuaranteeAge.toFixed(1)),
-      'Ventas Concreto (Subtotal)': Number(row.totalVentas.toFixed(2))
+      'Edad Garantía (días)': Number(row.weightedGuaranteeAge.toFixed(1)),
+      'Ventas Concreto': Number(row.concreteVentas.toFixed(2)),
+      'Ventas Bombeo': Number(row.pumpVentas.toFixed(2)),
+      'Ventas Vacío de Olla': Number(row.emptyTruckVentas.toFixed(2)),
+      'Ventas Totales': Number(row.totalVentas.toFixed(2))
     }));
 
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(data);
     ws['!cols'] = [
-      { wch: 28 }, { wch: 20 }, { wch: 26 }, { wch: 26 }, { wch: 18 }
+      { wch: 28 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 26 }, 
+      { wch: 20 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 18 }
     ];
     XLSX.utils.book_append_sheet(wb, ws, 'Comparativo_Plantas');
     const sd = startDate ? format(startDate, 'dd-MM-yyyy') : 'fecha';
@@ -1231,7 +1409,7 @@ export default function VentasDashboard() {
                         <div>
                           <CardTitle className="text-xl font-medium text-gray-900 tracking-tight">Comparativo por Planta</CardTitle>
                           <CardDescription className="text-sm text-gray-500 mt-2 font-normal">
-                            Resumen por planta: volumen de concreto, resistencia ponderada, edad de garantía y ventas totales
+                            Análisis detallado por planta: volúmenes de concreto, bombeo y vacío de olla, resistencia ponderada, edad de garantía y ventas por producto
                           </CardDescription>
                         </div>
                         <Button 
@@ -1270,36 +1448,56 @@ export default function VentasDashboard() {
                           </div>
                         </div>
                       ) : (
-                        <div className="overflow-hidden">
+                        <div className="overflow-x-auto">
                           <Table>
                             <TableHeader>
                               <TableRow className="border-b border-gray-100/80 bg-gray-50/40">
-                                <TableHead className="font-medium text-gray-700 py-4 px-8 text-left">Planta</TableHead>
-                                <TableHead className="font-medium text-gray-700 py-4 px-6 text-right">Volumen Concreto (m³)</TableHead>
-                                <TableHead className="font-medium text-gray-700 py-4 px-6 text-right">Resistencia Ponderada (kg/cm²)</TableHead>
-                                <TableHead className="font-medium text-gray-700 py-4 px-6 text-right">Edad Garantía (días)</TableHead>
-                                <TableHead className="font-medium text-gray-700 py-4 px-8 text-right">Ventas Concreto (subtotal)</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-6 text-left sticky left-0 bg-gray-50/40 z-10">Planta</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-4 text-right">Vol. Concreto (m³)</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-4 text-right">Vol. Bombeo (m³)</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-4 text-right">Vol. Vacío Olla (m³)</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-4 text-right">Resist. Pond. (kg/cm²)</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-4 text-right">Edad Gar. (días)</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-4 text-right">Ventas Concreto</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-4 text-right">Ventas Bombeo</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-4 text-right">Ventas Vacío Olla</TableHead>
+                                <TableHead className="font-medium text-gray-700 py-4 px-4 text-right bg-blue-50/50">Ventas Totales</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {perPlantRows.map((row, index) => (
                                 <TableRow key={row.plantId} className={`border-b border-gray-50/80 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50/20'} hover:bg-blue-50/30 transition-colors duration-200`}>
-                                  <TableCell className="py-5 px-8">
+                                  <TableCell className="py-4 px-6 sticky left-0 bg-inherit z-10">
                                     <div>
                                       <div className="font-semibold text-gray-900 text-sm">{row.plantCode}</div>
                                       <div className="text-xs text-gray-500 mt-0.5">{row.plantName}</div>
                                     </div>
                                   </TableCell>
-                                  <TableCell className="py-5 px-6 text-right text-sm text-gray-900 tabular-nums">
+                                  <TableCell className="py-4 px-4 text-right text-sm text-gray-900 tabular-nums">
                                     {row.concreteVolume.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                                   </TableCell>
-                                  <TableCell className="py-5 px-6 text-right text-sm text-gray-900 tabular-nums">
+                                  <TableCell className="py-4 px-4 text-right text-sm text-gray-900 tabular-nums">
+                                    {row.pumpVolume.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                  </TableCell>
+                                  <TableCell className="py-4 px-4 text-right text-sm text-gray-900 tabular-nums">
+                                    {row.emptyTruckVolume.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                  </TableCell>
+                                  <TableCell className="py-4 px-4 text-right text-sm text-gray-900 tabular-nums">
                                     {row.weightedResistance.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                                   </TableCell>
-                                  <TableCell className="py-5 px-6 text-right text-sm text-gray-900 tabular-nums">
+                                  <TableCell className="py-4 px-4 text-right text-sm text-gray-900 tabular-nums">
                                     {row.weightedGuaranteeAge.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
                                   </TableCell>
-                                  <TableCell className="py-5 px-8 text-right text-sm text-gray-900 font-medium tabular-nums">
+                                  <TableCell className="py-4 px-4 text-right text-sm text-gray-900 tabular-nums">
+                                    {formatCurrency(row.concreteVentas)}
+                                  </TableCell>
+                                  <TableCell className="py-4 px-4 text-right text-sm text-gray-900 tabular-nums">
+                                    {formatCurrency(row.pumpVentas)}
+                                  </TableCell>
+                                  <TableCell className="py-4 px-4 text-right text-sm text-gray-900 tabular-nums">
+                                    {formatCurrency(row.emptyTruckVentas)}
+                                  </TableCell>
+                                  <TableCell className="py-4 px-4 text-right text-sm text-gray-900 font-semibold tabular-nums bg-blue-50/50">
                                     {formatCurrency(row.totalVentas)}
                                   </TableCell>
                                 </TableRow>

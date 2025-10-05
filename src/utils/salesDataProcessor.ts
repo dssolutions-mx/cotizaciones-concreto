@@ -496,7 +496,9 @@ export class SalesDataProcessor {
       remisiones.forEach(remision => {
         const volume = remision.volumen_fabricado || 0;
         const recipeCode = remision.recipe?.recipe_code;
-        const recipeId = (remision as any).recipe_id;
+        // Use recipe_id if present; otherwise fall back to related recipe.id
+        // This aligns per-plant table (which selects recipe relation) with main KPI (which often has recipe_id)
+        const recipeId = (remision as any).recipe_id ?? remision.recipe?.id;
 
         if (volume <= 0) return; // Skip zero volume remisiones
 
@@ -520,6 +522,7 @@ export class SalesDataProcessor {
           unitPrice = findProductPrice('SER001', remision.order_id, recipeId, allOrderItems);
           calculatedAmount = unitPrice * unitCount;
           result.emptyTruckAmount += calculatedAmount;
+          // debug removed
 
         } else {
           // Regular concrete - use recipe code for sophisticated matching
@@ -538,50 +541,9 @@ export class SalesDataProcessor {
       });
     }
 
-    // Process "Vacío de Olla" items that don't have corresponding remisiones
-    let filteredOrders = [...salesData];
-
-    if (clientFilter && clientFilter !== 'all') {
-      filteredOrders = filteredOrders.filter(order => order.client_id === clientFilter);
-    }
-
-    filteredOrders.forEach(order => {
-      const emptyTruckItem = order.items?.find((item: any) =>
-        item.product_type === 'VACÍO DE OLLA' ||
-        item.product_type === 'EMPTY_TRUCK_CHARGE' ||
-        item.has_empty_truck_charge === true
-      );
-
-      if (emptyTruckItem) {
-        // Check if this empty truck item was already processed via remisiones
-        const hasCorrespondingRemision = remisiones.some(remision =>
-          remision.order_id === order.id &&
-          (remision.recipe?.recipe_code === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA')
-        );
-
-        if (!hasCorrespondingRemision) {
-          // Process this empty truck item since it wasn't captured in remisiones
-          const unitCount = parseFloat(emptyTruckItem.empty_truck_volume?.toString() || '') || parseFloat(emptyTruckItem.volume?.toString() || '') || 1;
-          let calculatedAmount = 0;
-
-          if (emptyTruckItem.total_price) {
-            calculatedAmount = parseFloat(emptyTruckItem.total_price.toString());
-          } else {
-            const unitPrice = parseFloat(emptyTruckItem.unit_price?.toString() || '') || parseFloat(emptyTruckItem.empty_truck_price?.toString() || '') || 0;
-            calculatedAmount = unitPrice * unitCount;
-          }
-
-          result.emptyTruckVolume += unitCount;
-          result.emptyTruckAmount += calculatedAmount;
-
-          if (order.requires_invoice) {
-            result.invoiceAmount += calculatedAmount;
-          } else {
-            result.cashAmount += calculatedAmount;
-          }
-        }
-      }
-    });
+    // REMOVED: Old code that processed vacío de olla from order_items
+    // Now we ONLY use virtual remisiones for vacío de olla
+    // This ensures proper filtering and prevents duplication
 
     // Calculate totals
     result.totalVolume = result.concreteVolume + result.pumpVolume; // Exclude empty truck from volume count
@@ -649,7 +611,7 @@ export class SalesDataProcessor {
     clientFilter: string,
     searchTerm: string,
     layoutType: 'current' | 'powerbi',
-    tipoFilter: string,
+    tipoFilter: string | string[], // Support both string and array for backward compatibility
     efectivoFiscalFilter: string
   ): VirtualRemision[] {
     // Get orders that match current filters
@@ -720,8 +682,14 @@ export class SalesDataProcessor {
           }
 
           // Apply tipo filter if needed in PowerBI layout
-          if (layoutType === 'powerbi' && tipoFilter && tipoFilter !== 'all' && tipoFilter !== 'VACÍO DE OLLA') {
-            return; // Skip if filtered by tipo and not matching
+          if (layoutType === 'powerbi') {
+            // Handle both string (legacy) and array (new multi-select) formats
+            const tipoArray = Array.isArray(tipoFilter) ? tipoFilter : (tipoFilter === 'all' || !tipoFilter ? [] : [tipoFilter]);
+            
+            // If tipo filter is set and doesn't include "VACÍO DE OLLA", skip this virtual remision
+            if (tipoArray.length > 0 && !tipoArray.includes('VACÍO DE OLLA')) {
+              return;
+            }
           }
 
           // Apply efectivo/fiscal filter if needed in PowerBI layout
