@@ -449,5 +449,46 @@ export const caracterizacionService = {
       console.error('Error al obtener granulometría:', error);
       throw error;
     }
+  },
+
+  // Obtener límites granulométricos por tipo y tamaño
+  async getLimitesGranulometricos(tipoMaterial: 'Arena' | 'Grava', tamaño: string): Promise<any | null> {
+    try {
+      const { data, error } = await supabase
+        .from('limites_granulometricos')
+        .select('*')
+        .eq('tipo_material', tipoMaterial)
+        .eq('tamaño', tamaño)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error de Supabase al obtener límites:', error);
+        throw new Error(`Error al obtener límites: ${error.message}`);
+      }
+      return data || null;
+    } catch (error: any) {
+      console.error('Error al obtener límites granulométricos:', error);
+      throw new Error(error?.message || 'Error desconocido al obtener límites granulométricos');
+    }
+  },
+
+  // Obtener todos los tamaños disponibles para un tipo de material
+  async getTamañosDisponibles(tipoMaterial: 'Arena' | 'Grava'): Promise<string[]> {
+    try {
+      const { data, error } = await supabase
+        .from('limites_granulometricos')
+        .select('tamaño')
+        .eq('tipo_material', tipoMaterial)
+        .order('tamaño');
+
+      if (error) {
+        console.error('Error de Supabase al obtener tamaños:', error);
+        throw new Error(`Error al obtener tamaños: ${error.message}`);
+      }
+      return data?.map(d => d.tamaño) || [];
+    } catch (error: any) {
+      console.error('Error al obtener tamaños disponibles:', error);
+      throw new Error(error?.message || 'Error desconocido al obtener tamaños disponibles');
+    }
   }
 };

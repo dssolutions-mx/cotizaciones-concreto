@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Table, 
   TableBody, 
@@ -23,9 +24,13 @@ import {
   AlertCircle,
   Plus,
   Trash2,
-  Info
+  Info,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
+import { caracterizacionService } from '@/services/caracterizacionService';
+import CurvaGranulometrica from '../charts/CurvaGranulometrica';
 
 interface MallaData {
   id: string;
@@ -53,6 +58,11 @@ interface GranulometriaFormProps {
   onSave: (data: GranulometriaResultados) => Promise<void>;
   onCancel: () => void;
   isLoading?: boolean;
+}
+
+interface EstudioInfo {
+  tipo_material: 'Arena' | 'Grava';
+  tamaño: string;
 }
 
 // Mallas estándar para análisis granulométrico
@@ -104,11 +114,161 @@ export default function GranulometriaForm({
 
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [estudioInfo, setEstudioInfo] = useState<EstudioInfo | null>(null);
+  const [limites, setLimites] = useState<any[]>([]);
+  const [tamañosDisponibles, setTamañosDisponibles] = useState<string[]>([]);
+  const [selectedTamaño, setSelectedTamaño] = useState<string>('');
+  const [loadingEstudio, setLoadingEstudio] = useState(true);
+  const [loadingLimites, setLoadingLimites] = useState(false);
+
+  // Cargar información del estudio al montar
+  useEffect(() => {
+    cargarInfoEstudio();
+  }, [estudioId]);
+
+  // Cargar límites cuando se selecciona un tamaño
+  useEffect(() => {
+    if (estudioInfo && selectedTamaño) {
+      cargarLimites(estudioInfo.tipo_material, selectedTamaño);
+    }
+  }, [estudioInfo, selectedTamaño]);
 
   // Calcular automáticamente los porcentajes cuando cambian los pesos
   useEffect(() => {
     calcularPorcentajes();
   }, [formData.peso_muestra_inicial, formData.mallas]);
+
+  const cargarInfoEstudio = async () => {
+    try {
+      setLoadingEstudio(true);
+      
+      // Obtener el alta_estudio_id
+      const { data: estudioData, error: estudioError } = await supabase
+        .from('estudios_seleccionados')
+        .select('alta_estudio_id')
+        .eq('id', estudioId)
+        .single();
+
+      if (estudioError) {
+        console.error('Error al obtener estudio seleccionado:', estudioError);
+        throw new Error('No se pudo obtener el estudio seleccionado');
+      }
+
+      // Obtener información del alta_estudio
+      const { data: altaData, error: altaError } = await supabase
+        .from('alta_estudio')
+        .select('tipo_material, tamaño')
+        .eq('id', estudioData.alta_estudio_id)
+        .single();
+
+      if (altaError) {
+        console.error('Error al obtener alta_estudio:', altaError);
+        throw new Error('No se pudo obtener información del estudio');
+      }
+
+      setEstudioInfo({
+        tipo_material: altaData.tipo_material,
+        tamaño: altaData.tamaño || ''
+      });
+
+      // Si ya tiene un tamaño definido, cargarlo
+      if (altaData.tamaño) {
+        setSelectedTamaño(altaData.tamaño);
+      }
+
+      // Cargar tamaños disponibles
+      try {
+        const tamaños = await caracterizacionService.getTamañosDisponibles(altaData.tipo_material);
+        setTamañosDisponibles(tamaños);
+        
+        if (tamaños.length === 0) {
+          toast.warning(`No se encontraron tamaños disponibles para ${altaData.tipo_material}`);
+        }
+      } catch (error: any) {
+        console.error('Error al cargar tamaños disponibles:', error);
+        toast.error(error?.message || 'Error al cargar tamaños disponibles');
+        setTamañosDisponibles([]);
+      }
+
+    } catch (error: any) {
+      console.error('Error cargando info del estudio:', error);
+      toast.error(error?.message || 'Error al cargar información del estudio');
+    } finally {
+      setLoadingEstudio(false);
+    }
+  };
+
+  const cargarLimites = async (tipoMaterial: 'Arena' | 'Grava', tamaño: string) => {
+    try {
+      setLoadingLimites(true);
+      const limitesData = await caracterizacionService.getLimitesGranulometricos(tipoMaterial, tamaño);
+      
+      if (limitesData && limitesData.mallas) {
+        setLimites(limitesData.mallas);
+      } else {
+        setLimites([]);
+        toast.info('No se encontraron límites granulométricos para este tamaño');
+      }
+    } catch (error) {
+      console.error('Error cargando límites:', error);
+      setLimites([]);
+    } finally {
+      setLoadingLimites(false);
+    }
+  };
+
+  const handleTamañoChange = async (tamaño: string) => {
+    setSelectedTamaño(tamaño);
+    
+    // Actualizar el tamaño en alta_estudio si es necesario
+    try {
+      const { data: estudioData } = await supabase
+        .from('estudios_seleccionados')
+        .select('alta_estudio_id')
+        .eq('id', estudioId)
+        .single();
+
+      if (estudioData) {
+        await supabase
+          .from('alta_estudio')
+          .update({ tamaño: tamaño })
+          .eq('id', estudioData.alta_estudio_id);
+      }
+    } catch (error) {
+      console.error('Error actualizando tamaño:', error);
+    }
+  };
+
+  // Normalizar nombre de malla para comparación
+  const normalizarNombreMalla = (nombre: string): string => {
+    return nombre
+      .replace(/No\.\s*/g, '')  // Eliminar "No. " o "No."
+      .replace(/"/g, '')         // Eliminar comillas
+      .replace(/\s+/g, '')       // Eliminar espacios
+      .trim()
+      .toLowerCase();
+  };
+
+  // Filtrar mallas relevantes según los límites cargados
+  const getMallasRelevantes = () => {
+    if (limites.length === 0) {
+      // Si no hay límites, mostrar todas las mallas estándar
+      return formData.mallas;
+    }
+
+    // Crear mapa de mallas con límites (normalizado)
+    const mallasConLimitesMap = new Map<string, any>();
+    limites.forEach(limite => {
+      const mallaLimpia = normalizarNombreMalla(limite.malla);
+      mallasConLimitesMap.set(mallaLimpia, limite);
+    });
+
+    // Filtrar solo las mallas que están en los límites
+    return formData.mallas.filter(malla => {
+      const nombreNormalizado = normalizarNombreMalla(malla.numero_malla);
+      return mallasConLimitesMap.has(nombreNormalizado);
+    });
+  };
 
   const calcularPorcentajes = () => {
     const { peso_muestra_inicial, mallas } = formData;
@@ -229,6 +389,15 @@ export default function GranulometriaForm({
     }
   };
 
+  if (loadingEstudio) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-[#069e2d]" />
+        <span className="ml-3 text-gray-600">Cargando información del estudio...</span>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -237,15 +406,54 @@ export default function GranulometriaForm({
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-[#069e2d]" />
             Análisis Granulométrico
+            {estudioInfo && (
+              <Badge variant="outline" className="ml-2">
+                {estudioInfo.tipo_material}
+              </Badge>
+            )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
               <strong>Norma:</strong> ASTM C136 / NMX-C-077 - Determinación de la distribución de tamaños de partículas
             </AlertDescription>
           </Alert>
+
+          {/* Selector de Tamaño */}
+          {estudioInfo && tamañosDisponibles.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="tamaño">Tamaño del Material *</Label>
+              <Select 
+                value={selectedTamaño} 
+                onValueChange={handleTamañoChange}
+                disabled={loadingLimites}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar tamaño" />
+                </SelectTrigger>
+                <SelectContent>
+                  {tamañosDisponibles.map((tamaño) => (
+                    <SelectItem key={tamaño} value={tamaño}>
+                      {tamaño}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {loadingLimites && (
+                <p className="text-sm text-gray-500 flex items-center gap-2">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Cargando límites granulométricos...
+                </p>
+              )}
+              {selectedTamaño && limites.length > 0 && (
+                <p className="text-sm text-green-600">
+                  ✓ Límites granulométricos cargados para {selectedTamaño}
+                </p>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -304,9 +512,26 @@ export default function GranulometriaForm({
       {/* Tabla de Mallas */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Análisis por Mallas</CardTitle>
+          <CardTitle className="text-lg flex items-center justify-between">
+            <span>Análisis por Mallas</span>
+            {selectedTamaño && limites.length > 0 && (
+              <Badge variant="outline" className="text-xs">
+                Mostrando {getMallasRelevantes().length} de {formData.mallas.length} mallas
+              </Badge>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
+          {selectedTamaño && limites.length > 0 && (
+            <Alert className="mb-4">
+              <Info className="h-4 w-4" />
+              <AlertDescription>
+                Solo se muestran las mallas relevantes para <strong>{selectedTamaño}</strong>. 
+                Las mallas mostradas corresponden a aquellas que tienen límites granulométricos definidos.
+              </AlertDescription>
+            </Alert>
+          )}
+          
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
@@ -317,49 +542,104 @@ export default function GranulometriaForm({
                   <TableHead>% Retenido</TableHead>
                   <TableHead>% Acumulado</TableHead>
                   <TableHead>% Pasa</TableHead>
+                  {limites.length > 0 && (
+                    <>
+                      <TableHead className="text-center">Lím. Inf.</TableHead>
+                      <TableHead className="text-center">Lím. Sup.</TableHead>
+                    </>
+                  )}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {formData.mallas.map((malla) => (
-                  <TableRow key={malla.id}>
-                    <TableCell className="font-medium">
-                      {malla.numero_malla}
-                    </TableCell>
-                    <TableCell>
-                      {malla.abertura_mm > 0 ? malla.abertura_mm : '-'}
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        value={malla.peso_retenido || ''}
-                        onChange={(e) => handlePesoRetenidoChange(malla.id, e.target.value)}
-                        className="w-24"
-                        placeholder="0.0"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {malla.porcentaje_retenido.toFixed(2)}%
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {malla.porcentaje_acumulado.toFixed(2)}%
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {malla.porcentaje_pasa.toFixed(2)}%
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {getMallasRelevantes().map((malla) => {
+                  // Buscar límite correspondiente usando normalización
+                  const nombreMallaNormalizado = normalizarNombreMalla(malla.numero_malla);
+                  const limite = limites.find(l => 
+                    normalizarNombreMalla(l.malla) === nombreMallaNormalizado
+                  );
+
+                  // Verificar si está dentro de los límites
+                  const dentroLimites = limite ? 
+                    (malla.porcentaje_pasa >= limite.limite_inferior && 
+                     malla.porcentaje_pasa <= limite.limite_superior) : 
+                    true;
+
+                  return (
+                    <TableRow 
+                      key={malla.id}
+                      className={
+                        limite && malla.peso_retenido !== null && !dentroLimites
+                          ? 'bg-red-50'
+                          : limite && malla.peso_retenido !== null && dentroLimites
+                          ? 'bg-green-50'
+                          : ''
+                      }
+                    >
+                      <TableCell className="font-medium">
+                        {malla.numero_malla}
+                      </TableCell>
+                      <TableCell>
+                        {malla.abertura_mm > 0 ? malla.abertura_mm : '-'}
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={malla.peso_retenido || ''}
+                          onChange={(e) => handlePesoRetenidoChange(malla.id, e.target.value)}
+                          className="w-24"
+                          placeholder="0.0"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {malla.porcentaje_retenido.toFixed(2)}%
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">
+                          {malla.porcentaje_acumulado.toFixed(2)}%
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge 
+                          variant={
+                            limite && malla.peso_retenido !== null
+                              ? dentroLimites ? "default" : "destructive"
+                              : "secondary"
+                          }
+                        >
+                          {malla.porcentaje_pasa.toFixed(2)}%
+                        </Badge>
+                      </TableCell>
+                      {limites.length > 0 && (
+                        <>
+                          <TableCell className="text-center text-sm text-blue-600">
+                            {limite ? `${limite.limite_inferior}%` : '-'}
+                          </TableCell>
+                          <TableCell className="text-center text-sm text-red-600">
+                            {limite ? `${limite.limite_superior}%` : '-'}
+                          </TableCell>
+                        </>
+                      )}
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
         </CardContent>
       </Card>
+
+      {/* Curva Granulométrica */}
+      {estudioInfo && formData.peso_muestra_inicial > 0 && (
+        <CurvaGranulometrica 
+          mallas={formData.mallas}
+          limites={limites}
+          tipoMaterial={estudioInfo.tipo_material}
+          tamaño={selectedTamaño}
+        />
+      )}
 
       {/* Resultados Calculados */}
       <Card>

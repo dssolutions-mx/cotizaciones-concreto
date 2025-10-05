@@ -30,6 +30,7 @@ interface EstudioSeleccionado {
   fecha_completado?: string;
   resultados?: any;
   observaciones?: string;
+  alta_estudio_id?: string;
 }
 
 interface EstudioFormModalProps {
@@ -52,13 +53,20 @@ export default function EstudioFormModal({
       setIsLoading(true);
       
       // Obtener el alta_estudio_id del estudio seleccionado
-      const { data: estudioData, error: estudioError } = await supabase
-        .from('estudios_seleccionados')
-        .select('alta_estudio_id')
-        .eq('id', estudio.id)
-        .single();
+      let altaEstudioId = estudio.alta_estudio_id;
+      
+      if (!altaEstudioId) {
+        const { data: estudioData, error: estudioError } = await supabase
+          .from('estudios_seleccionados')
+          .select('alta_estudio_id')
+          .eq('id', estudio.id)
+          .single();
 
-      if (estudioError) throw estudioError;
+        if (estudioError) throw estudioError;
+        altaEstudioId = estudioData.alta_estudio_id;
+      }
+
+      const estudioData = { alta_estudio_id: altaEstudioId };
 
       // Guardar según el tipo de estudio
       if (estudio.nombre_estudio === 'Análisis Granulométrico') {
