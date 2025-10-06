@@ -36,7 +36,18 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid user profile data' }, { status: 400 });
     }
 
-    const clientId = user.id;
+    // Get the client record for this external client via portal_user_id
+    const { data: client, error: clientRecordError } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('portal_user_id', user.id)
+      .maybeSingle();
+
+    if (clientRecordError || !client) {
+      return NextResponse.json({ error: 'Client record not found' }, { status: 404 });
+    }
+
+    const clientId = client.id; // This is the actual clients.id to use for filtering orders
 
     // Get order details with order items and related data
     const { data: order, error: orderError } = await supabase
