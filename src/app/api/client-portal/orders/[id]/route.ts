@@ -72,28 +72,39 @@ export async function GET(
     }
 
     // Get remisiones (deliveries) for this order with related data
-    const { data: remisiones, error: remisionesError } = await supabase
-      .from('remisiones')
-      .select(`
-        id,
-        fecha,
-        volumen_fabricado,
-        tipo_remision,
-        remision_number,
-        hora_carga,
-        conductor,
-        unidad,
-        recipe_id,
-        recipe:recipes(
-          recipe_code,
-          strength_fc
-        )
-      `)
-      .eq('order_id', orderId)
-      .order('fecha', { ascending: false });
+    let remisiones: any[] = [];
+    try {
+      const { data: remisionesData, error: remisionesError } = await supabase
+        .from('remisiones')
+        .select(`
+          id,
+          fecha,
+          volumen_fabricado,
+          tipo_remision,
+          remision_number,
+          hora_carga,
+          conductor,
+          unidad,
+          recipe_id,
+          recipe:recipes(
+            recipe_code,
+            strength_fc
+          )
+        `)
+        .eq('order_id', orderId)
+        .order('fecha', { ascending: false });
 
-    if (remisionesError) {
-      console.error('Error fetching remisiones:', remisionesError);
+      if (remisionesError) {
+        console.error('Error fetching remisiones:', {
+          message: remisionesError.message,
+          details: remisionesError.details,
+          code: remisionesError.code
+        });
+      } else {
+        remisiones = remisionesData || [];
+      }
+    } catch (error) {
+      console.error('Error fetching remisiones:', error);
     }
 
     // Get material consumption data for remisiones
@@ -131,11 +142,16 @@ export async function GET(
           fecha_muestreo,
           planta,
           remision_id,
+          revenimiento_sitio,
+          masa_unitaria,
+          temperatura_ambiente,
+          temperatura_concreto,
           muestras(
             id,
             fecha_programada_ensayo,
             tipo_muestra,
             estado,
+            identificacion,
             ensayos(
               id,
               fecha_ensayo,
@@ -153,7 +169,44 @@ export async function GET(
         console.error('Error fetching muestreos:', muestreosError);
       }
       
-      muestreos = muestreosData || [];
+      // Calculate age for each sample in both hours and days
+      muestreos = (muestreosData || []).map((muestreo: any) => {
+        const muestrasWithAge = (muestreo.muestras || []).map((muestra: any) => {
+          const ensayosWithAge = (muestra.ensayos || []).map((ensayo: any) => {
+            // Calculate precise age between fecha_muestreo and fecha_ensayo
+            const fechaMuestreo = new Date(muestreo.fecha_muestreo);
+            const fechaEnsayo = new Date(ensayo.fecha_ensayo);
+            const diffTimeMs = Math.abs(fechaEnsayo.getTime() - fechaMuestreo.getTime());
+            
+            // Calculate hours and days
+            const totalHours = Math.floor(diffTimeMs / (1000 * 60 * 60));
+            const totalDays = Math.floor(diffTimeMs / (1000 * 60 * 60 * 24));
+            const remainingHours = totalHours % 24;
+            
+            return {
+              ...ensayo,
+              edad_horas: totalHours,
+              edad_dias: totalDays,
+              edad_horas_restantes: remainingHours,
+              edad_display: totalHours < 48 
+                ? `${totalHours}h` 
+                : remainingHours > 0 
+                  ? `${totalDays}d ${remainingHours}h`
+                  : `${totalDays}d`
+            };
+          });
+          
+          return {
+            ...muestra,
+            ensayos: ensayosWithAge
+          };
+        });
+        
+        return {
+          ...muestreo,
+          muestras: muestrasWithAge
+        };
+      });
     }
 
     // Get site checks for this order's remisiones

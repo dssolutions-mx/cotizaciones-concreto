@@ -47,21 +47,21 @@ export default function BalancePage() {
   useEffect(() => {
     async function fetchBalance() {
       try {
-        // Use the dashboard API which has the correct RLS filtering
-        const response = await fetch('/api/client-portal/dashboard');
-        const dashboardData = await response.json();
+        // Use the dedicated balance API which returns complete financial data
+        const response = await fetch('/api/client-portal/balance');
+        const balanceData = await response.json();
 
-        if (!response.ok) throw new Error(dashboardData.error || 'Failed to fetch balance data');
+        if (!response.ok) throw new Error(balanceData.error || 'Failed to fetch balance data');
 
-        console.log('Balance data received:', dashboardData);
+        console.log('Balance data received:', balanceData);
         setData({
           general: {
-            current_balance: dashboardData.metrics?.currentBalance || 0,
-            total_delivered: 0, // Not needed for balance page
-            total_paid: 0 // Not needed for balance page
+            current_balance: balanceData.general?.current_balance || 0,
+            total_delivered: balanceData.general?.total_delivered || 0,
+            total_paid: balanceData.general?.total_paid || 0
           },
-          sites: [], // Simplified for now
-          recentPayments: [] // Will be populated if needed
+          sites: balanceData.sites || [],
+          recentPayments: balanceData.recentPayments || []
         });
       } catch (error) {
         console.error('Error fetching balance:', error);

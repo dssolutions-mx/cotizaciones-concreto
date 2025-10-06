@@ -10,7 +10,10 @@ type Payment = {
   id: string;
   payment_date: string;
   amount: number;
-  reference?: string | null;
+  reference_number?: string | null;
+  payment_method: string;
+  construction_site?: string | null;
+  notes?: string | null;
 };
 
 export default function ClientPortalPaymentsPage() {
@@ -20,11 +23,15 @@ export default function ClientPortalPaymentsPage() {
   useEffect(() => {
     const load = async () => {
       setLoading(true);
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('client_payments')
-        .select('id, payment_date, amount, reference')
+        .select('id, payment_date, amount, reference_number, payment_method, construction_site, notes')
         .order('payment_date', { ascending: false })
         .limit(200);
+      
+      if (error) {
+        console.error('Error loading payments:', error);
+      }
       setPayments((data || []) as any[]);
       setLoading(false);
     };
@@ -96,6 +103,12 @@ export default function ClientPortalPaymentsPage() {
                         Monto
                       </th>
                       <th className="px-6 py-4 text-left text-footnote font-semibold text-label-tertiary uppercase tracking-wide">
+                        Método
+                      </th>
+                      <th className="px-6 py-4 text-left text-footnote font-semibold text-label-tertiary uppercase tracking-wide">
+                        Obra
+                      </th>
+                      <th className="px-6 py-4 text-left text-footnote font-semibold text-label-tertiary uppercase tracking-wide">
                         Referencia
                       </th>
                     </tr>
@@ -116,7 +129,13 @@ export default function ClientPortalPaymentsPage() {
                           ${payment.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-6 py-4 text-body text-label-secondary">
-                          {payment.reference || '-'}
+                          {payment.payment_method || '-'}
+                        </td>
+                        <td className="px-6 py-4 text-body text-label-secondary truncate max-w-[200px]" title={payment.construction_site || 'General'}>
+                          {payment.construction_site || 'General'}
+                        </td>
+                        <td className="px-6 py-4 text-body text-label-secondary">
+                          {payment.reference_number || '-'}
                         </td>
                       </motion.tr>
                     ))}

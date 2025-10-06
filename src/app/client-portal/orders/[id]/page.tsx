@@ -79,10 +79,12 @@ export default function OrderDetailPage() {
   const params = useParams();
   const [orderData, setOrderData] = useState<OrderResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingStage, setLoadingStage] = useState<'order' | 'remisiones' | 'quality' | 'complete'>('order');
 
   useEffect(() => {
     async function fetchOrder() {
       try {
+        setLoadingStage('order');
         const response = await fetch(`/api/client-portal/orders/${params.id}`);
         const result = await response.json();
 
@@ -92,7 +94,20 @@ export default function OrderDetailPage() {
         }
 
         console.log('Order detail data received:', result);
+        
+        // Set data progressively
+        setLoadingStage('remisiones');
         setOrderData(result);
+        
+        // Small delay to show progressive loading
+        setTimeout(() => {
+          setLoadingStage('quality');
+        }, 100);
+        
+        setTimeout(() => {
+          setLoadingStage('complete');
+        }, 200);
+        
       } catch (error) {
         console.error('Error fetching order:', error);
       } finally {
@@ -175,6 +190,7 @@ export default function OrderDetailPage() {
           </div>
         </motion.div>
 
+
         {/* Order Status */}
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
@@ -192,7 +208,10 @@ export default function OrderDetailPage() {
               </Badge>
             </div>
 
-            <div className={`grid grid-cols-1 gap-6 ${order?.elemento ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
+            <div className={`grid grid-cols-1 gap-6 ${
+              orderData?.summary?.avgRendimientoVolumetrico ? 'md:grid-cols-4' : 
+              order?.elemento ? 'md:grid-cols-4' : 'md:grid-cols-3'
+            }`}>
               <div className="glass-thin rounded-2xl p-6">
                 <div className="flex items-center gap-4 mb-3">
                   <Calendar className="w-5 h-5 text-label-tertiary" />
@@ -235,6 +254,33 @@ export default function OrderDetailPage() {
                   <p className="text-title-3 font-bold text-label-primary">
                     {order.elemento}
                   </p>
+                </div>
+              )}
+
+              {orderData?.summary?.avgRendimientoVolumetrico !== null && 
+               orderData?.summary?.avgRendimientoVolumetrico !== undefined && (
+                <div className="glass-thin rounded-2xl p-6 border-2 border-blue-500/30">
+                  <div className="flex items-center gap-4 mb-3">
+                    <CheckCircle2 className="w-5 h-5 text-label-tertiary" />
+                    <p className="text-footnote text-label-tertiary uppercase tracking-wide">
+                      Rendimiento
+                    </p>
+                  </div>
+                  <p className="text-title-3 font-bold text-label-primary">
+                    {orderData.summary.avgRendimientoVolumetrico.toFixed(1)}%
+                  </p>
+                  <Badge 
+                    variant={
+                      orderData.summary.avgRendimientoVolumetrico >= 98 ? 'success' : 
+                      orderData.summary.avgRendimientoVolumetrico >= 95 ? 'primary' : 
+                      'neutral'
+                    }
+                    className="mt-2"
+                  >
+                    {orderData.summary.avgRendimientoVolumetrico >= 98 ? 'Excelente' : 
+                     orderData.summary.avgRendimientoVolumetrico >= 95 ? 'Bueno' : 
+                     'Aceptable'}
+                  </Badge>
                 </div>
               )}
 
@@ -441,6 +487,29 @@ export default function OrderDetailPage() {
                                   {format(new Date(muestreo.fecha_muestreo), 'dd MMM', { locale: es })}
                                 </p>
                               </div>
+                              {/* Muestreo measurements */}
+                              {(muestreo.revenimiento_sitio || muestreo.masa_unitaria || muestreo.temperatura_concreto) && (
+                                <div className="grid grid-cols-3 gap-2 mb-2 text-caption">
+                                  {muestreo.revenimiento_sitio && (
+                                    <div className="text-center bg-white/5 rounded p-1">
+                                      <p className="text-label-tertiary text-[10px]">Rev.</p>
+                                      <p className="text-label-primary font-medium">{muestreo.revenimiento_sitio} cm</p>
+                                    </div>
+                                  )}
+                                  {muestreo.masa_unitaria && (
+                                    <div className="text-center bg-white/5 rounded p-1">
+                                      <p className="text-label-tertiary text-[10px]">M.U.</p>
+                                      <p className="text-label-primary font-medium">{muestreo.masa_unitaria.toFixed(0)}</p>
+                                    </div>
+                                  )}
+                                  {muestreo.temperatura_concreto && (
+                                    <div className="text-center bg-white/5 rounded p-1">
+                                      <p className="text-label-tertiary text-[10px]">Temp.</p>
+                                      <p className="text-label-primary font-medium">{muestreo.temperatura_concreto}°C</p>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               {muestreo.muestras && muestreo.muestras.length > 0 && (
                                 <>
                                   <p className="text-caption text-label-tertiary mb-2">
@@ -454,23 +523,38 @@ export default function OrderDetailPage() {
                                         .filter((m: any) => m.ensayos && m.ensayos.length > 0)
                                         .map((muestra: any) => 
                                           muestra.ensayos.map((ensayo: any, eIdx: number) => (
-                                            <div key={`${muestra.id}-${eIdx}`} className="bg-white/5 rounded p-2 flex items-center justify-between">
-                                              <span className="text-caption text-label-tertiary">
-                                                {muestra.tipo_muestra}
-                                              </span>
-                                              <div className="flex items-center gap-2">
-                                                <span className="text-caption text-label-primary font-medium">
-                                                  {ensayo.resistencia_calculada.toFixed(1)} kg/cm²
+                                            <div key={`${muestra.id}-${eIdx}`} className="bg-white/5 rounded p-2">
+                                              <div className="flex items-center justify-between mb-1">
+                                                <span className="text-caption text-label-tertiary">
+                                                  {muestra.tipo_muestra}
                                                 </span>
-                                                {ensayo.porcentaje_cumplimiento && (
-                                                  <Badge 
-                                                    variant={ensayo.porcentaje_cumplimiento >= 100 ? 'success' : ensayo.porcentaje_cumplimiento >= 95 ? 'primary' : 'neutral'}
-                                                    size="sm"
-                                                  >
-                                                    {ensayo.porcentaje_cumplimiento.toFixed(0)}%
-                                                  </Badge>
-                                                )}
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-caption text-label-primary font-medium">
+                                                    {ensayo.resistencia_calculada.toFixed(1)} kg/cm²
+                                                  </span>
+                                                  {ensayo.porcentaje_cumplimiento && (
+                                                    <Badge 
+                                                      variant={ensayo.porcentaje_cumplimiento >= 100 ? 'success' : ensayo.porcentaje_cumplimiento >= 95 ? 'primary' : 'neutral'}
+                                                      size="sm"
+                                                    >
+                                                      {ensayo.porcentaje_cumplimiento.toFixed(0)}%
+                                                    </Badge>
+                                                  )}
+                                                </div>
                                               </div>
+                                              {ensayo.edad_display && (
+                                                <div className="flex items-center gap-1">
+                                                  <Clock className="w-3 h-3 text-label-tertiary" />
+                                                  <span className="text-caption text-label-tertiary">
+                                                    Edad: <span className="font-semibold text-label-primary">{ensayo.edad_display}</span>
+                                                  </span>
+                                                  {ensayo.edad_horas !== undefined && (
+                                                    <span className="text-[10px] text-label-tertiary">
+                                                      ({ensayo.edad_horas}h total)
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              )}
                                             </div>
                                           ))
                                         )}
@@ -587,7 +671,7 @@ export default function OrderDetailPage() {
               </div>
               
               {/* Material Consumption Summary */}
-              {orderData.summary.totalMaterialReal && orderData.summary.totalMaterialTeorico && (
+              {orderData.summary.totalMaterialReal > 0 && orderData.summary.totalMaterialTeorico > 0 && (
                 <div className="mt-6 pt-6 border-t border-white/20">
                   <h3 className="text-body font-semibold text-label-primary mb-4">
                     Consumo Total de Materiales

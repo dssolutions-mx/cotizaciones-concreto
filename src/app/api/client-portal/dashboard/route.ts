@@ -34,20 +34,43 @@ export async function GET(request: Request) {
     const orderIds = clientOrders?.map(order => order.id) || [];
 
     // Get remisiones volume - RLS will automatically filter through order relationship
-    const { data: remisiones, error: remisionesError } = await supabase
-      .from('remisiones')
-      .select('volumen_fabricado, tipo_remision')
-      .neq('tipo_remision', 'BOMBEO')
-      .in('order_id', orderIds);
+    // Only query if we have order IDs
+    let remisiones: any[] = [];
+    if (orderIds.length > 0) {
+      try {
+        const { data: remisionesData, error: remisionesError } = await supabase
+          .from('remisiones')
+          .select('id, volumen_fabricado, tipo_remision')
+          .neq('tipo_remision', 'BOMBEO')
+          .in('order_id', orderIds);
 
-    if (remisionesError) {
-      console.error('Dashboard API: Remisiones query error:', remisionesError);
+        if (remisionesError) {
+          console.error('Dashboard API: Remisiones query error:', {
+            message: remisionesError.message,
+            details: remisionesError.details,
+            hint: remisionesError.hint,
+            code: remisionesError.code
+          });
+        } else {
+          remisiones = remisionesData || [];
+        }
+      } catch (error) {
+        console.error('Dashboard API: Remisiones query error:', {
+          message: error instanceof Error ? error.message : String(error),
+          details: error instanceof Error ? error.stack : '',
+          hint: '',
+          code: ''
+        });
+      }
     }
 
     // Get client balance - RLS will automatically filter by client_id
+    // Filter for GENERAL balance only (both construction_site and construction_site_id must be NULL)
     const { data: balance, error: balanceError } = await supabase
       .from('client_balances')
       .select('current_balance')
+      .is('construction_site', null)
+      .is('construction_site_id', null)
       .maybeSingle();
 
     if (balanceError) {
@@ -56,26 +79,55 @@ export async function GET(request: Request) {
 
     const currentBalance = balance?.current_balance || 0;
 
-    // Get ensayos - RLS will automatically filter through order relationship
-    const { data: ensayos, error: ensayosError } = await supabase
-      .from('ensayos')
-      .select('porcentaje_cumplimiento')
-      .in('order_id', orderIds);
+    // Get quality data from muestreos and ensayos through remisiones
+    // First get muestreos for client's remisiones
+    let ensayos: any[] = [];
+    let recentEnsayos: any[] = [];
+    
+    if (remisiones && remisiones.length > 0) {
+      const remisionIds = remisiones.map(r => (r as any).id);
+      
+      // Get muestreos for these remisiones
+      const { data: muestreos, error: muestreosError } = await supabase
+        .from('muestreos')
+        .select('id')
+        .in('remision_id', remisionIds);
 
-    if (ensayosError) {
-      console.error('Dashboard API: Ensayos query error:', ensayosError);
-    }
+      if (muestreosError) {
+        console.error('Dashboard API: Muestreos query error:', muestreosError);
+      }
 
-    // Get recent ensayos - RLS will automatically filter through order relationship
-    const { data: recentEnsayos, error: recentEnsayosError } = await supabase
-      .from('ensayos')
-      .select('id, fecha_ensayo, resistencia_calculada, porcentaje_cumplimiento')
-      .in('order_id', orderIds)
-      .order('fecha_ensayo', { ascending: false })
-      .limit(6);
+      if (muestreos && muestreos.length > 0) {
+        const muestreoIds = muestreos.map(m => m.id);
+        
+        // Get muestras for these muestreos
+        const { data: muestras, error: muestrasError } = await supabase
+          .from('muestras')
+          .select('id')
+          .in('muestreo_id', muestreoIds);
 
-    if (recentEnsayosError) {
-      console.error('Dashboard API: Recent ensayos query error:', recentEnsayosError);
+        if (muestrasError) {
+          console.error('Dashboard API: Muestras query error:', muestrasError);
+        }
+
+        if (muestras && muestras.length > 0) {
+          const muestraIds = muestras.map(m => m.id);
+          
+          // Get ensayos for these muestras
+          const { data: ensayosData, error: ensayosError } = await supabase
+            .from('ensayos')
+            .select('id, fecha_ensayo, resistencia_calculada, porcentaje_cumplimiento')
+            .in('muestra_id', muestraIds)
+            .order('fecha_ensayo', { ascending: false });
+
+          if (ensayosError) {
+            console.error('Dashboard API: Ensayos query error:', ensayosError);
+          } else {
+            ensayos = ensayosData || [];
+            recentEnsayos = ensayos.slice(0, 6);
+          }
+        }
+      }
     }
 
     const deliveredVolume = remisiones?.reduce(
