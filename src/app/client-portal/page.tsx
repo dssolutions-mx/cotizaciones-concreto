@@ -55,9 +55,24 @@ export default function ClientPortalDashboard() {
       try {
         const response = await fetch('/api/client-portal/dashboard');
         const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to fetch dashboard data');
+        }
+
+        console.log('Dashboard data received:', result);
         setData(result);
       } catch (error) {
         console.error('Error fetching dashboard:', error);
+        setData({
+          metrics: {
+            totalOrders: 0,
+            deliveredVolume: 0,
+            currentBalance: 0,
+            qualityScore: 0
+          },
+          recentActivity: []
+        });
       } finally {
         setLoading(false);
       }

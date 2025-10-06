@@ -8,7 +8,7 @@ import type { Database } from '@/types/supabase';
 // Route Handlers, and Server Actions.
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies();
-  
+
   // Create and return the Supabase client using the standard pattern
   return createServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,6 +34,42 @@ export async function createServerSupabaseClient() {
             // The `delete` method was called from a Server Component.
             // This can be ignored if you have middleware refreshing sessions.
           }
+        },
+      },
+    }
+  );
+}
+
+// Alternative function for API routes that need to work with NextRequest
+export function createServerSupabaseClientFromRequest(req: Request) {
+  // Parse cookies from the request headers
+  const cookieHeader = req.headers.get('cookie');
+  const cookies: Record<string, string> = {};
+
+  if (cookieHeader) {
+    cookieHeader.split(';').forEach(cookie => {
+      const [name, ...valueParts] = cookie.trim().split('=');
+      if (name && valueParts.length > 0) {
+        cookies[name] = valueParts.join('=');
+      }
+    });
+  }
+
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookies[name] || null;
+        },
+        set(name: string, value: string, options: CookieOptions) {
+          // In API routes, we don't set cookies directly
+          // The middleware handles cookie setting
+        },
+        remove(name: string, options: CookieOptions) {
+          // In API routes, we don't remove cookies directly
+          // The middleware handles cookie management
         },
       },
     }

@@ -1,13 +1,13 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createServerSupabaseClient();
-    const orderId = params.id;
+    const supabase = createServerSupabaseClientFromRequest(request);
+    const { id: orderId } = await params;
 
     // Get authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -15,41 +15,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile to check role
-    const { data: clientData, error: clientError } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    if (clientError || !clientData) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
-    }
-
-    // Additional validation for external clients
-    if (clientData.role !== 'EXTERNAL_CLIENT') {
-      return NextResponse.json({ error: 'Access denied. This endpoint is for external clients only.' }, { status: 403 });
-    }
-
-    // Ensure the profile has required fields
-    if (!clientData.id || !clientData.email) {
-      return NextResponse.json({ error: 'Invalid user profile data' }, { status: 400 });
-    }
-
-    // Get the client record for this external client via portal_user_id
-    const { data: client, error: clientRecordError } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('portal_user_id', user.id)
-      .maybeSingle();
-
-    if (clientRecordError || !client) {
-      return NextResponse.json({ error: 'Client record not found' }, { status: 404 });
-    }
-
-    const clientId = client.id; // This is the actual clients.id to use for filtering orders
-
-    // Get order details with order items and related data
+    // Get order details with order items - RLS will automatically filter by client_id
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select(`
@@ -60,13 +26,13 @@ export async function GET(
         delivery_time,
         order_status,
         total_amount,
+        elemento,
         special_requirements,
         requires_invoice,
         credit_status,
         rejection_reason,
         created_at,
         updated_at,
-        client_id,
         quote_id,
         order_items (
           id,
@@ -83,11 +49,10 @@ export async function GET(
         )
       `)
       .eq('id', orderId)
-      .eq('client_id', clientId)
       .single();
 
     if (orderError) {
-      if (orderError.code === 'PGRST116') { // No rows returned
+      if (orderError.code === 'PGRST116') {
         return NextResponse.json({ error: 'Order not found' }, { status: 404 });
       }
       console.error('Error fetching order:', orderError);
@@ -106,8 +71,8 @@ export async function GET(
       quoteInfo = quote;
     }
 
-    // Get remisiones (deliveries) for this order
-    const { data: remisiones } = await supabase
+    // Get remisiones (deliveries) for this order with related data
+    const { data: remisiones, error: remisionesError } = await supabase
       .from('remisiones')
       .select(`
         id,
@@ -115,35 +80,116 @@ export async function GET(
         volumen_fabricado,
         tipo_remision,
         remision_number,
-        hora_salida,
-        hora_llegada,
-        evidencia_url
+        hora_carga,
+        conductor,
+        unidad,
+        recipe_id,
+        recipe:recipes(
+          recipe_code,
+          strength_fc
+        )
       `)
       .eq('order_id', orderId)
       .order('fecha', { ascending: false });
 
-    // Get quality tests (ensayos) for this order
-    const { data: ensayos } = await supabase
-      .from('ensayos')
-      .select(`
-        id,
-        fecha_ensayo,
-        resistencia_calculada,
-        porcentaje_cumplimiento,
-        carga_kg,
-        observaciones,
-        tipo_ensayo,
-        edad_muestra,
-        muestra_id
-      `)
-      .eq('order_id', orderId)
-      .order('fecha_ensayo', { ascending: false });
+    if (remisionesError) {
+      console.error('Error fetching remisiones:', remisionesError);
+    }
+
+    // Get muestreos (samplings) for this order's remisiones
+    let muestreos: any[] = [];
+    if (remisiones && remisiones.length > 0) {
+      const remisionIds = remisiones.map(r => r.id);
+      const { data: muestreosData, error: muestreosError } = await supabase
+        .from('muestreos')
+        .select(`
+          id,
+          numero_muestreo,
+          fecha_muestreo,
+          planta,
+          remision_id,
+          muestras(
+            id,
+            fecha_programada_ensayo,
+            edad,
+            estado,
+            ensayos(
+              id,
+              fecha_ensayo,
+              resistencia_calculada,
+              porcentaje_cumplimiento,
+              carga_kg,
+              observaciones,
+              tipo_ensayo
+            )
+          )
+        `)
+        .in('remision_id', remisionIds)
+        .order('fecha_muestreo', { ascending: false });
+      
+      if (muestreosError) {
+        console.error('Error fetching muestreos:', muestreosError);
+      }
+      
+      muestreos = muestreosData || [];
+    }
+
+    // Get site checks for this order's remisiones
+    let siteChecks: any[] = [];
+    if (remisiones && remisiones.length > 0) {
+      const remisionIds = remisiones.map(r => r.id);
+      const { data: siteChecksData, error: siteChecksError } = await supabase
+        .from('site_checks')
+        .select(`
+          id,
+          remision_id,
+          remision_number_manual,
+          plant_id,
+          fecha_muestreo,
+          hora_salida_planta,
+          hora_llegada_obra,
+          test_type,
+          valor_inicial_cm,
+          fue_ajustado,
+          detalle_ajuste,
+          valor_final_cm,
+          temperatura_ambiente,
+          temperatura_concreto,
+          observaciones,
+          created_at
+        `)
+        .in('remision_id', remisionIds)
+        .order('fecha_muestreo', { ascending: false });
+      
+      if (siteChecksError) {
+        console.error('Error fetching site_checks:', siteChecksError);
+      }
+      
+      siteChecks = siteChecksData || [];
+    }
+
+    // Organize data by remision for easier frontend consumption
+    const remisionesWithDetails = (remisiones || []).map((remision: any) => {
+      const remisionMuestreos = muestreos.filter(m => m.remision_id === remision.id);
+      const remisionSiteChecks = siteChecks.filter(sc => sc.remision_id === remision.id);
+      
+      return {
+        ...remision,
+        muestreos: remisionMuestreos,
+        site_checks: remisionSiteChecks
+      };
+    });
 
     return NextResponse.json({
       order,
       quote: quoteInfo,
-      remisiones: remisiones || [],
-      ensayos: ensayos || []
+      remisiones: remisionesWithDetails,
+      summary: {
+        totalRemisiones: remisiones?.length || 0,
+        totalVolume: remisiones?.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0) || 0,
+        totalMuestreos: muestreos.length,
+        totalSiteChecks: siteChecks.length
+      }
     });
 
   } catch (error) {

@@ -403,7 +403,7 @@ export default function FileUpload({
           </div>
           
           <div className="flex gap-2 mb-3">
-            <Button type="button" onClick={() => setScannerOpen(true)} className="bg-indigo-600 hover:bg-indigo-700 text-white" size="sm">
+            <Button type="button" onClick={() => setScannerOpen(true)} variant="ghost" className="!bg-indigo-600 !hover:bg-indigo-700 !text-white" size="sm">
               <Scan className="h-4 w-4 mr-2" /> Abrir escáner
             </Button>
           </div>

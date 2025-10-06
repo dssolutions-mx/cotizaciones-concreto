@@ -432,7 +432,7 @@ export default function DatosElaboracionForm({
             )}
 
             <div className="flex justify-end mt-6">
-              <Button onClick={continuarAMuestras} className="bg-blue-600 hover:bg-blue-700">
+              <Button onClick={continuarAMuestras} variant="ghost" className="!bg-blue-600 !hover:bg-blue-700 !text-white">
                 Continuar a Muestras
                 <Plus className="w-4 h-4 ml-2" />
               </Button>

@@ -13,6 +13,7 @@ interface OrderCardProps {
     construction_site: string;
     delivery_date: string;
     order_status: string;
+    elemento?: string;
     total_volume?: number;
   };
   onClick: () => void;
@@ -68,6 +69,15 @@ export function OrderCard({ order, onClick }: OrderCardProps) {
               {format(new Date(order.delivery_date), "d 'de' MMMM, yyyy", { locale: es })}
             </span>
           </div>
+
+          {order.elemento && (
+            <div className="flex items-center gap-2 text-callout text-gray-600">
+              <Package className="w-4 h-4 text-gray-400" />
+              <span className="font-semibold text-blue-600">
+                {order.elemento}
+              </span>
+            </div>
+          )}
 
           {order.total_volume && (
             <div className="flex items-center gap-2 text-callout text-gray-600">

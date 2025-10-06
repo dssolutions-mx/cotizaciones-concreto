@@ -90,7 +90,7 @@ export default function LinkedFormSection({
                   <Button type="button" variant="outline" onClick={onBack}>
                     Atrás
                   </Button>
-                  <Button type="submit" className="bg-primary" disabled={isSubmitting}>
+                  <Button type="submit" variant="ghost" className="!bg-primary !text-primary-foreground" disabled={isSubmitting}>
                     {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />

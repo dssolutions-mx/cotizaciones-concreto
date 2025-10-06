@@ -1,9 +1,9 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 export async function GET(request: Request) {
   try {
-    const supabase = await createServerSupabaseClient();
+    const supabase = createServerSupabaseClientFromRequest(request);
     const { searchParams } = new URL(request.url);
     const statusFilter = searchParams.get('status');
     const searchQuery = searchParams.get('search');
@@ -14,41 +14,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get user profile to check role
-    const { data: clientData, error: clientError } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    if (clientError || !clientData) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
-    }
-
-    // Additional validation for external clients
-    if (clientData.role !== 'EXTERNAL_CLIENT') {
-      return NextResponse.json({ error: 'Access denied. This endpoint is for external clients only.' }, { status: 403 });
-    }
-
-    // Ensure the profile has required fields
-    if (!clientData.id || !clientData.email) {
-      return NextResponse.json({ error: 'Invalid user profile data' }, { status: 400 });
-    }
-
-    // Get the client record for this external client via portal_user_id
-    const { data: client, error: clientRecordError } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('portal_user_id', user.id)
-      .maybeSingle();
-
-    if (clientRecordError || !client) {
-      return NextResponse.json({ error: 'Client record not found' }, { status: 404 });
-    }
-
-    const clientId = client.id; // This is the actual clients.id to use for filtering orders
-
-    // Build the base query for orders
+    // Build the base query - RLS will automatically filter by client_id
     let ordersQuery = supabase
       .from('orders')
       .select(`
@@ -57,11 +23,9 @@ export async function GET(request: Request) {
         construction_site,
         delivery_date,
         order_status,
-        total_volume,
-        created_at,
-        client_id
+        elemento,
+        created_at
       `)
-      .eq('client_id', clientId)
       .order('delivery_date', { ascending: false });
 
     // Apply status filter if provided
@@ -83,31 +47,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Failed to fetch orders' }, { status: 500 });
     }
 
-    // Calculate total volume for each order from order_items if needed
-    const ordersWithVolume = await Promise.all(
-      (orders || []).map(async (order) => {
-        if (order.total_volume) {
-          return order;
-        }
-
-        // Get total volume from order_items if not already calculated
-        const { data: orderItems } = await supabase
-          .from('order_items')
-          .select('volume')
-          .eq('order_id', order.id);
-
-        const totalVolume = orderItems?.reduce((sum, item) => sum + (item.volume || 0), 0) || 0;
-
-        return {
-          ...order,
-          total_volume: totalVolume
-        };
-      })
-    );
-
     return NextResponse.json({
-      orders: ordersWithVolume,
-      totalCount: ordersWithVolume.length
+      orders: orders || [],
+      totalCount: orders?.length || 0
     });
 
   } catch (error) {

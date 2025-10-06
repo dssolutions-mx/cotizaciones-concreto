@@ -46,9 +46,10 @@ export default function QualityPage() {
 
         if (!response.ok) throw new Error(dashboardData.error || 'Failed to fetch quality data');
 
+        console.log('Quality data received:', dashboardData);
         // Use data from dashboard API
         setMetrics({
-          avgRendimiento: dashboardData.metrics.qualityScore || 0,
+          avgRendimiento: dashboardData.metrics?.qualityScore || 0,
           complianceRate: 0, // Will be calculated from recent activity
           totalTests: 0, // Will be calculated from recent activity
           approvedTestsRate: 0 // Will be calculated from recent activity

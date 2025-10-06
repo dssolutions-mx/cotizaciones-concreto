@@ -16,6 +16,7 @@ interface Order {
   construction_site: string;
   delivery_date: string;
   order_status: string;
+  elemento?: string;
   total_volume?: number;
 }
 
@@ -49,8 +50,11 @@ export default function OrdersPage() {
         const result = await response.json();
 
         if (!response.ok) {
+          console.error('Orders API error:', result);
           throw new Error(result.error || 'Failed to fetch orders');
         }
+
+        console.log('Orders data received:', result);
 
         setOrders(result.orders || []);
         setFilteredOrders(result.orders || []);

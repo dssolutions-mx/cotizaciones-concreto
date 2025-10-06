@@ -521,7 +521,7 @@ export default function NuevaMatrixForm({ onClose, onSuccess }: NuevaMatrixFormP
             <Button variant="outline" onClick={onClose} disabled={loading}>
               Cancelar
             </Button>
-            <Button onClick={guardarMatrix} disabled={loading} className="bg-blue-600 hover:bg-blue-700">
+            <Button onClick={guardarMatrix} disabled={loading} variant="ghost" className="!bg-blue-600 !hover:bg-blue-700 !text-white">
               {loading ? (
                 <>
                   <Save className="w-4 h-4 mr-2 animate-spin" />

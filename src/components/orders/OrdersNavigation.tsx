@@ -331,9 +331,10 @@ const OrdersNavigation = memo(function OrdersNavigation({
         
         {/* Create Order button */}
         {canCreateOrders && (
-          <Button 
+          <Button
             onClick={() => navigate('create')}
-            className="bg-green-600 hover:bg-green-700 text-white"
+            variant="ghost"
+            className="!bg-green-600 !hover:bg-green-700 !text-white"
           >
             <PlusIcon className="mr-2 h-4 w-4" />
             Crear Orden

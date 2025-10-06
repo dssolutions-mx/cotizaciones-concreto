@@ -1,91 +1,82 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerSupabaseClient, createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const supabase = await createServerSupabaseClient();
+    const supabase = createServerSupabaseClientFromRequest(request);
 
     // Get authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
+      console.error('Dashboard API: Auth error:', authError);
+      console.error('Dashboard API: Request headers:', Object.fromEntries(request.headers.entries()));
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Fetch user profile
-    const { data: clientData, error: clientError } = await supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single();
-
-    if (clientError || !clientData) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
-    }
-
-    // Additional validation for external clients
-    if (clientData.role !== 'EXTERNAL_CLIENT') {
-      return NextResponse.json({ error: 'Access denied. This endpoint is for external clients only.' }, { status: 403 });
-    }
-
-    // Ensure the profile has required fields
-    if (!clientData.id || !clientData.email) {
-      return NextResponse.json({ error: 'Invalid user profile data' }, { status: 400 });
-    }
-
-    // Get the client record for this external client via portal_user_id
-    const { data: client, error: clientRecordError } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('portal_user_id', user.id)
-      .maybeSingle();
-
-    if (clientRecordError || !client) {
-      return NextResponse.json({ error: 'Client record not found' }, { status: 404 });
-    }
-
-    const clientId = client.id; // This is the actual clients.id to use for filtering orders
-
-    // Get orders count for this client
-    const { count: totalOrders } = await supabase
+    // Get orders count - RLS will automatically filter by client_id
+    const { count: totalOrders, error: ordersError } = await supabase
       .from('orders')
-      .select('*', { count: 'exact', head: true })
-      .eq('client_id', clientId);
+      .select('*', { count: 'exact', head: true });
 
-    // Get order IDs for this client first
-    const { data: clientOrders } = await supabase
+    if (ordersError) {
+      console.error('Dashboard API: Orders query error:', ordersError);
+    }
+
+    // Get order IDs for this client - RLS will automatically filter
+    const { data: clientOrders, error: clientOrdersError } = await supabase
       .from('orders')
-      .select('id')
-      .eq('client_id', clientId);
+      .select('id');
+
+    if (clientOrdersError) {
+      console.error('Dashboard API: Client orders query error:', clientOrdersError);
+    }
 
     const orderIds = clientOrders?.map(order => order.id) || [];
 
-    // Get remisiones volume for this client's orders
-    const { data: remisiones } = await supabase
+    // Get remisiones volume - RLS will automatically filter through order relationship
+    const { data: remisiones, error: remisionesError } = await supabase
       .from('remisiones')
       .select('volumen_fabricado, tipo_remision')
       .neq('tipo_remision', 'BOMBEO')
       .in('order_id', orderIds);
 
-    // Get client balance
-    const { data: balance } = await supabase
+    if (remisionesError) {
+      console.error('Dashboard API: Remisiones query error:', remisionesError);
+    }
+
+    // Get client balance - RLS will automatically filter by client_id
+    const { data: balance, error: balanceError } = await supabase
       .from('client_balances')
       .select('current_balance')
-      .eq('client_id', clientId)
       .maybeSingle();
 
-    // Get ensayos for this client's orders
-    const { data: ensayos } = await supabase
+    if (balanceError) {
+      console.error('Dashboard API: Balance query error:', balanceError);
+    }
+
+    const currentBalance = balance?.current_balance || 0;
+
+    // Get ensayos - RLS will automatically filter through order relationship
+    const { data: ensayos, error: ensayosError } = await supabase
       .from('ensayos')
       .select('porcentaje_cumplimiento')
       .in('order_id', orderIds);
 
-    // Get recent ensayos for this client
-    const { data: recentEnsayos } = await supabase
+    if (ensayosError) {
+      console.error('Dashboard API: Ensayos query error:', ensayosError);
+    }
+
+    // Get recent ensayos - RLS will automatically filter through order relationship
+    const { data: recentEnsayos, error: recentEnsayosError } = await supabase
       .from('ensayos')
       .select('id, fecha_ensayo, resistencia_calculada, porcentaje_cumplimiento')
       .in('order_id', orderIds)
       .order('fecha_ensayo', { ascending: false })
       .limit(6);
+
+    if (recentEnsayosError) {
+      console.error('Dashboard API: Recent ensayos query error:', recentEnsayosError);
+    }
 
     const deliveredVolume = remisiones?.reduce(
       (sum, r) => sum + (parseFloat(r.volumen_fabricado) || 0),
@@ -109,15 +100,19 @@ export async function GET() {
       };
     });
 
-    return NextResponse.json({
+    // Ensure we always return valid data structure
+    const responseData = {
       metrics: {
         totalOrders: totalOrders || 0,
         deliveredVolume: Math.round(deliveredVolume * 10) / 10,
-        currentBalance: parseFloat((balance as any)?.current_balance || '0'),
+        currentBalance,
         qualityScore
       },
       recentActivity
-    });
+    };
+
+    console.log('Dashboard API: Returning data:', responseData);
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('Dashboard API error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

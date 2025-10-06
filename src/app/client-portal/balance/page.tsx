@@ -53,9 +53,10 @@ export default function BalancePage() {
 
         if (!response.ok) throw new Error(dashboardData.error || 'Failed to fetch balance data');
 
+        console.log('Balance data received:', dashboardData);
         setData({
           general: {
-            current_balance: dashboardData.metrics.currentBalance || 0,
+            current_balance: dashboardData.metrics?.currentBalance || 0,
             total_delivered: 0, // Not needed for balance page
             total_paid: 0 // Not needed for balance page
           },

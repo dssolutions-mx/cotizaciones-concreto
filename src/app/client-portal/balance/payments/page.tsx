@@ -25,7 +25,7 @@ export default function ClientPortalPaymentsPage() {
         .select('id, payment_date, amount, reference')
         .order('payment_date', { ascending: false })
         .limit(200);
-      setPayments((data as any[]) || []);
+      setPayments((data || []) as any[]);
       setLoading(false);
     };
     load();

@@ -16,6 +16,7 @@ import {
 import { Container } from '@/components/ui/Container';
 import { Card as BaseCard } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { DataList } from '@/components/ui/DataList';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -28,6 +29,7 @@ interface OrderDetail {
   delivery_time?: string;
   order_status: string;
   total_amount: number;
+  elemento?: string;
   special_requirements?: string;
   requires_invoice?: boolean;
   credit_status?: string;
@@ -57,10 +59,22 @@ const statusConfig: Record<string, { variant: any; label: string }> = {
   cancelled: { variant: 'error', label: 'Cancelado' }
 };
 
+interface OrderResponse {
+  order: OrderDetail;
+  quote: any;
+  remisiones: any[];
+  summary: {
+    totalRemisiones: number;
+    totalVolume: number;
+    totalMuestreos: number;
+    totalSiteChecks: number;
+  };
+}
+
 export default function OrderDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const [order, setOrder] = useState<OrderDetail | null>(null);
+  const [orderData, setOrderData] = useState<OrderResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -70,10 +84,12 @@ export default function OrderDetailPage() {
         const result = await response.json();
 
         if (!response.ok) {
+          console.error('Order detail API error:', result);
           throw new Error(result.error || 'Failed to fetch order');
         }
 
-        setOrder(result.order);
+        console.log('Order detail data received:', result);
+        setOrderData(result);
       } catch (error) {
         console.error('Error fetching order:', error);
       } finally {
@@ -85,6 +101,8 @@ export default function OrderDetailPage() {
       fetchOrder();
     }
   }, [params.id]);
+
+  const order = orderData?.order;
 
   if (loading) {
     return (
@@ -171,7 +189,7 @@ export default function OrderDetailPage() {
               </Badge>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className={`grid grid-cols-1 gap-6 ${order?.elemento ? 'md:grid-cols-4' : 'md:grid-cols-3'}`}>
               <div className="glass-thin rounded-2xl p-6">
                 <div className="flex items-center gap-4 mb-3">
                   <Calendar className="w-5 h-5 text-label-tertiary" />
@@ -202,6 +220,20 @@ export default function OrderDetailPage() {
                   {order?.construction_site}
                 </p>
               </div>
+
+              {order?.elemento && (
+                <div className="glass-thin rounded-2xl p-6">
+                  <div className="flex items-center gap-4 mb-3">
+                    <Package className="w-5 h-5 text-label-tertiary" />
+                    <p className="text-footnote text-label-tertiary uppercase tracking-wide">
+                      Elemento
+                    </p>
+                  </div>
+                  <p className="text-title-3 font-bold text-label-primary">
+                    {order.elemento}
+                  </p>
+                </div>
+              )}
 
               <div className="glass-thin rounded-2xl p-6">
                 <div className="flex items-center gap-4 mb-3">
@@ -271,7 +303,7 @@ export default function OrderDetailPage() {
           </motion.div>
         )}
 
-        {/* Remisiones */}
+        {/* Remisiones with Quality Data */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -279,12 +311,26 @@ export default function OrderDetailPage() {
           className="mb-8"
         >
           <div className="glass-base rounded-3xl p-8">
-            <h2 className="text-title-2 font-bold text-label-primary mb-6">
-              Entregas (Remisiones)
-            </h2>
-            {order?.remisiones && order.remisiones.length > 0 ? (
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-title-2 font-bold text-label-primary">
+                Entregas (Remisiones)
+              </h2>
+              {orderData?.summary && (
+                <div className="flex gap-4 text-footnote">
+                  <div className="text-center">
+                    <p className="text-label-tertiary">Total</p>
+                    <p className="font-semibold text-label-primary">{orderData.summary.totalRemisiones}</p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-label-tertiary">Volumen</p>
+                    <p className="font-semibold text-label-primary">{orderData.summary.totalVolume.toFixed(1)} m³</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            {orderData?.remisiones && orderData.remisiones.length > 0 ? (
               <div className="space-y-4">
-                {order.remisiones.map((remision, index) => (
+                {orderData.remisiones.map((remision: any, index: number) => (
                   <motion.div
                     key={remision.id}
                     initial={{ opacity: 0, y: 10 }}
@@ -292,15 +338,25 @@ export default function OrderDetailPage() {
                     transition={{ delay: 0.5 + index * 0.05 }}
                     className="glass-thin rounded-xl p-6"
                   >
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-body font-semibold text-label-primary">
-                        Remisión #{remision.remision_number}
-                      </p>
-                      <Badge variant="success">
+                    {/* Remision Header */}
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <p className="text-body font-semibold text-label-primary">
+                          Remisión #{remision.remision_number}
+                        </p>
+                        {remision.conductor && (
+                          <p className="text-caption text-label-secondary">
+                            Conductor: {remision.conductor} {remision.unidad ? `• Unidad: ${remision.unidad}` : ''}
+                          </p>
+                        )}
+                      </div>
+                      <Badge variant={remision.tipo_remision === 'BOMBEO' ? 'primary' : 'success'}>
                         {remision.tipo_remision}
                       </Badge>
                     </div>
-                    <div className="grid grid-cols-2 gap-4 text-footnote">
+
+                    {/* Remision Details */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-footnote mb-4">
                       <div>
                         <p className="text-label-tertiary">Fecha</p>
                         <p className="text-label-primary font-medium">
@@ -311,7 +367,92 @@ export default function OrderDetailPage() {
                         <p className="text-label-tertiary">Volumen</p>
                         <p className="text-label-primary font-medium">{remision.volumen_fabricado} m³</p>
                       </div>
+                      {remision.recipe && (
+                        <>
+                          <div>
+                            <p className="text-label-tertiary">Receta</p>
+                            <p className="text-label-primary font-medium">{remision.recipe.recipe_code}</p>
+                          </div>
+                          <div>
+                            <p className="text-label-tertiary">Resistencia</p>
+                            <p className="text-label-primary font-medium">{remision.recipe.strength_fc} kg/cm²</p>
+                          </div>
+                        </>
+                      )}
                     </div>
+
+                    {/* Muestreos */}
+                    {remision.muestreos && remision.muestreos.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-white/10">
+                        <p className="text-caption font-semibold text-label-primary mb-3 flex items-center gap-2">
+                          <FileText className="w-4 h-4" />
+                          Muestreos ({remision.muestreos.length})
+                        </p>
+                        <div className="space-y-2">
+                          {remision.muestreos.map((muestreo: any) => (
+                            <div key={muestreo.id} className="bg-white/5 rounded-lg p-3">
+                              <div className="flex items-center justify-between">
+                                <p className="text-caption text-label-primary">
+                                  Muestreo #{muestreo.numero_muestreo}
+                                </p>
+                                <p className="text-caption text-label-secondary">
+                                  {format(new Date(muestreo.fecha_muestreo), 'dd MMM', { locale: es })}
+                                </p>
+                              </div>
+                              {muestreo.muestras && muestreo.muestras.length > 0 && (
+                                <p className="text-caption text-label-tertiary mt-1">
+                                  {muestreo.muestras.length} muestra(s) • 
+                                  {muestreo.muestras.filter((m: any) => m.ensayos && m.ensayos.length > 0).length} con ensayos
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Site Checks */}
+                    {remision.site_checks && remision.site_checks.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-white/10">
+                        <p className="text-caption font-semibold text-label-primary mb-3 flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Pruebas en Obra ({remision.site_checks.length})
+                        </p>
+                        <div className="space-y-2">
+                          {remision.site_checks.map((siteCheck: any) => (
+                            <div key={siteCheck.id} className="bg-white/5 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <Badge variant={siteCheck.test_type === 'SLUMP' ? 'primary' : 'neutral'} size="sm">
+                                  {siteCheck.test_type}
+                                </Badge>
+                                <p className="text-caption text-label-secondary">
+                                  {format(new Date(siteCheck.fecha_muestreo), 'dd MMM HH:mm', { locale: es })}
+                                </p>
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-caption">
+                                {siteCheck.valor_inicial_cm && (
+                                  <div>
+                                    <p className="text-label-tertiary">Inicial</p>
+                                    <p className="text-label-primary font-medium">{siteCheck.valor_inicial_cm} cm</p>
+                                  </div>
+                                )}
+                                {siteCheck.valor_final_cm && (
+                                  <div>
+                                    <p className="text-label-tertiary">Final</p>
+                                    <p className="text-label-primary font-medium">{siteCheck.valor_final_cm} cm</p>
+                                  </div>
+                                )}
+                              </div>
+                              {siteCheck.fue_ajustado && (
+                                <p className="text-caption text-yellow-600 mt-2">
+                                  ⚠ Ajustado: {siteCheck.detalle_ajuste}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </motion.div>
                 ))}
               </div>
@@ -326,67 +467,34 @@ export default function OrderDetailPage() {
           </div>
         </motion.div>
 
-        {/* Quality Tests */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.6 }}
-        >
-          <div className="glass-base rounded-3xl p-8">
-            <h2 className="text-title-2 font-bold text-label-primary mb-6">
-              Ensayos de Calidad
-            </h2>
-            {order?.ensayos && order.ensayos.length > 0 ? (
-              <div className="space-y-4">
-                {order.ensayos.map((ensayo, index) => (
-                  <motion.div
-                    key={ensayo.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.7 + index * 0.05 }}
-                    className="glass-thin rounded-xl p-6"
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-body font-semibold text-label-primary">
-                        Ensayo - {format(new Date(ensayo.fecha_ensayo), 'dd MMM yyyy', { locale: es })}
-                      </p>
-                      <Badge
-                        variant={
-                          parseFloat(ensayo.porcentaje_cumplimiento) >= 95
-                            ? 'success'
-                            : parseFloat(ensayo.porcentaje_cumplimiento) >= 85
-                              ? 'warning'
-                              : 'error'
-                        }
-                      >
-                        {ensayo.porcentaje_cumplimiento}% Cumplimiento
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 text-footnote">
-                      <div>
-                        <p className="text-label-tertiary">Resistencia</p>
-                        <p className="text-label-primary font-medium">
-                          {ensayo.resistencia_calculada} kg/cm²
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-label-tertiary">Carga</p>
-                        <p className="text-label-primary font-medium">{ensayo.carga_kg} kg</p>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
+        {/* Summary Stats */}
+        {orderData?.summary && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.6 }}
+          >
+            <div className="glass-base rounded-3xl p-8">
+              <h2 className="text-title-2 font-bold text-label-primary mb-6">
+                Resumen de Calidad
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                <div className="text-center">
+                  <p className="text-footnote text-label-tertiary mb-2">Entregas</p>
+                  <p className="text-title-1 font-bold text-label-primary">{orderData.summary.totalRemisiones}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-footnote text-label-tertiary mb-2">Muestreos</p>
+                  <p className="text-title-1 font-bold text-label-primary">{orderData.summary.totalMuestreos}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-footnote text-label-tertiary mb-2">Pruebas en Obra</p>
+                  <p className="text-title-1 font-bold text-label-primary">{orderData.summary.totalSiteChecks}</p>
+                </div>
               </div>
-            ) : (
-              <div className="text-center py-12">
-                <FileText className="w-16 h-16 text-label-tertiary mx-auto mb-4" />
-                <p className="text-body text-label-secondary">
-                  Aún no hay ensayos registrados
-                </p>
-              </div>
-            )}
-          </div>
-        </motion.div>
+            </div>
+          </motion.div>
+        )}
       </Container>
     </div>
   );

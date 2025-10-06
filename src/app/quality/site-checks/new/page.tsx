@@ -125,7 +125,7 @@ export default function NewSiteCheckPage() {
                 <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-md">{submitError}</div>
               )}
               <div className="flex justify-end">
-                <Button type="submit" className="bg-primary" disabled={isSubmitting}>
+                <Button type="submit" variant="ghost" className="!bg-primary !text-primary-foreground" disabled={isSubmitting}>
                   {isSubmitting ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin"/>Guardando...</>) : (<><Save className="mr-2 h-4 w-4"/>Guardar</>)}
                 </Button>
               </div>
