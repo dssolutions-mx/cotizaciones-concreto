@@ -17,7 +17,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signIn, profile } = useAuthBridge();
+  const { signIn, profile, triggerAuthCheck } = useAuthBridge();
 
   // Handle role-based routing after authentication
   useEffect(() => {
@@ -84,6 +84,10 @@ function LoginForm() {
         } else {
           setError(`Error al iniciar sesión: ${msg || 'Credenciales inválidas'}`);
         }
+        setLoading(false);
+      } else {
+        // Ensure auth state is refreshed so profile becomes available for redirect
+        await triggerAuthCheck('login-success');
         setLoading(false);
       }
       // Success case is handled by the profile-based routing effect above
