@@ -268,15 +268,16 @@ function Navigation({ children }: { children: React.ReactNode }) {
 
   // Safety redirect: External clients should always land in client-portal
   useEffect(() => {
-    if (profile?.role === 'EXTERNAL_CLIENT') {
+    if (profile?.role === 'EXTERNAL_CLIENT' && profile.id && profile.email) {
       const isPortal = pathname?.startsWith('/client-portal');
       const isAuth = pathname === '/login' || pathname?.startsWith('/auth');
       if (!isPortal && !isAuth) {
+        console.log(`Root layout: Redirecting external client ${profile.email} to client-portal`);
         router.replace('/client-portal');
         return;
       }
     }
-  }, [profile?.role, pathname, router]);
+  }, [profile?.role, profile?.id, profile?.email, pathname, router]);
 
   // If it's a landing, client-portal, or auth route, render children without global Navigation
   if (isLandingRoute || pathname?.startsWith('/client-portal') || isAuthRoute) {

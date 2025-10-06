@@ -30,17 +30,22 @@ export default function ClientPortalGuard({
       return;
     }
 
-    // Check if user is external client
+    // Check if user is external client - with additional validation
     if (profile.role !== 'EXTERNAL_CLIENT') {
       console.log(`ClientPortalGuard: User role ${profile.role} is not EXTERNAL_CLIENT, redirecting to dashboard`);
       router.replace('/dashboard');
       return;
     }
 
+    // Additional validation: Ensure the user profile is properly loaded and has required fields
+    if (!profile.id || !profile.email) {
+      console.log('ClientPortalGuard: Invalid profile data, redirecting to dashboard');
+      router.replace('/dashboard');
+      return;
+    }
+
     // Note: Portal access is controlled via the EXTERNAL_CLIENT role
     // Additional portal enablement flags can be added later if needed
-
-    console.log('ClientPortalGuard: Access granted for external client');
 
   }, [isLoading, profile, session, router]);
 

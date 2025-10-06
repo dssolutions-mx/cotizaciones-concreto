@@ -25,8 +25,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
+    // Additional validation for external clients
     if (clientData.role !== 'EXTERNAL_CLIENT') {
       return NextResponse.json({ error: 'Access denied. This endpoint is for external clients only.' }, { status: 403 });
+    }
+
+    // Ensure the profile has required fields
+    if (!clientData.id || !clientData.email) {
+      return NextResponse.json({ error: 'Invalid user profile data' }, { status: 400 });
     }
 
     const clientId = user.id;
