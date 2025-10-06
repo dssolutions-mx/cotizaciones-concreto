@@ -9,7 +9,6 @@ import {
   Award,
   FlaskConical
 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 import { Container } from '@/components/ui/Container';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { Badge } from '@/components/ui/badge';
@@ -34,7 +33,6 @@ interface TestResult {
 }
 
 export default function QualityPage() {
-  const supabase = createClient();
   const [metrics, setMetrics] = useState<QualityMetrics | null>(null);
   const [recentTests, setRecentTests] = useState<TestResult[]>([]);
   const [loading, setLoading] = useState(true);

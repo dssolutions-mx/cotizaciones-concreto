@@ -12,7 +12,6 @@ import {
   CreditCard,
   Building
 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 import { Container } from '@/components/ui/Container';
 import { Card as BaseCard } from '@/components/ui/Card';
 import { MetricCard } from '@/components/ui/MetricCard';
@@ -42,7 +41,6 @@ interface BalanceData {
 
 export default function BalancePage() {
   const router = useRouter();
-  const supabase = createClient();
   const [data, setData] = useState<BalanceData | null>(null);
   const [loading, setLoading] = useState(true);
 

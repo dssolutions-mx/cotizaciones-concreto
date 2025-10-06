@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, SlidersHorizontal, Package } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 import { Container } from '@/components/ui/Container';
 import { OrderCard } from '@/components/ui/OrderCard';
 import { FilterChip } from '@/components/ui/FilterChip';
@@ -29,7 +28,6 @@ const statusFilters = [
 
 export default function OrdersPage() {
   const router = useRouter();
-  const supabase = createClient();
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
