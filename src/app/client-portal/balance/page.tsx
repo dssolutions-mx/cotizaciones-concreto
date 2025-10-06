@@ -133,9 +133,9 @@ export default function BalancePage() {
                 <h2 
                   className={`text-6xl font-bold ${
                     (data?.general.current_balance || 0) > 0 
-                      ? 'text-red-500' 
+                      ? 'text-red-600' 
                       : (data?.general.current_balance || 0) < 0 
-                        ? 'text-green-500' 
+                        ? 'text-green-600' 
                         : 'text-label-primary'
                   }`}
                 >
@@ -198,9 +198,9 @@ export default function BalancePage() {
                   <p 
                     className={`text-title-2 font-bold ${
                       (data?.general.current_balance || 0) > 0 
-                        ? 'text-red-500' 
+                        ? 'text-red-600' 
                         : (data?.general.current_balance || 0) < 0 
-                          ? 'text-green-500' 
+                          ? 'text-green-600' 
                           : 'text-label-primary'
                     }`}
                   >
@@ -243,9 +243,9 @@ export default function BalancePage() {
                         <p 
                           className={`text-title-3 font-bold ${
                             site.balance > 0 
-                              ? 'text-red-500' 
+                              ? 'text-red-600' 
                               : site.balance < 0 
-                                ? 'text-green-500' 
+                                ? 'text-green-600' 
                                 : 'text-label-primary'
                           }`}
                         >

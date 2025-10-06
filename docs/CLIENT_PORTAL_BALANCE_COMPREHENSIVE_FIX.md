@@ -11,22 +11,32 @@ This document describes the comprehensive fix implemented for the client portal 
 #### Volume Calculation Per Construction Site
 - **Problem**: Volume per construction site was not being calculated correctly
 - **Solution**: 
-  - Created a mapping system that tracks remisiones by construction site through orders
-  - Excluded BOMBEO (pumping) remisiones from volume calculations
-  - Aggregated volumes per construction site from `volumen_fabricado` field
+  - **Simplified approach**: Use order_items data instead of remisiones (since remisiones don't have construction_site info)
+  - Order items contain the volume field, and orders have construction_site
+  - Direct mapping: order_items → orders → construction_site aggregation
 
 ```typescript
-// Map remisiones to construction sites via orders, track volumes AND monetary amounts
-const siteVolumes: Record<string, number> = {};
-const siteMonetaryAmounts: Record<string, number> = {};
-const ordersWithRemisiones = new Set<string>();
+// Get order items to calculate volumes (simpler than using remisiones)
+let orderItems: any[] = [];
+if (orderIds.length > 0) {
+  const { data: itemsData, error: itemsError } = await supabase
+    .from('order_items')
+    .select('order_id, volume')
+    .in('order_id', orderIds);
 
-remisiones.forEach((rem: any) => {
-  const order = orders?.find(o => o.id === rem.order_id);
+  if (itemsError) {
+    console.error('Balance API: Order items query error:', itemsError);
+  } else {
+    orderItems = itemsData || [];
+  }
+}
+
+// Aggregate volumes from order_items by construction site
+orderItems.forEach((item: any) => {
+  const order = orders?.find(o => o.id === item.order_id);
   if (order && order.construction_site) {
     const site = order.construction_site;
-    siteVolumes[site] = (siteVolumes[site] || 0) + (parseFloat(rem.volumen_fabricado) || 0);
-    ordersWithRemisiones.add(rem.order_id);
+    siteVolumes[site] = (siteVolumes[site] || 0) + (parseFloat(item.volume) || 0);
   }
 });
 ```
@@ -34,14 +44,15 @@ remisiones.forEach((rem: any) => {
 #### Monetary Amount Per Construction Site
 - **Problem**: No monetary amounts were being displayed per construction site
 - **Solution**:
-  - Track orders that have actual remisiones (deliveries)
+  - Track orders that have order_items
   - Sum `final_amount` from orders grouped by construction site
-  - Only include orders that have been delivered (have remisiones)
+  - Only include orders that have items (actual orders placed)
 
 ```typescript
-// Calculate monetary amounts per site (from orders that have remisiones)
+// Calculate monetary amounts per site from orders that have items
+const ordersWithItems = new Set(orderItems.map((item: any) => item.order_id));
 orders?.forEach(order => {
-  if (ordersWithRemisiones.has(order.id) && order.construction_site) {
+  if (ordersWithItems.has(order.id) && order.construction_site) {
     const site = order.construction_site;
     siteMonetaryAmounts[site] = (siteMonetaryAmounts[site] || 0) + (parseFloat(order.final_amount as any) || 0);
   }
@@ -50,10 +61,10 @@ orders?.forEach(order => {
 
 #### Total Volume Delivered
 - **Added**: `total_volume` field to general balance summary
-- **Calculation**: Sum of all `volumen_fabricado` from non-BOMBEO remisiones
+- **Calculation**: Sum of all `volume` from order_items
 
 ```typescript
-const totalDeliveredVolume = remisiones.reduce((sum, r) => sum + (parseFloat(r.volumen_fabricado) || 0), 0);
+const totalDeliveredVolume = orderItems.reduce((sum, item) => sum + (parseFloat(item.volume) || 0), 0);
 ```
 
 #### Enhanced Response Structure
@@ -79,10 +90,10 @@ const totalDeliveredVolume = remisiones.reduce((sum, r) => sum + (parseFloat(r.v
 ### 2. Balance Page UI Enhancement (`src/app/client-portal/balance/page.tsx`)
 
 #### Color Coding System
-Implemented a traffic light system for balance visualization:
+Implemented a professional color system for balance visualization:
 
-- **Red** (`text-red-500`): Positive balance = Client owes money to company
-- **Green** (`text-green-500`): Negative balance = Company owes money to client (credit)
+- **Dark Red** (`text-red-600`): Positive balance = Client owes money to company
+- **Dark Green** (`text-green-600`): Negative balance = Company owes money to client (credit)
 - **Default** (`text-label-primary`): Zero balance = Account is current
 
 #### Main Balance Card
@@ -90,9 +101,9 @@ Implemented a traffic light system for balance visualization:
 <h2 
   className={`text-6xl font-bold ${
     (data?.general.current_balance || 0) > 0 
-      ? 'text-red-500' 
+      ? 'text-red-600' 
       : (data?.general.current_balance || 0) < 0 
-        ? 'text-green-500' 
+        ? 'text-green-600' 
         : 'text-label-primary'
   }`}
 >
@@ -186,18 +197,24 @@ Enhanced construction site cards with comprehensive information:
 ## Data Flow
 
 ```
-Orders (client_id) 
-  → Remisiones (order_id, volumen_fabricado, construction_site via order)
-    → Site Volumes (aggregated by construction_site)
-    → Site Monetary Amounts (sum of order.final_amount)
+Orders (client_id, construction_site) 
+  → Order Items (order_id, volume)
+    → Site Volumes (aggregated by orders.construction_site)
+    → Site Monetary Amounts (sum of orders.final_amount)
       → Client Balance Display
 ```
+
+**Why order_items instead of remisiones?**
+- Order items have a direct `volume` field
+- Orders have the `construction_site` field
+- Remisiones don't have `construction_site` info directly, requiring complex joins
+- Simpler data structure: order_items → orders → construction_site
 
 ## Key Features
 
 ### 1. Accurate Volume Tracking
-- ✅ Volumes calculated from actual remisiones (delivery tickets)
-- ✅ Excludes BOMBEO (pumping) remisiones from volume calculations
+- ✅ Volumes calculated from order_items (ordered volumes)
+- ✅ Simpler data structure without complex remisiones joins
 - ✅ Properly mapped to construction sites through order relationships
 
 ### 2. Comprehensive Financial Display
@@ -206,9 +223,9 @@ Orders (client_id)
 - ✅ Total paid
 - ✅ Per-site balances with volume and monetary amounts
 
-### 3. Intuitive Color System
-- ✅ Red for amounts owed by client (positive balance)
-- ✅ Green for credit/amounts owed to client (negative balance)
+### 3. Professional Color System
+- ✅ Sober dark red (`text-red-600`) for amounts owed by client (positive balance)
+- ✅ Dark green (`text-green-600`) for credit/amounts owed to client (negative balance)
 - ✅ Applied consistently across all balance displays
 
 ### 4. Modern UI/UX
@@ -229,9 +246,9 @@ Orders (client_id)
    - Zero balance should show default color
 
 3. **Test volume calculations**
-   - Verify BOMBEO remisiones are excluded
+   - Verify volumes from order_items are correctly aggregated
    - Verify total volume matches sum of site volumes
-   - Verify volumes match remisiones data
+   - Verify volumes match order_items data
 
 4. **Test with various balance scenarios**
    - Client owes money (positive balance)
@@ -242,7 +259,7 @@ Orders (client_id)
 
 - `client_balances`: Stores current balance per client and construction site
 - `orders`: Contains order amounts and construction site assignments
-- `remisiones`: Delivery tickets with volumes (`volumen_fabricado`)
+- `order_items`: Contains volume information per order
 - `client_payments`: Payment records
 - `client_payment_distributions`: Payment distributions across sites
 - `client_balance_adjustments`: Manual balance adjustments
@@ -252,27 +269,27 @@ Orders (client_id)
 To verify the calculations are correct:
 
 ```sql
--- Total volume per construction site
+-- Total volume per construction site (from order_items)
 SELECT 
   o.construction_site,
-  SUM(r.volumen_fabricado) as total_volume,
-  COUNT(r.id) as remision_count
-FROM remisiones r
-JOIN orders o ON r.order_id = o.id
+  SUM(oi.volume) as total_volume,
+  COUNT(DISTINCT o.id) as order_count,
+  COUNT(oi.id) as item_count
+FROM order_items oi
+JOIN orders o ON oi.order_id = o.id
 WHERE o.client_id = 'client-uuid'
-  AND r.tipo_remision != 'BOMBEO'
 GROUP BY o.construction_site;
 
 -- Total monetary amount per construction site
 SELECT 
   o.construction_site,
-  SUM(o.final_amount) as total_amount
+  SUM(o.final_amount) as total_amount,
+  COUNT(o.id) as order_count
 FROM orders o
 WHERE o.client_id = 'client-uuid'
   AND EXISTS (
-    SELECT 1 FROM remisiones r 
-    WHERE r.order_id = o.id 
-    AND r.tipo_remision != 'BOMBEO'
+    SELECT 1 FROM order_items oi 
+    WHERE oi.order_id = o.id
   )
 GROUP BY o.construction_site;
 ```

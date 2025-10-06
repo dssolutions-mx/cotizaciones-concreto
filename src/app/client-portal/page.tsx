@@ -35,6 +35,7 @@ interface DashboardData {
     title: string;
     description: string;
     timestamp: string;
+    status?: 'success' | 'warning' | 'error' | 'pending';
   }>;
   upcomingDeliveries: Array<{
     id: string;
@@ -208,16 +209,30 @@ export default function ClientPortalDashboard() {
               </div>
 
               <div className="space-y-4">
-                {(data?.recentActivity || []).map((activity) => (
-                  <ActivityCard
-                    key={activity.id}
-                    icon={<CheckCircle className="w-5 h-5" />}
-                    title={activity.title}
-                    description={activity.description}
-                    timestamp={format(new Date(activity.timestamp), "dd MMM yyyy", { locale: es })}
-                    status={activity.status as any}
-                  />
-                ))}
+                {(data?.recentActivity || []).map((activity) => {
+                  // Select icon based on activity type
+                  let icon = <CheckCircle className="w-5 h-5" />;
+                  if (activity.type === 'order') {
+                    icon = <Package className="w-5 h-5" />;
+                  } else if (activity.type === 'payment') {
+                    icon = <DollarSign className="w-5 h-5" />;
+                  } else if (activity.type === 'quality') {
+                    icon = <CheckCircle className="w-5 h-5" />;
+                  } else if (activity.type === 'delivery') {
+                    icon = <Truck className="w-5 h-5" />;
+                  }
+
+                  return (
+                    <ActivityCard
+                      key={activity.id}
+                      icon={icon}
+                      title={activity.title}
+                      description={activity.description}
+                      timestamp={format(new Date(activity.timestamp), "dd MMM yyyy", { locale: es })}
+                      status={activity.status as any}
+                    />
+                  );
+                })}
                 {(!data?.recentActivity || data.recentActivity.length === 0) && (
                   <div className="text-center py-12">
                     <FileText className="w-16 h-16 text-label-tertiary mx-auto mb-4" />

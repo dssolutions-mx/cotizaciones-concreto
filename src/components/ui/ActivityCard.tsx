@@ -9,7 +9,7 @@ interface ActivityCardProps {
   title: string;
   description: string;
   timestamp: string;
-  status?: 'success' | 'warning' | 'info' | 'error';
+  status?: 'success' | 'warning' | 'info' | 'error' | 'pending';
   onClick?: () => void;
 }
 
@@ -17,7 +17,8 @@ const statusColors = {
   success: 'bg-green-500/20 text-green-600',
   warning: 'bg-orange-500/20 text-orange-600',
   info: 'bg-blue-500/20 text-blue-600',
-  error: 'bg-red-500/20 text-red-600'
+  error: 'bg-red-500/20 text-red-600',
+  pending: 'bg-gray-500/20 text-gray-600'
 };
 
 export function ActivityCard({

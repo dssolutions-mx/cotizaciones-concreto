@@ -22,47 +22,21 @@ export async function GET(request: Request) {
       console.error('Dashboard API: Orders query error:', ordersError);
     }
 
-    // Get order IDs for this client - RLS will automatically filter
-    const { data: clientOrders, error: clientOrdersError } = await supabase
-      .from('orders')
-      .select('id');
+    // Get delivered volume from order_items - more efficient than remisiones
+    // RLS will automatically filter through the orders relationship
+    const { data: orderItems, error: orderItemsError } = await supabase
+      .from('order_items')
+      .select('concrete_volume_delivered, volume');
 
-    if (clientOrdersError) {
-      console.error('Dashboard API: Client orders query error:', clientOrdersError);
+    if (orderItemsError) {
+      console.error('Dashboard API: Order items query error:', orderItemsError);
     }
 
-    const orderIds = clientOrders?.map(order => order.id) || [];
-
-    // Get remisiones volume - RLS will automatically filter through order relationship
-    // Only query if we have order IDs
-    let remisiones: any[] = [];
-    if (orderIds.length > 0) {
-      try {
-        const { data: remisionesData, error: remisionesError } = await supabase
-          .from('remisiones')
-          .select('id, volumen_fabricado, tipo_remision')
-          .neq('tipo_remision', 'BOMBEO')
-          .in('order_id', orderIds);
-
-        if (remisionesError) {
-          console.error('Dashboard API: Remisiones query error:', {
-            message: remisionesError.message,
-            details: remisionesError.details,
-            hint: remisionesError.hint,
-            code: remisionesError.code
-          });
-        } else {
-          remisiones = remisionesData || [];
-        }
-      } catch (error) {
-        console.error('Dashboard API: Remisiones query error:', {
-          message: error instanceof Error ? error.message : String(error),
-          details: error instanceof Error ? error.stack : '',
-          hint: '',
-          code: ''
-        });
-      }
-    }
+    // Calculate total delivered volume from order_items
+    const deliveredVolume = orderItems?.reduce(
+      (sum, item) => sum + (parseFloat(item.concrete_volume_delivered as any) || 0),
+      0
+    ) || 0;
 
     // Get client balance - RLS will automatically filter by client_id
     // Filter for GENERAL balance only (both construction_site and construction_site_id must be NULL)
@@ -79,78 +53,124 @@ export async function GET(request: Request) {
 
     const currentBalance = balance?.current_balance || 0;
 
-    // Get quality data from muestreos and ensayos through remisiones
-    // First get muestreos for client's remisiones
-    let ensayos: any[] = [];
-    let recentEnsayos: any[] = [];
-    
-    if (remisiones && remisiones.length > 0) {
-      const remisionIds = remisiones.map(r => (r as any).id);
-      
-      // Get muestreos for these remisiones
-      const { data: muestreos, error: muestreosError } = await supabase
-        .from('muestreos')
-        .select('id')
-        .in('remision_id', remisionIds);
+    // Get recent activity: orders, payments, and quality tests
+    let recentActivity: any[] = [];
+    let validEnsayos: any[] = [];
 
-      if (muestreosError) {
-        console.error('Dashboard API: Muestreos query error:', muestreosError);
-      }
+    try {
+      // 1. Get recent orders (last 10)
+      const { data: recentOrders } = await supabase
+        .from('orders')
+        .select('id, order_number, delivery_date, total_amount, order_status, created_at')
+        .order('created_at', { ascending: false })
+        .limit(10);
 
-      if (muestreos && muestreos.length > 0) {
-        const muestreoIds = muestreos.map(m => m.id);
-        
-        // Get muestras for these muestreos
-        const { data: muestras, error: muestrasError } = await supabase
-          .from('muestras')
+      // 2. Get recent payments (last 10)
+      const { data: recentPayments } = await supabase
+        .from('client_payments')
+        .select('id, amount, payment_date, payment_method, created_at')
+        .order('payment_date', { ascending: false })
+        .limit(10);
+
+      // 3. Get quality data for quality score
+      const { data: clientOrders } = await supabase
+        .from('orders')
+        .select('id');
+
+      const orderIds = clientOrders?.map(o => o.id) || [];
+
+      // Get recent quality tests
+      if (orderIds.length > 0) {
+        const { data: remisiones } = await supabase
+          .from('remisiones')
           .select('id')
-          .in('muestreo_id', muestreoIds);
+          .in('order_id', orderIds);
 
-        if (muestrasError) {
-          console.error('Dashboard API: Muestras query error:', muestrasError);
-        }
+        const remisionIds = remisiones?.map(r => r.id) || [];
 
-        if (muestras && muestras.length > 0) {
-          const muestraIds = muestras.map(m => m.id);
-          
-          // Get ensayos for these muestras
-          const { data: ensayosData, error: ensayosError } = await supabase
-            .from('ensayos')
-            .select('id, fecha_ensayo, resistencia_calculada, porcentaje_cumplimiento')
-            .in('muestra_id', muestraIds)
-            .order('fecha_ensayo', { ascending: false });
+        if (remisionIds.length > 0) {
+          const { data: muestreos } = await supabase
+            .from('muestreos')
+            .select('id')
+            .in('remision_id', remisionIds);
 
-          if (ensayosError) {
-            console.error('Dashboard API: Ensayos query error:', ensayosError);
-          } else {
-            ensayos = ensayosData || [];
-            recentEnsayos = ensayos.slice(0, 6);
+          const muestreoIds = muestreos?.map(m => m.id) || [];
+
+          if (muestreoIds.length > 0) {
+            const { data: muestras } = await supabase
+              .from('muestras')
+              .select('id')
+              .in('muestreo_id', muestreoIds);
+
+            const muestraIds = muestras?.map(m => m.id) || [];
+
+            if (muestraIds.length > 0) {
+              const { data: ensayos } = await supabase
+                .from('ensayos')
+                .select('id, fecha_ensayo, resistencia_calculada, porcentaje_cumplimiento, created_at')
+                .in('muestra_id', muestraIds)
+                .not('porcentaje_cumplimiento', 'is', null)
+                .order('fecha_ensayo', { ascending: false })
+                .limit(100);
+
+              validEnsayos = ensayos || [];
+            }
           }
         }
       }
+
+      // Transform orders to activity items
+      const orderActivities = (recentOrders || []).map((order: any) => ({
+        id: order.id,
+        type: 'order',
+        title: `Pedido ${order.order_number}`,
+        description: `$${parseFloat(order.total_amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`,
+        timestamp: order.created_at,
+        status: order.order_status === 'completed' ? 'success' : 'pending',
+        sortDate: new Date(order.created_at)
+      }));
+
+      // Transform payments to activity items
+      const paymentActivities = (recentPayments || []).map((payment: any) => ({
+        id: payment.id,
+        type: 'payment',
+        title: 'Pago recibido',
+        description: `$${parseFloat(payment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} · ${payment.payment_method}`,
+        timestamp: payment.payment_date,
+        status: 'success',
+        sortDate: new Date(payment.payment_date)
+      }));
+
+      // Transform quality tests to activity items (only recent ones)
+      const qualityActivities = validEnsayos.slice(0, 10).map((e: any) => {
+        const pct = parseFloat(e.porcentaje_cumplimiento || '0') || 0;
+        const status = pct >= 95 ? 'success' : pct >= 85 ? 'warning' : 'error';
+        return {
+          id: e.id,
+          type: 'quality',
+          title: 'Ensayo completado',
+          description: `${e.resistencia_calculada ?? '-'} kg/cm² · ${pct}%`,
+          timestamp: e.fecha_ensayo,
+          status,
+          sortDate: new Date(e.created_at || e.fecha_ensayo)
+        };
+      });
+
+      // Combine all activities, sort by date, and take top 10
+      recentActivity = [...orderActivities, ...paymentActivities, ...qualityActivities]
+        .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
+        .slice(0, 10)
+        .map(({ sortDate, ...item }) => item); // Remove sortDate from final output
+
+    } catch (error) {
+      console.error('Dashboard API: Recent activity query error:', error);
+      // Continue with empty activity data rather than failing
     }
 
-    const deliveredVolume = remisiones?.reduce(
-      (sum, r) => sum + (parseFloat(r.volumen_fabricado) || 0),
-      0
-    ) || 0;
-
-    const qualityScore = ensayos?.length
-      ? Math.round(ensayos.reduce((sum, e) => sum + (parseFloat(e.porcentaje_cumplimiento) || 0), 0) / ensayos.length)
+    // Calculate quality score from all ensayos
+    const qualityScore = validEnsayos.length
+      ? Math.round(validEnsayos.reduce((sum, e) => sum + (parseFloat(e.porcentaje_cumplimiento) || 0), 0) / validEnsayos.length)
       : 0;
-
-    const recentActivity = (recentEnsayos || []).map((e: any) => {
-      const pct = parseFloat(e.porcentaje_cumplimiento || '0') || 0;
-      const status = pct >= 95 ? 'success' : pct >= 85 ? 'warning' : 'error';
-      return {
-        id: e.id,
-        type: 'quality',
-        title: 'Ensayo de calidad',
-        description: `Resistencia ${e.resistencia_calculada ?? '-'} · ${pct}% cumplimiento`,
-        timestamp: e.fecha_ensayo,
-        status
-      };
-    });
 
     // Ensure we always return valid data structure
     const responseData = {
