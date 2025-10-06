@@ -53,20 +53,36 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) return { success: false, error: error.message };
       
+      if (!data.session?.user) {
+        return { success: false, error: 'No user session created' };
+      }
+      
       // Set session immediately
       set({ 
-        user: data.session?.user ?? null,
-        session: data.session ?? null
+        user: data.session.user,
+        session: data.session
       }, false, 'auth/signIn:setUserAndSession');
       
-      // Wait for profile to load before returning - critical for redirect logic
-      await get().loadProfile();
+      // Load profile directly without redundant session fetch
+      const { data: profileData, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('id', data.session.user.id)
+        .single();
       
-      // Verify profile was loaded
-      const profile = get().profile;
-      if (!profile) {
+      if (profileError) {
+        set({ profile: null, error: profileError.message }, false, 'auth/signIn:profileError');
+        return { success: false, error: `Profile not found: ${profileError.message}` };
+      }
+      
+      if (!profileData) {
         return { success: false, error: 'Profile not found after sign in' };
       }
+      
+      // Force set the profile - no change detection during login
+      const profile = profileData as unknown as UserProfile;
+      set({ profile, error: null }, false, 'auth/signIn:setProfile');
+      cacheUserProfile(profile);
       
       return { success: true };
     } catch (e: any) {

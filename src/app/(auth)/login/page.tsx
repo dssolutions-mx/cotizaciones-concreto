@@ -89,10 +89,10 @@ function LoginForm() {
         return;
       }
       
-      // Success - profile is already loaded by signIn, trigger redirect immediately
+      // Success - profile is already loaded by signIn
       console.log('[Login] Sign in successful, profile loaded');
-      // The useEffect will handle the redirect once profile is in state
-      // Don't call triggerAuthCheck - it's redundant since signIn already loaded the profile
+      // Clear loading state immediately - the useEffect will handle redirect
+      setLoading(false);
       
     } catch (err) {
       console.error('Unexpected login error:', err);
