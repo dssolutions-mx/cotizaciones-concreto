@@ -81,8 +81,14 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
       
       // Force set the profile - no change detection during login
       const profile = profileData as unknown as UserProfile;
+      console.log('[AuthStore] Setting profile after sign in:', {
+        profileId: profile.id,
+        role: profile.role,
+        email: profile.email
+      });
       set({ profile, error: null }, false, 'auth/signIn:setProfile');
       cacheUserProfile(profile);
+      console.log('[AuthStore] Profile set successfully, returning success');
       
       return { success: true };
     } catch (e: any) {

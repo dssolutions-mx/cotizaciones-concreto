@@ -21,6 +21,13 @@ function LoginForm() {
 
   // Handle role-based routing after authentication
   useEffect(() => {
+    console.log('[Login] Profile effect triggered:', { 
+      hasProfile: !!profile, 
+      profileRole: profile?.role,
+      loading,
+      profileId: profile?.id
+    });
+    
     // If we have a profile and not loading, redirect to appropriate page
     if (profile && !loading) {
       let target = '/dashboard';
@@ -40,8 +47,12 @@ function LoginForm() {
           target = '/dashboard';
       }
 
-      console.log(`Redirecting ${profile.role} user to ${target}`);
+      console.log(`[Login] Redirecting ${profile.role} user to ${target}`);
       router.push(target);
+    } else {
+      console.log('[Login] Not redirecting:', { 
+        reason: !profile ? 'no profile' : 'still loading'
+      });
     }
 
   }, [profile, loading, router]);
