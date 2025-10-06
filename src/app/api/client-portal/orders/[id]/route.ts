@@ -96,6 +96,29 @@ export async function GET(
       console.error('Error fetching remisiones:', remisionesError);
     }
 
+    // Get material consumption data for remisiones
+    let remisionMateriales: any[] = [];
+    if (remisiones && remisiones.length > 0) {
+      const remisionIds = remisiones.map(r => r.id);
+      const { data: materialesData, error: materialesError } = await supabase
+        .from('remision_materiales')
+        .select(`
+          id,
+          remision_id,
+          material_type,
+          cantidad_real,
+          cantidad_teorica,
+          ajuste
+        `)
+        .in('remision_id', remisionIds);
+      
+      if (materialesError) {
+        console.error('Error fetching remision_materiales:', materialesError);
+      }
+      
+      remisionMateriales = materialesData || [];
+    }
+
     // Get muestreos (samplings) for this order's remisiones
     let muestreos: any[] = [];
     if (remisiones && remisiones.length > 0) {
@@ -111,7 +134,7 @@ export async function GET(
           muestras(
             id,
             fecha_programada_ensayo,
-            edad,
+            tipo_muestra,
             estado,
             ensayos(
               id,
@@ -119,8 +142,7 @@ export async function GET(
               resistencia_calculada,
               porcentaje_cumplimiento,
               carga_kg,
-              observaciones,
-              tipo_ensayo
+              observaciones
             )
           )
         `)
@@ -146,7 +168,6 @@ export async function GET(
           remision_number_manual,
           plant_id,
           fecha_muestreo,
-          hora_salida_planta,
           hora_llegada_obra,
           test_type,
           valor_inicial_cm,
@@ -172,11 +193,29 @@ export async function GET(
     const remisionesWithDetails = (remisiones || []).map((remision: any) => {
       const remisionMuestreos = muestreos.filter(m => m.remision_id === remision.id);
       const remisionSiteChecks = siteChecks.filter(sc => sc.remision_id === remision.id);
+      const remisionMaterialesData = remisionMateriales.filter(m => m.remision_id === remision.id);
+      
+      // Calculate rendimiento volumétrico for this remision
+      let rendimientoVolumetrico = null;
+      if (remisionMaterialesData.length > 0 && remision.volumen_fabricado > 0) {
+        // Sum all material quantities (kg)
+        const totalMaterialReal = remisionMaterialesData.reduce((sum: number, m: any) => 
+          sum + (parseFloat(m.cantidad_real) || 0), 0);
+        const totalMaterialTeorico = remisionMaterialesData.reduce((sum: number, m: any) => 
+          sum + (parseFloat(m.cantidad_teorica) || 0), 0);
+        
+        if (totalMaterialTeorico > 0) {
+          // Rendimiento = (Material Teórico / Material Real) * 100
+          rendimientoVolumetrico = (totalMaterialTeorico / totalMaterialReal) * 100;
+        }
+      }
       
       return {
         ...remision,
         muestreos: remisionMuestreos,
-        site_checks: remisionSiteChecks
+        site_checks: remisionSiteChecks,
+        materiales: remisionMaterialesData,
+        rendimiento_volumetrico: rendimientoVolumetrico
       };
     });
 

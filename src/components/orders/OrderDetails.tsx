@@ -1133,7 +1133,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         {canEditOrder && !isEditing && (
           <Button
             onClick={handleEditClick}
-            className="px-3 py-2 rounded text-sm bg-blue-600 text-white hover:bg-blue-700"
+            variant="ghost"
+            className="!bg-blue-600 !hover:bg-blue-700 !text-white"
           >
             Editar Orden
           </Button>
