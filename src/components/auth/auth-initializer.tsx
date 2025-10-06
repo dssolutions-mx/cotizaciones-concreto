@@ -31,6 +31,13 @@ export default function AuthInitializer() {
   // Track last handled auth state to avoid duplicate processing on HMR/visibility
   const lastAccessTokenRef = useRef<string | null>(null);
   const lastEventTsRef = useRef<number>(0);
+  
+  // Manually trigger rehydration on client side since we skip it for SSR
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      useAuthStore.persist.rehydrate();
+    }
+  }, []);
 
   // Track render performance for AuthInitializer
   useEffect(() => {

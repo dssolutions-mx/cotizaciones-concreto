@@ -11,7 +11,7 @@ import { createSessionSlice } from './slices/session-slice';
 import { createCacheSlice } from './slices/cache-slice';
 import { createMetricsSlice } from './slices/metrics-slice';
 import { createOfflineSlice } from './slices/offline-slice';
-import { withCrossTabSync } from './middleware/cross-tab-sync';
+// import { withCrossTabSync } from './middleware/cross-tab-sync'; // Disabled to fix infinite loop
 
 const partialize = (state: AuthStoreState) => ({
   // safe-to-persist fields only
@@ -25,17 +25,20 @@ const partialize = (state: AuthStoreState) => ({
   queue: state.queue,
 });
 
+// Temporarily disable cross-tab sync to fix infinite loop
+const storeConfig = (set: any, get: any, api: any) => ({
+  ...createAuthSlice(set, get, api),
+  ...createSessionSlice(set, get, api),
+  ...createCacheSlice(set, get, api),
+  ...createMetricsSlice(set, get, api),
+  ...createOfflineSlice(set, get, api),
+});
+
 export const useAuthStore = create<AuthStoreState>()(
   devtools(
     subscribeWithSelector(
       persist(
-        withCrossTabSync((set, get, api) => ({
-          ...createAuthSlice(set, get, api),
-          ...createSessionSlice(set, get, api),
-          ...createCacheSlice(set, get, api),
-          ...createMetricsSlice(set, get, api),
-          ...createOfflineSlice(set, get, api),
-        }), { whitelistKeys: ['user', 'profile', 'session'] as unknown as Array<keyof AuthStoreState> }),
+        storeConfig,
         {
           name: 'auth-store',
           version: 1,
@@ -45,6 +48,7 @@ export const useAuthStore = create<AuthStoreState>()(
           },
           partialize,
           storage: createJSONStorage(() => localStorage),
+          skipHydration: true, // Skip hydration to prevent SSR issues
         }
       )
     )
