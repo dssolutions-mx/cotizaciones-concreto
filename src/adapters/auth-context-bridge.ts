@@ -1,19 +1,23 @@
 'use client';
 
 import { useAuthStore } from '@/store/auth';
+import { shallow } from 'zustand/shallow';
 import type { UserRole } from '@/store/auth/types';
 
 // Bridge hook that mimics a subset of the AuthContext API using the Zustand store under the hood.
 // Useful for incremental migration of components.
 export function useAuthBridge() {
-  // Subscribe to the entire auth state to ensure we get all updates
-  const authState = useAuthStore((state) => ({
-    session: state.session,
-    profile: state.profile,
-    isInitialized: state.isInitialized,
-    error: state.error,
-    user: state.user,
-  }));
+  // Subscribe to auth state with shallow equality to prevent infinite loops
+  const { session, profile, isInitialized, error, user } = useAuthStore(
+    (state) => ({
+      session: state.session,
+      profile: state.profile,
+      isInitialized: state.isInitialized,
+      error: state.error,
+      user: state.user,
+    }),
+    shallow // Use shallow equality check to prevent new object on every render
+  );
   
   // Methods don't change, so we can subscribe separately
   const signIn = useAuthStore((s) => s.signIn);
@@ -31,12 +35,12 @@ export function useAuthBridge() {
     return await signOut();
   };
 
-  const isLoading = !authState.isInitialized;
+  const isLoading = !isInitialized;
 
   return {
-    session: authState.session,
-    profile: authState.profile,
-    error: authState.error,
+    session,
+    profile,
+    error,
     isLoading,
     signIn,
     signOut,
