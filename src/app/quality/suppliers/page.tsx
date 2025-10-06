@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
+
+export const runtime = 'edge';
 import { recipeService } from '@/lib/supabase/recipes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

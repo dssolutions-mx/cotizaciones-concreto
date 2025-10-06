@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+
+export const runtime = 'edge';
 import { MaterialPriceForm } from '@/components/prices/MaterialPriceForm';
 import { MaterialPriceList } from '@/components/prices/MaterialPriceList';
 import { AdminCostForm } from '@/components/prices/AdminCostForm';

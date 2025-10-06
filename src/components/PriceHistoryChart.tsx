@@ -177,7 +177,7 @@ const PriceHistoryChartComponent: React.FC<PriceHistoryChartProps> = memo(({
 
     // Si tenemos más de 20 puntos, reducir para móviles
     const sortedDates = Array.from(allDates).sort();
-    const isMobile = window.innerWidth < 768;
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     
     // En móviles, reducir dramáticamente la cantidad de puntos de datos
     const filteredDates = isMobile && sortedDates.length > 10 
@@ -199,7 +199,7 @@ const PriceHistoryChartComponent: React.FC<PriceHistoryChartProps> = memo(({
     if (chartData.length === 0) return [];
     
     // Limitar el número de series para móviles (mejor rendimiento)
-    const isMobile = window.innerWidth < 768;
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
     const allKeys = Object.keys(chartData[0]).filter(key => key !== 'date');
     
     return isMobile && allKeys.length > 3 
@@ -224,7 +224,7 @@ const PriceHistoryChartComponent: React.FC<PriceHistoryChartProps> = memo(({
   }
   
   // Reducir la complejidad del renderizado en móviles
-  const isMobile = window.innerWidth < 768;
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
   const chartHeight = isMobile ? '250px' : '500px';
   const strokeWidth = isMobile ? 1.5 : 2;
   const dotRadius = isMobile ? 2 : 4;

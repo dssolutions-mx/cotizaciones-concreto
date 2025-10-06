@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
   },
   
   // Improved output tracing to handle route groups
-  output: 'standalone',
+  // output: 'standalone',
   
   // External packages configuration (moved from experimental)
   serverExternalPackages: [],

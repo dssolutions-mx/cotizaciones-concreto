@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+
+export const runtime = 'edge';
 import { PriceHistoryTable } from '@/components/PriceHistoryTable';
 import { PriceHistoryChart } from '@/components/PriceHistoryChart';
 import {
