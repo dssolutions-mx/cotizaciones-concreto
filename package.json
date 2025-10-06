@@ -38,6 +38,7 @@
     "@types/file-saver": "^2.0.7",
     "@types/uuid": "^10.0.0",
     "@types/xlsx": "^0.0.35",
+    "@vercel/analytics": "^1.5.0",
     "antd": "^5.24.8",
     "apexcharts": "^4.7.0",
     "chart.js": "^4.4.9",

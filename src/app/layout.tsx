@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
+import { Analytics } from '@vercel/analytics/react';
 import { 
   FileText, 
   DollarSign, 
@@ -1091,6 +1092,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </ErrorBoundary>
             <Toaster />
             <SonnerToaster position="top-right" richColors/>
+            <Analytics />
           </OrderPreferencesProvider>
         </PlantProvider>
       </body>
