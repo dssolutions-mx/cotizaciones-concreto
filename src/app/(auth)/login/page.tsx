@@ -17,7 +17,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signIn, profile, triggerAuthCheck } = useAuthBridge();
+  const { signIn, profile } = useAuthBridge();
 
   // Handle role-based routing after authentication
   useEffect(() => {
@@ -70,12 +70,13 @@ function LoginForm() {
     setLoading(true);
 
     try {
-      const { error } = await signIn(email, password);
-      if (error) {
-        const msg = typeof error === 'string' ? error : (error as any)?.message || '';
-        console.error('Login error details:', error);
+      const result = await signIn(email, password);
+      
+      if (result.error) {
+        const msg = result.error;
+        console.error('Login error details:', msg);
 
-        if (msg.includes('profile not found')) {
+        if (msg.includes('profile not found') || msg.includes('Profile not found')) {
           setError('Tu cuenta existe pero no tiene un perfil asociado. Por favor, contacta al administrador.');
         } else if (msg.includes('Invalid login credentials')) {
           setError('Credenciales inválidas. Por favor, verifica tu correo y contraseña.');
@@ -85,13 +86,14 @@ function LoginForm() {
           setError(`Error al iniciar sesión: ${msg || 'Credenciales inválidas'}`);
         }
         setLoading(false);
-      } else {
-        // Ensure auth state is refreshed so profile becomes available for redirect
-        await triggerAuthCheck('login-success');
-        setLoading(false);
+        return;
       }
-      // Success case is handled by the profile-based routing effect above
-      // Note: If signIn succeeds but profile loading fails, the authError will be caught by the useEffect
+      
+      // Success - profile is already loaded by signIn, trigger redirect immediately
+      console.log('[Login] Sign in successful, profile loaded');
+      // The useEffect will handle the redirect once profile is in state
+      // Don't call triggerAuthCheck - it's redundant since signIn already loaded the profile
+      
     } catch (err) {
       console.error('Unexpected login error:', err);
       setError('Ocurrió un error inesperado al iniciar sesión. Por favor, intenta de nuevo.');

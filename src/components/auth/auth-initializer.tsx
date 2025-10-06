@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef } from 'react';
 import { useAuthStore } from '@/store/auth';
-import { useUnifiedAuthStore } from '@/store/auth/unified-store';
 import { supabase } from '@/lib/supabase/client';
 import { getDebugControls } from '@/utils/debugControls';
 import { eventDeduplicationService, AuthEvents } from '@/services/eventDeduplicationService';
@@ -21,33 +20,13 @@ declare global {
 }
 
 export default function AuthInitializer() {
-  // Use both stores for transition period
-  const legacyInitialize = useAuthStore((s) => s.initialize);
-  const legacyScheduleRefresh = useAuthStore((s) => s.scheduleRefresh);
-  const legacyClearRefreshTimer = useAuthStore((s) => s.clearRefreshTimer);
-  const legacySetOnline = useAuthStore((s) => s.setOnlineStatus);
-  const legacySession = useAuthStore((s) => s.session);
-  const legacyLoadProfile = useAuthStore((s) => s.loadProfile);
-  
-  // Unified store methods
-  const unifiedInitialize = useUnifiedAuthStore((s) => s.initialize);
-  const unifiedScheduleRefresh = useUnifiedAuthStore((s) => s.scheduleRefresh);
-  const unifiedClearRefreshTimer = useUnifiedAuthStore((s) => s.clearRefreshTimer);
-  const unifiedSetOnline = useUnifiedAuthStore((s) => s.setOnlineStatus);
-  const unifiedSession = useUnifiedAuthStore((s) => s.session);
-  const unifiedLoadProfile = useUnifiedAuthStore((s) => s.loadProfile);
-  const stateVersion = useUnifiedAuthStore((s) => s.stateVersion);
-  
-  // Use unified store if it has been initialized (has state version > 0)
-  const useUnified = stateVersion > 0;
-  
-  // Select methods based on which store to use
-  const initialize = useUnified ? unifiedInitialize : legacyInitialize;
-  const scheduleRefresh = useUnified ? unifiedScheduleRefresh : legacyScheduleRefresh;
-  const clearRefreshTimer = useUnified ? unifiedClearRefreshTimer : legacyClearRefreshTimer;
-  const setOnline = useUnified ? unifiedSetOnline : legacySetOnline;
-  const session = useUnified ? unifiedSession : legacySession;
-  const loadProfile = useUnified ? unifiedLoadProfile : legacyLoadProfile;
+  // Use only the main auth store - no dual-store complexity
+  const initialize = useAuthStore((s) => s.initialize);
+  const scheduleRefresh = useAuthStore((s) => s.scheduleRefresh);
+  const clearRefreshTimer = useAuthStore((s) => s.clearRefreshTimer);
+  const setOnline = useAuthStore((s) => s.setOnlineStatus);
+  const session = useAuthStore((s) => s.session);
+  const loadProfile = useAuthStore((s) => s.loadProfile);
   
   // Track last handled auth state to avoid duplicate processing on HMR/visibility
   const lastAccessTokenRef = useRef<string | null>(null);
@@ -55,14 +34,11 @@ export default function AuthInitializer() {
 
   // Track render performance for AuthInitializer
   useEffect(() => {
-    const finishRender = renderTracker.trackRender('AuthInitializer', 'store-transition', undefined, {
-      useUnified,
-      stateVersion,
+    const finishRender = renderTracker.trackRender('AuthInitializer', 'auth-flow', undefined, {
       hasSession: !!session,
-      storeName: useUnified ? 'unified' : 'legacy',
     });
     finishRender();
-  }, [useUnified, stateVersion, session]);
+  }, [session]);
 
   useEffect(() => {
     void initialize();
@@ -113,46 +89,38 @@ export default function AuthInitializer() {
         lastProfileFetchAt: 0,
       }) : { lastToken: null, lastTs: 0, lastUserId: null, lastProfileFetchAt: 0 };
 
-      // De-duplicate rapid successive events (e.g. fast refresh/visibility) using both local and global clocks
-      const WINDOW_MS = 4000; // widen window slightly
-      const isRapidRepeatLocal = now - lastEventTsRef.current < WINDOW_MS;
-      const isRapidRepeatGlobal = now - (g.lastTs || 0) < WINDOW_MS;
+      // De-duplicate rapid successive events only if token/user hasn't changed
+      const WINDOW_MS = 1000; // Reduce throttle window for faster response
       lastEventTsRef.current = now;
 
       if (event === 'SIGNED_IN') {
-        // Ignore if token/user did not change and it's a rapid repeat (protect against HMR and visibility)
-        const sameTokenLocal = currentToken && previousToken === currentToken;
-        const sameTokenGlobal = currentToken && g.lastToken === currentToken;
-        const sameUserGlobal = userId && g.lastUserId === userId;
-        if ((sameTokenLocal || sameTokenGlobal) && sameUserGlobal && (isRapidRepeatLocal || isRapidRepeatGlobal)) {
-          console.log('[AuthInitializer] Ignoring duplicate SIGNED_IN (same token/user, rapid repeat)');
+        // Only ignore if token AND user are exactly the same AND it's within 1 second
+        const sameToken = currentToken && previousToken === currentToken;
+        const sameUser = userId && userId === lastAccessTokenRef.current;
+        const isRapidRepeat = now - (g.lastTs || 0) < WINDOW_MS;
+        
+        if (sameToken && sameUser && isRapidRepeat) {
+          console.log('[AuthInitializer] Ignoring duplicate SIGNED_IN (same token/user within 1s)');
           return;
         }
+        
         lastAccessTokenRef.current = currentToken;
         g.lastToken = currentToken;
         g.lastTs = now;
         g.lastUserId = userId;
+        g.lastProfileFetchAt = now;
+        
         console.log(`[AuthInitializer] Processing ${event} - loading profile`);
-        // Throttle profile loads globally
-        if (!g.lastProfileFetchAt || (now - g.lastProfileFetchAt) > WINDOW_MS) {
-          g.lastProfileFetchAt = now;
-          void loadProfile();
-        } else {
-          console.log('[AuthInitializer] Skipping loadProfile (throttled)');
-        }
+        void loadProfile();
         scheduleRefresh();
+        
       } else if (event === 'TOKEN_REFRESHED') {
         lastAccessTokenRef.current = currentToken;
         g.lastToken = currentToken;
         g.lastTs = now;
         g.lastUserId = userId;
-        console.log(`[AuthInitializer] Processing ${event} - loading profile`);
-        if (!g.lastProfileFetchAt || (now - g.lastProfileFetchAt) > WINDOW_MS) {
-          g.lastProfileFetchAt = now;
-          void loadProfile();
-        } else {
-          console.log('[AuthInitializer] Skipping loadProfile (throttled)');
-        }
+        
+        console.log(`[AuthInitializer] Processing ${event} - refreshing session`);
         scheduleRefresh();
       } else if (event === 'SIGNED_OUT') {
         console.log('[AuthInitializer] Processing SIGNED_OUT - clearing state');

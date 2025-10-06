@@ -52,8 +52,22 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) return { success: false, error: error.message };
-      set({ user: data.session?.user ?? null }, false, 'auth/signIn:setUser');
+      
+      // Set session immediately
+      set({ 
+        user: data.session?.user ?? null,
+        session: data.session ?? null
+      }, false, 'auth/signIn:setUserAndSession');
+      
+      // Wait for profile to load before returning - critical for redirect logic
       await get().loadProfile();
+      
+      // Verify profile was loaded
+      const profile = get().profile;
+      if (!profile) {
+        return { success: false, error: 'Profile not found after sign in' };
+      }
+      
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e?.message ?? 'Unexpected error' };

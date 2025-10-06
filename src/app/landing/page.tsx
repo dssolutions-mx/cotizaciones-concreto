@@ -341,7 +341,7 @@ export default function LandingPage() {
         <div className="absolute inset-0 z-0">
           <div className="absolute inset-0 bg-gray-900/80 z-10" />
           <Image 
-            src="/images/dcconcretos/hero1.jpg?v=1" 
+            src="/images/dcconcretos/hero1.jpg" 
             alt="DC Concretos - Bienvenido al Sistema" 
             fill
             className="object-cover"
