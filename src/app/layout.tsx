@@ -3,7 +3,7 @@
 import React, { useEffect, useState, ErrorInfo } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import './globals.css';
 import { Toaster } from '@/components/ui/toaster';
 import { 
@@ -43,7 +43,6 @@ import { PlantProvider, usePlantContext } from '@/contexts/PlantContext';
 import ProfileMenu from '@/components/auth/ProfileMenu';
 import AuthStatusIndicator from '@/components/auth/AuthStatusIndicator';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
-import { Inter } from 'next/font/google';
 import { OrderPreferencesProvider } from '@/contexts/OrderPreferencesContext';
 import { Toaster as SonnerToaster } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -55,8 +54,7 @@ import { Sheet, SheetContent } from '@/components/ui/sheet';
 // Define navigation items for different roles
 // const NAV_ITEMS = { ... }; // Removed as it's unused
 
-// Define Inter font
-const inter = Inter({ subsets: ['latin'] });
+// Remove Inter font and rely on system fonts defined in globals.css
 
 // Define Finanzas submenu items with component types
 const finanzasSubMenuItems = [
@@ -229,9 +227,11 @@ function Navigation({ children }: { children: React.ReactNode }) {
   const { profile } = useAuthBridge();
   const { currentPlant } = usePlantContext();
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
   const isLandingRoute = pathname?.startsWith('/landing');
+  const isAuthRoute = pathname?.startsWith('/login') || pathname?.startsWith('/auth') || pathname?.startsWith('/reset-password') || pathname?.startsWith('/update-password');
   const isFinanzasRoute = pathname?.startsWith('/finanzas');
   const isQualityRoute = pathname?.startsWith('/quality');
   const isAdminRoute = pathname?.startsWith('/admin');
@@ -265,8 +265,20 @@ function Navigation({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
-  // If it's a landing route, just render children without the main layout
-  if (isLandingRoute) {
+  // Safety redirect: External clients should always land in client-portal
+  useEffect(() => {
+    if (profile?.role === 'EXTERNAL_CLIENT') {
+      const isPortal = pathname?.startsWith('/client-portal');
+      const isAuth = pathname === '/login' || pathname?.startsWith('/auth');
+      if (!isPortal && !isAuth) {
+        router.replace('/client-portal');
+        return;
+      }
+    }
+  }, [profile?.role, pathname, router]);
+
+  // If it's a landing, client-portal, or auth route, render children without global Navigation
+  if (isLandingRoute || pathname?.startsWith('/client-portal') || isAuthRoute) {
     return <>{children}</>;
   }
 
@@ -1054,8 +1066,8 @@ class ErrorBoundary extends React.Component<
 
 // Componente principal
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  // Use Inter font
-  const fontClassName = inter.className;
+  // Use system fonts via global CSS; no extra class needed
+  const fontClassName = '';
 
   // We no longer need pathname or isLandingRoute check here
 

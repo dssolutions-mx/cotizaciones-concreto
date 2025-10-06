@@ -1,0 +1,27 @@
+import Image from 'next/image';
+
+interface BrandingProps {
+  size?: 'sm' | 'md' | 'lg';
+  className?: string;
+}
+
+export function Branding({ size = 'md', className }: BrandingProps) {
+  const dimensions = {
+    sm: { width: 32, height: 32 },
+    md: { width: 120, height: 40 },
+    lg: { width: 150, height: 50 },
+  };
+
+  const dimension = dimensions[size];
+
+  return (
+    <Image
+      src="/images/dcconcretos/logo-dark.svg"
+      alt="DC Concretos"
+      width={dimension.width}
+      height={dimension.height}
+      className={className}
+      priority
+    />
+  );
+}

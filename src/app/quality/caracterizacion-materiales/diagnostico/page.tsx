@@ -33,10 +33,10 @@ export default function DiagnosticoPage() {
 
         {/* Diagnóstico */}
         <DatabaseDiagnostic />
-        
+
         {/* Prueba de Flujo Completo */}
         <TestFormFlow />
-        
+
         {/* Pruebas de Integración */}
         <TestCaracterizacion />
       </div>

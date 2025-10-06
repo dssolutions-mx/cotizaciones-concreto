@@ -296,3 +296,59 @@
     @apply bg-background text-foreground;
   }
 } 
+
+@layer base {
+  html {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'Helvetica Neue', 'Segoe UI', Roboto, Arial, sans-serif;
+  }
+}
+
+/* Liquid Glass utilities (Day 1) */
+@layer utilities {
+  /* Typography utility classes */
+  .text-large-title { font-size: 34px; font-weight: 700; line-height: 41px; letter-spacing: 0.37px; }
+  .text-title-1 { font-size: 28px; font-weight: 700; line-height: 34px; letter-spacing: 0.36px; }
+  .text-title-2 { font-size: 22px; font-weight: 700; line-height: 28px; letter-spacing: 0.35px; }
+  .text-title-3 { font-size: 20px; font-weight: 600; line-height: 25px; letter-spacing: 0.38px; }
+  .text-body { font-size: 17px; font-weight: 400; line-height: 22px; letter-spacing: -0.41px; }
+  .text-callout { font-size: 16px; font-weight: 400; line-height: 21px; letter-spacing: -0.32px; }
+  .text-footnote { font-size: 13px; font-weight: 400; line-height: 18px; letter-spacing: -0.08px; }
+  .text-caption { font-size: 12px; font-weight: 400; line-height: 16px; letter-spacing: 0px; }
+
+  .glass-base {
+    background: rgba(255, 255, 255, 0.72);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    backdrop-filter: blur(12px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.08), inset 0 1px 0 0 rgba(255, 255, 255, 0.6);
+  }
+  .glass-thick {
+    background: rgba(255, 255, 255, 0.8);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+    backdrop-filter: blur(16px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 6px 24px 0 rgba(0, 0, 0, 0.12), inset 0 1px 0 0 rgba(255, 255, 255, 0.7);
+  }
+  .glass-thin {
+    background: rgba(255, 255, 255, 0.6);
+    -webkit-backdrop-filter: blur(8px) saturate(140%);
+    backdrop-filter: blur(8px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.06), inset 0 1px 0 0 rgba(255, 255, 255, 0.5);
+  }
+  .glass-interactive {
+    background: rgba(255, 255, 255, 0.75);
+    -webkit-backdrop-filter: blur(14px) saturate(155%);
+    backdrop-filter: blur(14px) saturate(155%);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .glass-interactive:hover {
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 28px 0 rgba(0, 0, 0, 0.14), inset 0 1px 0 0 rgba(255, 255, 255, 0.8);
+  }
+  .dark .glass-base { background: rgba(28, 28, 30, 0.7); border: 1px solid rgba(255,255,255,0.1); }
+  .dark .glass-thick { background: rgba(28, 28, 30, 0.8); border: 1px solid rgba(255,255,255,0.15); box-shadow: 0 8px 32px 0 rgba(0,0,0,0.3), inset 0 1px 0 0 rgba(255,255,255,0.1); }
+}

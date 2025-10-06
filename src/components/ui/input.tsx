@@ -1,25 +1,23 @@
-import * as React from "react"
+import { InputHTMLAttributes, forwardRef } from 'react';
+import { cn } from '@/lib/utils';
 
-import { cn } from "@/lib/utils"
+export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {}
 
-// Using direct type extension instead of empty interface
-type InputProps = React.InputHTMLAttributes<HTMLInputElement>
-
-const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  ({ className, type, ...props }, ref) => {
-    return (
-      <input
-        type={type}
-        className={cn(
-          "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-          className
-        )}
-        ref={ref}
-        {...props}
-      />
-    )
-  }
-)
-Input.displayName = "Input"
-
-export { Input } 
+export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
+  { className, type = 'text', ...props },
+  ref
+) {
+  return (
+    <input
+      ref={ref}
+      type={type}
+      className={cn(
+        'glass-thin px-3 py-2 rounded-xl text-body text-gray-900',
+        'border border-white/40 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20',
+        'placeholder:text-gray-400',
+        className
+      )}
+      {...props}
+    />
+  );
+}); 

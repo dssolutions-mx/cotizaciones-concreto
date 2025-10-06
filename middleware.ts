@@ -142,53 +142,33 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  // Determine user's default home based on role (Quality roles land on /quality)
-  let defaultHome: string = '/dashboard';
-  if (user) {
+  // If authenticated and trying to access login/register pages, redirect to dashboard
+  // Let client-side logic handle role-based routing after authentication is complete
+  if (user && (pathname === '/login' || pathname === '/register')) {
+    console.log(`Authenticated user accessing ${pathname}, redirecting to dashboard for role-based routing.`);
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = '/dashboard';
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // If authenticated user hits root '/', send them to dashboard for role-based routing
+  if (user && pathname === '/') {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = '/dashboard';
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // Block QUALITY_TEAM from accessing non-quality sections (but allow quality dashboard access)
+  if (user && !pathname.startsWith('/quality') && !pathname.startsWith('/profile') && !pathname.startsWith('/auth') && !isPublicRoute) {
     try {
       const { data: profileData } = await supabase
         .from('user_profiles')
         .select('role')
         .eq('id', user.id)
         .single();
+
       const role = (profileData as any)?.role as string | undefined;
-      if (role === 'QUALITY_TEAM') {
-        defaultHome = '/quality/muestreos';
-      } else if (role && ['LABORATORY', 'PLANT_MANAGER'].includes(role)) {
-        defaultHome = '/quality';
-      }
-    } catch (err) {
-      // On error, keep default to /dashboard
-    }
-  }
 
-  // If authenticated and trying to access login/register pages, redirect to role-based home
-  if (user && (pathname === '/login' || pathname === '/register')) {
-    console.log(`Authenticated user accessing ${pathname}, redirecting to ${defaultHome}.`);
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = defaultHome;
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  // If authenticated user hits root '/', send them to their role-based home
-  if (user && pathname === '/') {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = defaultHome;
-    return NextResponse.redirect(redirectUrl);
-  }
-
-  // Block QUALITY_TEAM from accessing non-quality sections and quality dashboard
-  if (user && (!pathname.startsWith('/quality') || pathname === '/quality') && !pathname.startsWith('/profile') && !pathname.startsWith('/auth') && !isPublicRoute) {
-    try {
-      const { data: profileData } = await supabase
-        .from('user_profiles')
-        .select('role, plant_id')
-        .eq('id', user.id)
-        .single();
-      
-      const role = (profileData as any)?.role as string | undefined;
-      const plantId = (profileData as any)?.plant_id as string | undefined;
-      
       // QUALITY_TEAM can only access quality module and profile/auth pages
       if (role === 'QUALITY_TEAM') {
         const restrictedPaths = [
@@ -203,15 +183,15 @@ export async function middleware(request: NextRequest) {
           '/arkik',
           '/recipes' // top-level recipes, they have access via /quality/recipes
         ];
-        
-        const isRestrictedPath = restrictedPaths.some(path => 
+
+        const isRestrictedPath = restrictedPaths.some(path =>
           pathname === path || pathname.startsWith(path + '/')
         );
-        
-        if (isRestrictedPath || pathname === '/quality') {
-          console.log(`Blocking QUALITY_TEAM user from accessing ${pathname}, redirecting to /quality/muestreos`);
+
+        if (isRestrictedPath) {
+          console.log(`Blocking QUALITY_TEAM user from accessing ${pathname}, redirecting to /quality`);
           const redirectUrl = request.nextUrl.clone();
-          redirectUrl.pathname = '/quality/muestreos';
+          redirectUrl.pathname = '/quality';
           return NextResponse.redirect(redirectUrl);
         }
       }
@@ -221,17 +201,17 @@ export async function middleware(request: NextRequest) {
   }
 
   // Additional check for QUALITY_TEAM in restricted plants (P002, P003, P004)
-  if (user && pathname.startsWith('/quality/') && (pathname.includes('/recipes') || pathname.includes('/suppliers') || pathname.includes('/reportes'))) {
+  if (user && pathname.startsWith('/quality/') && (pathname.includes('/recipes') || pathname.includes('/suppliers'))) {
     try {
       const { data: profileData } = await supabase
         .from('user_profiles')
         .select('role, plant_id')
         .eq('id', user.id)
         .single();
-      
+
       const role = (profileData as any)?.role as string | undefined;
       const plantId = (profileData as any)?.plant_id as string | undefined;
-      
+
       if (role === 'QUALITY_TEAM' && plantId) {
         // Get plant code to check if it's restricted
         const { data: plantData } = await supabase
@@ -239,10 +219,10 @@ export async function middleware(request: NextRequest) {
           .select('code')
           .eq('id', plantId)
           .single();
-        
+
         const plantCode = (plantData as any)?.code as string | undefined;
         const restrictedPlants = ['P2', 'P3', 'P4', 'P002', 'P003', 'P004']; // Support both formats
-        
+
         if (plantCode && restrictedPlants.includes(plantCode)) {
           console.log(`Blocking QUALITY_TEAM user from plant ${plantCode} accessing ${pathname}, redirecting to /quality/muestreos`);
           const redirectUrl = request.nextUrl.clone();

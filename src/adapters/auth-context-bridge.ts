@@ -9,6 +9,7 @@ export function useAuthBridge() {
   const session = useAuthStore((s) => s.session);
   const profile = useAuthStore((s) => s.profile);
   const isInitialized = useAuthStore((s) => s.isInitialized);
+  const error = useAuthStore((s) => s.error);
   const signIn = useAuthStore((s) => s.signIn);
   const signOut = useAuthStore((s) => s.signOut);
   const hasRole = useAuthStore((s) => s.hasRole);
@@ -19,14 +20,21 @@ export function useAuthBridge() {
     await initialize();
   };
 
+  const logout = async () => {
+    // For compatibility with components that expect a logout function
+    return await signOut();
+  };
+
   const isLoading = !isInitialized;
 
   return {
     session,
     profile,
+    error,
     isLoading,
     signIn,
     signOut,
+    logout,
     hasRole: (allowed: UserRole | UserRole[]) => hasRole(allowed),
     triggerAuthCheck,
   };

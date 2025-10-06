@@ -173,7 +173,9 @@ export default function ClientMuestreosTable({ remisiones }: ClientMuestreosTabl
                       {muestreo.totalMaterialQuantity > 0 ? formatNumber(muestreo.totalMaterialQuantity, 1) : '-'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 text-right border-b">
-                      {muestreo.rendimientoVolumetrico > 0 ? formatNumber(muestreo.rendimientoVolumetrico, 1) + '%' : '-'}
+                      <Badge variant={getComplianceBadgeVariant(avgCompliance)}>
+                        {formatNumber(avgCompliance, 1)}%
+                      </Badge>
                     </td>
                     <td className="px-4 py-3 text-sm text-center border-b">
                       <Badge variant={isSiteCheck ? 'secondary' : 'default'}>
