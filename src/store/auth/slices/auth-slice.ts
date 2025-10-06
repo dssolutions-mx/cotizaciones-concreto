@@ -17,7 +17,7 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
     const start = performance.now();
     try {
       const cached = getCachedUserProfile();
-      if (cached) set({ profile: cached }, false, 'auth/initialize:setCachedProfile');
+      if (cached) set({ profile: cached });
 
       const { data: sessionData } = await supabase.auth.getSession();
       // Only update if user or session actually changed to avoid unnecessary re-renders
@@ -28,19 +28,19 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
       const userChanged = (prevUser?.id !== nextUser?.id) || (prevUser?.email !== nextUser?.email);
       const sessionChanged = (prevSession?.access_token !== nextSession?.access_token) || (prevSession?.user?.id !== nextSession?.user?.id);
       if (userChanged || sessionChanged) {
-        set({ user: nextUser, session: nextSession }, false, 'auth/initialize:setUserAndSession');
+        set({ user: nextUser, session: nextSession });
       }
 
       if (sessionData.session?.user) {
         await get().loadProfile();
       } else {
         clearUserCache();
-        set({ profile: null }, false, 'auth/initialize:clearProfile');
+        set({ profile: null });
       }
     } catch (e: any) {
-      set({ error: e?.message ?? 'initialize failed' }, false, 'auth/initialize:error');
+      set({ error: e?.message ?? 'initialize failed' });
     } finally {
-      set({ isInitialized: true }, false, 'auth/initialize:done');
+      set({ isInitialized: true });
       const end = performance.now();
       const elapsed = Math.round(end - start);
       const latencies = [...get().authLatencyMs, elapsed].slice(-50);
@@ -65,7 +65,7 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
       set({ 
         user: data.session.user,
         session: data.session
-      }, false, 'auth/signIn:setUserAndSession');
+      }); // Removed 'false' to ensure subscribers are notified
       
       // Load profile directly without redundant session fetch
       const { data: profileData, error: profileError } = await supabase
@@ -75,7 +75,7 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
         .single();
       
       if (profileError) {
-        set({ profile: null, error: profileError.message }, false, 'auth/signIn:profileError');
+        set({ profile: null, error: profileError.message });
         return { success: false, error: `Profile not found: ${profileError.message}` };
       }
       
@@ -90,8 +90,18 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
         role: profile.role,
         email: profile.email
       });
-      set({ profile, error: null }, false, 'auth/signIn:setProfile');
+      // Use normal set without 'false' to ensure subscribers are notified
+      set({ profile, error: null });
       cacheUserProfile(profile);
+      
+      // Verify profile was set
+      const verifyProfile = get().profile;
+      console.log('[AuthStore] Verifying profile was set:', verifyProfile?.id);
+      if (!verifyProfile) {
+        console.error('[AuthStore] Failed to set profile in store!');
+        return { success: false, error: 'Failed to save profile' };
+      }
+      
       console.log('[AuthStore] Profile set successfully, returning success');
       
       return { success: true };
@@ -105,7 +115,7 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
       const { error } = await supabase.auth.signOut();
       if (error) return { success: false, error: error.message };
       clearUserCache();
-      set({ user: null, profile: null }, false, 'auth/signOut:clear');
+      set({ user: null, profile: null });
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e?.message ?? 'Unexpected error' };
@@ -115,7 +125,7 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
   loadProfile: async () => {
     const { data: sessionData } = await supabase.auth.getSession();
     const userId = sessionData.session?.user?.id;
-    if (!userId) { set({ profile: null }, false, 'auth/loadProfile:noUser'); return; }
+    if (!userId) { set({ profile: null }); return; }
 
     const { data: profileData, error } = await supabase
       .from('user_profiles')
@@ -124,7 +134,7 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
       .single();
 
     if (error) {
-      set({ profile: null, error: error.message }, false, 'auth/loadProfile:error');
+      set({ profile: null, error: error.message });
       clearUserCache();
     } else if (profileData) {
       const profile = profileData as unknown as UserProfile;
@@ -136,11 +146,11 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
         prev.plant_id !== profile.plant_id ||
         prev.business_unit_id !== profile.business_unit_id;
       if (changed) {
-        set({ profile }, false, 'auth/loadProfile:setChanged');
+        set({ profile });
         cacheUserProfile(profile);
       } else {
         // Keep as-is to avoid unnecessary state updates
-        set({ profile: prev }, false, 'auth/loadProfile:noChange');
+        set({ profile: prev });
       }
     }
   },

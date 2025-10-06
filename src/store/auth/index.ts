@@ -48,11 +48,15 @@ export const useAuthStore = create<AuthStoreState>()(
           },
           partialize,
           storage: createJSONStorage(() => localStorage),
-          skipHydration: true, // Skip hydration to prevent SSR issues
         }
       )
     )
   )
 );
+
+// Immediately rehydrate on client side
+if (typeof window !== 'undefined') {
+  useAuthStore.persist.rehydrate();
+}
 
 

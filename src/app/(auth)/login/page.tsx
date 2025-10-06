@@ -20,6 +20,16 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const authBridge = useAuthBridge();
   const { signIn, profile } = authBridge;
+  
+  // Direct store subscription for debugging
+  const directProfile = useAuthStore((s) => s.profile);
+  
+  // Debug: Log profile changes
+  useEffect(() => {
+    console.log('[Login] Profile from bridge:', profile);
+    console.log('[Login] Profile from direct store:', directProfile);
+    console.log('[Login] Profile from getState:', useAuthStore.getState().profile);
+  }, [profile, directProfile]);
 
   // Handle role-based routing after authentication
   useEffect(() => {
@@ -103,18 +113,21 @@ function LoginForm() {
       }
       
       // Success - profile should be loaded by signIn
-      console.log('[Login] Sign in successful, waiting for profile to propagate');
+      console.log('[Login] Sign in successful');
       
-      // Force a small delay to ensure store updates propagate
-      setTimeout(() => {
-        const currentProfile = useAuthStore.getState().profile;
-        console.log('[Login] Checking profile after delay:', currentProfile);
-        if (!currentProfile) {
-          console.error('[Login] Profile still not in store after successful signIn!');
-          setError('Error al cargar el perfil. Por favor, recarga la página.');
-        }
+      // Get the profile directly from store to verify it's there
+      const storeProfile = useAuthStore.getState().profile;
+      console.log('[Login] Profile in store after signIn:', storeProfile);
+      
+      if (!storeProfile) {
+        console.error('[Login] Profile not in store after successful signIn!');
+        setError('Error al cargar el perfil. Por favor, recarga la página.');
         setLoading(false);
-      }, 100);
+        return;
+      }
+      
+      // Profile is in store, clear loading to trigger redirect
+      setLoading(false);
       
     } catch (err) {
       console.error('Unexpected login error:', err);
