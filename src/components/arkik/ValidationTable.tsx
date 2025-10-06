@@ -402,7 +402,7 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
         </div>
         <div className="flex items-center gap-2">
           <button
-            className="flex items-center gap-2 text-xs px-3 py-1 border rounded disabled:opacity-50 bg-blue-50 hover:bg-blue-100"
+            className="flex items-center gap-2 text-xs px-3 py-1 border rounded disabled:opacity-50 bg-blue-50 hover:bg-blue-100 text-gray-900"
             onClick={validateAll}
             disabled={!plantId || validating || rows.length === 0}
           >
@@ -422,7 +422,7 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
       </div>
 
       <div className="flex items-center justify-between mb-2 text-xs text-gray-500">
-        <div>Planta: {plantId || '—'} | Filas: {rows.length} | Mostrar Debug: <button className="underline" onClick={() => setShowDebug(v => !v)}>{showDebug ? 'Ocultar' : 'Ver'}</button></div>
+        <div>Planta: {plantId || '—'} | Filas: {rows.length} | Mostrar Debug: <button className="underline text-blue-600 hover:text-blue-800" onClick={() => setShowDebug(v => !v)}>{showDebug ? 'Ocultar' : 'Ver'}</button></div>
         {debug && <div className="text-rose-600 truncate max-w-[50%]" title={debug}>Error: {debug}</div>}
       </div>
 
@@ -528,8 +528,8 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
                   </td>
                   <td className="p-2 text-center">{r.volumen_fabricado}</td>
                   <td className="p-2">
-                    <button 
-                      className="text-xs px-2 py-1 border rounded hover:bg-gray-50"
+                    <button
+                      className="text-xs px-2 py-1 border rounded text-gray-900 hover:bg-gray-50"
                       onClick={() => toggleDetails(r.id)}
                     >
                       {showDetails.has(r.id) ? 'Ocultar' : 'Ver'}
@@ -615,8 +615,8 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
         <div className="mt-3 p-3 bg-blue-50 rounded border flex items-center justify-between">
           <span className="text-sm text-blue-900">{selected.size} remisiones seleccionadas</span>
           <div className="flex gap-2">
-            <button 
-              className="text-xs px-3 py-1 border rounded bg-white"
+            <button
+              className="text-xs px-3 py-1 border rounded bg-white text-gray-900 hover:bg-gray-50"
               onClick={() => setSelected(new Set())}
             >
               Limpiar selección

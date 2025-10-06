@@ -104,7 +104,7 @@ export default function DebugArkikRunner() {
 
           {/* File Upload */}
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 px-4 py-2 border rounded cursor-pointer hover:bg-gray-50">
+            <label className="flex items-center gap-2 px-4 py-2 border rounded cursor-pointer text-gray-900 hover:bg-gray-50">
               <FileSpreadsheet className="h-4 w-4" />
               <span>Select Excel File</span>
               <input
