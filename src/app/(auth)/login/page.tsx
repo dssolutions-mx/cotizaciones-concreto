@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { useAuthStore } from '@/store/auth';
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
@@ -17,7 +18,8 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { signIn, profile } = useAuthBridge();
+  const authBridge = useAuthBridge();
+  const { signIn, profile } = authBridge;
 
   // Handle role-based routing after authentication
   useEffect(() => {
@@ -100,10 +102,19 @@ function LoginForm() {
         return;
       }
       
-      // Success - profile is already loaded by signIn
-      console.log('[Login] Sign in successful, profile loaded');
-      // Clear loading state immediately - the useEffect will handle redirect
-      setLoading(false);
+      // Success - profile should be loaded by signIn
+      console.log('[Login] Sign in successful, waiting for profile to propagate');
+      
+      // Force a small delay to ensure store updates propagate
+      setTimeout(() => {
+        const currentProfile = useAuthStore.getState().profile;
+        console.log('[Login] Checking profile after delay:', currentProfile);
+        if (!currentProfile) {
+          console.error('[Login] Profile still not in store after successful signIn!');
+          setError('Error al cargar el perfil. Por favor, recarga la página.');
+        }
+        setLoading(false);
+      }, 100);
       
     } catch (err) {
       console.error('Unexpected login error:', err);

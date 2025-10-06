@@ -58,6 +58,10 @@ export const createAuthSlice: StateCreator<AuthStoreState, [['zustand/devtools',
       }
       
       // Set session immediately
+      console.log('[AuthStore] Setting user and session:', {
+        userId: data.session.user.id,
+        email: data.session.user.email
+      });
       set({ 
         user: data.session.user,
         session: data.session
