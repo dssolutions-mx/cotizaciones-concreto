@@ -121,6 +121,7 @@ export default function OrderDetailPage() {
     );
   }
 
+  // Calculate order status and volume
   const config = statusConfig[order.order_status] || statusConfig.created;
   const totalVolume = order.remisiones?.reduce(
     (sum, r) => sum + (parseFloat(r.volumen_fabricado) || 0),

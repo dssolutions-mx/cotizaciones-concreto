@@ -172,6 +172,7 @@ export default function BalancePage() {
           </div>
         </motion.div>
 
+        {/* Balance and Payments Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Balance by Site */}
           <motion.div
@@ -220,7 +221,7 @@ export default function BalancePage() {
                 </div>
               )}
             </div>
-          </motion.div>
+            </motion.div>
 
           {/* Recent Payments */}
           <motion.div
@@ -285,7 +286,7 @@ export default function BalancePage() {
                 </div>
               )}
             </div>
-          </motion.div>
+            </motion.div>
         </div>
       </Container>
     </div>
