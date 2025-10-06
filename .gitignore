@@ -43,3 +43,53 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Large files that should not be committed
+*.dmg
+*.iso
+*.zip
+*.tar.gz
+*.rar
+*.7z
+*.mov
+*.mp4
+*.avi
+*.mkv
+*.wav
+*.mp3
+*.pdf
+*.doc
+*.docx
+*.xls
+*.xlsx
+*.ppt
+*.pptx
+
+# Design assets (keep compressed versions)
+*.psd
+*.ai
+*.sketch
+*.figma
+*.xd
+
+# Archives and backups
+*.backup
+*.sql
+*.dump
+*backup*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.cache
+.cache/
