@@ -72,7 +72,7 @@ export async function GET(request: Request) {
       console.error('Balance API: Adjustments query error:', adjustmentsError);
     }
 
-    // Get orders to calculate delivered volume
+    // Get orders to calculate delivered volume and amounts per site
     const { data: orders, error: ordersError } = await supabase
       .from('orders')
       .select('id, final_amount, construction_site')
@@ -100,40 +100,51 @@ export async function GET(request: Request) {
       }
     }
 
-    // Map remisiones to construction sites via orders
+    // Map remisiones to construction sites via orders, track volumes AND monetary amounts
     const siteVolumes: Record<string, number> = {};
+    const siteMonetaryAmounts: Record<string, number> = {};
+    const ordersWithRemisiones = new Set<string>();
+    
     remisiones.forEach((rem: any) => {
       const order = orders?.find(o => o.id === rem.order_id);
       if (order && order.construction_site) {
         const site = order.construction_site;
         siteVolumes[site] = (siteVolumes[site] || 0) + (parseFloat(rem.volumen_fabricado) || 0);
+        ordersWithRemisiones.add(rem.order_id);
       }
     });
 
-    // Calculate total delivered and paid
-    const totalDelivered = remisiones.reduce((sum, r) => sum + (parseFloat(r.volumen_fabricado) || 0), 0);
+    // Calculate monetary amounts per site (from orders that have remisiones)
+    orders?.forEach(order => {
+      if (ordersWithRemisiones.has(order.id) && order.construction_site) {
+        const site = order.construction_site;
+        siteMonetaryAmounts[site] = (siteMonetaryAmounts[site] || 0) + (parseFloat(order.final_amount as any) || 0);
+      }
+    });
+
+    // Calculate total delivered volume and monetary amount
+    const totalDeliveredVolume = remisiones.reduce((sum, r) => sum + (parseFloat(r.volumen_fabricado) || 0), 0);
     const totalPaid = payments?.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0) || 0;
     
     // Calculate total consumption (sum of all delivered orders' amounts)
     const totalConsumption = orders
-      ?.filter(o => orderIds.some(id => {
-        const hasRemision = remisiones.some(r => r.order_id === id);
-        return hasRemision && o.id === id;
-      }))
+      ?.filter(o => ordersWithRemisiones.has(o.id))
       .reduce((sum, o) => sum + (parseFloat(o.final_amount as any) || 0), 0) || 0;
 
-    // Format site balances with volumes
+    // Format site balances with volumes and monetary amounts
     const sitesWithVolume = siteBalances.map(balance => ({
       site_name: balance.construction_site || 'Obra Desconocida',
       balance: parseFloat(balance.current_balance) || 0,
-      volume: siteVolumes[balance.construction_site || ''] || 0
+      volume: siteVolumes[balance.construction_site || ''] || 0,
+      monetary_amount: siteMonetaryAmounts[balance.construction_site || ''] || 0
     }));
 
     const responseData = {
       general: {
         current_balance: parseFloat(generalBalance?.current_balance as any) || 0,
         total_delivered: totalConsumption,
-        total_paid: totalPaid
+        total_paid: totalPaid,
+        total_volume: totalDeliveredVolume
       },
       sites: sitesWithVolume,
       recentPayments: (payments || []).map(p => ({

@@ -25,11 +25,13 @@ interface BalanceData {
     current_balance: number;
     total_delivered: number;
     total_paid: number;
+    total_volume: number;
   };
   sites: Array<{
     site_name: string;
     balance: number;
     volume: number;
+    monetary_amount: number;
   }>;
   recentPayments: Array<{
     id: string;
@@ -58,7 +60,8 @@ export default function BalancePage() {
           general: {
             current_balance: balanceData.general?.current_balance || 0,
             total_delivered: balanceData.general?.total_delivered || 0,
-            total_paid: balanceData.general?.total_paid || 0
+            total_paid: balanceData.general?.total_paid || 0,
+            total_volume: balanceData.general?.total_volume || 0
           },
           sites: balanceData.sites || [],
           recentPayments: balanceData.recentPayments || []
@@ -66,7 +69,7 @@ export default function BalancePage() {
       } catch (error) {
         console.error('Error fetching balance:', error);
         setData({
-          general: { current_balance: 0, total_delivered: 0, total_paid: 0 },
+          general: { current_balance: 0, total_delivered: 0, total_paid: 0, total_volume: 0 },
           sites: [],
           recentPayments: []
         });
@@ -127,9 +130,24 @@ export default function BalancePage() {
                 <p className="text-callout text-label-tertiary uppercase tracking-wide mb-3">
                   Saldo Actual
                 </p>
-                <h2 className="text-6xl font-bold text-label-primary">
+                <h2 
+                  className={`text-6xl font-bold ${
+                    (data?.general.current_balance || 0) > 0 
+                      ? 'text-red-500' 
+                      : (data?.general.current_balance || 0) < 0 
+                        ? 'text-green-500' 
+                        : 'text-label-primary'
+                  }`}
+                >
                   ${(data?.general.current_balance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                 </h2>
+                <p className="text-caption text-label-tertiary mt-2">
+                  {(data?.general.current_balance || 0) > 0 
+                    ? 'Pendiente de pago' 
+                    : (data?.general.current_balance || 0) < 0 
+                      ? 'Saldo a favor' 
+                      : 'Al corriente'}
+                </p>
               </div>
               <Button
                 variant="glass"
@@ -142,7 +160,7 @@ export default function BalancePage() {
               </Button>
             </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
                 <div className="glass-thin rounded-2xl p-6">
                   <div className="flex items-center gap-4 mb-3">
                     <TrendingUp className="w-5 h-5 text-label-tertiary" />
@@ -151,7 +169,10 @@ export default function BalancePage() {
                     </p>
                   </div>
                   <p className="text-title-2 font-bold text-label-primary">
-                    ${(data?.general.total_delivered || 0).toLocaleString('es-MX')}
+                    ${(data?.general.total_delivered || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  </p>
+                  <p className="text-caption text-label-tertiary mt-2">
+                    {(data?.general.total_volume || 0).toFixed(2)} m³
                   </p>
                 </div>
 
@@ -163,7 +184,27 @@ export default function BalancePage() {
                     </p>
                   </div>
                   <p className="text-title-2 font-bold text-label-primary">
-                    ${(data?.general.total_paid || 0).toLocaleString('es-MX')}
+                    ${(data?.general.total_paid || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  </p>
+                </div>
+
+                <div className="glass-thin rounded-2xl p-6">
+                  <div className="flex items-center gap-4 mb-3">
+                    <DollarSign className="w-5 h-5 text-label-tertiary" />
+                    <p className="text-footnote text-label-tertiary uppercase tracking-wide">
+                      Pendiente
+                    </p>
+                  </div>
+                  <p 
+                    className={`text-title-2 font-bold ${
+                      (data?.general.current_balance || 0) > 0 
+                        ? 'text-red-500' 
+                        : (data?.general.current_balance || 0) < 0 
+                          ? 'text-green-500' 
+                          : 'text-label-primary'
+                    }`}
+                  >
+                    ${Math.abs(data?.general.current_balance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
               </div>
@@ -195,17 +236,40 @@ export default function BalancePage() {
                       transition={{ delay: 0.3 + index * 0.05 }}
                       className="glass-thin rounded-xl p-6"
                     >
-                      <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center justify-between mb-4">
                         <p className="text-body font-semibold text-label-primary">
                           {site.site_name}
                         </p>
-                        <p className="text-title-3 font-bold text-label-primary">
-                          ${site.balance.toLocaleString('es-MX')}
+                        <p 
+                          className={`text-title-3 font-bold ${
+                            site.balance > 0 
+                              ? 'text-red-500' 
+                              : site.balance < 0 
+                                ? 'text-green-500' 
+                                : 'text-label-primary'
+                          }`}
+                        >
+                          ${site.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
                         </p>
                       </div>
-                      <p className="text-callout text-label-secondary">
-                        {site.volume} m³ entregados
-                      </p>
+                      <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/10">
+                        <div>
+                          <p className="text-caption text-label-tertiary mb-1">
+                            Volumen Entregado
+                          </p>
+                          <p className="text-callout font-semibold text-label-secondary">
+                            {site.volume.toFixed(2)} m³
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-caption text-label-tertiary mb-1">
+                            Monto Entregado
+                          </p>
+                          <p className="text-callout font-semibold text-label-secondary">
+                            ${site.monetary_amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                          </p>
+                        </div>
+                      </div>
                     </motion.div>
                   ))}
                 </div>
