@@ -13,7 +13,6 @@ import {
   CheckCircle2,
   FileText
 } from 'lucide-react';
-import { createClient } from '@/lib/supabase/client';
 import { Container } from '@/components/ui/Container';
 import { Card as BaseCard } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
@@ -26,15 +25,27 @@ interface OrderDetail {
   order_number: string;
   construction_site: string;
   delivery_date: string;
+  delivery_time?: string;
   order_status: string;
   total_amount: number;
-  remisiones: Array<{
+  special_requirements?: string;
+  requires_invoice?: boolean;
+  credit_status?: string;
+  rejection_reason?: string;
+  created_at: string;
+  updated_at: string;
+  order_items?: Array<{
     id: string;
-    remision_number: string;
-    volumen_fabricado: string;
-    tipo_remision: string;
-    fecha_hora_salida: string;
-    status: string;
+    product_type: string;
+    volume: number;
+    unit_price: number;
+    total_price: number;
+    has_pump_service: boolean;
+    pump_price?: number;
+    pump_volume?: number;
+    has_empty_truck_charge: boolean;
+    empty_truck_volume?: number;
+    empty_truck_price?: number;
   }>;
 }
 
@@ -49,36 +60,20 @@ const statusConfig: Record<string, { variant: any; label: string }> = {
 export default function OrderDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const supabase = createClient();
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function fetchOrder() {
       try {
-        // First get the order
-        const { data: orderData, error: orderError } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('id', params.id)
-          .single();
+        const response = await fetch(`/api/client-portal/orders/${params.id}`);
+        const result = await response.json();
 
-        if (orderError) throw orderError;
-
-        // Then get remisiones separately
-        const { data: remisionesData, error: remError } = await supabase
-          .from('remisiones')
-          .select('id, remision_number, volumen_fabricado, tipo_remision, fecha_hora_salida, status')
-          .eq('order_id', params.id);
-
-        if (remError) {
-          console.warn('Error fetching remisiones:', remError);
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to fetch order');
         }
 
-        setOrder({
-          ...orderData,
-          remisiones: remisionesData || []
-        });
+        setOrder(result.order);
       } catch (error) {
         console.error('Error fetching order:', error);
       } finally {
@@ -89,7 +84,7 @@ export default function OrderDetailPage() {
     if (params.id) {
       fetchOrder();
     }
-  }, [params.id, supabase]);
+  }, [params.id]);
 
   if (loading) {
     return (

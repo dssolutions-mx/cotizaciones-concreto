@@ -39,14 +39,23 @@ export default function OrdersPage() {
   useEffect(() => {
     async function fetchOrders() {
       try {
-        const { data, error } = await supabase
-          .from('orders')
-          .select('*')
-          .order('delivery_date', { ascending: false });
+        const params = new URLSearchParams();
+        if (activeFilter !== 'all') {
+          params.set('status', activeFilter);
+        }
+        if (searchQuery) {
+          params.set('search', searchQuery);
+        }
 
-        if (error) throw error;
-        setOrders(data || []);
-        setFilteredOrders(data || []);
+        const response = await fetch(`/api/client-portal/orders?${params}`);
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'Failed to fetch orders');
+        }
+
+        setOrders(result.orders || []);
+        setFilteredOrders(result.orders || []);
       } catch (error) {
         console.error('Error fetching orders:', error);
       } finally {
@@ -55,26 +64,13 @@ export default function OrdersPage() {
     }
 
     fetchOrders();
-  }, [supabase]);
+  }, [activeFilter, searchQuery]);
 
+  // The filtering is now handled by the API, so we just use the orders data directly
   useEffect(() => {
-    let filtered = orders;
-
-    // Apply status filter
-    if (activeFilter !== 'all') {
-      filtered = filtered.filter(order => order.order_status === activeFilter);
-    }
-
-    // Apply search
-    if (searchQuery) {
-      filtered = filtered.filter(order =>
-        order.order_number.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        order.construction_site.toLowerCase().includes(searchQuery.toLowerCase())
-      );
-    }
-
-    setFilteredOrders(filtered);
-  }, [orders, activeFilter, searchQuery]);
+    // No additional filtering needed since API handles it
+    setFilteredOrders(orders);
+  }, [orders]);
 
   if (loading) {
     return (
