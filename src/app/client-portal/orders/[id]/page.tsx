@@ -68,6 +68,9 @@ interface OrderResponse {
     totalVolume: number;
     totalMuestreos: number;
     totalSiteChecks: number;
+    avgRendimientoVolumetrico?: number | null;
+    totalMaterialReal?: number;
+    totalMaterialTeorico?: number;
   };
 }
 
@@ -381,6 +384,45 @@ export default function OrderDetailPage() {
                       )}
                     </div>
 
+                    {/* Material Consumption & Rendimiento */}
+                    {remision.materiales && remision.materiales.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-white/10">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-caption font-semibold text-label-primary flex items-center gap-2">
+                            <Package className="w-4 h-4" />
+                            Consumo de Materiales
+                          </p>
+                          {remision.rendimiento_volumetrico && (
+                            <Badge variant={remision.rendimiento_volumetrico >= 98 ? 'success' : remision.rendimiento_volumetrico >= 95 ? 'primary' : 'neutral'}>
+                              Rendimiento: {remision.rendimiento_volumetrico.toFixed(1)}%
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          {remision.materiales.map((material: any) => (
+                            <div key={material.id} className="bg-white/5 rounded-lg p-3">
+                              <div className="flex items-center justify-between mb-1">
+                                <p className="text-caption text-label-primary font-medium">
+                                  {material.material_type}
+                                </p>
+                                <p className="text-caption text-label-secondary">
+                                  {material.cantidad_real ? `${parseFloat(material.cantidad_real).toFixed(1)} kg` : 'N/A'}
+                                </p>
+                              </div>
+                              <div className="flex items-center justify-between text-caption text-label-tertiary">
+                                <span>Teórico: {material.cantidad_teorica ? `${parseFloat(material.cantidad_teorica).toFixed(1)} kg` : 'N/A'}</span>
+                                {material.ajuste && parseFloat(material.ajuste) !== 0 && (
+                                  <span className="text-yellow-600">
+                                    Ajuste: {parseFloat(material.ajuste).toFixed(1)} kg
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Muestreos */}
                     {remision.muestreos && remision.muestreos.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-white/10">
@@ -391,8 +433,8 @@ export default function OrderDetailPage() {
                         <div className="space-y-2">
                           {remision.muestreos.map((muestreo: any) => (
                             <div key={muestreo.id} className="bg-white/5 rounded-lg p-3">
-                              <div className="flex items-center justify-between">
-                                <p className="text-caption text-label-primary">
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-caption text-label-primary font-medium">
                                   Muestreo #{muestreo.numero_muestreo}
                                 </p>
                                 <p className="text-caption text-label-secondary">
@@ -400,10 +442,41 @@ export default function OrderDetailPage() {
                                 </p>
                               </div>
                               {muestreo.muestras && muestreo.muestras.length > 0 && (
-                                <p className="text-caption text-label-tertiary mt-1">
-                                  {muestreo.muestras.length} muestra(s) • 
-                                  {muestreo.muestras.filter((m: any) => m.ensayos && m.ensayos.length > 0).length} con ensayos
-                                </p>
+                                <>
+                                  <p className="text-caption text-label-tertiary mb-2">
+                                    {muestreo.muestras.length} muestra(s) • 
+                                    {muestreo.muestras.filter((m: any) => m.estado === 'ENSAYADO').length} ensayadas
+                                  </p>
+                                  {/* Show ensayo results if available */}
+                                  {muestreo.muestras.some((m: any) => m.ensayos && m.ensayos.length > 0) && (
+                                    <div className="mt-2 space-y-1">
+                                      {muestreo.muestras
+                                        .filter((m: any) => m.ensayos && m.ensayos.length > 0)
+                                        .map((muestra: any) => 
+                                          muestra.ensayos.map((ensayo: any, eIdx: number) => (
+                                            <div key={`${muestra.id}-${eIdx}`} className="bg-white/5 rounded p-2 flex items-center justify-between">
+                                              <span className="text-caption text-label-tertiary">
+                                                {muestra.tipo_muestra}
+                                              </span>
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-caption text-label-primary font-medium">
+                                                  {ensayo.resistencia_calculada.toFixed(1)} kg/cm²
+                                                </span>
+                                                {ensayo.porcentaje_cumplimiento && (
+                                                  <Badge 
+                                                    variant={ensayo.porcentaje_cumplimiento >= 100 ? 'success' : ensayo.porcentaje_cumplimiento >= 95 ? 'primary' : 'neutral'}
+                                                    size="sm"
+                                                  >
+                                                    {ensayo.porcentaje_cumplimiento.toFixed(0)}%
+                                                  </Badge>
+                                                )}
+                                              </div>
+                                            </div>
+                                          ))
+                                        )}
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </div>
                           ))}
@@ -478,7 +551,7 @@ export default function OrderDetailPage() {
               <h2 className="text-title-2 font-bold text-label-primary mb-6">
                 Resumen de Calidad
               </h2>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                 <div className="text-center">
                   <p className="text-footnote text-label-tertiary mb-2">Entregas</p>
                   <p className="text-title-1 font-bold text-label-primary">{orderData.summary.totalRemisiones}</p>
@@ -491,7 +564,50 @@ export default function OrderDetailPage() {
                   <p className="text-footnote text-label-tertiary mb-2">Pruebas en Obra</p>
                   <p className="text-title-1 font-bold text-label-primary">{orderData.summary.totalSiteChecks}</p>
                 </div>
+                {orderData.summary.avgRendimientoVolumetrico !== null && orderData.summary.avgRendimientoVolumetrico !== undefined && (
+                  <div className="text-center">
+                    <p className="text-footnote text-label-tertiary mb-2">Rendimiento Volumétrico</p>
+                    <p className="text-title-1 font-bold text-label-primary">
+                      {orderData.summary.avgRendimientoVolumetrico.toFixed(1)}%
+                    </p>
+                    <Badge 
+                      variant={
+                        orderData.summary.avgRendimientoVolumetrico >= 98 ? 'success' : 
+                        orderData.summary.avgRendimientoVolumetrico >= 95 ? 'primary' : 
+                        'neutral'
+                      }
+                      className="mt-2"
+                    >
+                      {orderData.summary.avgRendimientoVolumetrico >= 98 ? 'Excelente' : 
+                       orderData.summary.avgRendimientoVolumetrico >= 95 ? 'Bueno' : 
+                       'Aceptable'}
+                    </Badge>
+                  </div>
+                )}
               </div>
+              
+              {/* Material Consumption Summary */}
+              {orderData.summary.totalMaterialReal && orderData.summary.totalMaterialTeorico && (
+                <div className="mt-6 pt-6 border-t border-white/20">
+                  <h3 className="text-body font-semibold text-label-primary mb-4">
+                    Consumo Total de Materiales
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="glass-thin rounded-xl p-4">
+                      <p className="text-footnote text-label-tertiary mb-1">Material Real</p>
+                      <p className="text-title-3 font-bold text-label-primary">
+                        {(orderData.summary.totalMaterialReal / 1000).toFixed(2)} ton
+                      </p>
+                    </div>
+                    <div className="glass-thin rounded-xl p-4">
+                      <p className="text-footnote text-label-tertiary mb-1">Material Teórico</p>
+                      <p className="text-title-3 font-bold text-label-primary">
+                        {(orderData.summary.totalMaterialTeorico / 1000).toFixed(2)} ton
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         )}

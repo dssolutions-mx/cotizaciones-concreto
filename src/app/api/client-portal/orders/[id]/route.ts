@@ -219,6 +219,18 @@ export async function GET(
       };
     });
 
+    // Calculate overall rendimiento volumétrico
+    const remisionesWithRendimiento = remisionesWithDetails.filter(r => r.rendimiento_volumetrico !== null);
+    const avgRendimientoVolumetrico = remisionesWithRendimiento.length > 0
+      ? remisionesWithRendimiento.reduce((sum, r) => sum + r.rendimiento_volumetrico, 0) / remisionesWithRendimiento.length
+      : null;
+
+    // Calculate total material consumption
+    const totalMaterialReal = remisionMateriales.reduce((sum: number, m: any) => 
+      sum + (parseFloat(m.cantidad_real) || 0), 0);
+    const totalMaterialTeorico = remisionMateriales.reduce((sum: number, m: any) => 
+      sum + (parseFloat(m.cantidad_teorica) || 0), 0);
+
     return NextResponse.json({
       order,
       quote: quoteInfo,
@@ -227,7 +239,10 @@ export async function GET(
         totalRemisiones: remisiones?.length || 0,
         totalVolume: remisiones?.reduce((sum, r) => sum + (r.volumen_fabricado || 0), 0) || 0,
         totalMuestreos: muestreos.length,
-        totalSiteChecks: siteChecks.length
+        totalSiteChecks: siteChecks.length,
+        avgRendimientoVolumetrico,
+        totalMaterialReal,
+        totalMaterialTeorico
       }
     });
 
