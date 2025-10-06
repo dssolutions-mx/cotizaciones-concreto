@@ -2474,12 +2474,13 @@ Fin del reporte
                 
                 {/* Show "Continue to Grouping" only if no decisions were made at all */}
                 {problemRemisiones.length === 0 && statusProcessingDecisions.length === 0 && (
-                  <Button 
+                  <Button
                     onClick={() => {
                       console.log('[ArkikProcessor] Direct grouping button clicked - no status processing needed');
                       handleOrderGrouping();
                     }}
-                    className="bg-green-600 hover:bg-green-700 text-white px-8 py-3"
+                    variant="ghost"
+                    className="!bg-green-600 !hover:bg-green-700 !text-white px-8 py-3"
                   >
                     Continuar a Agrupación →
                   </Button>
@@ -2487,10 +2488,11 @@ Fin del reporte
                 
                 {/* Show "Apply Decisions" if there are any decisions made */}
                 {statusProcessingDecisions.length > 0 && (
-                  <Button 
+                  <Button
                     onClick={handleProcessStatusDecisions}
                     disabled={loading}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3"
+                    variant="ghost"
+                    className="!bg-blue-600 !hover:bg-blue-700 !text-white px-8 py-3"
                   >
                     {loading ? (
                       <>
@@ -2725,12 +2727,13 @@ Fin del reporte
                  >
                    ← Volver a Validación
                  </Button>
-                 <Button 
-                   onClick={() => setCurrentStep('confirmation')}
-                   className="bg-green-600 hover:bg-green-700 text-white px-8 py-3"
-                 >
-                   Continuar a Confirmación →
-                 </Button>
+                <Button
+                  onClick={() => setCurrentStep('confirmation')}
+                  variant="ghost"
+                  className="!bg-green-600 !hover:bg-green-700 !text-white px-8 py-3"
+                >
+                  Continuar a Confirmación →
+                </Button>
                </div>
              </div>
            </CardContent>
