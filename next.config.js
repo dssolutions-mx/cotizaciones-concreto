@@ -34,6 +34,7 @@ const nextConfig = {
           },
         ]
       : [],
+    // Do not disable optimization; rely on default optimizer so client-reference-manifest paths are generated correctly
   },
 };
 
