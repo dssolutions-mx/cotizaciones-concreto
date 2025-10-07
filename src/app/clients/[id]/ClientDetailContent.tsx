@@ -41,6 +41,7 @@ import { Badge } from "@/components/ui/badge";
 import { Pencil, Trash2, Plus, X, Save, Map } from "lucide-react";
 import { authService } from '@/lib/supabase/auth';
 import { supabase } from '@/lib/supabase/client';
+import ClientLogoManager from '@/components/clients/ClientLogoManager';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -1874,6 +1875,14 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
           </div>
         </CardHeader>
         <CardContent>
+          <div className="mb-6">
+            <ClientLogoManager
+              clientId={clientId}
+              businessName={client.business_name}
+              logoPath={(client as any).logo_path}
+              onUpdated={(next) => setClient((prev) => prev ? ({ ...prev, logo_path: next } as any) : prev)}
+            />
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <p><strong>Contacto:</strong> {client.contact_name}</p>
             <p><strong>Email:</strong> {client.email}</p>
