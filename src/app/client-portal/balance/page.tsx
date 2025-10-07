@@ -17,6 +17,7 @@ import { Card as BaseCard } from '@/components/ui/Card';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataList } from '@/components/ui/DataList';
 import { Button } from '@/components/ui/button';
+import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -82,15 +83,7 @@ export default function BalancePage() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background-primary">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="w-16 h-16 border-4 border-label-tertiary border-t-transparent rounded-full"
-        />
-      </div>
-    );
+    return <ClientPortalLoader message="Cargando balance..." />;
   }
 
   return (
