@@ -21,8 +21,8 @@ const nextConfig: NextConfig = {
   // External packages configuration (moved from experimental)
   serverExternalPackages: [],
 
-  // Explicitly disable the pages directory
-  useFileSystemPublicRoutes: false,
+  // Keep default filesystem public routes; app router is used
+  // useFileSystemPublicRoutes can cause unexpected routing when disabled
 
   // Handle route groups properly for client reference manifests
   experimental: {
