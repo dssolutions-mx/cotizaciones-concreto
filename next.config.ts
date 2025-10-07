@@ -20,12 +20,20 @@ const nextConfig: NextConfig = {
   
   // Enable standalone output for Vercel deployment
   output: 'standalone',
-  
+
   // External packages configuration (moved from experimental)
   serverExternalPackages: [],
-  
+
   // Explicitly disable the pages directory
   useFileSystemPublicRoutes: false,
+
+  // Handle route groups properly for client reference manifests
+  experimental: {
+    // Ensure route groups are properly processed
+    optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
+    // Enable proper handling of route groups
+    serverComponentsExternalPackages: [],
+  },
 };
 
 export default nextConfig;
