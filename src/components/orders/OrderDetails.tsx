@@ -1123,8 +1123,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     // Check for roles that can edit most things
     const managerOrFinance = hasRole(['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]);
     
-    // For delete action
-    const canDeleteOrder = (managerOrFinance || isCreator) && order && !hasRemisiones && order.order_status !== 'cancelled';
+    // For delete action - always render for authorized users, disable when not allowed
+    const deleteAuthorized = (managerOrFinance || isCreator) && !!order;
+    const deleteDisabled = !!order && (hasRemisiones || order.order_status === 'cancelled');
+    const deleteDisabledReason = hasRemisiones
+      ? 'No se puede eliminar una orden con remisiones registradas'
+      : order?.order_status === 'cancelled'
+        ? 'No se puede eliminar una orden cancelada'
+        : '';
     
     // Menu of actions
     return (
@@ -1163,12 +1169,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         </RoleProtectedButton>
         
         {/* Delete Order button */}
-        {canDeleteOrder && (
+        {deleteAuthorized && (
           isCreator ? (
             <Button
               onClick={() => setShowConfirmDelete(true)}
-              disabled={isDeleting}
-              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
+              disabled={isDeleting || deleteDisabled}
+              title={deleteDisabled ? deleteDisabledReason : undefined}
+              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
             </Button>
@@ -1176,8 +1183,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             <RoleProtectedButton
               allowedRoles={['EXECUTIVE', 'PLANT_MANAGER'] as UserRole[]}
               onClick={() => setShowConfirmDelete(true)}
-              disabled={isDeleting}
-              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
+              disabled={isDeleting || deleteDisabled}
+              showDisabled={true}
+              disabledMessage={deleteDisabled ? deleteDisabledReason : 'No tienes permiso para eliminar'}
+              className="px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isDeleting ? 'Eliminando...' : 'Eliminar Orden'}
             </RoleProtectedButton>

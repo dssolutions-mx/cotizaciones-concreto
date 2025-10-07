@@ -292,8 +292,8 @@ const OrdersNavigation = memo(function OrdersNavigation({
   return (
     <div className="space-y-4">
       {/* Tab Navigation with Create Order Button */}
-      <div className="border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-        <nav className="-mb-px flex space-x-2 sm:space-x-4 overflow-x-auto" aria-label="Tabs">
+      <div className="border-b border-gray-200 dark:border-gray-700 flex items-center">
+        <nav className="-mb-px flex space-x-2 sm:space-x-4 overflow-x-auto flex-1" aria-label="Tabs">
           {tabs.map((tab) => (
             <button
               key={tab.id}
@@ -328,19 +328,34 @@ const OrdersNavigation = memo(function OrdersNavigation({
             </button>
           ))}
         </nav>
-        
-        {/* Create Order button */}
+
+        {/* Create Order button (hidden on small screens, visible on md+) */}
         {canCreateOrders && (
+          <div className="hidden md:block">
+            <Button
+              onClick={() => navigate('create')}
+              variant="ghost"
+              className="!bg-green-600 !hover:bg-green-700 !text-white"
+            >
+              <PlusIcon className="mr-2 h-4 w-4" />
+              Crear Orden
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {/* Mobile-only Create Order button placed below tabs to avoid obstruction */}
+      {canCreateOrders && (
+        <div className="md:hidden">
           <Button
             onClick={() => navigate('create')}
-            variant="ghost"
-            className="!bg-green-600 !hover:bg-green-700 !text-white"
+            className="w-full bg-green-600 hover:bg-green-700 text-white"
           >
             <PlusIcon className="mr-2 h-4 w-4" />
             Crear Orden
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Filters - Only show when 'list' tab is active */}
       {currentTab === 'list' && (
