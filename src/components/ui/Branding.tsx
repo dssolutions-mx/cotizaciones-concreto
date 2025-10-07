@@ -13,7 +13,7 @@ export function Branding({ size = 'md', className }: BrandingProps) {
     xl: { width: 200, height: 67 },
   };
 
-  const dimension = dimensions[size];
+  const dimension = dimensions[size] || dimensions.md; // Fallback to 'md' if size is invalid
 
   return (
     <Image
