@@ -7,28 +7,37 @@ import { CreditCard, Calendar, ChevronLeft } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { Container } from '@/components/ui/Container';
 
-// Helper to parse date string (YYYY-MM-DD) without timezone conversion
-const parseLocalDate = (dateString: string | null | undefined): Date => {
-  if (!dateString) {
-    return new Date(); // Return current date as fallback
+// Helper to safely format date from timestamp or date string
+const formatDateFromString = (date: string | null | undefined): string => {
+  if (!date) return 'Fecha inválida';
+  try {
+    const dateObj = new Date(date);
+    if (isNaN(dateObj.getTime())) return 'Fecha inválida';
+    return dateObj.toLocaleDateString('es-MX', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  } catch (error) {
+    console.warn('Error formatting date:', date, error);
+    return 'Fecha inválida';
   }
-  
-  const parts = dateString.split('-');
-  if (parts.length !== 3) {
-    return new Date(); // Return current date as fallback
+};
+
+// Helper to format time from timestamp
+const formatTimeFromString = (date: string | null | undefined): string => {
+  if (!date) return '';
+  try {
+    const dateObj = new Date(date);
+    if (isNaN(dateObj.getTime())) return '';
+    return dateObj.toLocaleTimeString('es-MX', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (error) {
+    console.warn('Error formatting time:', date, error);
+    return '';
   }
-  
-  const [year, month, day] = parts.map(Number);
-  
-  // Validate the parsed numbers
-  if (isNaN(year) || isNaN(month) || isNaN(day) || 
-      year < 1900 || year > 2100 || 
-      month < 1 || month > 12 || 
-      day < 1 || day > 31) {
-    return new Date(); // Return current date as fallback
-  }
-  
-  return new Date(year, month - 1, day);
 };
 
 type Payment = {
@@ -157,15 +166,14 @@ export default function ClientPortalPaymentsPage() {
                         className="hover:bg-white/5 transition-colors"
                       >
                         <td className="px-6 py-4 text-body text-label-primary">
-                          {(() => {
-                            try {
-                              const date = parseLocalDate(payment.payment_date);
-                              return date.toLocaleDateString('es-MX');
-                            } catch (error) {
-                              console.warn('Invalid date format:', payment.payment_date);
-                              return 'Fecha inválida';
-                            }
-                          })()}
+                          <div>
+                            <div>{formatDateFromString(payment.payment_date)}</div>
+                            {formatTimeFromString(payment.payment_date) && (
+                              <div className="text-caption text-label-tertiary">
+                                {formatTimeFromString(payment.payment_date)}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-body font-semibold text-label-primary text-right">
                           ${payment.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

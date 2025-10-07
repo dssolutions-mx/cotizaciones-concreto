@@ -26,7 +26,12 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
       rendimientoVolumetrico: remision.rendimientoVolumetrico,
       compliance: remision.avgCompliance
     }))
-  );
+  ).sort((a, b) => {
+    // Sort by date descending (most recent first)
+    const dateA = new Date(a.fecha);
+    const dateB = new Date(b.fecha);
+    return dateB.getTime() - dateA.getTime();
+  });
 
   const chartData = processMuestreosForChart(allMuestreos);
 

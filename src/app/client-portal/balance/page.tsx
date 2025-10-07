@@ -18,31 +18,21 @@ import { MetricCard } from '@/components/ui/MetricCard';
 import { DataList } from '@/components/ui/DataList';
 import { Button } from '@/components/ui/button';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 
-// Helper to parse date string (YYYY-MM-DD) without timezone conversion
-const parseLocalDate = (dateString: string | null | undefined): Date => {
-  if (!dateString) {
-    return new Date(); // Return current date as fallback
+// Helper to safely format date from timestamp or date string
+const formatDateFromString = (date: string | null | undefined): string => {
+  if (!date) return 'Fecha inválida';
+  try {
+    const dateObj = new Date(date);
+    if (isNaN(dateObj.getTime())) return 'Fecha inválida';
+    return dateObj.toLocaleDateString('es-MX', {
+      day: 'numeric',
+      month: 'short'
+    });
+  } catch (error) {
+    console.warn('Error formatting date:', date, error);
+    return 'Fecha inválida';
   }
-  
-  const parts = dateString.split('-');
-  if (parts.length !== 3) {
-    return new Date(); // Return current date as fallback
-  }
-  
-  const [year, month, day] = parts.map(Number);
-  
-  // Validate the parsed numbers
-  if (isNaN(year) || isNaN(month) || isNaN(day) || 
-      year < 1900 || year > 2100 || 
-      month < 1 || month > 12 || 
-      day < 1 || day > 31) {
-    return new Date(); // Return current date as fallback
-  }
-  
-  return new Date(year, month - 1, day);
 };
 
 interface BalanceData {
@@ -349,15 +339,7 @@ export default function BalancePage() {
                           </div>
                         </div>
                         <p className="text-footnote text-label-tertiary">
-                          {(() => {
-                            try {
-                              const date = parseLocalDate(payment.payment_date);
-                              return format(date, 'd MMM', { locale: es });
-                            } catch (error) {
-                              console.warn('Invalid date format:', payment.payment_date);
-                              return 'Fecha inválida';
-                            }
-                          })()}
+                          {formatDateFromString(payment.payment_date)}
                         </p>
                       </div>
                     </motion.div>

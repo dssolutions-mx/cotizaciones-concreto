@@ -177,11 +177,12 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
             </p>
           </div>
           <div>
-            <p className="text-caption text-label-tertiary mb-1">Ensayos a Tiempo</p>
+            <p className="text-caption text-label-tertiary mb-1">Promedio de Cumplimiento</p>
             <p className={`text-callout font-bold ${
-              summary.performance.onTimeTestingRate >= 90 ? 'text-systemGreen' : 'text-systemOrange'
+              summary.averages.complianceRate >= 95 ? 'text-systemGreen' : 
+              summary.averages.complianceRate >= 85 ? 'text-systemOrange' : 'text-systemRed'
             }`}>
-              {summary.performance.onTimeTestingRate.toFixed(0)}%
+              {summary.averages.complianceRate.toFixed(1)}%
             </p>
           </div>
           <div>
