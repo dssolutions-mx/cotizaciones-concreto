@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Package,
   TrendingUp,
@@ -19,6 +19,7 @@ import { Container } from '@/components/ui/Container';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { ActivityCard } from '@/components/ui/ActivityCard';
 import { QuickAction } from '@/components/ui/QuickAction';
+import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -48,33 +49,49 @@ interface DashboardData {
 
 export default function ClientPortalDashboard() {
   const router = useRouter();
-  const [data, setData] = useState<DashboardData | null>(null);
+  const [metrics, setMetrics] = useState<DashboardData['metrics'] | null>(null);
+  const [recentActivity, setRecentActivity] = useState<DashboardData['recentActivity']>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingStage, setLoadingStage] = useState('Cargando métricas...');
+  const [metricsLoaded, setMetricsLoaded] = useState(false);
+  const [activityLoaded, setActivityLoaded] = useState(false);
 
   useEffect(() => {
     async function fetchDashboard() {
       try {
-        const response = await fetch('/api/client-portal/dashboard');
-        const result = await response.json();
+        // Stage 1: Fetch metrics first (faster)
+        setLoadingStage('Cargando métricas...');
+        const metricsResponse = await fetch('/api/client-portal/dashboard?activity=false');
+        const metricsResult = await metricsResponse.json();
 
-        if (!response.ok) {
-          throw new Error(result.error || 'Failed to fetch dashboard data');
+        if (metricsResponse.ok) {
+          console.log('Metrics loaded:', metricsResult);
+          setMetrics(metricsResult.metrics);
+          setMetricsLoaded(true);
+          setLoading(false); // Hide main loader after metrics load
         }
 
-        console.log('Dashboard data received:', result);
-        setData(result);
+        // Stage 2: Fetch activity (slower, loads separately in background)
+        const activityResponse = await fetch('/api/client-portal/dashboard?metrics=false&activity_limit=10');
+        const activityResult = await activityResponse.json();
+
+        if (activityResponse.ok) {
+          console.log('Activity loaded:', activityResult);
+          setRecentActivity(activityResult.recentActivity || []);
+          setActivityLoaded(true);
+        }
+
       } catch (error) {
         console.error('Error fetching dashboard:', error);
-        setData({
-          metrics: {
-            totalOrders: 0,
-            deliveredVolume: 0,
-            currentBalance: 0,
-            qualityScore: 0
-          },
-          recentActivity: []
+        setMetrics({
+          totalOrders: 0,
+          deliveredVolume: 0,
+          currentBalance: 0,
+          qualityScore: 0
         });
-      } finally {
+        setRecentActivity([]);
+        setMetricsLoaded(true);
+        setActivityLoaded(true);
         setLoading(false);
       }
     }
@@ -82,84 +99,114 @@ export default function ClientPortalDashboard() {
     fetchDashboard();
   }, []);
 
+  // Show main loader only until metrics are ready
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="w-16 h-16 border-4 border-slate-500 border-t-transparent rounded-full"
-        />
-      </div>
-    );
+    return <ClientPortalLoader message="Bienvenido" stage={loadingStage} />;
   }
 
   return (
     <div className="min-h-screen bg-background-primary">
       <Container maxWidth="4xl" className="py-0">
-        {/* Welcome Header - iOS 26 Typography */}
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mb-12"
-            >
-              <h1 className="text-large-title font-bold text-label-primary mb-3">
-                Bienvenido
-              </h1>
-              <p className="text-body text-label-secondary">
-                {format(new Date(), "EEEE, d 'de' MMMM", { locale: es })}
-              </p>
-            </motion.div>
-
-        {/* Key Metrics - iOS 26 Spacing */}
+        {/* Welcome Header - iOS 26 Typography with entrance animation */}
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.1 }}
-              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12"
+          initial={{ opacity: 0, y: -30, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ 
+            duration: 0.6,
+            ease: [0.25, 0.1, 0.25, 1.0]
+          }}
+          className="mb-12"
         >
-          <MetricCard
-            title="Pedidos Totales"
-            value={data?.metrics.totalOrders || 0}
-            subtitle="Histórico"
-            icon={<Package className="w-6 h-6" />}
-            color="blue"
-            onClick={() => router.push('/client-portal/orders')}
-          />
-          <MetricCard
-            title="Volumen Entregado"
-            value={`${data?.metrics.deliveredVolume || 0} m³`}
-            subtitle="Total acumulado"
-            icon={<TrendingUp className="w-6 h-6" />}
-            trend={{ value: 12.5, label: 'vs mes anterior' }}
-            color="green"
-            onClick={() => router.push('/client-portal/orders')}
-          />
-          <MetricCard
-            title="Balance Actual"
-            value={`$${(data?.metrics.currentBalance || 0).toLocaleString('es-MX')}`}
-            subtitle="Saldo pendiente"
-            icon={<DollarSign className="w-6 h-6" />}
-            color="orange"
-            onClick={() => router.push('/client-portal/balance')}
-          />
-          <MetricCard
-            title="Calidad Promedio"
-            value={`${data?.metrics.qualityScore || 0}%`}
-            subtitle="Cumplimiento"
-            icon={<CheckCircle className="w-6 h-6" />}
-            trend={{ value: 2.3, label: 'vs mes anterior' }}
-            color="blue"
-            onClick={() => router.push('/client-portal/quality')}
-          />
+          <motion.h1 
+            className="text-large-title font-bold text-label-primary mb-3"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2, duration: 0.5 }}
+          >
+            Bienvenido
+          </motion.h1>
+          <motion.p 
+            className="text-body text-label-secondary"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.3, duration: 0.5 }}
+          >
+            {format(new Date(), "EEEE, d 'de' MMMM", { locale: es })}
+          </motion.p>
         </motion.div>
+
+        {/* Key Metrics - iOS 26 Spacing with staggered animation */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+          {metricsLoaded && (
+            <>
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ delay: 0.1, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+              >
+                <MetricCard
+                  title="Pedidos Totales"
+                  value={metrics?.totalOrders || 0}
+                  subtitle="Histórico"
+                  icon={<Package className="w-6 h-6" />}
+                  color="blue"
+                  onClick={() => router.push('/client-portal/orders')}
+                />
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ delay: 0.2, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+              >
+                <MetricCard
+                  title="Volumen Entregado"
+                  value={`${(metrics?.deliveredVolume || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³`}
+                  subtitle="Total acumulado"
+                  icon={<TrendingUp className="w-6 h-6" />}
+                  trend={{ value: 12.5, label: 'vs mes anterior' }}
+                  color="green"
+                  onClick={() => router.push('/client-portal/orders')}
+                />
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ delay: 0.3, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+              >
+                <MetricCard
+                  title="Balance Actual"
+                  value={`$${(metrics?.currentBalance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  subtitle="Saldo pendiente"
+                  icon={<DollarSign className="w-6 h-6" />}
+                  color="orange"
+                  onClick={() => router.push('/client-portal/balance')}
+                />
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ delay: 0.4, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+              >
+                <MetricCard
+                  title="Calidad Promedio"
+                  value={`${metrics?.qualityScore || 0}%`}
+                  subtitle="Cumplimiento"
+                  icon={<CheckCircle className="w-6 h-6" />}
+                  trend={{ value: 2.3, label: 'vs mes anterior' }}
+                  color="blue"
+                  onClick={() => router.push('/client-portal/quality')}
+                />
+              </motion.div>
+            </>
+          )}
+        </div>
 
         {/* Quick Actions - iOS 26 Glass Effect */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-              className="mb-12"
+          transition={{ delay: 0.5, duration: 0.5 }}
+          className="mb-12"
         >
           <div className="glass-thick rounded-3xl p-8">
             <h2 className="text-title-2 font-bold text-label-primary mb-8">
@@ -209,7 +256,19 @@ export default function ClientPortalDashboard() {
               </div>
 
               <div className="space-y-4">
-                {(data?.recentActivity || []).map((activity) => {
+                {!activityLoaded && (
+                  <div className="text-center py-12">
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+                      className="w-12 h-12 border-4 border-gray-300 border-t-gray-700 rounded-full mx-auto mb-4"
+                    />
+                    <p className="text-body text-label-secondary">
+                      Cargando actividad reciente...
+                    </p>
+                  </div>
+                )}
+                {activityLoaded && recentActivity.map((activity, index) => {
                   // Select icon based on activity type
                   let icon = <CheckCircle className="w-5 h-5" />;
                   if (activity.type === 'order') {
@@ -223,17 +282,23 @@ export default function ClientPortalDashboard() {
                   }
 
                   return (
-                    <ActivityCard
+                    <motion.div
                       key={activity.id}
-                      icon={icon}
-                      title={activity.title}
-                      description={activity.description}
-                      timestamp={format(new Date(activity.timestamp), "dd MMM yyyy", { locale: es })}
-                      status={activity.status as any}
-                    />
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.1, duration: 0.3 }}
+                    >
+                      <ActivityCard
+                        icon={icon}
+                        title={activity.title}
+                        description={activity.description}
+                        timestamp={format(new Date(activity.timestamp), "dd MMM yyyy", { locale: es })}
+                        status={activity.status as any}
+                      />
+                    </motion.div>
                   );
                 })}
-                {(!data?.recentActivity || data.recentActivity.length === 0) && (
+                {activityLoaded && recentActivity.length === 0 && (
                   <div className="text-center py-12">
                     <FileText className="w-16 h-16 text-label-tertiary mx-auto mb-4" />
                     <p className="text-body text-label-secondary">

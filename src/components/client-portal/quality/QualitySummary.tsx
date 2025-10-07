@@ -50,10 +50,11 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
         />
         
         <QualityMetricCard
-          title="Cobertura de Calidad"
-          value={`${summary.totals.porcentajeCoberturaCalidad.toFixed(0)}%`}
-          subtitle={`${summary.totals.remisionesConDatosCalidad} de ${summary.totals.remisiones}`}
+          title="Coeficiente de Variación"
+          value={`${summary.averages.coefficientVariation.toFixed(1)}%`}
+          subtitle="Consistencia de calidad"
           icon={<Activity className="w-6 h-6" />}
+          trend={summary.averages.coefficientVariation <= 15 ? 'up' : summary.averages.coefficientVariation <= 20 ? 'neutral' : 'down'}
           color="info"
           delay={0.3}
         />
@@ -184,9 +185,13 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
             </p>
           </div>
           <div>
-            <p className="text-caption text-label-tertiary mb-1">Cobertura Muestreo</p>
-            <p className="text-callout font-bold text-label-primary">
-              {summary.totals.porcentajeCoberturaMuestreo.toFixed(0)}%
+            <p className="text-caption text-label-tertiary mb-1">Coef. Variación</p>
+            <p className={`text-callout font-bold ${
+              summary.averages.coefficientVariation <= 15 ? 'text-systemGreen' :
+              summary.averages.coefficientVariation <= 20 ? 'text-systemOrange' :
+              'text-systemRed'
+            }`}>
+              {summary.averages.coefficientVariation.toFixed(1)}%
             </p>
           </div>
           <div>

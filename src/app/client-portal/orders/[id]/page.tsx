@@ -19,6 +19,7 @@ import { Card as BaseCard } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataList } from '@/components/ui/DataList';
+import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -124,15 +125,13 @@ export default function OrderDetailPage() {
   const order = orderData?.order;
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background-primary">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="w-16 h-16 border-4 border-label-tertiary border-t-transparent rounded-full"
-        />
-      </div>
-    );
+    const stageMessages = {
+      order: 'Cargando detalles del pedido...',
+      remisiones: 'Cargando remisiones...',
+      quality: 'Cargando datos de calidad...',
+      complete: 'Finalizando...'
+    };
+    return <ClientPortalLoader message="Cargando pedido" stage={stageMessages[loadingStage]} />;
   }
 
   if (!order) {

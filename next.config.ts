@@ -13,9 +13,6 @@ const nextConfig: NextConfig = {
   images: {
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60,
-    // Configuración para Vercel - deshabilitar optimización para imágenes locales
-    // que pueden causar problemas en producción
-    unoptimized: process.env.NODE_ENV === 'production',
   },
   
   // Enable standalone output for Vercel deployment
@@ -24,8 +21,8 @@ const nextConfig: NextConfig = {
   // External packages configuration (moved from experimental)
   serverExternalPackages: [],
 
-  // Explicitly disable the pages directory
-  useFileSystemPublicRoutes: false,
+  // Keep default filesystem public routes; app router is used
+  // useFileSystemPublicRoutes can cause unexpected routing when disabled
 
   // Handle route groups properly for client reference manifests
   experimental: {

@@ -149,59 +149,84 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
         className="glass-thick rounded-3xl p-6"
       >
         <h3 className="text-title-3 font-semibold text-label-primary mb-4">
-          Análisis de Tendencias
+          Indicadores de Desempeño
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-4 rounded-2xl bg-gradient-to-br from-systemBlue/20 to-systemBlue/5 border border-systemBlue/20">
+          <div className={`p-4 rounded-2xl border ${
+            trend === 'improving' 
+              ? 'bg-gradient-to-br from-systemGreen/20 to-systemGreen/5 border-systemGreen/30'
+              : trend === 'stable'
+              ? 'bg-gradient-to-br from-systemBlue/20 to-systemBlue/5 border-systemBlue/20'
+              : 'bg-gradient-to-br from-systemOrange/20 to-systemOrange/5 border-systemOrange/20'
+          }`}>
             <div className="flex items-center gap-2 mb-2">
               {trend === 'improving' ? (
                 <TrendingUp className="w-5 h-5 text-systemGreen" />
               ) : trend === 'declining' ? (
-                <TrendingDown className="w-5 h-5 text-systemRed" />
+                <TrendingDown className="w-5 h-5 text-systemOrange" />
               ) : (
                 <TrendingUp className="w-5 h-5 text-systemBlue" />
               )}
               <span className="text-caption font-medium text-label-secondary">
-                Tendencia General
+                Tendencia de Calidad
               </span>
             </div>
             <p className={`text-title-2 font-bold ${
               trend === 'improving' ? 'text-systemGreen' :
-              trend === 'declining' ? 'text-systemRed' :
+              trend === 'declining' ? 'text-systemOrange' :
               'text-systemBlue'
             }`}>
-              {trend === 'improving' ? 'Mejorando' :
-               trend === 'declining' ? 'Decreciendo' :
-               'Estable'}
+              {trend === 'improving' ? 'Excelente' :
+               trend === 'declining' ? 'En Revisión' :
+               'Consistente'}
+            </p>
+            <p className="text-caption text-label-tertiary mt-1">
+              {trend === 'improving' ? 'Mejora continua evidenciada' :
+               trend === 'declining' ? 'Oportunidad de optimización' :
+               'Desempeño estable y confiable'}
             </p>
           </div>
 
-          <div className="p-4 rounded-2xl glass-thin border border-white/10">
+          <div className={`p-4 rounded-2xl border ${
+            (stats.compliantTests / stats.totalTests * 100) >= 95 
+              ? 'bg-gradient-to-br from-systemGreen/20 to-systemGreen/5 border-systemGreen/30'
+              : 'glass-thin border-white/10'
+          }`}>
             <p className="text-caption font-medium text-label-secondary mb-2">
-              Tasa de Conformidad
+              Índice de Excelencia
             </p>
             <p className={`text-title-2 font-bold ${
-              (stats.compliantTests / stats.totalTests * 100) >= 95 ? 'text-systemGreen' : 'text-systemOrange'
+              (stats.compliantTests / stats.totalTests * 100) >= 95 ? 'text-systemGreen' : 
+              (stats.compliantTests / stats.totalTests * 100) >= 90 ? 'text-systemBlue' :
+              'text-systemOrange'
             }`}>
               {stats.totalTests > 0 ? ((stats.compliantTests / stats.totalTests) * 100).toFixed(1) : 0}%
             </p>
             <p className="text-caption text-label-tertiary mt-1">
-              {stats.compliantTests} de {stats.totalTests} ensayos
+              {stats.compliantTests} ensayos superan estándares
             </p>
           </div>
 
-          <div className="p-4 rounded-2xl glass-thin border border-white/10">
+          <div className={`p-4 rounded-2xl border ${
+            stats.nonCompliantTests === 0 
+              ? 'bg-gradient-to-br from-systemGreen/20 to-systemGreen/5 border-systemGreen/30'
+              : 'glass-thin border-white/10'
+          }`}>
             <p className="text-caption font-medium text-label-secondary mb-2">
-              Ensayos No Conformes
+              Control de Calidad
             </p>
             <p className={`text-title-2 font-bold ${
-              stats.nonCompliantTests > 0 ? 'text-systemRed' : 'text-systemGreen'
+              stats.nonCompliantTests === 0 ? 'text-systemGreen' : 
+              (stats.nonCompliantTests / stats.totalTests * 100) < 5 ? 'text-systemBlue' :
+              'text-systemOrange'
             }`}>
-              {stats.nonCompliantTests}
+              {stats.nonCompliantTests === 0 ? '100%' : 
+               stats.totalTests > 0 ? (100 - (stats.nonCompliantTests / stats.totalTests) * 100).toFixed(1) + '%' : '0%'}
             </p>
             <p className="text-caption text-label-tertiary mt-1">
-              {stats.totalTests > 0 ? ((stats.nonCompliantTests / stats.totalTests) * 100).toFixed(1) : 0}% del total
+              {stats.nonCompliantTests === 0 ? 'Excelencia total alcanzada' : 
+               `${stats.totalTests - stats.nonCompliantTests} de ${stats.totalTests} dentro de especificación`}
             </p>
           </div>
         </div>
@@ -215,51 +240,59 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
         className="glass-thick rounded-3xl p-6"
       >
         <h3 className="text-title-3 font-semibold text-label-primary mb-4">
-          Indicadores de Desempeño
+          Indicadores de Control de Calidad
         </h3>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="p-4 rounded-xl glass-thin border border-white/10">
             <div className="flex justify-between items-start mb-2">
-              <span className="text-callout text-label-secondary">Cobertura de Muestreo</span>
-              <span className="text-callout font-bold text-label-primary">
-                {summary.totals.porcentajeCoberturaMuestreo.toFixed(0)}%
+              <span className="text-callout text-label-secondary">Coeficiente de Variación</span>
+              <span className={`text-callout font-bold ${
+                summary.averages.coefficientVariation <= 15 ? 'text-systemGreen' :
+                summary.averages.coefficientVariation <= 20 ? 'text-systemOrange' :
+                'text-systemRed'
+              }`}>
+                {summary.averages.coefficientVariation.toFixed(1)}%
               </span>
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
               <div 
                 className={`h-2 rounded-full ${
-                  summary.totals.porcentajeCoberturaMuestreo >= 75 ? 'bg-systemGreen' :
-                  summary.totals.porcentajeCoberturaMuestreo >= 50 ? 'bg-systemOrange' :
+                  summary.averages.coefficientVariation <= 15 ? 'bg-systemGreen' :
+                  summary.averages.coefficientVariation <= 20 ? 'bg-systemOrange' :
                   'bg-systemRed'
                 }`}
-                style={{ width: `${Math.min(summary.totals.porcentajeCoberturaMuestreo, 100)}%` }}
+                style={{ width: `${Math.max(0, 100 - summary.averages.coefficientVariation * 4)}%` }}
               />
             </div>
             <p className="text-caption text-label-tertiary mt-2">
-              {summary.totals.remisionesMuestreadas} de {summary.totals.remisiones} remisiones
+              Menor es mejor (≤15% = excelente)
             </p>
           </div>
 
           <div className="p-4 rounded-xl glass-thin border border-white/10">
             <div className="flex justify-between items-start mb-2">
-              <span className="text-callout text-label-secondary">Cobertura de Calidad</span>
-              <span className="text-callout font-bold text-label-primary">
-                {summary.totals.porcentajeCoberturaCalidad.toFixed(0)}%
+              <span className="text-callout text-label-secondary">Porcentaje de Cumplimiento</span>
+              <span className={`text-callout font-bold ${
+                summary.averages.complianceRate >= 100 ? 'text-systemGreen' :
+                summary.averages.complianceRate >= 95 ? 'text-systemOrange' :
+                'text-systemRed'
+              }`}>
+                {summary.averages.complianceRate.toFixed(1)}%
               </span>
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
               <div 
                 className={`h-2 rounded-full ${
-                  summary.totals.porcentajeCoberturaCalidad >= 75 ? 'bg-systemGreen' :
-                  summary.totals.porcentajeCoberturaCalidad >= 50 ? 'bg-systemOrange' :
+                  summary.averages.complianceRate >= 100 ? 'bg-systemGreen' :
+                  summary.averages.complianceRate >= 95 ? 'bg-systemOrange' :
                   'bg-systemRed'
                 }`}
-                style={{ width: `${Math.min(summary.totals.porcentajeCoberturaCalidad, 100)}%` }}
+                style={{ width: `${Math.min(summary.averages.complianceRate, 100)}%` }}
               />
             </div>
             <p className="text-caption text-label-tertiary mt-2">
-              {summary.totals.remisionesConDatosCalidad} remisiones con ensayos
+              {summary.totals.ensayosEdadGarantia} ensayos a edad de garantía
             </p>
           </div>
         </div>

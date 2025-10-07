@@ -4,7 +4,7 @@ import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
-type LogoSize = 'sm' | 'md' | 'lg';
+type LogoSize = 'sm' | 'md' | 'lg' | 'xl';
 
 interface ClientLogoProps {
   size?: LogoSize;
@@ -54,6 +54,7 @@ export function ClientLogo({ size = 'md', className }: ClientLogoProps) {
     sm: { width: 32, height: 32 },
     md: { width: 120, height: 40 },
     lg: { width: 150, height: 50 },
+    xl: { width: 200, height: 67 },
   } as const;
 
   if (!logoUrl) return null;

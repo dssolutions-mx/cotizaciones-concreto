@@ -9,6 +9,7 @@ import { OrderCard } from '@/components/ui/OrderCard';
 import { FilterChip } from '@/components/ui/FilterChip';
 import { Input } from '@/components/ui/input';
 import { Card as BaseCard } from '@/components/ui/Card';
+import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 
 interface Order {
   id: string;
@@ -75,15 +76,7 @@ export default function OrdersPage() {
   }, [orders]);
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background-primary">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-          className="w-16 h-16 border-4 border-label-tertiary border-t-transparent rounded-full"
-        />
-      </div>
-    );
+    return <ClientPortalLoader message="Cargando pedidos..." />;
   }
 
   return (

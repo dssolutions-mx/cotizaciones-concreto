@@ -8,7 +8,7 @@ import { format, subDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 import QualityTabs from '@/components/client-portal/quality/QualityTabs';
 import DatePicker from '@/components/client-portal/quality/DatePicker';
-import { ProgressLoading } from '@/components/client-portal/quality/LoadingSkeleton';
+import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 
 export default function QualityPage() {
@@ -84,7 +84,7 @@ export default function QualityPage() {
   }, []);
 
   if (loading) {
-    return <ProgressLoading progress={loadingProgress} stage={loadingStage} />;
+    return <ClientPortalLoader message="Cargando datos de calidad..." stage={loadingStage} />;
   }
 
   if (!data || !summary) {

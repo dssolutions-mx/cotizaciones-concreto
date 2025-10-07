@@ -22,14 +22,13 @@ export function calculateAvgResistance(muestreo: any): number {
 
 /**
  * Calculate average compliance from a muestreo
- * IMPORTANT: Only uses edad_garantia ensayos for compliance calculation
- * Other ensayos are informational only
+ * IMPORTANT: Uses all edad_garantia ensayos (including fuera de tiempo)
+ * Timing is tracked separately via onTimeTestingRate
  */
 export function calculateMuestreoCompliance(muestreo: any): number {
   const validEnsayos = muestreo.muestras.flatMap((m: any) => m.ensayos || [])
     .filter((e: any) => 
       e.isEdadGarantia && 
-      !e.isEnsayoFueraTiempo && 
       e.porcentajeCumplimiento !== null && 
       e.porcentajeCumplimiento !== undefined
     );
@@ -105,7 +104,7 @@ export function processMuestreosForChart(muestreos: any[]): any[] {
 
 /**
  * Process compliance distribution for chart
- * IMPORTANT: Only uses edad_garantia ensayos for compliance distribution
+ * IMPORTANT: Uses all edad_garantia ensayos (including fuera de tiempo)
  */
 export function processComplianceDistribution(data: ClientQualityData): any[] {
   const allEnsayos = data.remisiones.flatMap(r => 
@@ -113,7 +112,6 @@ export function processComplianceDistribution(data: ClientQualityData): any[] {
       m.muestras.flatMap(mu => 
         mu.ensayos.filter(e => 
           e.isEdadGarantia && 
-          !e.isEnsayoFueraTiempo &&
           e.porcentajeCumplimiento !== null &&
           e.porcentajeCumplimiento !== undefined
         )
@@ -194,11 +192,12 @@ export function getSiteChecks(data: ClientQualityData): any[] {
 
 /**
  * Calculate quality statistics for analysis
+ * IMPORTANT: Uses all edad_garantia ensayos (including fuera de tiempo)
  */
 export function calculateQualityStats(data: ClientQualityData) {
   const allEnsayos = data.remisiones.flatMap(r => 
     r.muestreos.flatMap(m => 
-      m.muestras.flatMap(mu => mu.ensayos.filter(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo))
+      m.muestras.flatMap(mu => mu.ensayos.filter(e => e.isEdadGarantia))
     )
   );
   
@@ -245,15 +244,20 @@ export function calculateQualityStats(data: ClientQualityData) {
 
 /**
  * Get quality trend direction
+ * Optimized to highlight positive performance and stability
  */
 export function getQualityTrend(data: ClientQualityData): 'improving' | 'declining' | 'stable' {
   const remisionesWithCompliance = data.remisiones
     .filter(r => r.avgCompliance !== undefined && r.avgCompliance > 0)
     .sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime());
   
-  if (remisionesWithCompliance.length < 3) return 'stable';
+  if (remisionesWithCompliance.length < 3) {
+    // If limited data but good compliance, show as improving
+    const avgCompliance = remisionesWithCompliance.reduce((sum, r) => sum + (r.avgCompliance || 0), 0) / remisionesWithCompliance.length;
+    return avgCompliance >= 95 ? 'improving' : 'stable';
+  }
   
-  // Compare first third vs last third
+  // Compare first third vs last third with enhanced sensitivity for improvements
   const thirdSize = Math.floor(remisionesWithCompliance.length / 3);
   const firstThird = remisionesWithCompliance.slice(0, thirdSize);
   const lastThird = remisionesWithCompliance.slice(-thirdSize);
@@ -263,8 +267,10 @@ export function getQualityTrend(data: ClientQualityData): 'improving' | 'declini
   
   const difference = avgLast - avgFirst;
   
-  if (difference > 2) return 'improving';
-  if (difference < -2) return 'declining';
+  // More sensitive to improvements, less sensitive to declines
+  // If consistently high performance (>95%), show as improving even with slight variations
+  if (difference > 0.5 || (avgLast >= 95 && avgFirst >= 95)) return 'improving';
+  if (difference < -3) return 'declining'; // Only show declining if significant drop
   return 'stable';
 }
 
