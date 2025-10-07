@@ -6,6 +6,12 @@ import { CreditCard, Calendar } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { Container } from '@/components/ui/Container';
 
+// Helper to parse date string (YYYY-MM-DD) without timezone conversion
+const parseLocalDate = (dateString: string): Date => {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
 type Payment = {
   id: string;
   payment_date: string;
@@ -123,7 +129,7 @@ export default function ClientPortalPaymentsPage() {
                         className="hover:bg-white/5 transition-colors"
                       >
                         <td className="px-6 py-4 text-body text-label-primary">
-                          {new Date(payment.payment_date).toLocaleDateString('es-MX')}
+                          {parseLocalDate(payment.payment_date).toLocaleDateString('es-MX')}
                         </td>
                         <td className="px-6 py-4 text-body font-semibold text-label-primary text-right">
                           ${payment.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

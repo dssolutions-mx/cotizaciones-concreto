@@ -23,6 +23,12 @@ import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
+// Helper to parse date string (YYYY-MM-DD) without timezone conversion
+const parseLocalDate = (dateString: string): Date => {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
 interface OrderDetail {
   id: string;
   order_number: string;
@@ -182,7 +188,7 @@ export default function OrderDetailPage() {
               </h1>
               <p className="text-body text-label-secondary">
                 {order?.construction_site} • {order?.delivery_date ?
-                  format(new Date(order.delivery_date), 'dd MMM yyyy', { locale: es }) :
+                  format(parseLocalDate(order.delivery_date), 'dd MMM yyyy', { locale: es }) :
                   'Fecha por confirmar'}
               </p>
             </div>
@@ -220,7 +226,7 @@ export default function OrderDetailPage() {
                 </div>
                 <p className="text-title-3 font-bold text-label-primary">
                   {order?.delivery_date ?
-                    format(new Date(order.delivery_date), 'dd MMM yyyy', { locale: es }) :
+                    format(parseLocalDate(order.delivery_date), 'dd MMM yyyy', { locale: es }) :
                     'Por confirmar'}
                 </p>
                 {order?.delivery_time && (
@@ -408,7 +414,7 @@ export default function OrderDetailPage() {
                       <div>
                         <p className="text-label-tertiary">Fecha</p>
                         <p className="text-label-primary font-medium">
-                          {format(new Date(remision.fecha), 'dd MMM yyyy', { locale: es })}
+                          {format(parseLocalDate(remision.fecha), 'dd MMM yyyy', { locale: es })}
                         </p>
                       </div>
                       <div>
@@ -483,7 +489,7 @@ export default function OrderDetailPage() {
                                   Muestreo #{muestreo.numero_muestreo}
                                 </p>
                                 <p className="text-caption text-label-secondary">
-                                  {format(new Date(muestreo.fecha_muestreo), 'dd MMM', { locale: es })}
+                                  {format(parseLocalDate(muestreo.fecha_muestreo), 'dd MMM', { locale: es })}
                                 </p>
                               </div>
                               {/* Muestreo measurements */}
@@ -582,7 +588,7 @@ export default function OrderDetailPage() {
                                   {siteCheck.test_type}
                                 </Badge>
                                 <p className="text-caption text-label-secondary">
-                                  {format(new Date(siteCheck.fecha_muestreo), 'dd MMM HH:mm', { locale: es })}
+                                  {format(parseLocalDate(siteCheck.fecha_muestreo), 'dd MMM HH:mm', { locale: es })}
                                 </p>
                               </div>
                               <div className="grid grid-cols-2 gap-2 text-caption">

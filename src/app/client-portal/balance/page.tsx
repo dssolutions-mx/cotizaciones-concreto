@@ -21,6 +21,12 @@ import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
+// Helper to parse date string (YYYY-MM-DD) without timezone conversion
+const parseLocalDate = (dateString: string): Date => {
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
 interface BalanceData {
   general: {
     current_balance: number;
@@ -325,7 +331,7 @@ export default function BalancePage() {
                           </div>
                         </div>
                         <p className="text-footnote text-label-tertiary">
-                          {format(new Date(payment.payment_date), 'd MMM', { locale: es })}
+                          {format(parseLocalDate(payment.payment_date), 'd MMM', { locale: es })}
                         </p>
                       </div>
                     </motion.div>
