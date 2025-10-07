@@ -31,20 +31,6 @@ const checkEnvVars = () => {
 // Check environment variables
 checkEnvVars();
 
-// Run the Next.js build with linting disabled
-console.log('Running Next.js build with linting disabled...');
-try {
-  execSync('npx next build --no-lint', { 
-    stdio: 'inherit',
-    env: {
-      ...process.env, // Pass through all environment variables
-    }
-  });
-} catch (error) {
-  console.error('Build failed:', error);
-  process.exit(1);
-}
-
 // Function to create fallback client reference manifest files
 const createFallbackManifest = (manifestPath) => {
   const manifestDir = path.dirname(manifestPath);
@@ -59,6 +45,36 @@ export const clientRefs = {};
   fs.writeFileSync(manifestPath, fallbackContent);
   console.log(`Created fallback client reference manifest: ${manifestPath}`);
 };
+
+// Pre-build: Ensure manifest files exist before Next.js build
+console.log('Preparing build environment...');
+const preBuildManifests = () => {
+  const routeGroups = [
+    '(landing)',
+    '(auth)'
+  ];
+
+  for (const routeGroup of routeGroups) {
+    const manifestPath = path.join('.next', 'server', 'app', routeGroup, 'page_client-reference-manifest.js');
+    createFallbackManifest(manifestPath);
+  }
+};
+
+preBuildManifests();
+
+// Run the Next.js build with linting disabled
+console.log('Running Next.js build with linting disabled...');
+try {
+  execSync('npx next build --no-lint', {
+    stdio: 'inherit',
+    env: {
+      ...process.env, // Pass through all environment variables
+    }
+  });
+} catch (error) {
+  console.error('Build failed:', error);
+  process.exit(1);
+}
 
 // Check for and create missing client reference manifest files for route groups
 const checkAndCreateManifests = () => {
