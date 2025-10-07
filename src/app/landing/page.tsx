@@ -48,6 +48,7 @@ export default function LandingPage() {
             fill
             sizes="100vw"
             className="object-cover"
+            unoptimized
             priority
           />
         </div>
@@ -347,6 +348,7 @@ export default function LandingPage() {
             fill
             sizes="100vw"
             className="object-cover"
+            unoptimized
           />
         </div>
         <div className="container mx-auto px-6 relative z-20">
