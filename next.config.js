@@ -1,4 +1,12 @@
 /** @type {import('next').NextConfig} */
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+let supabaseHost;
+try {
+  if (supabaseUrl) {
+    supabaseHost = new URL(supabaseUrl).hostname;
+  }
+} catch {}
+
 const nextConfig = {
   typescript: {
     // !! WARN !!
@@ -14,6 +22,19 @@ const nextConfig = {
   },
   // Explicitly set output to standalone to avoid static export issues
   output: 'standalone',
+  images: {
+    formats: ['image/avif', 'image/webp'],
+    minimumCacheTTL: 60,
+    remotePatterns: supabaseHost
+      ? [
+          {
+            protocol: 'https',
+            hostname: supabaseHost,
+            pathname: '/storage/v1/object/public/**',
+          },
+        ]
+      : [],
+  },
 };
 
 module.exports = nextConfig; 
