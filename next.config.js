@@ -34,6 +34,8 @@ const nextConfig = {
           },
         ]
       : [],
+    // Disable optimizer in production on Vercel to avoid 400s from /_next/image
+    unoptimized: process.env.NODE_ENV === 'production',
     // Do not disable optimization; rely on default optimizer so client-reference-manifest paths are generated correctly
   },
 };
