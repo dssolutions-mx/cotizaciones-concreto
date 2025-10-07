@@ -57,7 +57,7 @@ export default function ClientPortalGuard({
       <div className="flex items-center justify-center min-h-screen bg-slate-50">
         <div className="text-center">
           <div className="flex items-center justify-center gap-4 mb-6">
-            <Branding size="md" className="h-8 w-auto" />
+            <Branding variant="client-portal" size="md" className="h-8 w-auto" />
             <ClientLogo size="md" className="h-8 w-auto" />
           </div>
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -74,7 +74,7 @@ export default function ClientPortalGuard({
       <div className="flex items-center justify-center min-h-screen bg-slate-50">
         <div className="text-center">
           <div className="flex items-center justify-center gap-4 mb-6">
-            <Branding size="md" className="h-8 w-auto" />
+            <Branding variant="client-portal" size="md" className="h-8 w-auto" />
             <ClientLogo size="md" className="h-8 w-auto" />
           </div>
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>

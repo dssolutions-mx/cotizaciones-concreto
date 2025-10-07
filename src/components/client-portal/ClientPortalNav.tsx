@@ -40,7 +40,7 @@ export default function ClientPortalNav() {
             {/* Branding row: Company | Client logo, then title */}
             <Link href="/client-portal" className="flex items-center gap-4 group">
               <div className="flex items-center gap-3">
-                <Branding size="md" className="h-8 w-auto" />
+                <Branding variant="client-portal" size="md" className="h-8 w-auto" />
                 <div className="w-px h-6 bg-slate-300" />
                 <ClientLogo size="md" className="h-8 w-auto" />
               </div>
