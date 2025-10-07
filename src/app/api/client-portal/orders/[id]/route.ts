@@ -140,6 +140,8 @@ export async function GET(
           id,
           numero_muestreo,
           fecha_muestreo,
+          fecha_muestreo_ts,
+          hora_muestreo,
           planta,
           remision_id,
           revenimiento_sitio,
@@ -149,12 +151,15 @@ export async function GET(
           muestras(
             id,
             fecha_programada_ensayo,
+            fecha_programada_ensayo_ts,
             tipo_muestra,
             estado,
             identificacion,
             ensayos(
               id,
               fecha_ensayo,
+              fecha_ensayo_ts,
+              hora_ensayo,
               resistencia_calculada,
               porcentaje_cumplimiento,
               carga_kg,
@@ -173,9 +178,36 @@ export async function GET(
       muestreos = (muestreosData || []).map((muestreo: any) => {
         const muestrasWithAge = (muestreo.muestras || []).map((muestra: any) => {
           const ensayosWithAge = (muestra.ensayos || []).map((ensayo: any) => {
-            // Calculate precise age between fecha_muestreo and fecha_ensayo
-            const fechaMuestreo = new Date(muestreo.fecha_muestreo);
-            const fechaEnsayo = new Date(ensayo.fecha_ensayo);
+            // Calculate precise age preferring timestamp columns; robust fallbacks
+            let fechaMuestreo: Date | null = null;
+            if (muestreo.fecha_muestreo_ts) {
+              fechaMuestreo = new Date(muestreo.fecha_muestreo_ts);
+            } else if (muestreo.fecha_muestreo && muestreo.hora_muestreo) {
+              fechaMuestreo = new Date(`${muestreo.fecha_muestreo}T${muestreo.hora_muestreo}`);
+            } else if (muestreo.fecha_muestreo) {
+              // default midday to avoid timezone midnight drift
+              fechaMuestreo = new Date(`${muestreo.fecha_muestreo}T12:00:00`);
+            }
+
+            let fechaEnsayo: Date | null = null;
+            if (ensayo.fecha_ensayo_ts) {
+              fechaEnsayo = new Date(ensayo.fecha_ensayo_ts);
+            } else if (ensayo.fecha_ensayo && ensayo.hora_ensayo) {
+              fechaEnsayo = new Date(`${ensayo.fecha_ensayo}T${ensayo.hora_ensayo}`);
+            } else if (ensayo.fecha_ensayo) {
+              fechaEnsayo = new Date(`${ensayo.fecha_ensayo}T12:00:00`);
+            }
+
+            if (!fechaMuestreo || !fechaEnsayo || isNaN(fechaMuestreo.getTime()) || isNaN(fechaEnsayo.getTime())) {
+              return {
+                ...ensayo,
+                edad_horas: null,
+                edad_dias: null,
+                edad_horas_restantes: null,
+                edad_display: undefined
+              };
+            }
+
             const diffTimeMs = Math.abs(fechaEnsayo.getTime() - fechaMuestreo.getTime());
             
             // Calculate hours and days

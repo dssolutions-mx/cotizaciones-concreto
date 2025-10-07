@@ -48,6 +48,7 @@ export interface ClientQualityRemisionData {
     temperaturaAmbiente: number;
     temperaturaConcreto: number;
     revenimientoSitio: number;
+    concrete_specs?: any;
     muestras: Array<{
       id: string;
       tipoMuestra: 'CILINDRO' | 'VIGA' | 'CUBO';
@@ -64,8 +65,9 @@ export interface ClientQualityRemisionData {
       }>;
     }>;
   }>;
-  complianceStatus: 'compliant' | 'non_compliant' | 'pending';
+  complianceStatus: 'compliant' | 'non_compliant' | 'pending' | 'no_data';
   avgResistencia?: number;
+  avgCompliance?: number;
   minResistencia?: number;
   maxResistencia?: number;
   rendimientoVolumetrico?: number;
@@ -74,6 +76,16 @@ export interface ClientQualityRemisionData {
     id: string;
     materialType: string;
     cantidadReal: number;
+  }>;
+  siteChecks?: Array<{
+    id: string;
+    testType: 'SLUMP' | 'EXTENSIBILIDAD';
+    valorInicialCm: number | null;
+    valorFinalCm: number | null;
+    fueAjustado: boolean;
+    temperaturaAmbiente: number | null;
+    temperaturaConcreto: number | null;
+    fechaMuestreo: string;
   }>;
 }
 
