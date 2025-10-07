@@ -138,33 +138,59 @@ export function processComplianceDistribution(data: ClientQualityData): any[] {
 }
 
 /**
- * Process resistance trend for chart
+ * Process resistance trend for chart - Simple and clear
+ * Returns resistance achieved vs target
+ * Includes ALL ensayos at edad_garantia (including fuera de tiempo)
  */
 export function processResistanceTrend(data: ClientQualityData): any[] {
   // Group by date
   const byDate = data.remisiones.reduce((acc: any, r: any) => {
-    if (!r.avgResistencia || r.avgResistencia <= 0) return acc;
-    
     const date = new Date(r.fecha).toISOString().split('T')[0];
     if (!acc[date]) {
       acc[date] = {
         date,
-        resistenciaSum: 0,
-        count: 0
+        resistencias: [],
+        targets: []
       };
     }
     
-    acc[date].resistenciaSum += r.avgResistencia;
-    acc[date].count++;
+    // Collect ALL ensayos at edad_garantia (including fuera de tiempo)
+    r.muestreos.forEach((m: any) => {
+      m.muestras.forEach((mu: any) => {
+        mu.ensayos.forEach((e: any) => {
+          // Include all ensayos at edad_garantia, regardless of timing
+          if (e.isEdadGarantia && e.resistenciaCalculada && e.resistenciaCalculada > 0) {
+            acc[date].resistencias.push(e.resistenciaCalculada);
+          }
+          
+          // Get target
+          if (e.isEdadGarantia && e.resistenciaEspecificada && e.resistenciaEspecificada > 0) {
+            acc[date].targets.push(e.resistenciaEspecificada);
+          }
+        });
+      });
+    });
     
     return acc;
   }, {});
   
-  // Convert to array and calculate averages
-  return Object.values(byDate).map((day: any) => ({
-    date: day.date,
-    resistencia: day.count > 0 ? day.resistenciaSum / day.count : 0
-  })).sort((a: any, b: any) => a.date.localeCompare(b.date));
+  // Convert to simple array
+  return Object.values(byDate)
+    .filter((day: any) => day.resistencias.length > 0)
+    .map((day: any) => {
+      const avgResistencia = day.resistencias.reduce((sum: number, r: number) => sum + r, 0) / day.resistencias.length;
+      const avgTarget = day.targets.length > 0 
+        ? day.targets.reduce((sum: number, t: number) => sum + t, 0) / day.targets.length 
+        : null;
+      
+      return {
+        date: day.date,
+        resistencia: Math.round(avgResistencia),
+        objetivo: avgTarget ? Math.round(avgTarget) : null,
+        ensayos: day.resistencias.length
+      };
+    })
+    .sort((a: any, b: any) => a.date.localeCompare(b.date));
 }
 
 /**

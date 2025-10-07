@@ -6,6 +6,7 @@ import {
   Line,
   BarChart,
   Bar,
+  Cell,
   ScatterChart,
   Scatter,
   XAxis,
@@ -19,7 +20,7 @@ import {
 } from 'recharts';
 
 interface QualityChartProps {
-  type: 'line' | 'bar' | 'scatter' | 'area' | 'muestreos-timeline' | 'compliance-distribution' | 'resistance-trend' | 'volumetric-trend';
+  type: 'line' | 'bar' | 'scatter' | 'area' | 'muestreos-timeline' | 'compliance-distribution' | 'resistance-trend' | 'volumetric-trend' | 'resistance-performance';
   data: any[];
   height?: number;
   showLegend?: boolean;
@@ -58,6 +59,12 @@ export function QualityChart({
               </span>
             </div>
           ))}
+          {/* Show number of ensayos if available */}
+          {payload[0]?.payload?.ensayos && (
+            <div className="mt-2 pt-2 border-t border-white/10 text-caption text-label-tertiary">
+              {payload[0].payload.ensayos} ensayo{payload[0].payload.ensayos !== 1 ? 's' : ''}
+            </div>
+          )}
         </div>
       );
     }
@@ -154,7 +161,7 @@ export function QualityChart({
     );
   }
 
-  // Resistance Trend Chart
+  // Resistance Trend Chart (Legacy - simple version)
   if (type === 'resistance-trend') {
     return (
       <ResponsiveContainer width="100%" height={height}>
@@ -189,6 +196,64 @@ export function QualityChart({
             name="Resistencia Promedio"
           />
         </AreaChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // Resistance Performance Chart - Simple and Clear
+  if (type === 'resistance-performance') {
+    return (
+      <ResponsiveContainer width="100%" height={height}>
+        <BarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
+          
+          <XAxis 
+            dataKey="date" 
+            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
+            stroke="rgba(255,255,255,0.3)"
+          />
+          
+          <YAxis 
+            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
+            stroke="rgba(255,255,255,0.3)"
+            label={{ value: 'Resistencia (kg/cm²)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.6)' }}
+          />
+          
+          <Tooltip content={<CustomTooltip />} />
+          {showLegend && <Legend wrapperStyle={{ paddingTop: '10px' }} />}
+          
+          {/* Target line - if available */}
+          {data.some(d => d.objetivo) && (
+            <ReferenceLine 
+              y={data.find(d => d.objetivo)?.objetivo || 0}
+              stroke="#FF9500" 
+              strokeDasharray="5 5"
+              strokeWidth={2}
+              label={{ 
+                value: `Objetivo: ${data.find(d => d.objetivo)?.objetivo || 0} kg/cm²`, 
+                fill: '#FF9500', 
+                fontSize: 12,
+                position: 'top'
+              }}
+            />
+          )}
+          
+          {/* Bars for actual resistance */}
+          <Bar 
+            dataKey="resistencia" 
+            name="Resistencia Obtenida"
+            radius={[8, 8, 0, 0]}
+            fill="#AF52DE"
+          >
+            {/* Color bars based on meeting target */}
+            {data.map((entry, index) => (
+              <Cell 
+                key={`cell-${index}`}
+                fill={entry.objetivo && entry.resistencia >= entry.objetivo ? '#34C759' : '#AF52DE'}
+              />
+            ))}
+          </Bar>
+        </BarChart>
       </ResponsiveContainer>
     );
   }

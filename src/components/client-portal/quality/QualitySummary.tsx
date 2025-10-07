@@ -86,19 +86,24 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
           )}
         </motion.div>
 
-        {/* Resistance Trend Chart */}
+        {/* Resistance Performance Chart */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
           className="glass-thick rounded-3xl p-6"
         >
-          <h3 className="text-title-3 font-semibold text-label-primary mb-4">
-            Tendencia de Resistencia
-          </h3>
+          <div className="mb-4">
+            <h3 className="text-title-3 font-semibold text-label-primary mb-1">
+              Resistencia Obtenida vs. Objetivo
+            </h3>
+            <p className="text-footnote text-label-secondary">
+              Resistencia a compresión por fecha • Barras verdes cumplen objetivo
+            </p>
+          </div>
           {resistanceData.length > 0 ? (
             <QualityChart 
-              type="resistance-trend" 
+              type="resistance-performance" 
               data={resistanceData}
               height={300}
               showLegend={false}
