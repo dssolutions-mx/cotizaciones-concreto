@@ -369,6 +369,7 @@ function buildMonthlyStats(remisiones: ClientQualityRemisionData[]) {
         totalResistencia: 0,
         resistenciaCount: 0,
         compliantTests: 0,
+        totalCompliance: 0,
         totalTests: 0
       } as any);
     }
@@ -386,6 +387,8 @@ function buildMonthlyStats(remisiones: ClientQualityRemisionData[]) {
             data.resistenciaCount += 1;
           }
           if ((e.porcentajeCumplimiento || 0) >= 100) data.compliantTests += 1;
+          // Sum DB-stored compliance percentages for average
+          data.totalCompliance += e.porcentajeCumplimiento || 0;
           data.totalTests += 1;
         });
       });
@@ -394,7 +397,8 @@ function buildMonthlyStats(remisiones: ClientQualityRemisionData[]) {
   return Array.from(monthlyData.values()).map(d => ({
     ...d,
     avgResistencia: d.resistenciaCount > 0 ? d.totalResistencia / d.resistenciaCount : 0,
-    complianceRate: d.totalTests > 0 ? (d.compliantTests / d.totalTests) * 100 : 0
+    // Average of DB-stored age-adjusted compliance percentages
+    complianceRate: d.totalTests > 0 ? d.totalCompliance / d.totalTests : 0
   }));
 }
 
@@ -402,7 +406,17 @@ function buildQualityByRecipe(remisiones: ClientQualityRemisionData[]) {
   const map = new Map<string, any>();
   remisiones.forEach(r => {
     const key = r.recipeCode || 'N/A';
-    if (!map.has(key)) map.set(key, { recipeCode: key, recipeFc: r.recipeFc, totalVolume: 0, totalTests: 0, totalResistencia: 0, resistenciaCount: 0, compliantTests: 0, count: 0 });
+    if (!map.has(key)) map.set(key, { 
+      recipeCode: key, 
+      recipeFc: r.recipeFc, 
+      totalVolume: 0, 
+      totalTests: 0, 
+      totalResistencia: 0, 
+      resistenciaCount: 0, 
+      compliantTests: 0,
+      totalCompliance: 0,
+      count: 0 
+    });
     const d = map.get(key);
     d.totalVolume += r.volume || 0;
     d.count += 1;
@@ -412,6 +426,8 @@ function buildQualityByRecipe(remisiones: ClientQualityRemisionData[]) {
       valid.forEach(e => {
         if (e.resistenciaCalculada > 0) { d.totalResistencia += e.resistenciaCalculada; d.resistenciaCount += 1; }
         if ((e.porcentajeCumplimiento || 0) >= 100) d.compliantTests += 1;
+        // Sum DB-stored compliance percentages for average
+        d.totalCompliance += e.porcentajeCumplimiento || 0;
       });
     }));
   });
@@ -421,7 +437,8 @@ function buildQualityByRecipe(remisiones: ClientQualityRemisionData[]) {
     totalVolume: d.totalVolume,
     totalTests: d.totalTests,
     avgResistencia: d.resistenciaCount > 0 ? d.totalResistencia / d.resistenciaCount : 0,
-    complianceRate: d.totalTests > 0 ? (d.compliantTests / d.totalTests) * 100 : 0,
+    // Average of DB-stored age-adjusted compliance percentages
+    complianceRate: d.totalTests > 0 ? d.totalCompliance / d.totalTests : 0,
     count: d.count
   }));
 }
@@ -430,7 +447,16 @@ function buildQualityByConstructionSite(remisiones: ClientQualityRemisionData[])
   const map = new Map<string, any>();
   remisiones.forEach(r => {
     const key = r.constructionSite || 'N/A';
-    if (!map.has(key)) map.set(key, { constructionSite: key, totalVolume: 0, totalTests: 0, totalResistencia: 0, resistenciaCount: 0, compliantTests: 0, count: 0 });
+    if (!map.has(key)) map.set(key, { 
+      constructionSite: key, 
+      totalVolume: 0, 
+      totalTests: 0, 
+      totalResistencia: 0, 
+      resistenciaCount: 0, 
+      compliantTests: 0, 
+      totalCompliance: 0,
+      count: 0 
+    });
     const d = map.get(key);
     d.totalVolume += r.volume || 0;
     d.count += 1;
@@ -440,6 +466,8 @@ function buildQualityByConstructionSite(remisiones: ClientQualityRemisionData[])
       valid.forEach(e => {
         if (e.resistenciaCalculada > 0) { d.totalResistencia += e.resistenciaCalculada; d.resistenciaCount += 1; }
         if ((e.porcentajeCumplimiento || 0) >= 100) d.compliantTests += 1;
+        // Sum DB-stored compliance percentages for average
+        d.totalCompliance += e.porcentajeCumplimiento || 0;
       });
     }));
   });
@@ -448,7 +476,8 @@ function buildQualityByConstructionSite(remisiones: ClientQualityRemisionData[])
     totalVolume: d.totalVolume,
     totalTests: d.totalTests,
     avgResistencia: d.resistenciaCount > 0 ? d.totalResistencia / d.resistenciaCount : 0,
-    complianceRate: d.totalTests > 0 ? (d.compliantTests / d.totalTests) * 100 : 0,
+    // Average of DB-stored age-adjusted compliance percentages
+    complianceRate: d.totalTests > 0 ? d.totalCompliance / d.totalTests : 0,
     count: d.count
   }));
 }

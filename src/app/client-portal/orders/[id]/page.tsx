@@ -11,7 +11,8 @@ import {
   Truck,
   Clock,
   CheckCircle2,
-  FileText
+  FileText,
+  ChevronLeft
 } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
 import { Card as BaseCard } from '@/components/ui/Card';
@@ -165,17 +166,16 @@ export default function OrderDetailPage() {
           className="mb-8"
         >
           <div className="flex items-center gap-4 mb-4">
-            <Button
-              variant="ghost"
-              size="sm"
+            {/* iOS 26-style back affordance */}
+            <button
               onClick={() => router.back()}
-              className="flex items-center gap-2"
+              className="group flex items-center gap-1.5 rounded-full px-3 py-1.5 bg-white/60 dark:bg-white/5 border border-white/30 backdrop-blur-sm transition-colors hover:bg-white/70"
             >
-              <ArrowLeft className="w-4 h-4" />
-              Volver
-            </Button>
+              <ChevronLeft className="w-4 h-4 text-label-primary" />
+              <span className="text-callout font-medium text-label-primary group-hover:text-label-primary/90">Volver</span>
+            </button>
             <div className="w-12 h-12 rounded-2xl glass-thick flex items-center justify-center border border-white/30">
-              <Package className="w-6 h-6 text-label-primary" />
+              <Package className="w-6 h-6 text-primary" />
             </div>
             <div>
               <h1 className="text-large-title font-bold text-label-primary">
@@ -198,8 +198,8 @@ export default function OrderDetailPage() {
           transition={{ delay: 0.1 }}
           className="mb-8"
         >
-          <div className="glass-base rounded-3xl p-8">
-            <div className="flex items-center justify-between mb-6">
+          <div className="glass-base rounded-3xl p-8 shadow-sm">
+            <div className="flex items-center justify-between mb-8">
               <h2 className="text-title-2 font-bold text-label-primary">
                 Estado del Pedido
               </h2>
@@ -212,9 +212,9 @@ export default function OrderDetailPage() {
               orderData?.summary?.avgRendimientoVolumetrico ? 'md:grid-cols-4' : 
               order?.elemento ? 'md:grid-cols-4' : 'md:grid-cols-3'
             }`}>
-              <div className="glass-thin rounded-2xl p-6">
+              <div className="glass-thin rounded-2xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm">
                 <div className="flex items-center gap-4 mb-3">
-                  <Calendar className="w-5 h-5 text-label-tertiary" />
+                  <Calendar className="w-5 h-5 text-primary" />
                   <p className="text-footnote text-label-tertiary uppercase tracking-wide">
                     Fecha de Entrega
                   </p>
@@ -231,9 +231,9 @@ export default function OrderDetailPage() {
                 )}
               </div>
 
-              <div className="glass-thin rounded-2xl p-6">
+              <div className="glass-thin rounded-2xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm">
                 <div className="flex items-center gap-4 mb-3">
-                  <MapPin className="w-5 h-5 text-label-tertiary" />
+                  <MapPin className="w-5 h-5 text-primary" />
                   <p className="text-footnote text-label-tertiary uppercase tracking-wide">
                     Obra
                   </p>
@@ -244,9 +244,9 @@ export default function OrderDetailPage() {
               </div>
 
               {order?.elemento && (
-                <div className="glass-thin rounded-2xl p-6">
+                <div className="glass-thin rounded-2xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm">
                   <div className="flex items-center gap-4 mb-3">
-                    <Package className="w-5 h-5 text-label-tertiary" />
+                    <Package className="w-5 h-5 text-primary" />
                     <p className="text-footnote text-label-tertiary uppercase tracking-wide">
                       Elemento
                     </p>
@@ -259,9 +259,9 @@ export default function OrderDetailPage() {
 
               {orderData?.summary?.avgRendimientoVolumetrico !== null && 
                orderData?.summary?.avgRendimientoVolumetrico !== undefined && (
-                <div className="glass-thin rounded-2xl p-6 border-2 border-blue-500/30">
+                <div className="glass-thin rounded-2xl p-6 border-2 border-primary/30 transition-all hover:border-primary/40 hover:shadow-md">
                   <div className="flex items-center gap-4 mb-3">
-                    <CheckCircle2 className="w-5 h-5 text-label-tertiary" />
+                    <CheckCircle2 className="w-5 h-5 text-primary" />
                     <p className="text-footnote text-label-tertiary uppercase tracking-wide">
                       Rendimiento
                     </p>
@@ -284,9 +284,9 @@ export default function OrderDetailPage() {
                 </div>
               )}
 
-              <div className="glass-thin rounded-2xl p-6">
+              <div className="glass-thin rounded-2xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm">
                 <div className="flex items-center gap-4 mb-3">
-                  <Truck className="w-5 h-5 text-label-tertiary" />
+                  <Truck className="w-5 h-5 text-primary" />
                   <p className="text-footnote text-label-tertiary uppercase tracking-wide">
                     Estado
                   </p>
@@ -307,8 +307,8 @@ export default function OrderDetailPage() {
             transition={{ delay: 0.2 }}
             className="mb-8"
           >
-            <div className="glass-base rounded-3xl p-8">
-              <h2 className="text-title-2 font-bold text-label-primary mb-6">
+            <div className="glass-base rounded-3xl p-8 shadow-sm">
+              <h2 className="text-title-2 font-bold text-label-primary mb-8">
                 Productos del Pedido
               </h2>
               <div className="space-y-4">
@@ -318,7 +318,7 @@ export default function OrderDetailPage() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3 + index * 0.05 }}
-                    className="glass-thin rounded-xl p-6"
+                    className="glass-thin rounded-xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm"
                   >
                     <div className="flex items-center justify-between mb-3">
                       <p className="text-body font-semibold text-label-primary">
@@ -359,8 +359,8 @@ export default function OrderDetailPage() {
           transition={{ delay: 0.4 }}
           className="mb-8"
         >
-          <div className="glass-base rounded-3xl p-8">
-            <div className="flex items-center justify-between mb-6">
+          <div className="glass-base rounded-3xl p-8 shadow-sm">
+            <div className="flex items-center justify-between mb-8">
               <h2 className="text-title-2 font-bold text-label-primary">
                 Entregas (Remisiones)
               </h2>
@@ -385,7 +385,7 @@ export default function OrderDetailPage() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 + index * 0.05 }}
-                    className="glass-thin rounded-xl p-6"
+                    className="glass-thin rounded-xl p-6 border border-white/10 transition-all hover:border-primary/20 hover:shadow-sm"
                   >
                     {/* Remision Header */}
                     <div className="flex items-center justify-between mb-4">
@@ -435,7 +435,7 @@ export default function OrderDetailPage() {
                       <div className="mt-4 pt-4 border-t border-white/10">
                         <div className="flex items-center justify-between mb-3">
                           <p className="text-caption font-semibold text-label-primary flex items-center gap-2">
-                            <Package className="w-4 h-4" />
+                            <Package className="w-4 h-4 text-primary" />
                             Consumo de Materiales
                           </p>
                           {remision.rendimiento_volumetrico && (
@@ -473,7 +473,7 @@ export default function OrderDetailPage() {
                     {remision.muestreos && remision.muestreos.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-white/10">
                         <p className="text-caption font-semibold text-label-primary mb-3 flex items-center gap-2">
-                          <FileText className="w-4 h-4" />
+                          <FileText className="w-4 h-4 text-primary" />
                           Muestreos ({remision.muestreos.length})
                         </p>
                         <div className="space-y-2">
@@ -572,7 +572,7 @@ export default function OrderDetailPage() {
                     {remision.site_checks && remision.site_checks.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-white/10">
                         <p className="text-caption font-semibold text-label-primary mb-3 flex items-center gap-2">
-                          <CheckCircle2 className="w-4 h-4" />
+                          <CheckCircle2 className="w-4 h-4 text-primary" />
                           Pruebas en Obra ({remision.site_checks.length})
                         </p>
                         <div className="space-y-2">
@@ -631,8 +631,8 @@ export default function OrderDetailPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.6 }}
           >
-            <div className="glass-base rounded-3xl p-8">
-              <h2 className="text-title-2 font-bold text-label-primary mb-6">
+            <div className="glass-base rounded-3xl p-8 shadow-sm">
+              <h2 className="text-title-2 font-bold text-label-primary mb-8">
                 Resumen de Calidad
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -677,13 +677,13 @@ export default function OrderDetailPage() {
                     Consumo Total de Materiales
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
-                    <div className="glass-thin rounded-xl p-4">
+                    <div className="glass-thin rounded-xl p-4 border border-white/10">
                       <p className="text-footnote text-label-tertiary mb-1">Material Real</p>
                       <p className="text-title-3 font-bold text-label-primary">
                         {(orderData.summary.totalMaterialReal / 1000).toFixed(2)} ton
                       </p>
                     </div>
-                    <div className="glass-thin rounded-xl p-4">
+                    <div className="glass-thin rounded-xl p-4 border border-white/10">
                       <p className="text-footnote text-label-tertiary mb-1">Material Teórico</p>
                       <p className="text-title-3 font-bold text-label-primary">
                         {(orderData.summary.totalMaterialTeorico / 1000).toFixed(2)} ton
