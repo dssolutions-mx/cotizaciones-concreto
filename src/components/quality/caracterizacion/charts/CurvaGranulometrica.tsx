@@ -111,26 +111,45 @@ export default function CurvaGranulometrica({
     });
 
     // Combinar datos de mallas con límites
-    const datos = mallas
-      .filter(malla => malla.numero_malla !== 'Fondo' && malla.abertura_mm > 0)
-      .map(malla => {
-        const nombreNormalizado = normalizarNombreMalla(malla.numero_malla);
-        const limite = limitesMap.get(nombreNormalizado);
-        
-        return {
-          abertura: malla.abertura_mm,
-          malla: malla.numero_malla,
-          porcentaje_pasa: malla.porcentaje_pasa,
-          limite_inferior: limite?.inferior,
-          limite_superior: limite?.superior
-        };
-      })
+    // Solo incluir mallas que fueron llenadas (tienen peso_retenido)
+    const mallasFiltradas = mallas.filter(malla => {
+      // Excluir Fondo y mallas sin abertura
+      if (malla.numero_malla === 'Fondo' || malla.abertura_mm <= 0) return false;
+      
+      // Solo incluir mallas que fueron llenadas
+      if (malla.peso_retenido === null || malla.peso_retenido === undefined) return false;
+      
+      return true;
+    });
+    
+    // Crear mapa SOLO con las mallas que fueron llenadas
+    const mallasRelevantesMap = new Map<number, any>();
+    
+    // Agregar ÚNICAMENTE las mallas llenadas con sus límites correspondientes
+    mallasFiltradas.forEach(malla => {
+      const nombreNormalizado = normalizarNombreMalla(malla.numero_malla);
+      const limite = limitesMap.get(nombreNormalizado);
+      
+      mallasRelevantesMap.set(malla.abertura_mm, {
+        abertura: malla.abertura_mm,
+        malla: malla.numero_malla,
+        porcentaje_pasa: malla.porcentaje_pasa,
+        limite_inferior: limite?.inferior,
+        limite_superior: limite?.superior
+      });
+    });
+    
+    // Convertir el map a array y ordenar
+    const datos = Array.from(mallasRelevantesMap.values())
       .sort((a, b) => b.abertura - a.abertura); // Ordenar de mayor a menor abertura
 
     return datos;
   };
 
   const datosGrafica = prepararDatosGrafica();
+  
+  // Calcular ticks dinámicamente basados en las mallas con datos
+  const ticksDinamicos = datosGrafica.map(d => d.abertura).sort((a, b) => a - b);
 
   // Formato personalizado para el eje X
   const formatXAxis = (value: number) => {
@@ -145,15 +164,28 @@ export default function CurvaGranulometrica({
   // Formato personalizado para el tooltip
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
+      const data = payload[0].payload;
       return (
-        <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-          <p className="font-semibold text-gray-900 mb-2">
-            Malla {payload[0].payload.malla} ({payload[0].payload.abertura} mm)
+        <div className="bg-white p-4 border-2 border-gray-300 rounded-lg shadow-xl">
+          <p className="font-bold text-gray-900 mb-3 text-base border-b pb-2">
+            Malla {data.malla}
+          </p>
+          <p className="text-sm text-gray-600 mb-2">
+            Abertura: <span className="font-semibold">{data.abertura} mm</span>
           </p>
           {payload.map((entry: any, index: number) => (
-            <p key={index} style={{ color: entry.color }} className="text-sm">
-              {entry.name}: {entry.value?.toFixed(2)}%
-            </p>
+            <div key={index} className="flex items-center justify-between gap-3 mt-2">
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-3 h-3 rounded-full" 
+                  style={{ backgroundColor: entry.color }}
+                ></div>
+                <span className="text-sm font-medium text-gray-700">{entry.name}:</span>
+              </div>
+              <span className="text-sm font-bold" style={{ color: entry.color }}>
+                {entry.value?.toFixed(2)}%
+              </span>
+            </div>
           ))}
         </div>
       );
@@ -161,19 +193,33 @@ export default function CurvaGranulometrica({
     return null;
   };
 
-  // Si no hay datos, mostrar mensaje
-  if (datosGrafica.length === 0) {
+  // Si no hay datos de granulometría real, mostrar mensaje
+  const tieneDatosGranulometria = datosGrafica.some(d => d.porcentaje_pasa !== undefined);
+  
+  if (datosGrafica.length === 0 || !tieneDatosGranulometria) {
     return (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-[#069e2d]" />
             Curva Granulométrica
+            {tipoMaterial && tamaño && (
+              <span className="text-sm font-normal text-gray-600">
+                ({tipoMaterial} - {tamaño})
+              </span>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-center h-64 text-gray-500">
-            <p>Ingrese los datos de las mallas para visualizar la curva granulométrica</p>
+          <div className="flex flex-col items-center justify-center h-64 text-center p-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
+            <BarChart3 className="h-16 w-16 text-gray-400 mb-4" />
+            <p className="text-gray-700 font-medium text-lg mb-2">
+              Sin datos para graficar
+            </p>
+            <p className="text-gray-500 text-sm max-w-md">
+              Ingrese los pesos retenidos en las mallas para visualizar la curva granulométrica.
+              {limites.length > 0 && ' Solo se mostrarán las mallas correspondientes al tamaño seleccionado.'}
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -194,137 +240,131 @@ export default function CurvaGranulometrica({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <ResponsiveContainer width="100%" height={400}>
-          <ComposedChart 
-            data={datosGrafica}
-            margin={{ top: 5, right: 30, left: 20, bottom: 60 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#e0e0e0" />
-            
-            <XAxis 
-              dataKey="abertura"
-              type="number"
-              scale="log"
-              domain={['auto', 'auto']}
-              tickFormatter={formatXAxis}
-              label={{ 
-                value: 'Tamaño de Malla', 
-                position: 'bottom',
-                offset: 40,
-                style: { fontWeight: 'bold' }
-              }}
-              angle={-45}
-              textAnchor="end"
-              height={80}
-            />
-            
-            <YAxis 
-              domain={[0, 100]}
-              label={{ 
-                value: '% Que Pasa', 
-                angle: -90, 
-                position: 'insideLeft',
-                style: { fontWeight: 'bold' }
-              }}
-            />
-            
-            <Tooltip content={<CustomTooltip />} />
-            
-            <Legend 
-              wrapperStyle={{ paddingTop: '20px' }}
-              iconType="line"
-            />
+        <div className="bg-white p-6 rounded-lg border">
+          <ResponsiveContainer width="100%" height={700}>
+            <ComposedChart 
+              data={datosGrafica}
+              margin={{ top: 40, right: 60, left: 60, bottom: 100 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.6} />
+              
+              <XAxis 
+                dataKey="abertura"
+                type="number"
+                scale="log"
+                domain={['dataMin', 'dataMax']}
+                ticks={ticksDinamicos}
+                tickFormatter={formatXAxis}
+                label={{ 
+                  value: 'Abertura del tamiz (mm)', 
+                  position: 'bottom',
+                  offset: 60,
+                  style: { fontWeight: '600', fontSize: 14, fill: '#1f2937' }
+                }}
+                angle={-45}
+                textAnchor="end"
+                height={100}
+                tick={{ fontSize: 12, fill: '#4b5563', fontWeight: '500' }}
+                stroke="#9ca3af"
+                strokeWidth={1.5}
+              />
+              
+              <YAxis 
+                domain={[0, 100]}
+                ticks={[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
+                label={{ 
+                  value: '% Que Pasa', 
+                  angle: -90, 
+                  position: 'insideLeft',
+                  offset: 10,
+                  style: { fontWeight: '600', fontSize: 14, fill: '#1f2937' }
+                }}
+                tick={{ fontSize: 12, fill: '#4b5563', fontWeight: '500' }}
+                stroke="#9ca3af"
+                strokeWidth={1.5}
+              />
+              
+              <Tooltip content={<CustomTooltip />} />
+              
+              <Legend 
+                verticalAlign="top"
+                height={36}
+                wrapperStyle={{ 
+                  paddingBottom: '20px',
+                  fontSize: '13px',
+                  fontWeight: '500'
+                }}
+                iconType="line"
+                iconSize={18}
+              />
 
-            {/* Área entre límites si existen */}
-            {limites.length > 0 && (
-              <>
-                <Area
-                  type="monotone"
-                  dataKey="limite_superior"
-                  stroke="none"
-                  fill="#fca5a5"
-                  fillOpacity={0.3}
-                  name="Límite Superior"
-                  connectNulls
-                />
-                <Area
-                  type="monotone"
-                  dataKey="limite_inferior"
-                  stroke="none"
-                  fill="#ffffff"
-                  fillOpacity={1}
-                  name="Límite Inferior"
-                  connectNulls
-                />
-              </>
-            )}
+              {/* Área entre límites si existen - Color azul claro */}
+              {limites.length > 0 && datosGrafica.some(d => d.limite_inferior !== undefined) && (
+                <>
+                  <Area
+                    type="linear"
+                    dataKey="limite_superior"
+                    stroke="none"
+                    fill="#60a5fa"
+                    fillOpacity={0.2}
+                    name="Área de Especificación"
+                  />
+                  <Area
+                    type="linear"
+                    dataKey="limite_inferior"
+                    stroke="none"
+                    fill="#ffffff"
+                    fillOpacity={1}
+                  />
+                </>
+              )}
 
-            {/* Líneas de límites */}
-            {limites.length > 0 && (
-              <>
+              {/* Líneas de límites - Azul */}
+              {limites.length > 0 && datosGrafica.some(d => d.limite_superior !== undefined) && (
                 <Line 
-                  type="monotone" 
+                  type="linear" 
                   dataKey="limite_superior" 
-                  stroke="#dc2626" 
-                  strokeWidth={2}
+                  stroke="#1e40af" 
+                  strokeWidth={3}
                   strokeDasharray="5 5"
-                  dot={{ fill: '#dc2626', r: 4 }}
+                  dot={{ fill: '#1e40af', r: 4, strokeWidth: 0 }}
                   name="Límite Superior"
-                  connectNulls
+                  isAnimationActive={false}
+                  connectNulls={false}
                 />
+              )}
+              
+              {limites.length > 0 && datosGrafica.some(d => d.limite_inferior !== undefined) && (
                 <Line 
-                  type="monotone" 
+                  type="linear" 
                   dataKey="limite_inferior" 
-                  stroke="#2563eb" 
-                  strokeWidth={2}
+                  stroke="#3b82f6" 
+                  strokeWidth={3}
                   strokeDasharray="5 5"
-                  dot={{ fill: '#2563eb', r: 4 }}
+                  dot={{ fill: '#3b82f6', r: 4, strokeWidth: 0 }}
                   name="Límite Inferior"
-                  connectNulls
+                  isAnimationActive={false}
+                  connectNulls={false}
                 />
-              </>
-            )}
+              )}
 
-            {/* Línea de datos reales */}
-            <Line 
-              type="monotone" 
-              dataKey="porcentaje_pasa" 
-              stroke="#069e2d" 
-              strokeWidth={3}
-              dot={{ fill: '#069e2d', r: 6 }}
-              name="% Que Pasa"
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-
-        {/* Leyenda adicional */}
-        <div className="mt-4 flex flex-wrap gap-4 justify-center text-sm">
-          <div className="flex items-center gap-2">
-            <div className="w-4 h-0.5 bg-[#069e2d]"></div>
-            <span className="text-gray-700">Curva Real</span>
-          </div>
-          {limites.length > 0 && (
-            <>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-0.5 bg-red-600 border-dashed"></div>
-                <span className="text-gray-700">Límite Superior</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-0.5 bg-blue-600 border-dashed"></div>
-                <span className="text-gray-700">Límite Inferior</span>
-              </div>
-            </>
-          )}
+              {/* Línea de datos reales - Verde del logo */}
+              {datosGrafica.some(d => d.porcentaje_pasa !== undefined) && (
+                <Line 
+                  type="linear" 
+                  dataKey="porcentaje_pasa" 
+                  stroke="#069e2d" 
+                  strokeWidth={4}
+                  dot={{ fill: '#069e2d', r: 6, strokeWidth: 2, stroke: '#fff' }}
+                  activeDot={{ r: 9, strokeWidth: 2 }}
+                  name="Granulometría Real"
+                  isAnimationActive={false}
+                  connectNulls={false}
+                />
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
         </div>
-
-        {/* Indicador de cumplimiento */}
-        {limites.length > 0 && (
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-            <p className="text-sm text-blue-800">
-              <strong>Nota:</strong> La curva granulométrica debe encontrarse dentro del área definida por los límites inferior y superior para cumplir con las especificaciones.
-            </p>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

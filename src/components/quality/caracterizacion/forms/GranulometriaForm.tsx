@@ -25,7 +25,8 @@ import {
   Plus,
   Trash2,
   Info,
-  Loader2
+  Loader2,
+  CheckCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -133,11 +134,6 @@ export default function GranulometriaForm({
     }
   }, [estudioInfo, selectedTamaño]);
 
-  // Calcular automáticamente los porcentajes cuando cambian los pesos
-  useEffect(() => {
-    calcularPorcentajes();
-  }, [formData.peso_muestra_inicial, formData.mallas]);
-
   const cargarInfoEstudio = async () => {
     try {
       setLoadingEstudio(true);
@@ -171,18 +167,18 @@ export default function GranulometriaForm({
         tamaño: altaData.tamaño || ''
       });
 
-      // Si ya tiene un tamaño definido, cargarlo
-      if (altaData.tamaño) {
-        setSelectedTamaño(altaData.tamaño);
-      }
-
-      // Cargar tamaños disponibles
+      // Cargar tamaños disponibles primero
       try {
         const tamaños = await caracterizacionService.getTamañosDisponibles(altaData.tipo_material);
         setTamañosDisponibles(tamaños);
         
         if (tamaños.length === 0) {
           toast.warning(`No se encontraron tamaños disponibles para ${altaData.tipo_material}`);
+        } else {
+          // Si ya tiene un tamaño definido y existe en los disponibles, cargarlo
+          if (altaData.tamaño && tamaños.includes(altaData.tamaño)) {
+            setSelectedTamaño(altaData.tamaño);
+          }
         }
       } catch (error: any) {
         console.error('Error al cargar tamaños disponibles:', error);
@@ -270,10 +266,16 @@ export default function GranulometriaForm({
     });
   };
 
-  const calcularPorcentajes = () => {
-    const { peso_muestra_inicial, mallas } = formData;
-    
-    if (peso_muestra_inicial <= 0) return;
+  const calcularPorcentajes = (mallas: MallaData[], pesoMuestraInicial: number) => {
+    if (pesoMuestraInicial <= 0) {
+      return {
+        mallas,
+        peso_total_retenido: 0,
+        perdida_lavado: 0,
+        modulo_finura: 0,
+        tamaño_maximo_nominal: ''
+      };
+    }
 
     // Calcular peso total retenido
     const pesoTotalRetenido = mallas.reduce((sum, malla) => 
@@ -284,8 +286,8 @@ export default function GranulometriaForm({
     let acumulado = 0;
     const mallasActualizadas = mallas.map(malla => {
       const pesoRetenido = malla.peso_retenido || 0;
-      const porcentajeRetenido = peso_muestra_inicial > 0 
-        ? (pesoRetenido / peso_muestra_inicial) * 100 
+      const porcentajeRetenido = pesoMuestraInicial > 0 
+        ? (pesoRetenido / pesoMuestraInicial) * 100 
         : 0;
       
       acumulado += porcentajeRetenido;
@@ -312,36 +314,43 @@ export default function GranulometriaForm({
     )?.numero_malla || '';
 
     // Calcular pérdida por lavado
-    const perdidaLavado = peso_muestra_inicial - pesoTotalRetenido;
+    const perdidaLavado = pesoMuestraInicial - pesoTotalRetenido;
 
-    setFormData(prev => ({
-      ...prev,
+    return {
       mallas: mallasActualizadas,
       peso_total_retenido: Number(pesoTotalRetenido.toFixed(2)),
       perdida_lavado: Number(perdidaLavado.toFixed(2)),
       modulo_finura: Number(moduloFinura.toFixed(2)),
       tamaño_maximo_nominal: tamañoMaximo
-    }));
+    };
   };
 
   const handlePesoMuestraChange = (value: string) => {
     const peso = parseFloat(value) || 0;
-    setFormData(prev => ({
-      ...prev,
-      peso_muestra_inicial: peso
-    }));
+    setFormData(prev => {
+      const calculated = calcularPorcentajes(prev.mallas, peso);
+      return {
+        ...prev,
+        peso_muestra_inicial: peso,
+        ...calculated
+      };
+    });
   };
 
   const handlePesoRetenidoChange = (mallaId: string, value: string) => {
     const peso = value === '' ? null : parseFloat(value) || 0;
-    setFormData(prev => ({
-      ...prev,
-      mallas: prev.mallas.map(malla =>
+    setFormData(prev => {
+      const mallasActualizadas = prev.mallas.map(malla =>
         malla.id === mallaId 
           ? { ...malla, peso_retenido: peso }
           : malla
-      )
-    }));
+      );
+      const calculated = calcularPorcentajes(mallasActualizadas, prev.peso_muestra_inicial);
+      return {
+        ...prev,
+        ...calculated
+      };
+    });
   };
 
   const validateForm = (): boolean => {
@@ -349,6 +358,12 @@ export default function GranulometriaForm({
 
     if (formData.peso_muestra_inicial <= 0) {
       newErrors.peso_muestra_inicial = 'El peso de la muestra inicial debe ser mayor a 0';
+    }
+
+    // Validar que se haya seleccionado un tamaño si hay tamaños disponibles
+    if (tamañosDisponibles.length > 0 && !selectedTamaño) {
+      newErrors.tamaño = 'Debe seleccionar un tamaño para comparar con los límites granulométricos';
+      toast.error('Por favor seleccione un tamaño antes de guardar');
     }
 
     const pesosTotales = formData.mallas.reduce((sum, malla) => 
@@ -421,37 +436,65 @@ export default function GranulometriaForm({
             </AlertDescription>
           </Alert>
 
-          {/* Selector de Tamaño */}
+          {/* Selector de Tamaño - Destacado */}
           {estudioInfo && tamañosDisponibles.length > 0 && (
-            <div className="space-y-2">
-              <Label htmlFor="tamaño">Tamaño del Material *</Label>
-              <Select 
-                value={selectedTamaño} 
-                onValueChange={handleTamañoChange}
-                disabled={loadingLimites}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar tamaño" />
-                </SelectTrigger>
-                <SelectContent>
-                  {tamañosDisponibles.map((tamaño) => (
-                    <SelectItem key={tamaño} value={tamaño}>
-                      {tamaño}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {loadingLimites && (
-                <p className="text-sm text-gray-500 flex items-center gap-2">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Cargando límites granulométricos...
-                </p>
-              )}
-              {selectedTamaño && limites.length > 0 && (
-                <p className="text-sm text-green-600">
-                  ✓ Límites granulométricos cargados para {selectedTamaño}
-                </p>
-              )}
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                <div className="space-y-2 flex-1">
+                  <Label htmlFor="tamaño" className="text-base font-semibold text-amber-900">
+                    Selector de Tamaño de Comparación *
+                  </Label>
+                  <p className="text-sm text-amber-700">
+                    Este tamaño se utilizará para comparar los resultados con los límites estándar
+                  </p>
+                  
+                  <Select 
+                    value={selectedTamaño} 
+                    onValueChange={handleTamañoChange}
+                    disabled={loadingLimites}
+                  >
+                    <SelectTrigger className={`mt-2 ${errors.tamaño ? 'border-red-500' : ''}`}>
+                      <SelectValue placeholder="Seleccionar tamaño para comparación" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {tamañosDisponibles.map((tamaño) => (
+                        <SelectItem key={tamaño} value={tamaño}>
+                          {tamaño}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  
+                  {errors.tamaño && (
+                    <p className="text-sm text-red-600 flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3" />
+                      {errors.tamaño}
+                    </p>
+                  )}
+                  
+                  {loadingLimites && (
+                    <p className="text-sm text-amber-700 flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Cargando límites granulométricos...
+                    </p>
+                  )}
+                  
+                  {selectedTamaño && limites.length > 0 && !loadingLimites && (
+                    <p className="text-sm text-green-700 flex items-center gap-2 font-medium">
+                      <CheckCircle className="h-4 w-4" />
+                      Límites granulométricos cargados para {selectedTamaño}
+                    </p>
+                  )}
+                  
+                  {selectedTamaño && limites.length === 0 && !loadingLimites && (
+                    <p className="text-sm text-red-600 flex items-center gap-2">
+                      <AlertCircle className="h-4 w-4" />
+                      No se encontraron límites granulométricos para este tamaño
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           )}
         </CardContent>
@@ -526,8 +569,9 @@ export default function GranulometriaForm({
             <Alert className="mb-4">
               <Info className="h-4 w-4" />
               <AlertDescription>
-                Solo se muestran las mallas relevantes para <strong>{selectedTamaño}</strong>. 
-                Las mallas mostradas corresponden a aquellas que tienen límites granulométricos definidos.
+                Se muestran todas las mallas disponibles para <strong>{selectedTamaño}</strong>. 
+                Ingrese los pesos retenidos solo en las mallas que utilizó durante el ensayo.
+                La gráfica mostrará únicamente las mallas con datos cargados.
               </AlertDescription>
             </Alert>
           )}
