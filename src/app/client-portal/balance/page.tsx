@@ -206,7 +206,7 @@ export default function BalancePage() {
                   <SelectItem value="90">Últimos 90 días</SelectItem>
                   <SelectItem value="all">Todo el tiempo</SelectItem>
                   <SelectItem value="custom">
-                    {customDateRange ? `📅 ${format(customDateRange.from, 'dd/MM', { locale: es })} - ${format(customDateRange.to, 'dd/MM/yy', { locale: es })}` : '📅 Rango personalizado...'}
+                    {customDateRange ? `${format(customDateRange.from, 'dd/MM', { locale: es })} - ${format(customDateRange.to, 'dd/MM/yy', { locale: es })}` : 'Rango personalizado...'}
                   </SelectItem>
                 </SelectContent>
               </Select>
