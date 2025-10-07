@@ -174,7 +174,7 @@ export default function ClientPortalDashboard() {
                 <MetricCard
                   title="Volumen Entregado"
                   value={`${(metrics?.deliveredVolume || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³`}
-                  subtitle="Total acumulado"
+                  subtitle="Mes actual"
                   icon={<TrendingUp className="w-6 h-6" />}
                   color="green"
                   onClick={() => router.push('/client-portal/orders')}

@@ -22,17 +22,26 @@ export async function GET(request: Request) {
       console.error('Dashboard API: Orders query error:', ordersError);
     }
 
-    // Get delivered volume from order_items - more efficient than remisiones
+    // Get delivered volume from order_items for current month only
     // RLS will automatically filter through the orders relationship
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    
+    const firstDayStr = firstDayOfMonth.toISOString().split('T')[0];
+    const lastDayStr = lastDayOfMonth.toISOString().split('T')[0];
+
     const { data: orderItems, error: orderItemsError } = await supabase
       .from('order_items')
-      .select('concrete_volume_delivered, volume');
+      .select('concrete_volume_delivered, orders!inner(delivery_date)')
+      .gte('orders.delivery_date', firstDayStr)
+      .lte('orders.delivery_date', lastDayStr);
 
     if (orderItemsError) {
       console.error('Dashboard API: Order items query error:', orderItemsError);
     }
 
-    // Calculate total delivered volume from order_items
+    // Calculate delivered volume for current month
     const deliveredVolume = orderItems?.reduce(
       (sum, item) => sum + (parseFloat(item.concrete_volume_delivered as any) || 0),
       0
