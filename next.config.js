@@ -25,6 +25,8 @@ const nextConfig = {
   images: {
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60,
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     remotePatterns: supabaseHost
       ? [
           {
@@ -34,9 +36,8 @@ const nextConfig = {
           },
         ]
       : [],
-    // Disable optimizer in production on Vercel to avoid 400s from /_next/image
-    unoptimized: process.env.NODE_ENV === 'production',
-    // Do not disable optimization; rely on default optimizer so client-reference-manifest paths are generated correctly
+    // Enable Vercel's image optimization
+    unoptimized: false,
   },
 };
 
