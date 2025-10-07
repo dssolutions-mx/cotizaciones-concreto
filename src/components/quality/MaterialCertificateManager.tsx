@@ -70,15 +70,18 @@ export default function MaterialCertificateManager({
     try {
       setLoading(true);
       const response = await fetch(`/api/materials/certificates?material_id=${materialId}`);
+      
       const result = await response.json();
 
-      if (result.success) {
+      if (response.ok && result.success) {
         setCertificates(result.data || []);
       } else {
         console.error('Error loading certificates:', result.error);
+        // No mostrar toast en carga silenciosa, solo log
       }
     } catch (error) {
       console.error('Error loading certificates:', error);
+      // No mostrar toast en carga silenciosa, solo log
     } finally {
       setLoading(false);
     }
@@ -125,8 +128,8 @@ export default function MaterialCertificateManager({
 
       const result = await response.json();
 
-      if (result.success) {
-        toast.success('Certificado subido exitosamente');
+      if (response.ok && result.success) {
+        toast.success(result.message || 'Certificado subido exitosamente');
         setIsDialogOpen(false);
         setSelectedFile(null);
         setNotes('');
@@ -157,8 +160,8 @@ export default function MaterialCertificateManager({
 
       const result = await response.json();
 
-      if (result.success) {
-        toast.success('Certificado eliminado exitosamente');
+      if (response.ok && result.success) {
+        toast.success(result.message || 'Certificado eliminado exitosamente');
         loadCertificates();
       } else {
         toast.error(result.error || 'Error al eliminar certificado');
@@ -187,162 +190,183 @@ export default function MaterialCertificateManager({
 
   return (
     <div className="space-y-3">
-      {/* Upload Button */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full"
-          >
-            <Upload className="h-4 w-4 mr-2" />
-            Subir Certificado
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Subir Certificado de Calidad</DialogTitle>
-            <DialogDescription>
-              Material: <span className="font-medium">{materialName}</span>
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            {/* File Input */}
-            <div className="space-y-2">
-              <Label htmlFor="certificate-file">Archivo PDF *</Label>
-              <Input
-                ref={fileInputRef}
-                id="certificate-file"
-                type="file"
-                accept="application/pdf"
-                onChange={handleFileSelect}
-              />
-              {selectedFile && (
-                <div className="flex items-center gap-2 text-sm text-green-600">
-                  <CheckCircle className="h-4 w-4" />
-                  <span>{selectedFile.name} ({formatFileSize(selectedFile.size)})</span>
-                </div>
-              )}
-            </div>
-
-            {/* Notes */}
-            <div className="space-y-2">
-              <Label htmlFor="notes">Notas (opcional)</Label>
-              <Textarea
-                id="notes"
-                placeholder="Ej: Certificado de laboratorio ABC, fecha de ensayo..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-              />
-            </div>
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsDialogOpen(false);
-                setSelectedFile(null);
-                setNotes('');
-                if (fileInputRef.current) {
-                  fileInputRef.current.value = '';
-                }
-              }}
-              disabled={uploading}
+      {/* Header con contador y botón de subir */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-gray-700" />
+          <span className="text-sm font-bold !text-gray-900">
+            Certificados
+          </span>
+          <Badge variant="secondary" className="text-xs font-bold !text-gray-900">
+            {certificates.length}
+          </Badge>
+        </div>
+        
+        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <DialogTrigger asChild>
+            <Button 
+              variant="secondary"
+              size="sm" 
+              className="h-8 bg-white border-2 border-gray-300 hover:bg-gray-50 !text-black font-semibold text-xs rounded-lg shadow-sm"
             >
-              Cancelar
+              <Upload className="h-3.5 w-3.5 mr-1.5 text-black" />
+              Subir
             </Button>
-            <Button onClick={handleUpload} disabled={uploading || !selectedFile}>
-              {uploading ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Subiendo...
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Subir
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="!text-gray-900">Subir Certificado de Calidad</DialogTitle>
+              <DialogDescription className="!text-gray-700">
+                Material: <span className="font-medium !text-gray-900">{materialName}</span>
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* File Input */}
+              <div className="space-y-2">
+                <Label htmlFor="certificate-file" className="!text-gray-900 font-semibold">Archivo PDF *</Label>
+                <Input
+                  ref={fileInputRef}
+                  id="certificate-file"
+                  type="file"
+                  accept="application/pdf"
+                  onChange={handleFileSelect}
+                  className="!text-gray-900"
+                />
+                {selectedFile && (
+                  <div className="flex items-center gap-2 text-sm text-green-600">
+                    <CheckCircle className="h-4 w-4" />
+                    <span className="!text-green-700">{selectedFile.name} ({formatFileSize(selectedFile.size)})</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div className="space-y-2">
+                <Label htmlFor="notes" className="!text-gray-900 font-semibold">Notas (opcional)</Label>
+                <Textarea
+                  id="notes"
+                  placeholder="Ej: Certificado de laboratorio ABC, fecha de ensayo..."
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                  className="!text-gray-900 placeholder:text-gray-500"
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setIsDialogOpen(false);
+                  setSelectedFile(null);
+                  setNotes('');
+                  if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                  }
+                }}
+                disabled={uploading}
+                className="!text-black border-2 border-gray-300 bg-white hover:bg-gray-50"
+              >
+                Cancelar
+              </Button>
+              <Button 
+                variant="secondary"
+                onClick={handleUpload} 
+                disabled={uploading || !selectedFile} 
+                className="bg-gray-900 hover:bg-black !text-white border-2 border-gray-900"
+              >
+                {uploading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin text-white" />
+                    Subiendo...
+                  </>
+                ) : (
+                  <>
+                    <Upload className="h-4 w-4 mr-2 text-white" />
+                    Subir
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
 
       {/* Certificates List */}
       {loading ? (
-        <div className="flex items-center justify-center py-4">
+        <div className="flex items-center justify-center py-6">
           <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
         </div>
       ) : certificates.length === 0 ? (
-        <div className="text-center py-4 text-sm text-gray-500 bg-gray-50 rounded-lg border border-dashed">
-          <FileText className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-          <p>Sin certificados</p>
+        <div className="text-center py-6 text-sm bg-white rounded-lg border-2 border-dashed border-gray-200">
+          <FileText className="h-10 w-10 mx-auto mb-2 text-gray-400" />
+          <p className="font-medium !text-gray-700">Sin certificados</p>
+          <p className="text-xs !text-gray-600 mt-1">Sube el primer certificado</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
           {certificates.map((cert) => (
             <div
               key={cert.id}
-              className="flex items-center justify-between p-3 bg-white border rounded-lg hover:shadow-sm transition-shadow"
+              className="group bg-white border-2 border-gray-200 rounded-lg p-2.5 hover:border-teal-300 hover:shadow-md transition-all duration-200"
             >
-              <div className="flex items-center gap-3 flex-1 min-w-0">
-                <FileText className="h-5 w-5 text-red-500 flex-shrink-0" />
+              <div className="flex items-start gap-2.5">
+                <div className="p-1.5 bg-red-50 rounded-md flex-shrink-0">
+                  <FileText className="h-4 w-4 text-red-600" />
+                </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
+                  <p className="text-xs font-bold !text-gray-900 truncate leading-tight">
                     {cert.original_name}
                   </p>
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-xs text-gray-500">
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="text-[10px] font-medium !text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">
                       {formatFileSize(cert.file_size)}
                     </span>
-                    <span className="text-xs text-gray-400">•</span>
-                    <span className="text-xs text-gray-500">
+                    <span className="text-[10px] !text-gray-700">
                       {formatDate(cert.created_at)}
                     </span>
                   </div>
                   {cert.notes && (
-                    <p className="text-xs text-gray-600 mt-1 line-clamp-1">
+                    <p className="text-[10px] !text-gray-700 mt-1 line-clamp-2 bg-gray-50 p-1.5 rounded leading-snug">
                       {cert.notes}
                     </p>
                   )}
                 </div>
-              </div>
-
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {cert.url ? (
-                  <a href={cert.url} target="_blank" rel="noopener noreferrer">
+                <div className="flex flex-col gap-1 flex-shrink-0">
+                  {cert.url ? (
+                    <a href={cert.url} target="_blank" rel="noopener noreferrer">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="h-7 w-7 p-0 bg-white border border-gray-300 hover:bg-gray-50 !text-black"
+                        title="Ver certificado"
+                      >
+                        <Eye className="h-3.5 w-3.5 text-black" />
+                      </Button>
+                    </a>
+                  ) : (
                     <Button
-                      variant="ghost"
+                      variant="secondary"
                       size="sm"
-                      className="h-8 w-8 p-0"
-                      title="Ver certificado"
+                      className="h-7 w-7 p-0 bg-white border border-gray-300 !text-gray-400"
+                      disabled
+                      title="URL no disponible"
                     >
-                      <Eye className="h-4 w-4 text-blue-600" />
+                      <AlertCircle className="h-3.5 w-3.5 text-gray-400" />
                     </Button>
-                  </a>
-                ) : (
+                  )}
                   <Button
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
-                    className="h-8 w-8 p-0"
-                    disabled
-                    title="URL no disponible"
+                    className="h-7 w-7 p-0 bg-white border border-gray-300 hover:bg-red-50 !text-black"
+                    onClick={() => handleDelete(cert.id, cert.original_name)}
+                    title="Eliminar"
                   >
-                    <AlertCircle className="h-4 w-4 text-gray-400" />
+                    <Trash2 className="h-3.5 w-3.5 text-black" />
                   </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                  onClick={() => handleDelete(cert.id, cert.original_name)}
-                  title="Eliminar certificado"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                </div>
               </div>
             </div>
           ))}

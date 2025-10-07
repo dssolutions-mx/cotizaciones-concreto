@@ -1,39 +1,23 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   Loader2,
   Layers,
   Search,
-  Filter,
   Box,
   Droplet,
   Factory,
   Mountain,
   FlaskConical,
-  Plus,
-  Eye,
   ArrowRight,
   Building,
-  AlertCircle,
   FileText,
-  Upload,
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
@@ -164,8 +148,6 @@ export default function EstudiosPage() {
   const aguas = getFilteredMaterials('agua');
   const aditivos = getFilteredMaterials('aditivo');
 
-  const [expandedMaterialId, setExpandedMaterialId] = useState<string | null>(null);
-
   const MaterialTable = ({ materials }: { materials: Material[] }) => {
     if (materials.length === 0) {
       return (
@@ -181,102 +163,93 @@ export default function EstudiosPage() {
       );
     }
 
+    const getCategoryIcon = (category: string) => {
+      switch (category) {
+        case 'agregado':
+          return <Mountain className="h-10 w-10 text-yellow-600" />;
+        case 'cemento':
+          return <Factory className="h-10 w-10 text-slate-500" />;
+        case 'agua':
+          return <Droplet className="h-10 w-10 text-cyan-600" />;
+        default:
+          return <FlaskConical className="h-10 w-10 text-emerald-600" />;
+      }
+    };
+
+    const getCategoryColor = (category: string) => {
+      switch (category) {
+        case 'agregado':
+          return 'from-yellow-50 to-amber-50 border-yellow-200';
+        case 'cemento':
+          return 'from-slate-50 to-gray-50 border-slate-200';
+        case 'agua':
+          return 'from-cyan-50 to-blue-50 border-cyan-200';
+        default:
+          return 'from-emerald-50 to-teal-50 border-emerald-200';
+      }
+    };
+
     return (
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {materials.map((material) => {
           const plant = plants.find((p) => p.id === material.plant_id);
-          const isExpanded = expandedMaterialId === material.id;
-          
-          return (
-            <Card key={material.id} className="overflow-hidden">
-              <div className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  {/* Material Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0">
-                        {material.category === 'agregado' ? (
-                          <Mountain className="h-5 w-5 text-amber-500" />
-                        ) : material.category === 'cemento' ? (
-                          <Factory className="h-5 w-5 text-slate-500" />
-                        ) : material.category === 'agua' ? (
-                          <Droplet className="h-5 w-5 text-blue-500" />
-                        ) : (
-                          <FlaskConical className="h-5 w-5 text-purple-500" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-semibold text-gray-900">
-                            {material.material_name}
-                          </h3>
-                          {material.subcategory && (
-                            <Badge variant="outline" className="text-xs capitalize">
-                              {material.subcategory.replace('_', ' ')}
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-sm text-gray-600">
-                          <span className="font-mono text-xs bg-gray-100 px-2 py-0.5 rounded">
-                            {material.material_code}
-                          </span>
-                          {plant && (
-                            <div className="flex items-center gap-1">
-                              <Building className="h-3 w-3" />
-                              <span>{plant.code}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setExpandedMaterialId(isExpanded ? null : material.id)}
-                      className="h-8 px-3"
-                    >
-                      <FileText className="h-4 w-4 mr-1" />
-                      {isExpanded ? 'Ocultar' : 'Certificados'}
-                    </Button>
-                    {material.category === 'agregado' && (
-                      <Link href="/quality/caracterizacion-materiales/nuevo">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-3 text-[#069e2d] hover:text-[#069e2d] hover:bg-[#069e2d]/10"
-                        >
-                          <FlaskConical className="h-4 w-4 mr-1" />
-                          Caracterizar
-                        </Button>
-                      </Link>
-                    )}
+          return (
+            <div 
+              key={material.id} 
+              className={`bg-gradient-to-br ${getCategoryColor(material.category)} rounded-xl border-2 shadow-sm hover:shadow-lg transition-all duration-200 overflow-hidden`}
+            >
+              {/* Header de la card */}
+              <div className="bg-white/60 backdrop-blur-sm p-4 border-b-2 border-white/80">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className="p-2.5 bg-white rounded-xl shadow-sm">
+                    {getCategoryIcon(material.category)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-base font-bold text-gray-900 mb-1.5 leading-tight">
+                      {material.material_name}
+                    </h3>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-mono font-bold text-gray-900">
+                        {material.material_code}
+                      </span>
+                      {plant && (
+                        <span className="flex items-center gap-1 text-xs font-bold text-gray-900">
+                          <Building className="h-3 w-3" />
+                          {plant.code}
+                        </span>
+                      )}
+                      {material.subcategory && (
+                        <span className="px-2 py-1 bg-gray-200 text-gray-900 text-xs font-bold rounded-md uppercase">
+                          {material.subcategory.replace('_', ' ')}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Expanded Certificate Section */}
-                {isExpanded && (
-                  <div className="mt-4 pt-4 border-t">
-                    <div className="mb-3">
-                      <h4 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                        <Upload className="h-4 w-4" />
-                        Certificados de Calidad
-                      </h4>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Suba certificados de calidad en formato PDF (máx. 10MB)
-                      </p>
-                    </div>
-                    <MaterialCertificateManager
-                      materialId={material.id}
-                      materialName={material.material_name}
-                    />
-                  </div>
+                {/* Botón de caracterizar si es agregado */}
+                {material.category === 'agregado' && (
+                  <Link href="/quality/caracterizacion-materiales/nuevo" className="block">
+                    <Button 
+                      variant="secondary"
+                      className="w-full h-10 bg-white hover:bg-gray-50 !text-black rounded-lg font-bold text-sm shadow-md border-2 border-gray-300"
+                    >
+                      <FlaskConical className="h-4 w-4 mr-2 text-black" />
+                      Caracterizar Material
+                    </Button>
+                  </Link>
                 )}
               </div>
-            </Card>
+
+              {/* Cuerpo de la card - Gestión de certificados */}
+              <div className="p-4">
+                <MaterialCertificateManager
+                  materialId={material.id}
+                  materialName={material.material_name}
+                />
+              </div>
+            </div>
           );
         })}
       </div>
@@ -323,239 +296,250 @@ export default function EstudiosPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <Layers className="h-8 w-8 text-[#069e2d]" />
-              Estudios de Materiales
-            </h1>
-            <p className="text-gray-600 mt-2">
-              Consulte y administre los materiales por planta y categoría antes de crear estudios
-            </p>
-          </div>
-          <div className="flex gap-2">
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-6 py-10">
+        {/* Header - Rediseñado limpio */}
+        <div className="mb-10">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-4">
+              <div className="w-14 h-14 bg-teal-600 rounded-2xl flex items-center justify-center shadow-lg">
+                <Layers className="h-8 w-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-4xl font-bold text-gray-900">
+                  Estudios de Materiales
+                </h1>
+                <p className="text-base text-gray-600 mt-1">
+                  Gestione materiales y certificados de calidad
+                </p>
+              </div>
+            </div>
             <Link href="/quality/caracterizacion-materiales">
-              <Button className="flex items-center gap-2 bg-[#069e2d] hover:bg-[#069e2d]/90">
-                <FlaskConical className="h-4 w-4" />
-                Estudios de Caracterización
-                <ArrowRight className="h-4 w-4" />
+              <Button 
+                variant="secondary"
+                className="h-11 px-5 bg-gray-900 hover:bg-black !text-white shadow-md hover:shadow-lg transition-all rounded-xl font-semibold border-2 border-gray-900"
+              >
+                <FlaskConical className="h-4 w-4 mr-2 text-white" />
+                Ir a Caracterización
+                <ArrowRight className="h-4 w-4 ml-2 text-white" />
               </Button>
             </Link>
           </div>
         </div>
 
-        {/* Filtros */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Filter className="h-5 w-5" />
-              Filtros de Búsqueda
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Búsqueda general */}
-              <div className="space-y-2">
-                <Label htmlFor="search">Búsqueda General</Label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <Input
-                    id="search"
-                    placeholder="Nombre o código..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
-
-              {/* Filtro por planta */}
-              <div className="space-y-2">
-                <Label htmlFor="plant-filter">Planta</Label>
-                <Select value={selectedPlant} onValueChange={setSelectedPlant}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todas las plantas" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas las plantas</SelectItem>
-                    {plants.map((plant) => (
-                      <SelectItem key={plant.id} value={plant.id}>
-                        {plant.code} - {plant.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Botón limpiar filtros */}
-              <div className="space-y-2">
-                <Label>&nbsp;</Label>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSelectedPlant('all');
-                  }}
-                  className="w-full"
-                >
-                  Limpiar Filtros
-                </Button>
+        {/* Filtros - Rediseñados con mejor contraste */}
+        <div className="bg-white rounded-2xl shadow-md border border-gray-200 p-5 mb-8">
+          <div className="flex flex-col md:flex-row gap-3">
+            {/* Búsqueda */}
+            <div className="flex-1">
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-500" />
+                <Input
+                  placeholder="Buscar por nombre o código..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-11 h-11 bg-white border-gray-300 rounded-lg text-sm font-bold !text-gray-900 placeholder:text-gray-500 focus:ring-2 focus:ring-teal-600 focus:border-teal-600"
+                />
               </div>
             </div>
-          </CardContent>
-        </Card>
+            
+            {/* Selector de Planta */}
+            <div className="md:w-64">
+              <Select value={selectedPlant} onValueChange={setSelectedPlant}>
+                <SelectTrigger className="h-11 bg-white border-gray-300 rounded-lg text-sm font-bold !text-gray-900">
+                  <Building className="h-4 w-4 mr-2 text-gray-700" />
+                  <SelectValue placeholder="Seleccionar planta" className="!text-gray-900" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="font-bold !text-gray-900">Todas las plantas</SelectItem>
+                  {plants.map((plant) => (
+                    <SelectItem key={plant.id} value={plant.id} className="font-bold !text-gray-900">
+                      {plant.code} - {plant.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-        {/* Estadísticas rápidas */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <Card className="border-l-4 border-l-amber-500">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">Agregados</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {agregadosArena.length + agregadosGrava.length}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {agregadosArena.length} arenas, {agregadosGrava.length} gravas
-                  </p>
-                </div>
-                <Mountain className="h-8 w-8 text-amber-500" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-slate-500">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">Cementos</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{cementos.length}</p>
-                  <p className="text-xs text-gray-500 mt-1">materiales</p>
-                </div>
-                <Factory className="h-8 w-8 text-slate-500" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-blue-500">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">Agua</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{aguas.length}</p>
-                  <p className="text-xs text-gray-500 mt-1">fuentes</p>
-                </div>
-                <Droplet className="h-8 w-8 text-blue-500" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-l-4 border-l-purple-500">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-gray-600">Aditivos</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-2xl font-bold text-gray-900">{aditivos.length}</p>
-                  <p className="text-xs text-gray-500 mt-1">tipos</p>
-                </div>
-                <FlaskConical className="h-8 w-8 text-purple-500" />
-              </div>
-            </CardContent>
-          </Card>
+            {/* Botón limpiar */}
+            {(searchTerm || selectedPlant !== 'all') && (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setSearchTerm('');
+                  setSelectedPlant('all');
+                }}
+                className="h-11 px-5 rounded-lg border-2 border-gray-300 bg-white hover:bg-gray-100 !text-black font-semibold"
+              >
+                Limpiar filtros
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* Tabs de categorías */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Materiales por Categoría</CardTitle>
-            <CardDescription>
-              Explore los materiales organizados por tipo y planta
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs value={activeTab} onValueChange={setActiveTab}>
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="agregados" className="flex items-center gap-2">
-                  <Mountain className="h-4 w-4" />
-                  Agregados
-                </TabsTrigger>
-                <TabsTrigger value="cemento" className="flex items-center gap-2">
-                  <Factory className="h-4 w-4" />
-                  Cemento
-                </TabsTrigger>
-                <TabsTrigger value="agua" className="flex items-center gap-2">
-                  <Droplet className="h-4 w-4" />
-                  Agua
-                </TabsTrigger>
-                <TabsTrigger value="aditivos" className="flex items-center gap-2">
-                  <FlaskConical className="h-4 w-4" />
-                  Aditivos
-                </TabsTrigger>
-              </TabsList>
+        {/* Categorías - Rediseñadas como tabs */}
+        <div className="bg-white rounded-2xl shadow-md border border-gray-200 p-1.5 mb-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+            <button
+              onClick={() => setActiveTab('agregados')}
+              className={`relative rounded-xl px-4 py-4 transition-all duration-200 ${
+                activeTab === 'agregados' 
+                  ? 'bg-yellow-50 shadow-sm' 
+                  : 'hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
+                  activeTab === 'agregados' ? 'bg-yellow-500' : 'bg-yellow-100'
+                }`}>
+                  <Mountain className={`h-6 w-6 ${activeTab === 'agregados' ? 'text-white' : 'text-yellow-700'}`} />
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-gray-900">{agregadosArena.length + agregadosGrava.length}</p>
+                  <p className="text-xs font-bold text-gray-900 mt-0.5">Agregados</p>
+                  <p className="text-[10px] text-gray-600 font-medium mt-0.5">
+                    {agregadosArena.length} arenas · {agregadosGrava.length} gravas
+                  </p>
+                </div>
+              </div>
+            </button>
 
-              <TabsContent value="agregados" className="space-y-6 mt-6">
-                {/* Arenas */}
+            <button
+              onClick={() => setActiveTab('cemento')}
+              className={`relative rounded-xl px-4 py-4 transition-all duration-200 ${
+                activeTab === 'cemento' 
+                  ? 'bg-slate-50 shadow-sm' 
+                  : 'hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
+                  activeTab === 'cemento' ? 'bg-slate-500' : 'bg-slate-100'
+                }`}>
+                  <Factory className={`h-6 w-6 ${activeTab === 'cemento' ? 'text-white' : 'text-slate-700'}`} />
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-gray-900">{cementos.length}</p>
+                  <p className="text-xs font-bold text-gray-900 mt-0.5">Cementos</p>
+                  <p className="text-[10px] text-gray-600 font-medium mt-0.5">materiales</p>
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('agua')}
+              className={`relative rounded-xl px-4 py-4 transition-all duration-200 ${
+                activeTab === 'agua' 
+                  ? 'bg-cyan-50 shadow-sm' 
+                  : 'hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
+                  activeTab === 'agua' ? 'bg-cyan-500' : 'bg-cyan-100'
+                }`}>
+                  <Droplet className={`h-6 w-6 ${activeTab === 'agua' ? 'text-white' : 'text-cyan-700'}`} />
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-gray-900">{aguas.length}</p>
+                  <p className="text-xs font-bold text-gray-900 mt-0.5">Agua</p>
+                  <p className="text-[10px] text-gray-600 font-medium mt-0.5">fuentes</p>
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('aditivos')}
+              className={`relative rounded-xl px-4 py-4 transition-all duration-200 ${
+                activeTab === 'aditivos' 
+                  ? 'bg-emerald-50 shadow-sm' 
+                  : 'hover:bg-gray-50'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
+                  activeTab === 'aditivos' ? 'bg-emerald-600' : 'bg-emerald-100'
+                }`}>
+                  <FlaskConical className={`h-6 w-6 ${activeTab === 'aditivos' ? 'text-white' : 'text-emerald-700'}`} />
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-gray-900">{aditivos.length}</p>
+                  <p className="text-xs font-bold text-gray-900 mt-0.5">Aditivos</p>
+                  <p className="text-[10px] text-gray-600 font-medium mt-0.5">tipos</p>
+                </div>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* Lista de Materiales - Estilo Apple */}
+        <div className="space-y-6">
+          {activeTab === 'agregados' && (
+            <>
+              {/* Arenas */}
+              {agregadosArena.length > 0 && (
                 <div>
-                  <div className="flex items-center gap-2 mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      Arenas ({agregadosArena.length})
-                    </h3>
-                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                      Agregado Fino
-                    </Badge>
+                  <div className="flex items-center gap-3 mb-4">
+                    <h2 className="text-xl font-bold text-gray-900">Arenas</h2>
+                    <span className="flex items-center justify-center w-8 h-8 bg-yellow-500 text-white text-sm font-bold rounded-lg shadow-sm">
+                      {agregadosArena.length}
+                    </span>
                   </div>
                   <MaterialTable materials={agregadosArena} />
                 </div>
+              )}
 
-                {/* Gravas */}
-                <div className="pt-6 border-t">
-                  <div className="flex items-center gap-2 mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      Gravas ({agregadosGrava.length})
-                    </h3>
-                    <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-                      Agregado Grueso
-                    </Badge>
+              {/* Gravas */}
+              {agregadosGrava.length > 0 && (
+                <div className={agregadosArena.length > 0 ? 'pt-6' : ''}>
+                  <div className="flex items-center gap-3 mb-4">
+                    <h2 className="text-xl font-bold text-gray-900">Gravas</h2>
+                    <span className="flex items-center justify-center w-8 h-8 bg-yellow-500 text-white text-sm font-bold rounded-lg shadow-sm">
+                      {agregadosGrava.length}
+                    </span>
                   </div>
                   <MaterialTable materials={agregadosGrava} />
                 </div>
-              </TabsContent>
+              )}
+            </>
+          )}
 
-              <TabsContent value="cemento" className="mt-6">
-                <MaterialTable materials={cementos} />
-              </TabsContent>
+          {activeTab === 'cemento' && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Cementos</h2>
+                <span className="flex items-center justify-center w-8 h-8 bg-slate-500 text-white text-sm font-bold rounded-lg shadow-sm">
+                  {cementos.length}
+                </span>
+              </div>
+              <MaterialTable materials={cementos} />
+            </div>
+          )}
 
-              <TabsContent value="agua" className="mt-6">
-                <MaterialTable materials={aguas} />
-              </TabsContent>
+          {activeTab === 'agua' && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Agua</h2>
+                <span className="flex items-center justify-center w-8 h-8 bg-cyan-500 text-white text-sm font-bold rounded-lg shadow-sm">
+                  {aguas.length}
+                </span>
+              </div>
+              <MaterialTable materials={aguas} />
+            </div>
+          )}
 
-              <TabsContent value="aditivos" className="mt-6">
-                <MaterialTable materials={aditivos} />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-
-        {/* Información adicional */}
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            <strong>Nota:</strong> Para realizar estudios de caracterización de agregados (arenas y
-            gravas), haga clic en el botón "Caracterizar" junto al material deseado o acceda
-            directamente a la sección de Estudios de Caracterización.
-          </AlertDescription>
-        </Alert>
+          {activeTab === 'aditivos' && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-xl font-bold text-gray-900">Aditivos</h2>
+                <span className="flex items-center justify-center w-8 h-8 bg-emerald-600 text-white text-sm font-bold rounded-lg shadow-sm">
+                  {aditivos.length}
+                </span>
+              </div>
+              <MaterialTable materials={aditivos} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -4,6 +4,14 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
+    
+    if (!supabase) {
+      console.error('Failed to create Supabase client in POST');
+      return NextResponse.json({
+        success: false,
+        error: 'Error de configuración del servidor'
+      }, { status: 500 });
+    }
 
     const formData = await request.formData();
     const file = formData.get('file') as File;
@@ -165,6 +173,14 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
     
+    if (!supabase) {
+      console.error('Failed to create Supabase client in GET');
+      return NextResponse.json({
+        success: false,
+        error: 'Error de configuración del servidor'
+      }, { status: 500 });
+    }
+    
     const { searchParams } = new URL(request.url);
     const materialId = searchParams.get('material_id');
 
@@ -189,10 +205,7 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false });
 
     if (certificatesError) {
-      return NextResponse.json({
-        success: false,
-        error: `Error al obtener certificados: ${certificatesError.message}`
-      }, { status: 500 });
+      throw new Error(`Error al obtener certificados: ${certificatesError.message}`);
     }
 
     // Generate fresh signed URLs for each certificate
@@ -244,6 +257,14 @@ export async function GET(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const supabase = await createServerSupabaseClient();
+    
+    if (!supabase) {
+      console.error('Failed to create Supabase client in DELETE');
+      return NextResponse.json({
+        success: false,
+        error: 'Error de configuración del servidor'
+      }, { status: 500 });
+    }
     
     const { searchParams } = new URL(request.url);
     const certificateId = searchParams.get('id');
@@ -306,10 +327,7 @@ export async function DELETE(request: NextRequest) {
       .eq('id', certificateId);
 
     if (deleteError) {
-      return NextResponse.json({
-        success: false,
-        error: `Error al eliminar certificado: ${deleteError.message}`
-      }, { status: 500 });
+      throw new Error(`Error al eliminar certificado: ${deleteError.message}`);
     }
 
     return NextResponse.json({
