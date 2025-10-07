@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { 
   FileText, 
@@ -40,20 +39,14 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="relative h-screen flex items-center">
         {/* Background Image */}
-        <div
-          className="absolute inset-0 z-0"
-          style={{ backgroundImage: 'url(/images/dcconcretos/hero1.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' }}
-        >
-          <div className="absolute inset-0 bg-gradient-to-r from-black/40 to-black/20 z-10" />
-          <Image 
+        <div className="absolute inset-0 z-0">
+          <img
             src="/images/dcconcretos/hero1.jpg"
-            alt="DC Concretos - Sistema Integral de Gestión de Plantas de Concreto" 
-            fill
-            sizes="100vw"
-            className="object-cover"
-            unoptimized
-            priority
+            alt="DC Concretos - Sistema Integral de Gestión de Plantas de Concreto"
+            className="w-full h-full object-cover"
+            loading="eager"
           />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/40 to-black/20 z-10" />
         </div>
 
         {/* Logo */}
@@ -343,19 +336,13 @@ export default function LandingPage() {
 
       {/* CTA Section */}
       <section className="py-20 relative">
-        <div
-          className="absolute inset-0 z-0"
-          style={{ backgroundImage: 'url(/images/dcconcretos/hero1.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' }}
-        >
-          <div className="absolute inset-0 bg-black/30 z-10" />
-          <Image 
-            src="/images/dcconcretos/hero1.jpg" 
-            alt="DC Concretos - Bienvenido al Sistema" 
-            fill
-            sizes="100vw"
-            className="object-cover"
-            unoptimized
+        <div className="absolute inset-0 z-0">
+          <img
+            src="/images/dcconcretos/hero1.jpg"
+            alt="DC Concretos - Bienvenido al Sistema"
+            className="w-full h-full object-cover"
           />
+          <div className="absolute inset-0 bg-black/30 z-10" />
         </div>
         <div className="container mx-auto px-6 relative z-20">
           <div className="max-w-3xl mx-auto text-center">
