@@ -12,7 +12,6 @@ import {
   CheckSquare, 
   FileCheck, 
   Search,
-  ChevronRight,
   Building2,
   Shield,
   Truck,
@@ -151,7 +150,6 @@ export default function LandingPage() {
                 title: 'Estado de pedidos en tiempo real', 
                 description: 'Sigue tus entregas, horarios y remisiones desde cualquier dispositivo',
                 icon: <Truck className="w-8 h-8" />,
-                href: '/orders',
                 color: 'bg-blue-50 text-blue-600',
                 features: ['Seguimiento de entrega', 'Remisiones asociadas', 'Historial por obra']
               },
@@ -159,7 +157,6 @@ export default function LandingPage() {
                 title: 'Calidad y certificados', 
                 description: 'Consulta ensayos, muestreos y certificados de tus colados',
                 icon: <FileCheck className="w-8 h-8" />,
-                href: '/quality',
                 color: 'bg-green-50 text-green-600',
                 features: ['Ensayos y resultados', 'Certificados por pedido', 'Alertas de calidad']
               },
@@ -167,7 +164,6 @@ export default function LandingPage() {
                 title: 'Saldo y pagos', 
                 description: 'Revisa tu saldo, descarga estados de cuenta y registra pagos',
                 icon: <DollarSign className="w-8 h-8" />,
-                href: '/finanzas',
                 color: 'bg-purple-50 text-purple-600',
                 features: ['Saldo actualizado', 'Historial de pagos', 'Descarga de documentos']
               },
@@ -175,7 +171,6 @@ export default function LandingPage() {
                 title: 'Remisiones y documentos', 
                 description: 'Descarga remisiones, facturas y documentación de tus obras',
                 icon: <Receipt className="w-8 h-8" />,
-                href: '/finanzas',
                 color: 'bg-orange-50 text-orange-600',
                 features: ['Remisiones por obra', 'Facturas y CFDI', 'Comprobantes disponibles']
               },
@@ -183,7 +178,6 @@ export default function LandingPage() {
                 title: 'Notificaciones y alertas', 
                 description: 'Recibe avisos de programación, cambios y resultados de calidad',
                 icon: <Bell className="w-8 h-8" />,
-                href: '/dashboard',
                 color: 'bg-indigo-50 text-indigo-600',
                 features: ['Alertas de entrega', 'Cambios de horario', 'Resultados de laboratorio']
               },
@@ -191,7 +185,6 @@ export default function LandingPage() {
                 title: 'Soporte y comunicación', 
                 description: 'Habla con nuestro equipo comercial y de calidad cuando lo necesites',
                 icon: <Headphones className="w-8 h-8" />,
-                href: '/contact',
                 color: 'bg-red-50 text-red-600',
                 features: ['Chat y correo', 'Atención a obra', 'Acompañamiento técnico']
               }
@@ -202,13 +195,13 @@ export default function LandingPage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
                 viewport={{ once: true }}
-                whileHover={{ y: -10, boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.1)' }}
-                className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 h-full border border-gray-100 cursor-pointer"
+                whileHover={{ y: -5, boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.1)' }}
+                className="bg-white p-8 rounded-xl shadow-md hover:shadow-xl transition-all duration-300 h-full border border-gray-100"
               >
                 <div className={`mb-5 p-4 rounded-full ${item.color} inline-block`}>{item.icon}</div>
                 <h3 className="text-xl font-bold mb-3 text-gray-800">{item.title}</h3>
                 <p className="text-gray-600 mb-4">{item.description}</p>
-                <ul className="space-y-2 mb-6">
+                <ul className="space-y-2">
                   {item.features.map((feature, fIndex) => (
                     <li key={fIndex} className="text-sm text-gray-500 flex items-center">
                       <CheckSquare className="w-4 h-4 mr-2 text-green-500" />
@@ -216,9 +209,6 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <a href={item.href} className="text-green-600 hover:text-green-700 font-medium inline-flex items-center">
-                  Explorar <ChevronRight className="w-4 h-4 ml-1" />
-                </a>
               </motion.div>
             ))}
           </div>
@@ -395,28 +385,18 @@ export default function LandingPage() {
                 Sistema Integral de Gestión para Plantas de Concreto
               </p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center md:text-left">
-              <div>
-                <h4 className="font-bold mb-3 text-gray-300">Módulos Principales</h4>
-                <ul className="space-y-2 text-gray-400">
-                  <li><Link href="/finanzas" className="hover:text-white transition-colors">Finanzas</Link></li>
-                  <li><Link href="/quality" className="hover:text-white transition-colors">Calidad</Link></li>
-                  <li><Link href="/recipes" className="hover:text-white transition-colors">Recetas</Link></li>
-                </ul>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-center md:text-left">
               <div>
                 <h4 className="font-bold mb-3 text-gray-300">Acceso</h4>
                 <ul className="space-y-2 text-gray-400">
                   <li><Link href="/login" className="hover:text-white transition-colors">Iniciar Sesión</Link></li>
-                  <li><Link href="/dashboard" className="hover:text-white transition-colors">Dashboard</Link></li>
-                  <li><Link href="/clients" className="hover:text-white transition-colors">Clientes</Link></li>
                 </ul>
               </div>
               <div>
-                <h4 className="font-bold mb-3 text-gray-300">Empresa</h4>
+                <h4 className="font-bold mb-3 text-gray-300">Soporte</h4>
                 <ul className="space-y-2 text-gray-400">
                   <li><Link href="/contact" className="hover:text-white transition-colors">Contacto</Link></li>
-                  <li><Link href="/help" className="hover:text-white transition-colors">Soporte</Link></li>
+                  <li><Link href="/help" className="hover:text-white transition-colors">Ayuda</Link></li>
                 </ul>
               </div>
             </div>
