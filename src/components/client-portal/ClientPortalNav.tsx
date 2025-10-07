@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Home, Package, DollarSign, Beaker, LogOut, Menu, X } from 'lucide-react';
 import { Branding } from '@/components/ui/Branding';
+import { ClientLogo } from '@/components/ui/ClientLogo';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
@@ -36,9 +37,12 @@ export default function ClientPortalNav() {
       >
         <div className="max-w-screen-2xl mx-auto px-6">
           <div className="flex items-center justify-between h-16">
-            {/* Logo & Branding - iOS 26 HIG Compliant */}
+            {/* Logo & Branding - Company + Client */}
             <Link href="/client-portal" className="flex items-center gap-4 group">
-              <Branding size="md" className="h-8 w-auto" />
+              <div className="flex items-center gap-3">
+                <Branding size="md" className="h-8 w-auto" />
+                <ClientLogo size="md" className="h-8 w-auto" />
+              </div>
               <div className="hidden md:block">
                 <div className="flex items-center gap-2">
                   <h1 className="text-title-2 font-bold text-label-primary">

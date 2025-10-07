@@ -44,7 +44,7 @@ export const clientService = {
     try {
       const { data, error } = await supabase
         .from('clients')
-        .select('*')
+        .select('*, logo_path')
         .eq('id', clientId)
         .single();
 
@@ -302,6 +302,7 @@ export const clientService = {
     email?: string;
     phone?: string;
     credit_status?: string;
+    logo_path?: string | null;
   }) {
     try {
       console.log('Updating client:', { clientId, clientData });

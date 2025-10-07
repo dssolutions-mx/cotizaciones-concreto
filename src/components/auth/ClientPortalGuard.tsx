@@ -3,6 +3,8 @@
 import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { Branding } from '@/components/ui/Branding';
+import { ClientLogo } from '@/components/ui/ClientLogo';
 
 export default function ClientPortalGuard({
   children
@@ -54,6 +56,10 @@ export default function ClientPortalGuard({
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50">
         <div className="text-center">
+          <div className="flex items-center justify-center gap-4 mb-6">
+            <Branding size="md" className="h-8 w-auto" />
+            <ClientLogo size="md" className="h-8 w-auto" />
+          </div>
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-slate-600 font-medium">Verificando acceso...</p>
           <p className="text-slate-500 text-sm mt-1">Portal de Cliente</p>
@@ -67,6 +73,10 @@ export default function ClientPortalGuard({
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50">
         <div className="text-center">
+          <div className="flex items-center justify-center gap-4 mb-6">
+            <Branding size="md" className="h-8 w-auto" />
+            <ClientLogo size="md" className="h-8 w-auto" />
+          </div>
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-slate-600 font-medium">Cargando perfil...</p>
           <p className="text-slate-500 text-sm mt-1">Portal de Cliente</p>

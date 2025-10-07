@@ -9,6 +9,7 @@ export interface Client {
   email: string;
   phone: string;
   credit_status: string;
+  logo_path?: string | null;
 }
 
 export interface ConstructionSite {
