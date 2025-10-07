@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import Image from 'next/image';
 import { motion } from 'framer-motion';
 import { 
   FileText, 
@@ -27,6 +26,7 @@ import {
   Receipt
 } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function LandingPage() {
   // Verificar si estamos en el cliente para evitar errores de hidratación
@@ -41,26 +41,28 @@ export default function LandingPage() {
       <section className="relative h-screen flex items-center">
         {/* Background Image */}
         <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-gray-900/80 to-gray-900/60 z-10" />
-          <Image 
+          <Image
             src="/images/dcconcretos/hero1.jpg"
-            alt="DC Concretos - Sistema Integral de Gestión de Plantas de Concreto" 
+            alt="DC Concretos - Sistema Integral de Gestión de Plantas de Concreto"
             fill
-            sizes="100vw"
-            className="object-cover"
             priority
+            className="object-cover"
+            sizes="100vw"
+            quality={85}
           />
+          <div className="absolute inset-0 bg-gradient-to-r from-black/40 to-black/20 z-10" />
         </div>
 
         {/* Logo */}
         <div className="absolute top-6 left-6 z-20">
           <div className="">
-            <Image 
-              src="/images/dcconcretos/logo.svg" 
-              alt="DC Concretos Logo" 
-              width={160} 
-              height={50} 
+            <Image
+              src="/images/dcconcretos/logo.svg"
+              alt="DC Concretos Logo"
+              width={160}
+              height={50}
               className="drop-shadow-md"
+              priority
             />
           </div>
         </div>
@@ -270,12 +272,14 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="relative">
-              <Image 
-                src="/images/dcconcretos/hero2.jpeg?v=1" 
-                alt="Sistema de Gestión DC Concretos" 
-                width={600} 
-                height={400} 
+              <Image
+                src="/images/dcconcretos/hero2.jpeg"
+                alt="Sistema de Gestión DC Concretos"
+                width={600}
+                height={400}
                 className="rounded-lg shadow-xl"
+                quality={90}
+                sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 600px"
               />
               <div className="absolute -bottom-6 -left-6 bg-white p-6 rounded-lg shadow-lg">
                 <div className="flex items-center space-x-3">
@@ -340,14 +344,15 @@ export default function LandingPage() {
       {/* CTA Section */}
       <section className="py-20 relative">
         <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gray-900/80 z-10" />
-          <Image 
-            src="/images/dcconcretos/hero1.jpg" 
-            alt="DC Concretos - Bienvenido al Sistema" 
+          <Image
+            src="/images/dcconcretos/hero1.jpg"
+            alt="DC Concretos - Bienvenido al Sistema"
             fill
-            sizes="100vw"
             className="object-cover"
+            sizes="100vw"
+            quality={75}
           />
+          <div className="absolute inset-0 bg-black/30 z-10" />
         </div>
         <div className="container mx-auto px-6 relative z-20">
           <div className="max-w-3xl mx-auto text-center">
@@ -378,11 +383,11 @@ export default function LandingPage() {
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="mb-8 md:mb-0">
               <div className="">
-                <Image 
-                  src="/images/dcconcretos/logo.svg" 
-                  alt="DC Concretos Logo" 
-                  width={120} 
-                  height={40} 
+                <Image
+                  src="/images/dcconcretos/logo.svg"
+                  alt="DC Concretos Logo"
+                  width={120}
+                  height={40}
                   className="brightness-150"
                 />
               </div>

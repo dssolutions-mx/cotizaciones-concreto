@@ -20,11 +20,13 @@ const nextConfig = {
     // your project has ESLint errors.
     ignoreDuringBuilds: true,
   },
-  // Explicitly set output to standalone to avoid static export issues
-  output: 'standalone',
+  // Use default output mode for better Vercel compatibility with static assets
+  // output: 'standalone',
   images: {
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60,
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
     remotePatterns: supabaseHost
       ? [
           {
@@ -34,7 +36,8 @@ const nextConfig = {
           },
         ]
       : [],
-    // Do not disable optimization; rely on default optimizer so client-reference-manifest paths are generated correctly
+    // Enable Vercel's image optimization
+    unoptimized: false,
   },
 };
 

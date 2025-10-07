@@ -120,7 +120,7 @@ export default function ClientPortalLoader({ message = 'Cargando...', stage }: C
                     }
                   }}
                 >
-                  <Branding size="xl" className="drop-shadow-lg" />
+                  <Branding variant="client-portal" size="xl" className="drop-shadow-lg" />
                 </motion.div>
 
                 {/* Divider with Pulse */}

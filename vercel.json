@@ -2,7 +2,5 @@
   "buildCommand": "node build.js",
   "devCommand": "next dev",
   "installCommand": "npm install",
-  "outputDirectory": ".next",
-  "cleanUrls": true,
   "trailingSlash": false
 } 
