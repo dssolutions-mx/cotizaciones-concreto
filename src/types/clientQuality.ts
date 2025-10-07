@@ -112,6 +112,7 @@ export interface ClientQualitySummary {
     complianceRate: number;
     masaUnitaria: number;
     rendimientoVolumetrico: number;
+    coefficientVariation: number;
   };
   performance: {
     complianceRate: number;

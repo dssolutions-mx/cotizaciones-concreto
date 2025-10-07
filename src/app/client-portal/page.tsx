@@ -160,7 +160,7 @@ export default function ClientPortalDashboard() {
               >
                 <MetricCard
                   title="Volumen Entregado"
-                  value={`${metrics?.deliveredVolume || 0} m³`}
+                  value={`${(metrics?.deliveredVolume || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³`}
                   subtitle="Total acumulado"
                   icon={<TrendingUp className="w-6 h-6" />}
                   trend={{ value: 12.5, label: 'vs mes anterior' }}
@@ -175,7 +175,7 @@ export default function ClientPortalDashboard() {
               >
                 <MetricCard
                   title="Balance Actual"
-                  value={`$${(metrics?.currentBalance || 0).toLocaleString('es-MX')}`}
+                  value={`$${(metrics?.currentBalance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   subtitle="Saldo pendiente"
                   icon={<DollarSign className="w-6 h-6" />}
                   color="orange"

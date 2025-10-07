@@ -38,11 +38,12 @@ export default function LandingPage() {
       <section className="relative h-screen flex items-center">
         {/* Background Image */}
         <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-linear-to-r from-gray-900/80 to-gray-900/60 z-10" />
+          <div className="absolute inset-0 bg-gradient-to-r from-gray-900/80 to-gray-900/60 z-10" />
           <Image 
             src="/images/dcconcretos/hero1.jpg"
             alt="DC Concretos - Sistema Integral de Gestión de Plantas de Concreto" 
             fill
+            sizes="100vw"
             className="object-cover"
             priority
           />
@@ -298,6 +299,7 @@ export default function LandingPage() {
             src="/images/dcconcretos/hero1.jpg" 
             alt="DC Concretos - Bienvenido al Sistema" 
             fill
+            sizes="100vw"
             className="object-cover"
           />
         </div>

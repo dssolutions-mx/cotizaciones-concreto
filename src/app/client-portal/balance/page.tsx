@@ -132,7 +132,7 @@ export default function BalancePage() {
                         : 'text-label-primary'
                   }`}
                 >
-                  ${(data?.general.current_balance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                  ${(data?.general.current_balance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </h2>
                 <p className="text-caption text-label-tertiary mt-2">
                   {(data?.general.current_balance || 0) > 0 
@@ -162,10 +162,10 @@ export default function BalancePage() {
                     </p>
                   </div>
                   <p className="text-title-2 font-bold text-label-primary">
-                    ${(data?.general.total_delivered || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    ${(data?.general.total_delivered || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                   <p className="text-caption text-label-tertiary mt-2">
-                    {(data?.general.total_volume || 0).toFixed(2)} m³
+                    {(data?.general.total_volume || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³
                   </p>
                 </div>
 
@@ -177,7 +177,7 @@ export default function BalancePage() {
                     </p>
                   </div>
                   <p className="text-title-2 font-bold text-label-primary">
-                    ${(data?.general.total_paid || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    ${(data?.general.total_paid || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
 
@@ -197,7 +197,7 @@ export default function BalancePage() {
                           : 'text-label-primary'
                     }`}
                   >
-                    ${Math.abs(data?.general.current_balance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    ${Math.abs(data?.general.current_balance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
               </div>
@@ -242,7 +242,7 @@ export default function BalancePage() {
                                 : 'text-label-primary'
                           }`}
                         >
-                          ${site.balance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                          ${site.balance.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </p>
                       </div>
                       <div className="grid grid-cols-2 gap-4 pt-3 border-t border-white/10">
@@ -251,7 +251,7 @@ export default function BalancePage() {
                             Volumen Entregado
                           </p>
                           <p className="text-callout font-semibold text-label-secondary">
-                            {site.volume.toFixed(2)} m³
+                            {site.volume.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³
                           </p>
                         </div>
                         <div>
@@ -259,7 +259,7 @@ export default function BalancePage() {
                             Monto Entregado
                           </p>
                           <p className="text-callout font-semibold text-label-secondary">
-                            ${site.monetary_amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                            ${site.monetary_amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </p>
                         </div>
                       </div>
@@ -317,7 +317,7 @@ export default function BalancePage() {
                           </div>
                           <div>
                             <p className="text-body font-semibold text-label-primary">
-                              ${payment.amount.toLocaleString('es-MX')}
+                              ${payment.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </p>
                             <p className="text-caption text-label-secondary">
                               {payment.payment_method}

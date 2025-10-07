@@ -85,52 +85,23 @@ export default function ClientPortalLoader({ message = 'Cargando...', stage }: C
               }}
             />
 
-            {/* Company Logo */}
-            <motion.div
-              className="relative z-10"
-              initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
-              animate={{ 
-                opacity: 1, 
-                scale: 1, 
-                rotate: 0,
-                y: [0, -8, 0],
-              }}
-              transition={{ 
-                opacity: { duration: 0.5 },
-                scale: { duration: 0.5 },
-                rotate: { duration: 0.5 },
-                y: {
-                  duration: 2,
-                  repeat: Infinity,
-                  ease: "easeInOut",
-                  delay: 0.5
-                }
-              }}
-            >
-              <Branding size="xl" className="drop-shadow-lg" />
-            </motion.div>
-
-            {/* Divider with Pulse */}
-            <div className="relative z-10 flex flex-col items-center gap-2">
-              <motion.div
-                className="w-px h-20 bg-gradient-to-b from-transparent via-gray-400 to-transparent"
-                animate={{ 
-                  opacity: [0.3, 0.7, 0.3],
-                }}
-                transition={{ 
-                  duration: 2,
-                  repeat: Infinity,
-                  ease: "easeInOut"
-                }}
-              />
-            </div>
-
-            {/* Client Logo with Loading State */}
-            {isLogoLoaded ? (
-              logoUrl ? (
+            {/* Show both logos only when client logo is loaded */}
+            {!isLogoLoaded ? (
+              // Loading state - show placeholders for both
+              <>
+                <div className="relative z-10 w-40 h-[67px] rounded-lg bg-slate-200/50 animate-pulse" />
+                <div className="relative z-10 flex flex-col items-center gap-2">
+                  <div className="w-px h-20 bg-gray-300" />
+                </div>
+                <div className="relative z-10 w-40 h-[67px] rounded-lg bg-slate-200/50 animate-pulse" />
+              </>
+            ) : (
+              // Both logos loaded - show them together with synchronized animation
+              <>
+                {/* Company Logo */}
                 <motion.div
                   className="relative z-10"
-                  initial={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                  initial={{ opacity: 0, scale: 0.5, rotate: -10 }}
                   animate={{ 
                     opacity: 1, 
                     scale: 1, 
@@ -138,48 +109,90 @@ export default function ClientPortalLoader({ message = 'Cargando...', stage }: C
                     y: [0, -8, 0],
                   }}
                   transition={{ 
-                    opacity: { duration: 0.5, delay: 0.2 },
-                    scale: { duration: 0.5, delay: 0.2 },
-                    rotate: { duration: 0.5, delay: 0.2 },
+                    opacity: { duration: 0.5 },
+                    scale: { duration: 0.5 },
+                    rotate: { duration: 0.5 },
                     y: {
                       duration: 2,
                       repeat: Infinity,
                       ease: "easeInOut",
-                      delay: 0.8
+                      delay: 0.5
                     }
                   }}
                 >
-                  <img
-                    src={logoUrl}
-                    alt="Logo del Cliente"
-                    className="h-[67px] w-auto object-contain drop-shadow-lg"
+                  <Branding size="xl" className="drop-shadow-lg" />
+                </motion.div>
+
+                {/* Divider with Pulse */}
+                <div className="relative z-10 flex flex-col items-center gap-2">
+                  <motion.div
+                    className="w-px h-20 bg-gradient-to-b from-transparent via-gray-400 to-transparent"
+                    initial={{ opacity: 0 }}
+                    animate={{ 
+                      opacity: [0.3, 0.7, 0.3],
+                    }}
+                    transition={{ 
+                      opacity: { duration: 0.5 },
+                      duration: 2,
+                      repeat: Infinity,
+                      ease: "easeInOut"
+                    }}
                   />
-                </motion.div>
-              ) : (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.5 }}
-                  animate={{ 
-                    opacity: 1, 
-                    scale: 1,
-                    y: [0, -8, 0],
-                  }}
-                  transition={{ 
-                    opacity: { duration: 0.5, delay: 0.2 },
-                    scale: { duration: 0.5, delay: 0.2 },
-                    y: {
-                      duration: 2,
-                      repeat: Infinity,
-                      ease: "easeInOut",
-                      delay: 0.8
-                    }
-                  }}
-                  className="relative z-10 w-40 h-[67px] rounded-lg bg-gradient-to-br from-slate-200/80 to-slate-300/80 flex items-center justify-center backdrop-blur-sm"
-                >
-                  <span className="text-xs text-slate-500 font-medium">Cliente</span>
-                </motion.div>
-              )
-            ) : (
-              <div className="relative z-10 w-40 h-[67px] rounded-lg bg-slate-200/50 animate-pulse" />
+                </div>
+
+                {/* Client Logo */}
+                {logoUrl ? (
+                  <motion.div
+                    className="relative z-10"
+                    initial={{ opacity: 0, scale: 0.5, rotate: 10 }}
+                    animate={{ 
+                      opacity: 1, 
+                      scale: 1, 
+                      rotate: 0,
+                      y: [0, -8, 0],
+                    }}
+                    transition={{ 
+                      opacity: { duration: 0.5 },
+                      scale: { duration: 0.5 },
+                      rotate: { duration: 0.5 },
+                      y: {
+                        duration: 2,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                        delay: 0.5
+                      }
+                    }}
+                  >
+                    <img
+                      src={logoUrl}
+                      alt="Logo del Cliente"
+                      className="h-[67px] w-auto object-contain drop-shadow-lg"
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.5 }}
+                    animate={{ 
+                      opacity: 1, 
+                      scale: 1,
+                      y: [0, -8, 0],
+                    }}
+                    transition={{ 
+                      opacity: { duration: 0.5 },
+                      scale: { duration: 0.5 },
+                      y: {
+                        duration: 2,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                        delay: 0.5
+                      }
+                    }}
+                    className="relative z-10 w-40 h-[67px] rounded-lg bg-gradient-to-br from-slate-200/80 to-slate-300/80 flex items-center justify-center backdrop-blur-sm"
+                  >
+                    <span className="text-xs text-slate-500 font-medium">Cliente</span>
+                  </motion.div>
+                )}
+              </>
             )}
           </div>
 

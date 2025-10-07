@@ -13,9 +13,6 @@ const nextConfig: NextConfig = {
   images: {
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60,
-    // Configuración para Vercel - deshabilitar optimización para imágenes locales
-    // que pueden causar problemas en producción
-    unoptimized: process.env.NODE_ENV === 'production',
   },
   
   // Enable standalone output for Vercel deployment
