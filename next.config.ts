@@ -18,8 +18,8 @@ const nextConfig: NextConfig = {
     unoptimized: process.env.NODE_ENV === 'production',
   },
   
-  // Improved output tracing to handle route groups
-  // output: 'standalone',
+  // Enable standalone output for Vercel deployment
+  output: 'standalone',
   
   // External packages configuration (moved from experimental)
   serverExternalPackages: [],

@@ -45,25 +45,76 @@ try {
   process.exit(1);
 }
 
-// Check if the landing page client reference manifest exists
-const manifestPath = path.join('.next', 'server', 'app', '(landing)', 'page_client-reference-manifest.js');
-if (!fs.existsSync(manifestPath)) {
-  console.log('Client reference manifest not found, creating fallback...');
-  
-  // Create the directory if it doesn't exist
+// Function to create fallback client reference manifest files
+const createFallbackManifest = (manifestPath) => {
   const manifestDir = path.dirname(manifestPath);
   if (!fs.existsSync(manifestDir)) {
     fs.mkdirSync(manifestDir, { recursive: true });
   }
-  
-  // Create a fallback manifest file
-  const fallbackContent = `
-    // Fallback client reference manifest
-    export const clientRefs = {};
-  `;
-  
+
+  const fallbackContent = `// Fallback client reference manifest
+export const clientRefs = {};
+`;
+
   fs.writeFileSync(manifestPath, fallbackContent);
-  console.log('Created fallback client reference manifest.');
-}
+  console.log(`Created fallback client reference manifest: ${manifestPath}`);
+};
+
+// Check for and create missing client reference manifest files for route groups
+const checkAndCreateManifests = () => {
+  const routeGroups = [
+    '(landing)',
+    '(auth)'
+  ];
+
+  console.log('Checking for missing client reference manifest files...');
+
+  for (const routeGroup of routeGroups) {
+    const manifestPath = path.join('.next', 'server', 'app', routeGroup, 'page_client-reference-manifest.js');
+
+    if (!fs.existsSync(manifestPath)) {
+      console.log(`Client reference manifest not found for ${routeGroup}, creating fallback...`);
+      createFallbackManifest(manifestPath);
+    } else {
+      console.log(`Client reference manifest exists for ${routeGroup}`);
+    }
+  }
+
+  // Also check for the root page if it exists
+  const rootManifestPath = path.join('.next', 'server', 'app', 'page_client-reference-manifest.js');
+  if (!fs.existsSync(rootManifestPath)) {
+    console.log('Root page client reference manifest not found, creating fallback...');
+    createFallbackManifest(rootManifestPath);
+  }
+};
+
+// Check and create missing manifest files
+checkAndCreateManifests();
+
+// Ensure manifest files are also available in the standalone directory for Vercel
+const ensureStandaloneManifests = () => {
+  const routeGroups = [
+    '(landing)',
+    '(auth)'
+  ];
+
+  console.log('Ensuring manifest files are available in standalone directory...');
+
+  for (const routeGroup of routeGroups) {
+    const sourcePath = path.join('.next', 'server', 'app', routeGroup, 'page_client-reference-manifest.js');
+    const destPath = path.join('.next', 'standalone', '.next', 'server', 'app', routeGroup, 'page_client-reference-manifest.js');
+
+    if (fs.existsSync(sourcePath)) {
+      const destDir = path.dirname(destPath);
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+      fs.copyFileSync(sourcePath, destPath);
+      console.log(`Copied manifest to standalone directory: ${destPath}`);
+    }
+  }
+};
+
+ensureStandaloneManifests();
 
 console.log('Build completed successfully!'); 
