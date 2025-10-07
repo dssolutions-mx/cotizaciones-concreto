@@ -214,63 +214,45 @@ export function QualityChart({
     );
   }
 
-  // Resistance Performance Chart - Shows Compliance Percentage
+  // Resistance Performance Chart - Shows Compliance Percentage (iOS 26 Clean Design)
   if (type === 'resistance-performance') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
+        <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
           
           <XAxis 
             dataKey="date" 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.4)' }}
+            stroke="rgba(255,255,255,0.1)"
+            axisLine={false}
+            tickLine={false}
           />
           
           <YAxis 
-            domain={[80, 120]}
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
-            label={{ value: 'Cumplimiento (%)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.6)' }}
+            domain={[95, 110]}
+            tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.4)' }}
+            stroke="rgba(255,255,255,0.1)"
+            axisLine={false}
+            tickLine={false}
+            width={35}
           />
           
-          <Tooltip content={<CustomTooltip />} />
-          {showLegend && <Legend wrapperStyle={{ paddingTop: '10px' }} />}
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
           
-          {/* Target line at 100% */}
+          {/* Subtle reference line at 100% */}
           <ReferenceLine 
             y={100}
-            stroke="#34C759" 
-            strokeDasharray="5 5"
-            strokeWidth={2}
-            label={{ 
-              value: 'Objetivo 100%', 
-              fill: '#34C759', 
-              fontSize: 12,
-              position: 'top'
-            }}
-          />
-          
-          {/* Minimum acceptable line at 85% */}
-          <ReferenceLine 
-            y={85}
-            stroke="#FF9500" 
-            strokeDasharray="5 5"
+            stroke="rgba(52, 199, 89, 0.3)" 
+            strokeDasharray="3 3"
             strokeWidth={1}
-            label={{ 
-              value: 'Mínimo 85%', 
-              fill: '#FF9500', 
-              fontSize: 11,
-              position: 'right'
-            }}
           />
           
           {/* Bars for compliance percentage */}
           <Bar 
             dataKey="cumplimiento" 
-            name="% Cumplimiento"
-            radius={[8, 8, 0, 0]}
-            fill="#AF52DE"
+            radius={[12, 12, 0, 0]}
+            maxBarSize={40}
           >
             {/* Color bars based on compliance level */}
             {data.map((entry, index) => (
@@ -278,9 +260,10 @@ export function QualityChart({
                 key={`cell-${index}`}
                 fill={
                   entry.cumplimiento >= 100 ? '#34C759' : 
-                  entry.cumplimiento >= 85 ? '#FF9500' : 
+                  entry.cumplimiento >= 98 ? '#FF9500' : 
                   '#FF3B30'
                 }
+                opacity={entry.cumplimiento >= 100 ? 1 : 0.8}
               />
             ))}
           </Bar>

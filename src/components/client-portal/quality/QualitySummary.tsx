@@ -94,12 +94,19 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
           className="glass-thick rounded-3xl p-6"
         >
           <div className="mb-4">
-            <h3 className="text-title-3 font-semibold text-label-primary mb-1">
-              Porcentaje de Cumplimiento
+            <h3 className="text-title-3 font-semibold text-label-primary mb-3">
+              Desempeño de Cumplimiento
             </h3>
-            <p className="text-footnote text-label-secondary">
-              🟢 ≥100% Excelente  •  🟠 ≥85% Aceptable  •  🔴 &lt;85% Requiere atención
-            </p>
+            <div className="flex items-center gap-5 text-callout text-label-secondary">
+              <div className="flex items-center gap-2">
+                <div className="w-3.5 h-3.5 rounded-full bg-systemGreen shadow-sm border border-systemGreen/20"></div>
+                <span>Excelente</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3.5 h-3.5 rounded-full bg-systemOrange shadow-sm border border-systemOrange/20"></div>
+                <span>Aceptable</span>
+              </div>
+            </div>
           </div>
           {resistanceData.length > 0 ? (
             <QualityChart 

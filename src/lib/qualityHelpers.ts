@@ -178,7 +178,7 @@ export function processResistanceTrend(data: ClientQualityData): any[] {
     return acc;
   }, {});
   
-  // Convert to simple array
+  // Convert to simple array and filter to only show compliance >= 98%
   return Object.values(byDate)
     .filter((day: any) => day.compliances.length > 0)
     .map((day: any) => {
@@ -198,6 +198,7 @@ export function processResistanceTrend(data: ClientQualityData): any[] {
         ensayos: day.compliances.length
       };
     })
+    .filter((item: any) => item.cumplimiento >= 98) // Only show compliance >= 98%
     .sort((a: any, b: any) => a.date.localeCompare(b.date));
 }
 
