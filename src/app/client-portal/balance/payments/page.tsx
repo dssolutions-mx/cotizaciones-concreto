@@ -1,14 +1,33 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { CreditCard, Calendar } from 'lucide-react';
+import { CreditCard, Calendar, ChevronLeft } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { Container } from '@/components/ui/Container';
 
 // Helper to parse date string (YYYY-MM-DD) without timezone conversion
-const parseLocalDate = (dateString: string): Date => {
-  const [year, month, day] = dateString.split('-').map(Number);
+const parseLocalDate = (dateString: string | null | undefined): Date => {
+  if (!dateString) {
+    return new Date(); // Return current date as fallback
+  }
+  
+  const parts = dateString.split('-');
+  if (parts.length !== 3) {
+    return new Date(); // Return current date as fallback
+  }
+  
+  const [year, month, day] = parts.map(Number);
+  
+  // Validate the parsed numbers
+  if (isNaN(year) || isNaN(month) || isNaN(day) || 
+      year < 1900 || year > 2100 || 
+      month < 1 || month > 12 || 
+      day < 1 || day > 31) {
+    return new Date(); // Return current date as fallback
+  }
+  
   return new Date(year, month - 1, day);
 };
 
@@ -23,6 +42,7 @@ type Payment = {
 };
 
 export default function ClientPortalPaymentsPage() {
+  const router = useRouter();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -66,6 +86,14 @@ export default function ClientPortalPaymentsPage() {
           className="mb-8"
         >
           <div className="flex items-center gap-4 mb-4">
+            {/* iOS 26-style back affordance */}
+            <button
+              onClick={() => router.back()}
+              className="group flex items-center gap-1.5 rounded-full px-3 py-1.5 bg-white/60 dark:bg-white/5 border border-white/30 backdrop-blur-sm transition-colors hover:bg-white/70"
+            >
+              <ChevronLeft className="w-4 h-4 text-label-primary" />
+              <span className="text-callout font-medium text-label-primary group-hover:text-label-primary/90">Volver</span>
+            </button>
             <div className="w-12 h-12 rounded-2xl glass-thick flex items-center justify-center border border-white/30">
               <CreditCard className="w-6 h-6 text-label-primary" />
             </div>
@@ -129,7 +157,15 @@ export default function ClientPortalPaymentsPage() {
                         className="hover:bg-white/5 transition-colors"
                       >
                         <td className="px-6 py-4 text-body text-label-primary">
-                          {parseLocalDate(payment.payment_date).toLocaleDateString('es-MX')}
+                          {(() => {
+                            try {
+                              const date = parseLocalDate(payment.payment_date);
+                              return date.toLocaleDateString('es-MX');
+                            } catch (error) {
+                              console.warn('Invalid date format:', payment.payment_date);
+                              return 'Fecha inválida';
+                            }
+                          })()}
                         </td>
                         <td className="px-6 py-4 text-body font-semibold text-label-primary text-right">
                           ${payment.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

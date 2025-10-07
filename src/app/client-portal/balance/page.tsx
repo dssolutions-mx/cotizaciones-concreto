@@ -22,8 +22,26 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 // Helper to parse date string (YYYY-MM-DD) without timezone conversion
-const parseLocalDate = (dateString: string): Date => {
-  const [year, month, day] = dateString.split('-').map(Number);
+const parseLocalDate = (dateString: string | null | undefined): Date => {
+  if (!dateString) {
+    return new Date(); // Return current date as fallback
+  }
+  
+  const parts = dateString.split('-');
+  if (parts.length !== 3) {
+    return new Date(); // Return current date as fallback
+  }
+  
+  const [year, month, day] = parts.map(Number);
+  
+  // Validate the parsed numbers
+  if (isNaN(year) || isNaN(month) || isNaN(day) || 
+      year < 1900 || year > 2100 || 
+      month < 1 || month > 12 || 
+      day < 1 || day > 31) {
+    return new Date(); // Return current date as fallback
+  }
+  
   return new Date(year, month - 1, day);
 };
 
@@ -331,7 +349,15 @@ export default function BalancePage() {
                           </div>
                         </div>
                         <p className="text-footnote text-label-tertiary">
-                          {format(parseLocalDate(payment.payment_date), 'd MMM', { locale: es })}
+                          {(() => {
+                            try {
+                              const date = parseLocalDate(payment.payment_date);
+                              return format(date, 'd MMM', { locale: es });
+                            } catch (error) {
+                              console.warn('Invalid date format:', payment.payment_date);
+                              return 'Fecha inválida';
+                            }
+                          })()}
                         </p>
                       </div>
                     </motion.div>

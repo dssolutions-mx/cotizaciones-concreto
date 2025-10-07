@@ -176,7 +176,6 @@ export default function ClientPortalDashboard() {
                   value={`${(metrics?.deliveredVolume || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³`}
                   subtitle="Total acumulado"
                   icon={<TrendingUp className="w-6 h-6" />}
-                  trend={{ value: 12.5, label: 'vs mes anterior' }}
                   color="green"
                   onClick={() => router.push('/client-portal/orders')}
                 />
