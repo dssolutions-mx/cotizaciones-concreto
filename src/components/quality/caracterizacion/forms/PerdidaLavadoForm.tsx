@@ -220,7 +220,7 @@ export default function PerdidaLavadoForm({
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
-              <strong>Norma:</strong> ASTM C117 / NMX-C-084 - Determinación del material fino que pasa la malla No. 200
+              <strong>Norma:</strong> NMX-C-084 - Determinación del material fino que pasa la malla No. 200
             </AlertDescription>
           </Alert>
         </CardContent>

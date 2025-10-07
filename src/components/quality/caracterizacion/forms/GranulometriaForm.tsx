@@ -433,7 +433,7 @@ export default function GranulometriaForm({
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
-              <strong>Norma:</strong> ASTM C136 / NMX-C-077 - Determinación de la distribución de tamaños de partículas
+              <strong>Norma:</strong> NMX-C-077 - Determinación de la distribución de tamaños de partículas
             </AlertDescription>
           </Alert>
 

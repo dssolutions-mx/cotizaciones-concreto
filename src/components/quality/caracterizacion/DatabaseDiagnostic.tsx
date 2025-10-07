@@ -11,7 +11,8 @@ import {
   XCircle, 
   AlertTriangle,
   RefreshCw,
-  Info
+  Info,
+  FileText
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -27,6 +28,12 @@ export default function DatabaseDiagnostic() {
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastCheck, setLastCheck] = useState<Date | null>(null);
+  const [updatingNormas, setUpdatingNormas] = useState(false);
+  const [normasUpdateResult, setNormasUpdateResult] = useState<{
+    success: boolean;
+    totalUpdated: number;
+    details: string[];
+  } | null>(null);
 
   const checkTables = async () => {
     setLoading(true);
@@ -100,7 +107,7 @@ export default function DatabaseDiagnostic() {
         tipo_estudio: 'Caracterización interna',
         nombre_estudio: 'Análisis Granulométrico',
         descripcion: 'Prueba de análisis granulométrico',
-        norma_referencia: 'ASTM C136',
+        norma_referencia: 'NMX-C-077',
         fecha_programada: new Date().toISOString().split('T')[0],
         estado: 'pendiente'
       };
@@ -116,6 +123,83 @@ export default function DatabaseDiagnostic() {
     } catch (error) {
       console.error('Error creating test record:', error);
       toast.error(`Error al crear registro de prueba: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+    }
+  };
+
+  const updateNormasToNMX = async () => {
+    setUpdatingNormas(true);
+    setNormasUpdateResult(null);
+
+    try {
+      const normaMappings = [
+        { nombre_estudio: 'Análisis Granulométrico', nuevaNorma: 'NMX-C-077' },
+        { nombre_estudio: 'Densidad', nuevaNorma: 'NMX-C-164 / NMX-C-165' },
+        { nombre_estudio: 'Masa Volumétrico', nuevaNorma: 'NMX-C-073' },
+        { nombre_estudio: 'Pérdida por Lavado', nuevaNorma: 'NMX-C-084' },
+        { nombre_estudio: 'Absorción', nuevaNorma: 'NMX-C-164 / NMX-C-165' }
+      ];
+
+      let totalActualizados = 0;
+      const detalles: string[] = [];
+
+      for (const mapping of normaMappings) {
+        // Obtener registros que necesitan actualización
+        const { data: registrosAntiguos, error: fetchError } = await supabase
+          .from('estudios_seleccionados')
+          .select('id, norma_referencia')
+          .eq('nombre_estudio', mapping.nombre_estudio)
+          .neq('norma_referencia', mapping.nuevaNorma);
+
+        if (fetchError) {
+          detalles.push(`❌ Error en ${mapping.nombre_estudio}: ${fetchError.message}`);
+          continue;
+        }
+
+        if (!registrosAntiguos || registrosAntiguos.length === 0) {
+          detalles.push(`✅ ${mapping.nombre_estudio}: Ya actualizado`);
+          continue;
+        }
+
+        // Actualizar registros
+        const { error: updateError } = await supabase
+          .from('estudios_seleccionados')
+          .update({ 
+            norma_referencia: mapping.nuevaNorma,
+            updated_at: new Date().toISOString()
+          })
+          .eq('nombre_estudio', mapping.nombre_estudio)
+          .neq('norma_referencia', mapping.nuevaNorma);
+
+        if (updateError) {
+          detalles.push(`❌ Error actualizando ${mapping.nombre_estudio}: ${updateError.message}`);
+          continue;
+        }
+
+        totalActualizados += registrosAntiguos.length;
+        detalles.push(`✅ ${mapping.nombre_estudio}: ${registrosAntiguos.length} registros actualizados`);
+      }
+
+      setNormasUpdateResult({
+        success: true,
+        totalUpdated: totalActualizados,
+        details: detalles
+      });
+
+      if (totalActualizados > 0) {
+        toast.success(`Se actualizaron ${totalActualizados} registros a normativas NMX`);
+      } else {
+        toast.info('Todos los registros ya están actualizados a normativas NMX');
+      }
+    } catch (error: any) {
+      console.error('Error updating normas:', error);
+      setNormasUpdateResult({
+        success: false,
+        totalUpdated: 0,
+        details: [`Error: ${error.message || 'Error desconocido'}`]
+      });
+      toast.error('Error al actualizar las normativas');
+    } finally {
+      setUpdatingNormas(false);
     }
   };
 
@@ -261,6 +345,86 @@ export default function DatabaseDiagnostic() {
                 para crear las tablas, índices, triggers y políticas de seguridad.
               </p>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-[#069e2d]" />
+            Actualizar Normativas a NMX
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-sm text-gray-600">
+              Actualiza todas las normativas ASTM existentes en los estudios a sus equivalentes NMX (Normas Mexicanas).
+            </p>
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <p className="text-sm text-amber-800">
+                <strong>⚠️ Importante:</strong> Esta acción actualizará todos los registros existentes en la base de datos.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              variant="default"
+              className="bg-[#069e2d] hover:bg-[#069e2d]/90"
+              onClick={updateNormasToNMX}
+              disabled={updatingNormas}
+            >
+              {updatingNormas ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                  Actualizando...
+                </>
+              ) : (
+                <>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Actualizar Normativas
+                </>
+              )}
+            </Button>
+          </div>
+
+          {normasUpdateResult && (
+            <Alert className={normasUpdateResult.success ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
+              <AlertDescription>
+                <div className="space-y-2">
+                  <p className="font-semibold">
+                    {normasUpdateResult.success ? '✅ Actualización Completada' : '❌ Error en la Actualización'}
+                  </p>
+                  {normasUpdateResult.totalUpdated > 0 && (
+                    <p className="text-sm">
+                      <strong>Total actualizado:</strong> {normasUpdateResult.totalUpdated} registros
+                    </p>
+                  )}
+                  <div className="text-sm space-y-1">
+                    {normasUpdateResult.details.map((detalle, index) => (
+                      <p key={index}>{detalle}</p>
+                    ))}
+                  </div>
+                  {normasUpdateResult.success && normasUpdateResult.totalUpdated > 0 && (
+                    <p className="text-sm text-green-700 mt-2">
+                      💡 Recarga la página para ver los cambios reflejados en las tarjetas.
+                    </p>
+                  )}
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="p-3 bg-gray-50 rounded-lg text-sm space-y-2">
+            <p className="font-medium text-gray-900">Cambios que se aplicarán:</p>
+            <ul className="space-y-1 text-gray-700">
+              <li>• Análisis Granulométrico: <code className="text-xs bg-white px-1 py-0.5 rounded">NMX-C-077</code></li>
+              <li>• Densidad: <code className="text-xs bg-white px-1 py-0.5 rounded">NMX-C-164 / NMX-C-165</code></li>
+              <li>• Masa Volumétrico: <code className="text-xs bg-white px-1 py-0.5 rounded">NMX-C-073</code></li>
+              <li>• Pérdida por Lavado: <code className="text-xs bg-white px-1 py-0.5 rounded">NMX-C-084</code></li>
+              <li>• Absorción: <code className="text-xs bg-white px-1 py-0.5 rounded">NMX-C-164 / NMX-C-165</code></li>
+            </ul>
           </div>
         </CardContent>
       </Card>

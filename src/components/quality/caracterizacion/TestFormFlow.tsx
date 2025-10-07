@@ -35,7 +35,7 @@ const ESTUDIOS_DISPONIBLES = [
         id: "granulometria",
         nombre: "Análisis Granulométrico",
         descripcion: "Determinación de la distribución de tamaños de partículas",
-        norma: "ASTM C136 / NMX-C-077",
+        norma: "NMX-C-077",
         aplicable_arena: true,
         aplicable_grava: true
       },
@@ -43,7 +43,7 @@ const ESTUDIOS_DISPONIBLES = [
         id: "densidad",
         nombre: "Densidad",
         descripcion: "Determinación de la densidad relativa del agregado",
-        norma: "ASTM C127/C128",
+        norma: "NMX-C-164 / NMX-C-165",
         aplicable_arena: true,
         aplicable_grava: true
       },
@@ -51,7 +51,7 @@ const ESTUDIOS_DISPONIBLES = [
         id: "masa_volumetrico",
         nombre: "Masa Volumétrico",
         descripcion: "Determinación de la masa volumétrica suelto y compactado",
-        norma: "ASTM C29 / NMX-C-073",
+        norma: "NMX-C-073",
         aplicable_arena: true,
         aplicable_grava: true
       }

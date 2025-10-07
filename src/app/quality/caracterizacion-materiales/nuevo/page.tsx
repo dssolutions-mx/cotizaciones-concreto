@@ -75,7 +75,7 @@ const ESTUDIOS_DISPONIBLES: TipoEstudioDisponible[] = [
         id: "granulometria",
         nombre: "Análisis Granulométrico",
         descripcion: "Determinación de la distribución de tamaños de partículas",
-        norma: "ASTM C136 / NMX-C-077",
+        norma: "NMX-C-077",
         aplicable_arena: true,
         aplicable_grava: true
       },
@@ -83,7 +83,7 @@ const ESTUDIOS_DISPONIBLES: TipoEstudioDisponible[] = [
         id: "densidad",
         nombre: "Densidad",
         descripcion: "Determinación de la densidad relativa del agregado",
-        norma: "ASTM C127/C128",
+        norma: "NMX-C-164 / NMX-C-165",
         aplicable_arena: true,
         aplicable_grava: true
       },
@@ -91,7 +91,7 @@ const ESTUDIOS_DISPONIBLES: TipoEstudioDisponible[] = [
         id: "masa_volumetrico",
         nombre: "Masa Volumétrico",
         descripcion: "Determinación de la masa volumétrica suelto y compactado",
-        norma: "ASTM C29 / NMX-C-073",
+        norma: "NMX-C-073",
         aplicable_arena: true,
         aplicable_grava: true
       },
@@ -99,7 +99,7 @@ const ESTUDIOS_DISPONIBLES: TipoEstudioDisponible[] = [
         id: "perdida_lavado",
         nombre: "Pérdida por Lavado",
         descripcion: "Determinación del material fino que pasa la malla No. 200",
-        norma: "ASTM C117 / NMX-C-084",
+        norma: "NMX-C-084",
         aplicable_arena: true,
         aplicable_grava: true
       },
@@ -107,7 +107,7 @@ const ESTUDIOS_DISPONIBLES: TipoEstudioDisponible[] = [
         id: "absorcion",
         nombre: "Absorción",
         descripcion: "Determinación de la capacidad de absorción de agua",
-        norma: "ASTM C127/C128",
+        norma: "NMX-C-164 / NMX-C-165",
         aplicable_arena: true,
         aplicable_grava: true
       }

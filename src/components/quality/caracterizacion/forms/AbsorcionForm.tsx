@@ -228,7 +228,7 @@ export default function AbsorcionForm({
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
-              <strong>Norma:</strong> ASTM C127/C128 - Determinación de la capacidad de absorción de agua del agregado
+              <strong>Norma:</strong> NMX-C-164 / NMX-C-165 - Determinación de la capacidad de absorción de agua del agregado
             </AlertDescription>
           </Alert>
         </CardContent>

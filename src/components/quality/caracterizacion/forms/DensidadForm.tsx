@@ -196,7 +196,7 @@ export default function DensidadForm({
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
-              <strong>Norma:</strong> ASTM C127/C128 - Determinación de la densidad relativa del agregado
+              <strong>Norma:</strong> NMX-C-164 / NMX-C-165 - Determinación de la densidad relativa del agregado
             </AlertDescription>
           </Alert>
         </CardContent>

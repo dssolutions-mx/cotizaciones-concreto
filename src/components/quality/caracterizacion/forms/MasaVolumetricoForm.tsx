@@ -220,7 +220,7 @@ export default function MasaVolumetricoForm({
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription>
-              <strong>Norma:</strong> ASTM C29 / NMX-C-073 - Determinación de la masa volumétrica suelto y compactado
+              <strong>Norma:</strong> NMX-C-073 - Determinación de la masa volumétrica suelto y compactado
             </AlertDescription>
           </Alert>
         </CardContent>

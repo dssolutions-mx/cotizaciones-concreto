@@ -44,12 +44,16 @@ import {
   User,
   TestTube,
   Layers,
-  X
+  X,
+  Printer
 } from 'lucide-react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { PDFDownloadLink } from '@react-pdf/renderer';
+import { EstudioPDF } from '@/components/quality/caracterizacion/EstudioPDF';
+import { format } from 'date-fns';
 
 interface Plant {
   id: string;
@@ -894,14 +898,49 @@ export default function CaracterizacionMaterialesHistoricoPage() {
                               </DialogContent>
                             </Dialog>
 
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
-                              title="Editar"
-                            >
-                              <Edit className="h-4 w-4 text-gray-600" />
-                            </Button>
+                            {/* Botón de impresión PDF */}
+                            {estudio.estudios_seleccionados && 
+                             estudio.estudios_seleccionados.some((e: any) => e.estado === 'completado' && e.resultados) ? (
+                              <PDFDownloadLink
+                                document={
+                                  <EstudioPDF
+                                    estudio={{
+                                      alta_estudio: estudio,
+                                      estudios: estudio.estudios_seleccionados.filter((e: any) => e.estado === 'completado' && e.resultados),
+                                      limites: [],
+                                      tamaño: estudio.estudios_seleccionados.find((e: any) => e.resultados?.tamaño)?.resultados?.tamaño
+                                    }}
+                                  />
+                                }
+                                fileName={`Reporte_Caracterizacion_${estudio.nombre_material}_${format(new Date(), 'yyyyMMdd')}.pdf`}
+                              >
+                                {({ loading }) => (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
+                                    title="Imprimir/Descargar PDF"
+                                    disabled={loading}
+                                  >
+                                    {loading ? (
+                                      <Loader2 className="h-4 w-4 text-gray-600 animate-spin" />
+                                    ) : (
+                                      <Printer className="h-4 w-4 text-gray-600" />
+                                    )}
+                                  </Button>
+                                )}
+                              </PDFDownloadLink>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 hover:bg-gray-100 cursor-not-allowed opacity-50"
+                                title="No hay estudios completados para generar PDF"
+                                disabled
+                              >
+                                <Printer className="h-4 w-4 text-gray-400" />
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="sm"

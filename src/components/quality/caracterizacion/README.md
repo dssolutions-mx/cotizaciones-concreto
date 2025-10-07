@@ -1,17 +1,17 @@
 # Formularios de Caracterización de Materiales
 
-Este módulo contiene los formularios especializados para realizar análisis de caracterización de agregados según las normas ASTM y NMX.
+Este módulo contiene los formularios especializados para realizar análisis de caracterización de agregados según las normas NMX (Normas Mexicanas).
 
 ## Estructura
 
 ```
 caracterizacion/
 ├── forms/
-│   ├── GranulometriaForm.tsx      # Análisis Granulométrico (ASTM C136)
-│   ├── DensidadForm.tsx           # Densidad (ASTM C127/C128)
-│   ├── MasaVolumetricoForm.tsx    # Masa Volumétrico (ASTM C29)
-│   ├── PerdidaLavadoForm.tsx      # Pérdida por Lavado (ASTM C117)
-│   ├── AbsorcionForm.tsx          # Absorción (ASTM C127/C128)
+│   ├── GranulometriaForm.tsx      # Análisis Granulométrico (NMX-C-077)
+│   ├── DensidadForm.tsx           # Densidad (NMX-C-164 / NMX-C-165)
+│   ├── MasaVolumetricoForm.tsx    # Masa Volumétrico (NMX-C-073)
+│   ├── PerdidaLavadoForm.tsx      # Pérdida por Lavado (NMX-C-084)
+│   ├── AbsorcionForm.tsx          # Absorción (NMX-C-164 / NMX-C-165)
 │   └── index.ts                   # Exportaciones y tipos
 ├── EstudioFormModal.tsx           # Modal que integra todos los formularios
 └── README.md                      # Esta documentación
@@ -20,7 +20,7 @@ caracterizacion/
 ## Formularios Disponibles
 
 ### 1. Análisis Granulométrico
-- **Norma**: ASTM C136 / NMX-C-077
+- **Norma**: NMX-C-077
 - **Propósito**: Determinación de la distribución de tamaños de partículas
 - **Características**:
   - Tabla interactiva de mallas estándar
@@ -29,7 +29,7 @@ caracterizacion/
   - Tamaño máximo nominal
 
 ### 2. Densidad
-- **Norma**: ASTM C127/C128
+- **Norma**: NMX-C-164 / NMX-C-165
 - **Propósito**: Determinación de la densidad relativa del agregado
 - **Características**:
   - Cálculo de densidad relativa, SSS y aparente
@@ -38,7 +38,7 @@ caracterizacion/
   - Guías técnicas integradas
 
 ### 3. Masa Volumétrico
-- **Norma**: ASTM C29 / NMX-C-073
+- **Norma**: NMX-C-073
 - **Propósito**: Determinación de la masa volumétrica suelto y compactado
 - **Características**:
   - Cálculo de factor de compactación
@@ -47,7 +47,7 @@ caracterizacion/
   - Validaciones de consistencia
 
 ### 4. Pérdida por Lavado
-- **Norma**: ASTM C117 / NMX-C-084
+- **Norma**: NMX-C-084
 - **Propósito**: Determinación del material fino que pasa la malla No. 200
 - **Características**:
   - Clasificación automática de limpieza
@@ -56,7 +56,7 @@ caracterizacion/
   - Guías de aceptabilidad
 
 ### 5. Absorción
-- **Norma**: ASTM C127/C128
+- **Norma**: NMX-C-164 / NMX-C-165
 - **Propósito**: Determinación de la capacidad de absorción de agua
 - **Características**:
   - Clasificación automática de absorción
@@ -169,14 +169,11 @@ Para agregar nuevos tipos de análisis:
 
 ## Normas y Referencias
 
-- **ASTM C136**: Standard Test Method for Sieve Analysis of Fine and Coarse Aggregates
-- **ASTM C127**: Standard Test Method for Relative Density and Absorption of Coarse Aggregate
-- **ASTM C128**: Standard Test Method for Relative Density and Absorption of Fine Aggregate
-- **ASTM C29**: Standard Test Method for Bulk Density and Voids in Aggregate
-- **ASTM C117**: Standard Test Method for Materials Finer than 75-μm (No. 200) Sieve
 - **NMX-C-077**: Análisis granulométrico de agregados finos y gruesos
+- **NMX-C-164**: Determinación de la masa específica y absorción de agua del agregado grueso
+- **NMX-C-165**: Determinación de la masa específica y absorción de agua del agregado fino
 - **NMX-C-073**: Determinación de la masa volumétrica de agregados
-- **NMX-C-084**: Determinación del material que pasa la malla de 75 μm
+- **NMX-C-084**: Determinación del material que pasa la malla de 75 μm (No. 200)
 
 ## Soporte
 

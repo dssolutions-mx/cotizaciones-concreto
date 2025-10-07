@@ -96,7 +96,7 @@ export default function TestCaracterizacion() {
           tipo_estudio: 'Caracterización interna',
           nombre_estudio: 'Densidad',
           descripcion: 'Análisis de densidad del material',
-          norma_referencia: 'ASTM C127',
+          norma_referencia: 'NMX-C-164 / NMX-C-165',
           fecha_programada: new Date().toISOString().split('T')[0],
           estado: 'pendiente'
         },
@@ -105,7 +105,7 @@ export default function TestCaracterizacion() {
           tipo_estudio: 'Caracterización interna',
           nombre_estudio: 'Masa Volumétrico',
           descripcion: 'Análisis de masa volumétrica',
-          norma_referencia: 'ASTM C29',
+          norma_referencia: 'NMX-C-073',
           fecha_programada: new Date().toISOString().split('T')[0],
           estado: 'pendiente'
         }
