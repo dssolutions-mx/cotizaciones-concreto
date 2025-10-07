@@ -40,8 +40,11 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="relative h-screen flex items-center">
         {/* Background Image */}
-        <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gradient-to-r from-gray-900/80 to-gray-900/60 z-10" />
+        <div
+          className="absolute inset-0 z-0"
+          style={{ backgroundImage: 'url(/images/dcconcretos/hero1.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' }}
+        >
+          <div className="absolute inset-0 bg-gradient-to-r from-black/40 to-black/20 z-10" />
           <Image 
             src="/images/dcconcretos/hero1.jpg"
             alt="DC Concretos - Sistema Integral de Gestión de Plantas de Concreto" 
@@ -340,8 +343,11 @@ export default function LandingPage() {
 
       {/* CTA Section */}
       <section className="py-20 relative">
-        <div className="absolute inset-0 z-0">
-          <div className="absolute inset-0 bg-gray-900/80 z-10" />
+        <div
+          className="absolute inset-0 z-0"
+          style={{ backgroundImage: 'url(/images/dcconcretos/hero1.jpg)', backgroundSize: 'cover', backgroundPosition: 'center' }}
+        >
+          <div className="absolute inset-0 bg-black/30 z-10" />
           <Image 
             src="/images/dcconcretos/hero1.jpg" 
             alt="DC Concretos - Bienvenido al Sistema" 

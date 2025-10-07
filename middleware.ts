@@ -118,6 +118,7 @@ export async function middleware(request: NextRequest) {
     publicRoutes.includes(pathname) ||
     pathname.startsWith('/(landing)') || // Keep specific landing checks if needed
     pathname.includes('/landing/') ||
+    pathname.startsWith('/api/diagnostics') ||
     pathname.startsWith('/_next') || 
     pathname.includes('.') || // Assume files with extensions are static assets
     pathname.startsWith('/images') || 
