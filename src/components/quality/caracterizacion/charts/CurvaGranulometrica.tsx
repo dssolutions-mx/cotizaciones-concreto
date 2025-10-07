@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BarChart3 } from 'lucide-react';
+import { typography } from '@/lib/design-system/typography';
 
 interface MallaData {
   numero_malla: string;
@@ -46,66 +47,122 @@ export default function CurvaGranulometrica({
 }: CurvaGranulometricaProps) {
   // Normalizar nombre de malla para comparación
   const normalizarNombreMalla = (nombre: string): string => {
+    if (!nombre) return '';
     return nombre
-      .replace(/No\.\s*/g, '')  // Eliminar "No. " o "No."
+      .replace(/No\.\s*/gi, '')  // Eliminar "No. " o "No." (case insensitive)
+      .replace(/no\.\s*/gi, '')  // Eliminar "no. " o "no."
       .replace(/"/g, '')         // Eliminar comillas
+      .replace(/'/g, '')         // Eliminar comillas simples
       .replace(/\s+/g, '')       // Eliminar espacios
+      .replace(/\//g, '/')       // Normalizar slash
       .trim()
       .toLowerCase();
   };
 
   // Mapeo de nombres de mallas a valores numéricos para el eje X
   const mallaToNumber: Record<string, number> = {
+    // Pulgadas grandes
     '3"': 75.0,
     '3': 75.0,
+    '3in': 75.0,
     '2"': 50.0,
     '2': 50.0,
+    '2in': 50.0,
     '1 1/2"': 37.5,
+    '11/2"': 37.5,
     '11/2': 37.5,
+    '1.5"': 37.5,
+    '1.5': 37.5,
     '1 1/2': 37.5,
     '1"': 25.0,
     '1': 25.0,
+    '1in': 25.0,
     '3/4"': 19.0,
     '3/4': 19.0,
+    '.75': 19.0,
+    '0.75': 19.0,
     '1/2"': 12.5,
     '1/2': 12.5,
+    '.5': 12.5,
+    '0.5': 12.5,
     '3/8"': 9.5,
     '3/8': 9.5,
+    '.375': 9.5,
+    '0.375': 9.5,
+    // Números de malla
     'No. 4': 4.75,
+    'no. 4': 4.75,
     '4': 4.75,
+    '#4': 4.75,
     'No. 8': 2.36,
+    'no. 8': 2.36,
     '8': 2.36,
+    '#8': 2.36,
     'No. 16': 1.18,
+    'no. 16': 1.18,
     '16': 1.18,
+    '#16': 1.18,
     'No. 30': 0.60,
+    'no. 30': 0.60,
     '30': 0.60,
+    '#30': 0.60,
     'No. 50': 0.30,
+    'no. 50': 0.30,
     '50': 0.30,
+    '#50': 0.30,
     'No. 100': 0.15,
+    'no. 100': 0.15,
     '100': 0.15,
+    '#100': 0.15,
     'No. 200': 0.075,
+    'no. 200': 0.075,
     '200': 0.075,
-    'Fondo': 0.0
+    '#200': 0.075,
+    // Fondo
+    'Fondo': 0.0,
+    'fondo': 0.0,
+    'pan': 0.0
   };
 
   // Preparar datos para la gráfica
   const prepararDatosGrafica = () => {
-    // Crear mapa de límites por nombre normalizado de malla
-    const limitesMap = new Map<string, { inferior: number; superior: number; abertura: number }>();
+    // Crear mapa de límites por abertura (mm)
+    const limitesMap = new Map<number, { inferior: number; superior: number }>();
     
     limites.forEach(limite => {
       const nombreNormalizado = normalizarNombreMalla(limite.malla);
-      // Buscar abertura correspondiente
+      
+      // Buscar abertura correspondiente con búsqueda más flexible
+      let abertura: number | undefined;
+      
+      // Primero intentar búsqueda exacta normalizada
       const aberturaKey = Object.keys(mallaToNumber).find(key => 
         normalizarNombreMalla(key) === nombreNormalizado
       );
-      const abertura = aberturaKey ? mallaToNumber[aberturaKey] : undefined;
+      
+      if (aberturaKey) {
+        abertura = mallaToNumber[aberturaKey];
+      }
+      
+      // Si no se encuentra, intentar búsqueda por valor directo
+      if (abertura === undefined && mallaToNumber[limite.malla]) {
+        abertura = mallaToNumber[limite.malla];
+      }
+      
+      // Si aún no se encuentra, intentar sin normalizar
+      if (abertura === undefined) {
+        const keyDirecto = Object.keys(mallaToNumber).find(key => 
+          key.toLowerCase() === limite.malla.toLowerCase()
+        );
+        if (keyDirecto) {
+          abertura = mallaToNumber[keyDirecto];
+        }
+      }
       
       if (abertura !== undefined) {
-        limitesMap.set(nombreNormalizado, {
+        limitesMap.set(abertura, {
           inferior: limite.limite_inferior,
-          superior: limite.limite_superior,
-          abertura: abertura
+          superior: limite.limite_superior
         });
       }
     });
@@ -127,8 +184,8 @@ export default function CurvaGranulometrica({
     
     // Agregar ÚNICAMENTE las mallas llenadas con sus límites correspondientes
     mallasFiltradas.forEach(malla => {
-      const nombreNormalizado = normalizarNombreMalla(malla.numero_malla);
-      const limite = limitesMap.get(nombreNormalizado);
+      // Buscar límite usando abertura directamente
+      const limite = limitesMap.get(malla.abertura_mm);
       
       mallasRelevantesMap.set(malla.abertura_mm, {
         abertura: malla.abertura_mm,
@@ -166,23 +223,55 @@ export default function CurvaGranulometrica({
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
-        <div className="bg-white p-4 border-2 border-gray-300 rounded-lg shadow-xl">
-          <p className="font-bold text-gray-900 mb-3 text-base border-b pb-2">
+        <div 
+          className="bg-white/95 backdrop-blur-xl p-4 rounded-2xl border border-gray-200/60 shadow-lg"
+          style={{ fontFamily: typography.body.fontFamily }}
+        >
+          <p 
+            className="text-gray-900 mb-2 pb-2 border-b border-gray-200"
+            style={{
+              fontSize: typography.callout.fontSize,
+              fontWeight: 600,
+              letterSpacing: typography.callout.letterSpacing
+            }}
+          >
             Malla {data.malla}
           </p>
-          <p className="text-sm text-gray-600 mb-2">
-            Abertura: <span className="font-semibold">{data.abertura} mm</span>
+          <p 
+            className="text-gray-600 mb-3"
+            style={{
+              fontSize: typography.footnote.fontSize,
+              letterSpacing: typography.footnote.letterSpacing
+            }}
+          >
+            Abertura: <span className="font-semibold text-gray-900">{data.abertura} mm</span>
           </p>
           {payload.map((entry: any, index: number) => (
-            <div key={index} className="flex items-center justify-between gap-3 mt-2">
+            <div key={index} className="flex items-center justify-between gap-4 mt-2">
               <div className="flex items-center gap-2">
                 <div 
                   className="w-3 h-3 rounded-full" 
                   style={{ backgroundColor: entry.color }}
                 ></div>
-                <span className="text-sm font-medium text-gray-700">{entry.name}:</span>
+                <span 
+                  className="text-gray-700"
+                  style={{
+                    fontSize: typography.footnote.fontSize,
+                    fontWeight: 500,
+                    letterSpacing: typography.footnote.letterSpacing
+                  }}
+                >
+                  {entry.name}:
+                </span>
               </div>
-              <span className="text-sm font-bold" style={{ color: entry.color }}>
+              <span 
+                className="font-semibold tabular-nums"
+                style={{ 
+                  color: entry.color,
+                  fontSize: typography.callout.fontSize,
+                  letterSpacing: typography.callout.letterSpacing
+                }}
+              >
                 {entry.value?.toFixed(2)}%
               </span>
             </div>
@@ -240,13 +329,18 @@ export default function CurvaGranulometrica({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="bg-white p-6 rounded-lg border">
-          <ResponsiveContainer width="100%" height={700}>
+        <div className="bg-white p-4 rounded-2xl border border-gray-200/60 shadow-sm">
+          <ResponsiveContainer width="100%" height={750}>
             <ComposedChart 
               data={datosGrafica}
-              margin={{ top: 40, right: 60, left: 60, bottom: 100 }}
+              margin={{ top: 60, right: 80, left: 70, bottom: 95 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.6} />
+              <CartesianGrid 
+                strokeDasharray="1 3" 
+                stroke="#e5e7eb" 
+                opacity={0.3}
+                vertical={false}
+              />
               
               <XAxis 
                 dataKey="abertura"
@@ -258,59 +352,78 @@ export default function CurvaGranulometrica({
                 label={{ 
                   value: 'Abertura del tamiz (mm)', 
                   position: 'bottom',
-                  offset: 60,
-                  style: { fontWeight: '600', fontSize: 14, fill: '#1f2937' }
+                  offset: 28,
+                  style: { 
+                    ...typography.title3,
+                    fill: '#1d1d1f',
+                    textAnchor: 'middle'
+                  }
                 }}
                 angle={-45}
                 textAnchor="end"
-                height={100}
-                tick={{ fontSize: 12, fill: '#4b5563', fontWeight: '500' }}
-                stroke="#9ca3af"
+                height={90}
+                tick={{ 
+                  ...typography.callout,
+                  fill: '#424245'
+                }}
+                stroke="#d2d2d7"
                 strokeWidth={1.5}
+                interval={0}
               />
               
               <YAxis 
                 domain={[0, 100]}
                 ticks={[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]}
                 label={{ 
-                  value: '% Que Pasa', 
+                  value: '% Que pasa', 
                   angle: -90, 
                   position: 'insideLeft',
-                  offset: 10,
-                  style: { fontWeight: '600', fontSize: 14, fill: '#1f2937' }
+                  offset: 5,
+                  style: { 
+                    ...typography.title3,
+                    fill: '#1d1d1f',
+                    textAnchor: 'middle'
+                  }
                 }}
-                tick={{ fontSize: 12, fill: '#4b5563', fontWeight: '500' }}
-                stroke="#9ca3af"
+                tick={{ 
+                  ...typography.callout,
+                  fill: '#424245'
+                }}
+                stroke="#d2d2d7"
                 strokeWidth={1.5}
+                width={90}
               />
               
               <Tooltip content={<CustomTooltip />} />
               
               <Legend 
                 verticalAlign="top"
-                height={36}
+                align="left"
+                height={50}
                 wrapperStyle={{ 
-                  paddingBottom: '20px',
-                  fontSize: '13px',
-                  fontWeight: '500'
+                  paddingLeft: '20px',
+                  paddingTop: '10px',
+                  ...typography.callout,
+                  fontWeight: 600,
+                  color: '#1d1d1f'
                 }}
                 iconType="line"
-                iconSize={18}
+                iconSize={16}
               />
 
-              {/* Área entre límites si existen - Color azul claro */}
+              {/* Área entre límites si existen - Color gris suave */}
               {limites.length > 0 && datosGrafica.some(d => d.limite_inferior !== undefined) && (
                 <>
                   <Area
-                    type="linear"
+                    type="monotone"
                     dataKey="limite_superior"
                     stroke="none"
-                    fill="#60a5fa"
-                    fillOpacity={0.2}
+                    fill="#0C1F28"
+                    fillOpacity={0.08}
                     name="Área de Especificación"
                   />
                   <Area
-                    type="linear"
+                    type="monotone"
                     dataKey="limite_inferior"
                     stroke="none"
                     fill="#ffffff"
@@ -319,46 +432,72 @@ export default function CurvaGranulometrica({
                 </>
               )}
 
-              {/* Líneas de límites - Azul */}
+              {/* Líneas de límites - Color del logo #0C1F28 */}
               {limites.length > 0 && datosGrafica.some(d => d.limite_superior !== undefined) && (
                 <Line 
-                  type="linear" 
+                  type="monotone" 
                   dataKey="limite_superior" 
-                  stroke="#1e40af" 
+                  stroke="#0C1F28" 
                   strokeWidth={3}
-                  strokeDasharray="5 5"
-                  dot={{ fill: '#1e40af', r: 4, strokeWidth: 0 }}
-                  name="Límite Superior"
-                  isAnimationActive={false}
-                  connectNulls={false}
+                  strokeDasharray="8 4"
+                  dot={{ 
+                    fill: '#0C1F28', 
+                    r: 5, 
+                    strokeWidth: 2, 
+                    stroke: '#fff' 
+                  }}
+                  name="Límite superior"
+                  isAnimationActive={true}
+                  animationDuration={600}
+                  animationEasing="ease-in-out"
+                  connectNulls={true}
                 />
               )}
               
               {limites.length > 0 && datosGrafica.some(d => d.limite_inferior !== undefined) && (
                 <Line 
-                  type="linear" 
+                  type="monotone" 
                   dataKey="limite_inferior" 
-                  stroke="#3b82f6" 
+                  stroke="#0C1F28" 
                   strokeWidth={3}
-                  strokeDasharray="5 5"
-                  dot={{ fill: '#3b82f6', r: 4, strokeWidth: 0 }}
-                  name="Límite Inferior"
-                  isAnimationActive={false}
-                  connectNulls={false}
+                  strokeDasharray="8 4"
+                  dot={{ 
+                    fill: '#0C1F28', 
+                    r: 5, 
+                    strokeWidth: 2, 
+                    stroke: '#fff' 
+                  }}
+                  name="Límite inferior"
+                  isAnimationActive={true}
+                  animationDuration={600}
+                  animationEasing="ease-in-out"
+                  connectNulls={true}
                 />
               )}
 
-              {/* Línea de datos reales - Verde del logo */}
+              {/* Línea de datos reales - Verde del logo #069E2D */}
               {datosGrafica.some(d => d.porcentaje_pasa !== undefined) && (
                 <Line 
-                  type="linear" 
+                  type="monotone" 
                   dataKey="porcentaje_pasa" 
-                  stroke="#069e2d" 
+                  stroke="#069E2D" 
                   strokeWidth={4}
-                  dot={{ fill: '#069e2d', r: 6, strokeWidth: 2, stroke: '#fff' }}
-                  activeDot={{ r: 9, strokeWidth: 2 }}
-                  name="Granulometría Real"
-                  isAnimationActive={false}
+                  dot={{ 
+                    fill: '#069E2D', 
+                    r: 6, 
+                    strokeWidth: 2.5, 
+                    stroke: '#fff'
+                  }}
+                  activeDot={{ 
+                    r: 8, 
+                    strokeWidth: 3,
+                    stroke: '#fff',
+                    fill: '#069E2D'
+                  }}
+                  name="Granulometría"
+                  isAnimationActive={true}
+                  animationDuration={800}
+                  animationEasing="ease-in-out"
                   connectNulls={false}
                 />
               )}

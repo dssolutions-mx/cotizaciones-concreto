@@ -39,8 +39,11 @@ import {
   Scale,
   Droplets,
   Layers,
-  TestTube
+  TestTube,
+  Printer
 } from 'lucide-react';
+import { PDFDownloadLink } from '@react-pdf/renderer';
+import { EstudioPDF } from '@/components/quality/caracterizacion/EstudioPDF';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -407,6 +410,43 @@ export default function EstudioDetallePage() {
         </div>
         
         <div className="flex gap-2">
+          {/* Botón de Imprimir Reporte Completo */}
+          {estudio.estudios_seleccionados.some(e => e.estado === 'completado' && e.resultados) && (
+            <PDFDownloadLink
+              document={
+                <EstudioPDF
+                  estudio={{
+                    alta_estudio: estudio,
+                    estudios: estudio.estudios_seleccionados.filter(e => e.estado === 'completado' && e.resultados),
+                    limites: [],
+                    tamaño: estudio.estudios_seleccionados.find(e => e.resultados?.tamaño)?.resultados?.tamaño
+                  }}
+                />
+              }
+              fileName={`Reporte_Caracterizacion_${estudio.nombre_material}_${format(new Date(), 'yyyyMMdd')}.pdf`}
+            >
+              {({ loading }) => (
+                <Button
+                  variant="default"
+                  className="bg-[#069E2D] hover:bg-[#069E2D]/90 text-white"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Generando PDF...
+                    </>
+                  ) : (
+                    <>
+                      <Printer className="h-4 w-4 mr-2" />
+                      Imprimir Reporte
+                    </>
+                  )}
+                </Button>
+              )}
+            </PDFDownloadLink>
+          )}
+          
           <Button variant="outline" onClick={() => router.back()}>
             <ChevronLeft className="h-4 w-4 mr-2" />
             Volver

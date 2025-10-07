@@ -28,6 +28,7 @@ import {
   Loader2,
   CheckCircle
 } from 'lucide-react';
+import { typography } from '@/lib/design-system/typography';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { caracterizacionService } from '@/services/caracterizacionService';
@@ -553,43 +554,180 @@ export default function GranulometriaForm({
       </Card>
 
       {/* Tabla de Mallas */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center justify-between">
-            <span>Análisis por Mallas</span>
+      <Card 
+        className="border rounded-2xl overflow-hidden bg-white"
+        style={{
+          borderColor: 'rgba(0, 0, 0, 0.06)',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.04)'
+        }}
+      >
+        <CardHeader 
+          className="bg-white border-b pb-5"
+          style={{
+            borderBottomColor: 'rgba(0, 0, 0, 0.08)'
+          }}
+        >
+          <CardTitle 
+            className="flex items-center justify-between"
+            style={{ 
+              ...typography.title3,
+              color: '#1d1d1f'
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div 
+                className="w-1 h-6 rounded-full"
+                style={{ backgroundColor: '#069E2D' }}
+              ></div>
+              <span>Análisis por Mallas</span>
+            </div>
             {selectedTamaño && limites.length > 0 && (
-              <Badge variant="outline" className="text-xs">
-                Mostrando {getMallasRelevantes().length} de {formData.mallas.length} mallas
-              </Badge>
+              <span 
+                className="px-3 py-1 rounded-full"
+                style={{
+                  ...typography.footnote,
+                  fontWeight: 500,
+                  color: '#069E2D',
+                  backgroundColor: 'rgba(6, 158, 45, 0.08)',
+                  border: '1px solid rgba(6, 158, 45, 0.12)'
+                }}
+              >
+                {getMallasRelevantes().length} de {formData.mallas.length} mallas
+              </span>
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-6 bg-white">
           {selectedTamaño && limites.length > 0 && (
-            <Alert className="mb-4">
-              <Info className="h-4 w-4" />
-              <AlertDescription>
-                Se muestran todas las mallas disponibles para <strong>{selectedTamaño}</strong>. 
-                Ingrese los pesos retenidos solo en las mallas que utilizó durante el ensayo.
-                La gráfica mostrará únicamente las mallas con datos cargados.
-              </AlertDescription>
-            </Alert>
+            <div 
+              className="mb-6 p-4 rounded-xl bg-white border"
+              style={{
+                borderColor: 'rgba(6, 158, 45, 0.15)'
+              }}
+            >
+              <div className="flex gap-3">
+                <div 
+                  className="flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center"
+                  style={{
+                    backgroundColor: '#069E2D'
+                  }}
+                >
+                  <Info className="h-4 w-4 text-white" />
+                </div>
+                <p 
+                  className="flex-1"
+                  style={{
+                    ...typography.footnote,
+                    color: '#6e6e73',
+                    lineHeight: '1.6'
+                  }}
+                >
+                  Se muestran todas las mallas disponibles para{' '}
+                  <strong 
+                    style={{
+                      fontWeight: 600,
+                      color: '#1d1d1f'
+                    }}
+                  >
+                    {selectedTamaño}
+                  </strong>
+                  . Ingrese los pesos retenidos solo en las mallas que utilizó durante el ensayo.
+                </p>
+              </div>
+            </div>
           )}
           
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto -mx-6 px-6">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Malla</TableHead>
-                  <TableHead>Abertura (mm)</TableHead>
-                  <TableHead>Peso Retenido (g)</TableHead>
-                  <TableHead>% Retenido</TableHead>
-                  <TableHead>% Acumulado</TableHead>
-                  <TableHead>% Pasa</TableHead>
+                <TableRow 
+                  className="border-b bg-white"
+                  style={{
+                    borderBottomColor: 'rgba(0, 0, 0, 0.08)'
+                  }}
+                >
+                  <TableHead 
+                    className="h-11 text-center"
+                    style={{ 
+                      ...typography.footnote,
+                      fontWeight: 600,
+                      color: '#0C1F28'
+                    }}
+                  >
+                    Malla
+                  </TableHead>
+                  <TableHead 
+                    className="text-center"
+                    style={{ 
+                      ...typography.footnote,
+                      fontWeight: 600,
+                      color: '#0C1F28'
+                    }}
+                  >
+                    Abertura (mm)
+                  </TableHead>
+                  <TableHead 
+                    className="text-center"
+                    style={{ 
+                      ...typography.footnote,
+                      fontWeight: 600,
+                      color: '#0C1F28'
+                    }}
+                  >
+                    Peso Retenido (g)
+                  </TableHead>
+                  <TableHead 
+                    className="text-center"
+                    style={{ 
+                      ...typography.footnote,
+                      fontWeight: 600,
+                      color: '#069E2D'
+                    }}
+                  >
+                    % Retenido
+                  </TableHead>
+                  <TableHead 
+                    className="text-center"
+                    style={{ 
+                      ...typography.footnote,
+                      fontWeight: 600,
+                      color: '#0C1F28'
+                    }}
+                  >
+                    % Acumulado
+                  </TableHead>
+                  <TableHead 
+                    className="text-center"
+                    style={{ 
+                      ...typography.footnote,
+                      fontWeight: 600,
+                      color: '#069E2D'
+                    }}
+                  >
+                    % Pasa
+                  </TableHead>
                   {limites.length > 0 && (
                     <>
-                      <TableHead className="text-center">Lím. Inf.</TableHead>
-                      <TableHead className="text-center">Lím. Sup.</TableHead>
+                      <TableHead 
+                        className="text-center"
+                        style={{ 
+                          ...typography.footnote,
+                          fontWeight: 600,
+                          color: '#0C1F28'
+                        }}
+                      >
+                        Lím. Inf.
+                      </TableHead>
+                      <TableHead 
+                        className="text-center"
+                        style={{ 
+                          ...typography.footnote,
+                          fontWeight: 600,
+                          color: '#0C1F28'
+                        }}
+                      >
+                        Lím. Sup.
+                      </TableHead>
                     </>
                   )}
                 </TableRow>
@@ -611,58 +749,128 @@ export default function GranulometriaForm({
                   return (
                     <TableRow 
                       key={malla.id}
-                      className={
-                        limite && malla.peso_retenido !== null && !dentroLimites
-                          ? 'bg-red-50'
-                          : limite && malla.peso_retenido !== null && dentroLimites
-                          ? 'bg-green-50'
-                          : ''
-                      }
+                      className="bg-white hover:bg-gray-50/50 transition-colors duration-150 border-b"
+                      style={{
+                        borderBottomColor: 'rgba(0, 0, 0, 0.06)'
+                      }}
                     >
-                      <TableCell className="font-medium">
-                        {malla.numero_malla}
+                      <TableCell className="text-center">
+                        <span 
+                          className="inline-block px-2.5 py-1 rounded-md font-semibold tabular-nums"
+                          style={{ 
+                            ...typography.footnote,
+                            fontWeight: 600,
+                            color: '#0C1F28',
+                            backgroundColor: 'rgba(12, 31, 40, 0.08)'
+                          }}
+                        >
+                          {malla.numero_malla}
+                        </span>
                       </TableCell>
-                      <TableCell>
-                        {malla.abertura_mm > 0 ? malla.abertura_mm : '-'}
+                      <TableCell className="text-center">
+                        <span 
+                          className="inline-block px-2.5 py-1 rounded-md font-semibold tabular-nums"
+                          style={{ 
+                            ...typography.footnote,
+                            fontWeight: 600,
+                            color: '#0C1F28',
+                            backgroundColor: 'rgba(12, 31, 40, 0.08)'
+                          }}
+                        >
+                          {malla.abertura_mm > 0 ? malla.abertura_mm : '-'}
+                        </span>
                       </TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          step="0.1"
-                          value={malla.peso_retenido || ''}
-                          onChange={(e) => handlePesoRetenidoChange(malla.id, e.target.value)}
-                          className="w-24"
-                          placeholder="0.0"
-                        />
+                      <TableCell className="text-center">
+                        <div className="flex justify-center">
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={malla.peso_retenido || ''}
+                            onChange={(e) => handlePesoRetenidoChange(malla.id, e.target.value)}
+                            className="w-24 h-9 rounded-lg transition-all duration-150 border text-center"
+                            placeholder="0.0"
+                            style={{ 
+                              ...typography.callout,
+                              borderColor: 'rgba(0, 0, 0, 0.12)',
+                              color: '#0C1F28'
+                            }}
+                            onFocus={(e) => {
+                              e.target.style.borderColor = '#069E2D';
+                              e.target.style.boxShadow = '0 0 0 4px rgba(6, 158, 45, 0.08)';
+                            }}
+                            onBlur={(e) => {
+                              e.target.style.borderColor = 'rgba(0, 0, 0, 0.12)';
+                              e.target.style.boxShadow = 'none';
+                            }}
+                          />
+                        </div>
                       </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
+                      <TableCell className="text-center">
+                        <span 
+                          className="inline-block px-2.5 py-1 rounded-md font-semibold tabular-nums"
+                          style={{ 
+                            ...typography.footnote,
+                            fontWeight: 600,
+                            color: '#069E2D',
+                            backgroundColor: 'rgba(6, 158, 45, 0.08)'
+                          }}
+                        >
                           {malla.porcentaje_retenido.toFixed(2)}%
-                        </Badge>
+                        </span>
                       </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
+                      <TableCell className="text-center">
+                        <span 
+                          className="inline-block px-2.5 py-1 rounded-md font-semibold tabular-nums"
+                          style={{ 
+                            ...typography.footnote,
+                            fontWeight: 600,
+                            color: '#0C1F28',
+                            backgroundColor: 'rgba(12, 31, 40, 0.08)'
+                          }}
+                        >
                           {malla.porcentaje_acumulado.toFixed(2)}%
-                        </Badge>
+                        </span>
                       </TableCell>
-                      <TableCell>
-                        <Badge 
-                          variant={
-                            limite && malla.peso_retenido !== null
-                              ? dentroLimites ? "default" : "destructive"
-                              : "secondary"
-                          }
+                      <TableCell className="text-center">
+                        <span 
+                          className="inline-block px-2.5 py-1 rounded-md font-semibold tabular-nums"
+                          style={{ 
+                            ...typography.footnote,
+                            fontWeight: 600,
+                            color: '#069E2D',
+                            backgroundColor: 'rgba(6, 158, 45, 0.08)'
+                          }}
                         >
                           {malla.porcentaje_pasa.toFixed(2)}%
-                        </Badge>
+                        </span>
                       </TableCell>
                       {limites.length > 0 && (
                         <>
-                          <TableCell className="text-center text-sm text-blue-600">
-                            {limite ? `${limite.limite_inferior}%` : '-'}
+                          <TableCell className="text-center">
+                            <span 
+                              className="inline-block px-2.5 py-1 rounded-md font-semibold tabular-nums"
+                              style={{ 
+                                ...typography.footnote,
+                                fontWeight: 600,
+                                color: '#0C1F28',
+                                backgroundColor: 'rgba(12, 31, 40, 0.08)'
+                              }}
+                            >
+                              {limite ? `${limite.limite_inferior}%` : '-'}
+                            </span>
                           </TableCell>
-                          <TableCell className="text-center text-sm text-red-600">
-                            {limite ? `${limite.limite_superior}%` : '-'}
+                          <TableCell className="text-center">
+                            <span 
+                              className="inline-block px-2.5 py-1 rounded-md font-semibold tabular-nums"
+                              style={{ 
+                                ...typography.footnote,
+                                fontWeight: 600,
+                                color: '#0C1F28',
+                                backgroundColor: 'rgba(12, 31, 40, 0.08)'
+                              }}
+                            >
+                              {limite ? `${limite.limite_superior}%` : '-'}
+                            </span>
                           </TableCell>
                         </>
                       )}
@@ -696,16 +904,16 @@ export default function GranulometriaForm({
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
-                <span className="font-medium text-[#069e2d]">Módulo de Finura:</span>
-                <Badge className="bg-[#069e2d] text-white">
+              <div className="flex justify-between items-center p-3 bg-[#069E2D]/10 rounded-lg">
+                <span className="font-medium text-[#069E2D]">Módulo de Finura:</span>
+                <Badge className="bg-[#069E2D] text-white">
                   {formData.modulo_finura.toFixed(2)}
                 </Badge>
               </div>
               
-              <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
-                <span className="font-medium text-[#069e2d]">Tamaño Máximo Nominal:</span>
-                <Badge className="bg-[#069e2d] text-white">
+              <div className="flex justify-between items-center p-3 bg-[#069E2D]/10 rounded-lg">
+                <span className="font-medium text-[#069E2D]">Tamaño Máximo Nominal:</span>
+                <Badge className="bg-[#069E2D] text-white">
                   {formData.tamaño_maximo_nominal || 'N/A'}
                 </Badge>
               </div>
