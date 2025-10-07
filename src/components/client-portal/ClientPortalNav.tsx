@@ -13,7 +13,7 @@ import { useState } from 'react';
 export default function ClientPortalNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { profile, logout } = useAuthBridge();
+  const { logout } = useAuthBridge();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navItems = [
@@ -37,22 +37,16 @@ export default function ClientPortalNav() {
       >
         <div className="max-w-screen-2xl mx-auto px-6">
           <div className="flex items-center justify-between h-16">
-            {/* Logo & Branding - Company + Client */}
+            {/* Branding row: Company | Client logo, then title */}
             <Link href="/client-portal" className="flex items-center gap-4 group">
               <div className="flex items-center gap-3">
                 <Branding size="md" className="h-8 w-auto" />
+                <div className="w-px h-6 bg-slate-300" />
                 <ClientLogo size="md" className="h-8 w-auto" />
               </div>
-              <div className="hidden md:block">
-                <div className="flex items-center gap-2">
-                  <h1 className="text-title-2 font-bold text-label-primary">
-                    Portal de Cliente
-                  </h1>
-                </div>
-                <p className="text-footnote text-label-secondary -mt-0.5">
-                  {profile?.full_name || 'Cliente'}
-                </p>
-              </div>
+              <h1 className="hidden md:block text-title-2 font-bold text-label-primary">
+                Portal de Cliente
+              </h1>
             </Link>
 
             {/* Desktop Nav Items */}
