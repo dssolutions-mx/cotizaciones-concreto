@@ -99,12 +99,24 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
             </h3>
             <div className="flex items-center gap-5 text-callout text-label-secondary">
               <div className="flex items-center gap-2">
-                <div className="w-3.5 h-3.5 rounded-full bg-systemGreen shadow-sm border border-systemGreen/20"></div>
-                <span>Excelente</span>
+                <div 
+                  className="w-3.5 h-3.5 rounded-full shadow-sm flex-shrink-0"
+                  style={{ 
+                    backgroundColor: '#34C759',
+                    border: '1px solid rgba(52, 199, 89, 0.2)'
+                  }}
+                ></div>
+                <span>Excelente: ≥100%</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-3.5 h-3.5 rounded-full bg-systemOrange shadow-sm border border-systemOrange/20"></div>
-                <span>Aceptable</span>
+                <div 
+                  className="w-3.5 h-3.5 rounded-full shadow-sm flex-shrink-0"
+                  style={{ 
+                    backgroundColor: '#FF9500',
+                    border: '1px solid rgba(255, 149, 0, 0.2)'
+                  }}
+                ></div>
+                <span>Aceptable: 98-100%</span>
               </div>
             </div>
           </div>
