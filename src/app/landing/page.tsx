@@ -52,11 +52,11 @@ export default function LandingPage() {
         {/* Logo */}
         <div className="absolute top-6 left-6 z-20">
           <div className="">
-            <Image 
-              src="/images/dcconcretos/logo.svg" 
-              alt="DC Concretos Logo" 
-              width={160} 
-              height={50} 
+            <img
+              src="/images/dcconcretos/logo.svg"
+              alt="DC Concretos Logo"
+              width={160}
+              height={50}
               className="drop-shadow-md"
             />
           </div>
@@ -267,11 +267,11 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="relative">
-              <Image 
-                src="/images/dcconcretos/hero2.jpeg?v=1" 
-                alt="Sistema de Gestión DC Concretos" 
-                width={600} 
-                height={400} 
+              <img
+                src="/images/dcconcretos/hero2.jpeg?v=1"
+                alt="Sistema de Gestión DC Concretos"
+                width={600}
+                height={400}
                 className="rounded-lg shadow-xl"
               />
               <div className="absolute -bottom-6 -left-6 bg-white p-6 rounded-lg shadow-lg">
@@ -373,11 +373,11 @@ export default function LandingPage() {
           <div className="flex flex-col md:flex-row justify-between items-center">
             <div className="mb-8 md:mb-0">
               <div className="">
-                <Image 
-                  src="/images/dcconcretos/logo.svg" 
-                  alt="DC Concretos Logo" 
-                  width={120} 
-                  height={40} 
+                <img
+                  src="/images/dcconcretos/logo.svg"
+                  alt="DC Concretos Logo"
+                  width={120}
+                  height={40}
                   className="brightness-150"
                 />
               </div>
