@@ -19,7 +19,7 @@ import {
 } from 'recharts';
 
 interface QualityChartProps {
-  type: 'line' | 'bar' | 'scatter' | 'area' | 'muestreos-timeline' | 'compliance-distribution' | 'resistance-trend';
+  type: 'line' | 'bar' | 'scatter' | 'area' | 'muestreos-timeline' | 'compliance-distribution' | 'resistance-trend' | 'volumetric-trend';
   data: any[];
   height?: number;
   showLegend?: boolean;
@@ -187,6 +187,60 @@ export function QualityChart({
             strokeWidth={3}
             fill="url(#resistenciaGradient)"
             name="Resistencia Promedio"
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // Volumetric Trend Chart
+  if (type === 'volumetric-trend') {
+    return (
+      <ResponsiveContainer width="100%" height={height}>
+        <AreaChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+          {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
+          <XAxis 
+            dataKey="date" 
+            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
+            stroke="rgba(255,255,255,0.3)"
+          />
+          <YAxis 
+            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
+            stroke="rgba(255,255,255,0.3)"
+            domain={[88, 110]}
+            label={{ value: 'Rendimiento Volumétrico (%)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.6)' }}
+          />
+          <Tooltip content={<CustomTooltip />} />
+          {showLegend && <Legend />}
+          
+          {/* Reference lines for target ranges */}
+          <ReferenceLine 
+            y={100} 
+            stroke="#34C759" 
+            strokeDasharray="3 3" 
+            label={{ value: "Objetivo 100%", fill: '#34C759', fontSize: 11 }}
+          />
+          <ReferenceLine 
+            y={98} 
+            stroke="#FF9500" 
+            strokeDasharray="3 3" 
+            label={{ value: "Mínimo 98%", fill: '#FF9500', fontSize: 11 }}
+          />
+          
+          <defs>
+            <linearGradient id="volumetricGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#007AFF" stopOpacity={0.3}/>
+              <stop offset="95%" stopColor="#007AFF" stopOpacity={0}/>
+            </linearGradient>
+          </defs>
+          
+          <Area
+            type="monotone"
+            dataKey="rendimiento"
+            stroke="#007AFF"
+            strokeWidth={3}
+            fill="url(#volumetricGradient)"
+            name="Rendimiento Volumétrico"
           />
         </AreaChart>
       </ResponsiveContainer>

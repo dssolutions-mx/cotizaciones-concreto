@@ -187,7 +187,7 @@ export default function MaterialCertificateViewer({
               <div className="space-y-5">
                 {certificates.map((cert, index) => (
                   <motion.div
-                    key={cert.id}
+                    key={cert.id || `cert-${index}-${cert.file_name}`}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.08, duration: 0.4 }}

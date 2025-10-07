@@ -168,6 +168,44 @@ export function processResistanceTrend(data: ClientQualityData): any[] {
 }
 
 /**
+ * Process volumetric percentage trend for chart
+ * Normalizes data to avoid unrealistic values above 110%
+ */
+export function processVolumetricTrend(data: ClientQualityData): any[] {
+  // Group by date, filtering out invalid values
+  const byDate = data.remisiones.reduce((acc: any, r: any) => {
+    // Skip invalid values: <= 0 or > 110%
+    if (!r.rendimientoVolumetrico || 
+        r.rendimientoVolumetrico <= 0 || 
+        r.rendimientoVolumetrico > 110) {
+      return acc;
+    }
+    
+    const date = new Date(r.fecha).toISOString().split('T')[0];
+    if (!acc[date]) {
+      acc[date] = {
+        date,
+        rendimientoSum: 0,
+        count: 0,
+        values: []
+      };
+    }
+    
+    acc[date].rendimientoSum += r.rendimientoVolumetrico;
+    acc[date].count++;
+    acc[date].values.push(r.rendimientoVolumetrico);
+    
+    return acc;
+  }, {});
+  
+  // Convert to array and calculate averages
+  return Object.values(byDate).map((day: any) => ({
+    date: day.date,
+    rendimiento: day.count > 0 ? Math.min(day.rendimientoSum / day.count, 110) : 0
+  })).sort((a: any, b: any) => a.date.localeCompare(b.date));
+}
+
+/**
  * Identify site checks (muestreos without ensayos)
  */
 export function getSiteChecks(data: ClientQualityData): any[] {

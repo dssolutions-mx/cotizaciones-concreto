@@ -93,9 +93,9 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
           <div className="text-right ml-4">
             <p className="text-caption text-label-tertiary mb-1">Rendimiento</p>
             <p className={`text-callout font-bold ${
-              muestreo.rendimientoVolumetrico >= 98 
+              muestreo.rendimientoVolumetrico >= 100 
                 ? 'text-systemGreen' 
-                : muestreo.rendimientoVolumetrico >= 95
+                : muestreo.rendimientoVolumetrico >= 98
                 ? 'text-systemOrange'
                 : 'text-systemRed'
             }`}>
