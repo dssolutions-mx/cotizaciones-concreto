@@ -41,7 +41,37 @@ export function QualityChart({
       const cumplimiento = data?.cumplimiento;
       const resistencia = data?.resistencia;
       const objetivo = data?.objetivo;
+      const rendimiento = data?.rendimiento;
       
+      // Volumetric tooltip
+      if (rendimiento !== null && rendimiento !== undefined) {
+        return (
+          <div className="glass-thick rounded-xl p-4 border border-white/20 shadow-xl min-w-[220px]">
+            <p className="text-footnote font-semibold text-label-primary mb-3">
+              {label}
+            </p>
+            
+            <div className="flex items-center justify-between gap-4 mb-3 pb-3 border-b border-white/10">
+              <span className="text-caption text-label-secondary">Rendimiento:</span>
+              <span className={`text-title-3 font-bold ${
+                rendimiento >= 100 ? 'text-systemGreen' : 
+                rendimiento >= 98 ? 'text-systemOrange' : 
+                'text-systemRed'
+              }`}>
+                {rendimiento?.toFixed(1)}%
+              </span>
+            </div>
+            
+            <div className="text-caption text-label-tertiary">
+              {rendimiento >= 100 ? 'Objetivo alcanzado' : 
+               rendimiento >= 98 ? 'Dentro del rango aceptable' : 
+               'Por debajo del objetivo'}
+            </div>
+          </div>
+        );
+      }
+      
+      // Compliance tooltip
       return (
         <div className="glass-thick rounded-xl p-4 border border-white/20 shadow-xl min-w-[220px]">
           <p className="text-footnote font-semibold text-label-primary mb-3">
