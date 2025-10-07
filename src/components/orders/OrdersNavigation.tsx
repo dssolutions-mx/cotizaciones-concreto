@@ -291,6 +291,19 @@ const OrdersNavigation = memo(function OrdersNavigation({
 
   return (
     <div className="space-y-4">
+      {/* Mobile-only prominent Create Order button - shown first for visibility */}
+      {canCreateOrders && currentTab !== 'create' && (
+        <div className="md:hidden">
+          <Button
+            onClick={() => navigate('create')}
+            className="w-full !bg-green-600 hover:!bg-green-700 !text-white font-semibold py-3 text-base shadow-md"
+          >
+            <PlusIcon className="mr-2 h-5 w-5" />
+            Crear Orden
+          </Button>
+        </div>
+      )}
+
       {/* Tab Navigation with Create Order Button */}
       <div className="border-b border-gray-200 dark:border-gray-700 flex items-center">
         <nav className="-mb-px flex space-x-2 sm:space-x-4 overflow-x-auto flex-1" aria-label="Tabs">
@@ -331,7 +344,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
 
         {/* Create Order button (hidden on small screens, visible on md+) */}
         {canCreateOrders && (
-          <div className="hidden md:block">
+          <div className="hidden md:block ml-4">
             <Button
               onClick={() => navigate('create')}
               variant="ghost"
@@ -344,21 +357,8 @@ const OrdersNavigation = memo(function OrdersNavigation({
         )}
       </div>
 
-      {/* Mobile-only Create Order button placed below tabs to avoid obstruction */}
-      {canCreateOrders && (
-        <div className="md:hidden">
-          <Button
-            onClick={() => navigate('create')}
-            className="w-full bg-green-600 hover:bg-green-700 text-white"
-          >
-            <PlusIcon className="mr-2 h-4 w-4" />
-            Crear Orden
-          </Button>
-        </div>
-      )}
-
-      {/* Filters - Only show when 'list' tab is active */}
-      {currentTab === 'list' && (
+      {/* Filters - Only show when 'list' or 'calendar' tab is active */}
+      {(currentTab === 'list' || currentTab === 'calendar') && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
           <div className="flex shrink-0 items-center text-sm font-medium text-gray-700 dark:text-gray-300">
              <MixerHorizontalIcon className="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
