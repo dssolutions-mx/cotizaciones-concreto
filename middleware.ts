@@ -110,6 +110,8 @@ export async function middleware(request: NextRequest) {
     '/reset-password',
     '/update-password',
     '/auth-check', // Keep if used for specific checks
+    '/contact',
+    '/help',
   ];
   
   const isPublicRoute = 
