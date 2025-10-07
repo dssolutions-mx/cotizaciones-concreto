@@ -2,12 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { 
-  CheckCircle2, 
-  Calendar, 
-  MapPin, 
-  Thermometer,
   Mountain,
-  Factory,
   Droplet,
   FlaskConical,
   Building,
@@ -16,10 +11,7 @@ import {
   Loader2,
   FileText
 } from 'lucide-react';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
-import { getSiteChecks } from '@/lib/qualityHelpers';
 import MaterialCertificateViewer from './MaterialCertificateViewer';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -59,7 +51,6 @@ interface QualitySiteChecksProps {
 }
 
 export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
-  const siteChecks = getSiteChecks(data);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [plants, setPlants] = useState<Plant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,22 +120,22 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
   const aguas = getFilteredMaterials('agua');
   const aditivos = getFilteredMaterials('aditivo');
 
-  // Función para obtener color de categoría (colores de Estudios adaptados a client-portal)
+  // Función para obtener color de categoría - iOS 26 Refined Colors
   const getCategoryConfig = (category: string) => {
     switch (category) {
       case 'agregado':
         return {
-          gradient: 'from-yellow-50 to-amber-50',
-          icon: 'text-yellow-600',
-          border: 'border-yellow-200',
-          badge: 'bg-yellow-600',
-          badgeCount: 'bg-yellow-600',
-          emptyIcon: 'text-yellow-600'
+          gradient: 'from-amber-100 via-yellow-50 to-amber-50',
+          icon: 'text-amber-700',
+          border: 'border-amber-200',
+          badge: 'bg-amber-600',
+          badgeCount: 'bg-amber-600',
+          emptyIcon: 'text-amber-600'
         };
       case 'cemento':
         return {
-          gradient: 'from-slate-50 to-gray-50',
-          icon: 'text-slate-500',
+          gradient: 'from-gray-100 via-slate-50 to-gray-50',
+          icon: 'text-slate-600',
           border: 'border-slate-200',
           badge: 'bg-slate-600',
           badgeCount: 'bg-slate-600',
@@ -152,8 +143,8 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
         };
       case 'agua':
         return {
-          gradient: 'from-cyan-50 to-blue-50',
-          icon: 'text-cyan-600',
+          gradient: 'from-blue-100 via-cyan-50 to-blue-50',
+          icon: 'text-cyan-700',
           border: 'border-cyan-200',
           badge: 'bg-cyan-600',
           badgeCount: 'bg-cyan-600',
@@ -161,8 +152,8 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
         };
       case 'aditivo':
         return {
-          gradient: 'from-emerald-50 to-teal-50',
-          icon: 'text-emerald-600',
+          gradient: 'from-teal-100 via-emerald-50 to-teal-50',
+          icon: 'text-emerald-700',
           border: 'border-emerald-200',
           badge: 'bg-emerald-600',
           badgeCount: 'bg-emerald-600',
@@ -170,8 +161,8 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
         };
       default:
         return {
-          gradient: 'from-gray-50 to-gray-100',
-          icon: 'text-gray-500',
+          gradient: 'from-gray-100 via-gray-50 to-gray-100',
+          icon: 'text-gray-600',
           border: 'border-gray-200',
           badge: 'bg-gray-600',
           badgeCount: 'bg-gray-600',
@@ -195,7 +186,7 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
     }
   };
 
-  // Componente de tarjeta de material (colores de Estudios con estilo client-portal)
+  // Componente de tarjeta de material - iOS 26 Liquid Glass Style
   const MaterialCard = ({ material, index }: { material: Material; index: number }) => {
     const Icon = getCategoryIcon(material.category);
     const config = getCategoryConfig(material.category);
@@ -205,32 +196,40 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: index * 0.05 }}
-        className={`bg-gradient-to-br ${config.gradient} rounded-2xl border-2 ${config.border} shadow-sm hover:shadow-lg transition-all duration-200 overflow-hidden`}
+        transition={{ delay: index * 0.05, duration: 0.4 }}
+        whileHover={{ y: -4, transition: { duration: 0.2 } }}
+        className="glass-thick rounded-3xl overflow-hidden border border-white/20 hover:border-white/40 transition-all duration-300 shadow-md hover:shadow-xl"
       >
-        {/* Header de la card - estilo glassmorphism */}
-        <div className="bg-white/60 backdrop-blur-sm p-4 border-b-2 border-white/80">
-          <div className="flex items-start gap-3 mb-3">
-            <div className="p-2.5 bg-white rounded-xl shadow-sm">
-              <Icon className={`w-6 h-6 ${config.icon}`} />
+        {/* Header de la card */}
+        <div className="p-6 border-b border-white/20">
+          <div className="flex items-start gap-4">
+            {/* Icon Container */}
+            <div className={`p-3 rounded-2xl bg-gradient-to-br ${config.gradient} shadow-sm flex-shrink-0`}>
+              <Icon className={`w-7 h-7 ${config.icon}`} />
             </div>
+            
+            {/* Content */}
             <div className="flex-1 min-w-0">
-              <h3 className="text-callout font-bold text-gray-900 mb-1.5 leading-tight">
+              <h3 className="text-title-3 font-semibold text-label-primary mb-2 leading-tight">
                 {material.material_name}
               </h3>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-caption font-mono font-bold text-gray-900">
+              
+              {/* Metadata */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-label-primary text-caption font-mono font-bold rounded-lg border border-white/30 shadow-sm">
                   {material.material_code}
                 </span>
+                
                 {plant && (
-                  <span className="flex items-center gap-1 text-caption font-bold text-gray-900">
-                    <Building className="h-3 w-3" />
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-label-secondary text-caption font-semibold rounded-lg border border-white/30 shadow-sm">
+                    <Building className="h-3.5 w-3.5" />
                     {plant.code}
                   </span>
                 )}
+                
                 {material.subcategory && (
-                  <span className="px-2 py-1 bg-gray-200 text-gray-900 text-[10px] font-bold rounded-md uppercase">
-                    {material.subcategory.replace('_', ' ')}
+                  <span className={`px-2.5 py-1 ${config.badge} text-white text-caption font-bold rounded-lg shadow-sm`}>
+                    {material.subcategory.replace('_', ' ').toUpperCase()}
                   </span>
                 )}
               </div>
@@ -239,14 +238,16 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
         </div>
 
         {/* Cuerpo de la card - botón de certificados */}
-        <div className="p-4">
-          <button
+        <div className="p-6">
+          <motion.button
             onClick={() => setSelectedMaterial({ id: material.id, name: material.material_name, category: material.category })}
-            className={`w-full flex items-center justify-center gap-2 px-4 py-3 ${config.badge} hover:opacity-90 text-white rounded-xl transition-all font-semibold text-footnote shadow-md`}
+            whileHover={{ scale: 1.01, y: -1 }}
+            whileTap={{ scale: 0.99 }}
+            className="w-full flex items-center justify-center gap-2.5 px-6 py-4 glass-interactive border-2 border-white/30 hover:border-white/50 text-label-primary rounded-2xl transition-all duration-300 font-semibold text-callout shadow-sm hover:shadow-md"
           >
-            <FileText className="w-4 h-4" />
+            <FileText className="w-5 h-5" />
             Ver Certificados de Calidad
-          </button>
+          </motion.button>
         </div>
       </motion.div>
     );
@@ -274,60 +275,72 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
 
   return (
     <div className="space-y-8">
-      {/* SECCIÓN DE CERTIFICADOS DE MATERIALES */}
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="glass-thick rounded-3xl p-6">
-          <h2 className="text-title-2 font-semibold text-label-primary mb-2">
-            Certificados de Materiales
-          </h2>
-          <p className="text-body text-label-secondary">
-            Consulta los certificados de calidad de los materiales utilizados en tus órdenes
-          </p>
-        </div>
+      {/* Header - iOS 26 Style */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+      >
+        <h1 className="text-large-title font-bold text-label-primary mb-3">
+          Verificación de Materiales
+        </h1>
+        <p className="text-body text-label-secondary">
+          Consulta los certificados de calidad de los materiales utilizados en tus órdenes
+        </p>
+      </motion.div>
 
-        {/* Filtros */}
-        <div className="glass-thick rounded-2xl p-5">
-          <div className="flex flex-col md:flex-row gap-3">
-            {/* Búsqueda */}
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-label-tertiary" />
-                <Input
-                  type="text"
-                  placeholder="Buscar por nombre o código..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-11 glass-interactive rounded-xl border-white/10 focus:border-systemBlue/50 text-label-primary placeholder:text-label-tertiary"
-                />
-              </div>
-            </div>
-
-            {/* Filtro por Planta */}
-            <div className="md:w-64">
-              <Select value={selectedPlant} onValueChange={setSelectedPlant}>
-                <SelectTrigger className="glass-interactive rounded-xl border-white/10">
-                  <div className="flex items-center gap-2">
-                    <Building className="w-4 h-4 text-label-tertiary" />
-                    <SelectValue placeholder="Todas las plantas" />
-                  </div>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas las plantas</SelectItem>
-                  {availablePlants.map((plant) => (
-                    <SelectItem key={plant.id} value={plant.id}>
-                      {plant.code} - {plant.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+      {/* Filtros - iOS 26 Refined */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
+        className="glass-thick rounded-3xl p-6"
+      >
+        <div className="flex flex-col md:flex-row gap-4 items-stretch">
+          {/* Búsqueda */}
+          <div className="flex-1 min-w-0">
+            <div className="relative w-full">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-label-tertiary pointer-events-none z-10" />
+              <Input
+                type="text"
+                placeholder="Buscar por nombre o código..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-3.5 glass-interactive rounded-2xl border-white/10 focus:border-systemBlue/50 text-body text-label-primary placeholder:text-label-tertiary h-12 transition-all duration-200"
+              />
             </div>
           </div>
-        </div>
 
-        {/* Tabs de Categorías - estilo iOS con colores de Estudios */}
-        <div className="glass-thick rounded-2xl p-1.5">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+          {/* Filtro por Planta */}
+          <div className="md:w-80 w-full flex-shrink-0">
+            <Select value={selectedPlant} onValueChange={setSelectedPlant}>
+              <SelectTrigger className="w-full glass-interactive rounded-2xl border-white/10 h-12 text-body">
+                <div className="flex items-center gap-2">
+                  <Building className="w-5 h-5 text-label-tertiary flex-shrink-0" />
+                  <SelectValue placeholder="Todas las plantas" />
+                </div>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas las plantas</SelectItem>
+                {availablePlants.map((plant) => (
+                  <SelectItem key={plant.id} value={plant.id}>
+                    {plant.code} - {plant.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Tabs de Categorías - iOS 26 Segmented Control Style */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.2 }}
+        className="glass-thick rounded-3xl p-2"
+      >
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {availableCategories.map((category) => {
               const Icon = category.icon;
               let count = 0;
@@ -356,97 +369,129 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
               const isActive = activeTab === category.id;
               
               return (
-                <button
+                <motion.button
                   key={category.id}
                   onClick={() => setActiveTab(category.id)}
-                  className={`relative rounded-xl px-4 py-4 transition-all duration-200 border-2 ${
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className={`relative rounded-2xl px-4 py-5 transition-all duration-300 ${
                     isActive 
-                      ? `bg-gradient-to-br ${config.gradient} ${config.border} shadow-lg` 
-                      : 'border-transparent hover:bg-white/10'
+                      ? 'bg-white dark:bg-gray-800 shadow-lg' 
+                      : 'hover:bg-white/30 dark:hover:bg-gray-700/30'
                   }`}
                 >
-                  <div className="flex flex-col items-center gap-2">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
-                      isActive ? 'bg-white shadow-sm' : 'bg-white/40'
+                  <div className="flex flex-col items-center gap-3">
+                    {/* Icon Container */}
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-200 ${
+                      isActive 
+                        ? `bg-gradient-to-br ${config.gradient} shadow-md` 
+                        : 'bg-white/60 dark:bg-gray-700/60'
                     }`}>
-                      <Icon className={`h-6 w-6 ${config.icon}`} />
+                      <Icon className={`h-7 w-7 ${config.icon}`} />
                     </div>
-                    <div className="text-center">
-                      <p className={`text-title-3 font-bold ${isActive ? 'text-gray-900' : 'text-label-primary'}`}>
+                    
+                    {/* Text Content */}
+                    <div className="text-center space-y-0.5">
+                      <p className={`text-title-2 font-bold transition-colors ${
+                        isActive ? 'text-label-primary' : 'text-label-secondary'
+                      }`}>
                         {count}
                       </p>
-                      <p className={`text-caption font-bold mt-0.5 ${isActive ? 'text-gray-900' : 'text-label-primary'}`}>
+                      <p className={`text-callout font-semibold transition-colors ${
+                        isActive ? 'text-label-primary' : 'text-label-secondary'
+                      }`}>
                         {category.name}
                       </p>
-                      <p className={`text-[10px] font-medium mt-0.5 ${isActive ? 'text-gray-700' : 'text-label-tertiary'}`}>
+                      <p className={`text-caption transition-colors ${
+                        isActive ? 'text-label-secondary' : 'text-label-tertiary'
+                      }`}>
                         {subtitle}
                       </p>
                     </div>
                   </div>
-                </button>
+                </motion.button>
               );
             })}
           </div>
-        </div>
+        </motion.div>
 
-        {/* Lista de Materiales */}
-        <div className="min-h-[200px]">
-          {loading ? (
-            <div className="glass-thick rounded-2xl p-12 flex flex-col items-center justify-center">
-              <Loader2 className="w-12 h-12 text-systemBlue animate-spin mb-4" />
-              <p className="text-label-secondary">Cargando materiales...</p>
-            </div>
-          ) : (
+      {/* Lista de Materiales */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.4, delay: 0.3 }}
+        className="min-h-[200px]"
+      >
+        {loading ? (
+          <div className="glass-thick rounded-3xl p-16 flex flex-col items-center justify-center">
+            <Loader2 className="w-16 h-16 text-systemBlue animate-spin mb-4" />
+            <p className="text-callout text-label-secondary">Cargando materiales...</p>
+          </div>
+        ) : (
             <div className="space-y-8">
               {/* AGREGADOS con subdivisiones */}
               {activeTab === 'agregados' && (
                 <>
                   {/* Arenas */}
                   {agregadosArena.length > 0 && (
-                    <div>
-                      <div className="flex items-center gap-3 mb-4">
-                        <h3 className="text-title-3 font-bold text-label-primary">Arenas</h3>
-                        <span className="flex items-center justify-center px-3 py-1 bg-yellow-600 text-white text-caption font-semibold rounded-full shadow-sm">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <div className="flex items-center gap-3 mb-6">
+                        <h3 className="text-title-2 font-bold text-label-primary">Arenas</h3>
+                        <span className="flex items-center justify-center min-w-[32px] h-8 px-3 bg-amber-600 text-white text-footnote font-bold rounded-full shadow-sm">
                           {agregadosArena.length}
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {agregadosArena.map((material, index) => (
                           <MaterialCard key={material.id} material={material} index={index} />
                         ))}
                       </div>
-                    </div>
+                    </motion.div>
                   )}
 
                   {/* Gravas */}
                   {agregadosGrava.length > 0 && (
-                    <div className={agregadosArena.length > 0 ? 'pt-2' : ''}>
-                      <div className="flex items-center gap-3 mb-4">
-                        <h3 className="text-title-3 font-bold text-label-primary">Gravas</h3>
-                        <span className="flex items-center justify-center px-3 py-1 bg-yellow-600 text-white text-caption font-semibold rounded-full shadow-sm">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, delay: 0.1 }}
+                      className={agregadosArena.length > 0 ? 'pt-4' : ''}
+                    >
+                      <div className="flex items-center gap-3 mb-6">
+                        <h3 className="text-title-2 font-bold text-label-primary">Gravas</h3>
+                        <span className="flex items-center justify-center min-w-[32px] h-8 px-3 bg-amber-600 text-white text-footnote font-bold rounded-full shadow-sm">
                           {agregadosGrava.length}
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {agregadosGrava.map((material, index) => (
                           <MaterialCard key={material.id} material={material} index={index} />
                         ))}
                       </div>
-                    </div>
+                    </motion.div>
                   )}
 
                   {agregadosArena.length === 0 && agregadosGrava.length === 0 && (
-                    <div className="glass-thick rounded-2xl p-12 text-center">
-                      <Mountain className="w-16 h-16 text-yellow-600 mx-auto mb-4" />
-                      <h3 className="text-title-3 font-semibold text-label-primary mb-2">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.4 }}
+                      className="glass-thick rounded-3xl p-16 text-center"
+                    >
+                      <Mountain className="w-20 h-20 text-amber-600 mx-auto mb-6" />
+                      <h3 className="text-title-2 font-bold text-label-primary mb-3">
                         No hay agregados disponibles
                       </h3>
-                      <p className="text-body text-label-secondary">
+                      <p className="text-callout text-label-secondary max-w-md mx-auto">
                         {searchTerm || selectedPlant !== 'all' 
                           ? 'Intenta ajustar los filtros de búsqueda'
                           : 'No se encontraron agregados'}
                       </p>
-                    </div>
+                    </motion.div>
                   )}
                 </>
               )}
@@ -455,31 +500,40 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
               {activeTab === 'cemento' && (
                 <>
                   {cementos.length > 0 ? (
-                    <div>
-                      <div className="flex items-center gap-3 mb-4">
-                        <h3 className="text-title-3 font-bold text-label-primary">Cementos</h3>
-                        <span className="flex items-center justify-center px-3 py-1 bg-slate-600 text-white text-caption font-semibold rounded-full shadow-sm">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <div className="flex items-center gap-3 mb-6">
+                        <h3 className="text-title-2 font-bold text-label-primary">Cementos</h3>
+                        <span className="flex items-center justify-center min-w-[32px] h-8 px-3 bg-slate-600 text-white text-footnote font-bold rounded-full shadow-sm">
                           {cementos.length}
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {cementos.map((material, index) => (
                           <MaterialCard key={material.id} material={material} index={index} />
                         ))}
                       </div>
-                    </div>
+                    </motion.div>
                   ) : (
-                    <div className="glass-thick rounded-2xl p-12 text-center">
-                      <Building className="w-16 h-16 text-slate-500 mx-auto mb-4" />
-                      <h3 className="text-title-3 font-semibold text-label-primary mb-2">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.4 }}
+                      className="glass-thick rounded-3xl p-16 text-center"
+                    >
+                      <Building className="w-20 h-20 text-slate-500 mx-auto mb-6" />
+                      <h3 className="text-title-2 font-bold text-label-primary mb-3">
                         No hay cementos disponibles
                       </h3>
-                      <p className="text-body text-label-secondary">
+                      <p className="text-callout text-label-secondary max-w-md mx-auto">
                         {searchTerm || selectedPlant !== 'all' 
                           ? 'Intenta ajustar los filtros de búsqueda'
                           : 'No se encontraron cementos'}
                       </p>
-                    </div>
+                    </motion.div>
                   )}
                 </>
               )}
@@ -488,31 +542,40 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
               {activeTab === 'agua' && (
                 <>
                   {aguas.length > 0 ? (
-                    <div>
-                      <div className="flex items-center gap-3 mb-4">
-                        <h3 className="text-title-3 font-bold text-label-primary">Agua</h3>
-                        <span className="flex items-center justify-center px-3 py-1 bg-cyan-600 text-white text-caption font-semibold rounded-full shadow-sm">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <div className="flex items-center gap-3 mb-6">
+                        <h3 className="text-title-2 font-bold text-label-primary">Agua</h3>
+                        <span className="flex items-center justify-center min-w-[32px] h-8 px-3 bg-cyan-600 text-white text-footnote font-bold rounded-full shadow-sm">
                           {aguas.length}
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {aguas.map((material, index) => (
                           <MaterialCard key={material.id} material={material} index={index} />
                         ))}
                       </div>
-                    </div>
+                    </motion.div>
                   ) : (
-                    <div className="glass-thick rounded-2xl p-12 text-center">
-                      <Droplet className="w-16 h-16 text-cyan-600 mx-auto mb-4" />
-                      <h3 className="text-title-3 font-semibold text-label-primary mb-2">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.4 }}
+                      className="glass-thick rounded-3xl p-16 text-center"
+                    >
+                      <Droplet className="w-20 h-20 text-cyan-600 mx-auto mb-6" />
+                      <h3 className="text-title-2 font-bold text-label-primary mb-3">
                         No hay agua disponible
                       </h3>
-                      <p className="text-body text-label-secondary">
+                      <p className="text-callout text-label-secondary max-w-md mx-auto">
                         {searchTerm || selectedPlant !== 'all' 
                           ? 'Intenta ajustar los filtros de búsqueda'
                           : 'No se encontró agua registrada'}
                       </p>
-                    </div>
+                    </motion.div>
                   )}
                 </>
               )}
@@ -521,225 +584,46 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
               {activeTab === 'aditivos' && (
                 <>
                   {aditivos.length > 0 ? (
-                    <div>
-                      <div className="flex items-center gap-3 mb-4">
-                        <h3 className="text-title-3 font-bold text-label-primary">Aditivos</h3>
-                        <span className="flex items-center justify-center px-3 py-1 bg-emerald-600 text-white text-caption font-semibold rounded-full shadow-sm">
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <div className="flex items-center gap-3 mb-6">
+                        <h3 className="text-title-2 font-bold text-label-primary">Aditivos</h3>
+                        <span className="flex items-center justify-center min-w-[32px] h-8 px-3 bg-emerald-600 text-white text-footnote font-bold rounded-full shadow-sm">
                           {aditivos.length}
                         </span>
                       </div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {aditivos.map((material, index) => (
                           <MaterialCard key={material.id} material={material} index={index} />
                         ))}
                       </div>
-                    </div>
+                    </motion.div>
                   ) : (
-                    <div className="glass-thick rounded-2xl p-12 text-center">
-                      <FlaskConical className="w-16 h-16 text-emerald-600 mx-auto mb-4" />
-                      <h3 className="text-title-3 font-semibold text-label-primary mb-2">
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.4 }}
+                      className="glass-thick rounded-3xl p-16 text-center"
+                    >
+                      <FlaskConical className="w-20 h-20 text-emerald-600 mx-auto mb-6" />
+                      <h3 className="text-title-2 font-bold text-label-primary mb-3">
                         No hay aditivos disponibles
                       </h3>
-                      <p className="text-body text-label-secondary">
+                      <p className="text-callout text-label-secondary max-w-md mx-auto">
                         {searchTerm || selectedPlant !== 'all' 
                           ? 'Intenta ajustar los filtros de búsqueda'
                           : 'No se encontraron aditivos'}
                       </p>
-                    </div>
+                    </motion.div>
                   )}
                 </>
               )}
             </div>
           )}
-        </div>
-      </div>
-
-      {/* SECCIÓN DE VERIFICACIONES EN SITIO */}
-      <div className="space-y-6 pt-4 border-t border-white/10">
-        {/* Header */}
-        <div className="glass-thick rounded-3xl p-6">
-          <h2 className="text-title-2 font-semibold text-label-primary mb-2">
-            Verificaciones en Sitio
-          </h2>
-          <p className="text-body text-label-secondary">
-            Muestreos de control de calidad en obra sin ensayos de resistencia
-          </p>
-        </div>
-
-        {/* Summary Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="glass-thick rounded-3xl p-6"
-          >
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-3 rounded-2xl bg-systemBlue/20">
-                <CheckCircle2 className="w-6 h-6 text-systemBlue" />
-              </div>
-              <p className="text-caption font-medium text-label-secondary">
-                Total Site Checks
-              </p>
-            </div>
-            <p className="text-title-1 font-bold text-label-primary">
-              {siteChecks.length}
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="glass-thick rounded-3xl p-6"
-          >
-            <div className="flex items-center gap-3 mb-2">
-              <p className="text-caption font-medium text-label-secondary">
-                Porcentaje del Total
-              </p>
-            </div>
-            <p className="text-title-1 font-bold text-systemBlue">
-              {summary.totals.muestreos > 0 
-                ? ((siteChecks.length / summary.totals.muestreos) * 100).toFixed(1) 
-                : 0}%
-            </p>
-            <p className="text-caption text-label-tertiary mt-1">
-              de {summary.totals.muestreos} muestreos totales
-            </p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="glass-thick rounded-3xl p-6"
-          >
-            <div className="flex items-center gap-3 mb-2">
-              <p className="text-caption font-medium text-label-secondary">
-                Obras Verificadas
-              </p>
-            </div>
-            <p className="text-title-1 font-bold text-label-primary">
-              {Array.from(new Set(siteChecks.map(sc => sc.constructionSite))).length}
-            </p>
-          </motion.div>
-        </div>
-
-        {/* Site Checks List */}
-        <div className="space-y-4">
-          {siteChecks.length > 0 ? (
-            siteChecks.map((siteCheck, index) => (
-              <motion.div
-                key={siteCheck.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.4 + index * 0.05 }}
-                className="glass-interactive rounded-2xl p-6 border border-white/10 hover:border-white/20 transition-all"
-              >
-                {/* Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-callout font-semibold text-label-primary">
-                        {siteCheck.remisionNumber} - M{siteCheck.numeroMuestreo}
-                      </h3>
-                      <span className="px-3 py-1 bg-systemBlue/10 text-systemBlue border border-systemBlue/30 rounded-full text-caption font-medium">
-                        Site Check
-                      </span>
-                    </div>
-                    
-                    <div className="flex items-center gap-4 text-footnote text-label-secondary flex-wrap">
-                      <span className="flex items-center gap-1.5">
-                        <Calendar className="w-4 h-4" />
-                        {format(new Date(siteCheck.fechaMuestreo), 'dd MMM yyyy', { locale: es })}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <MapPin className="w-4 h-4" />
-                        {siteCheck.constructionSite}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Rendimiento Badge */}
-                  {siteCheck.rendimientoVolumetrico && siteCheck.rendimientoVolumetrico > 0 && (
-                    <div className="text-right ml-4">
-                      <p className="text-caption text-label-tertiary mb-1">Rendimiento</p>
-                      <p className={`text-callout font-bold ${
-                        siteCheck.rendimientoVolumetrico >= 98 
-                          ? 'text-systemGreen' 
-                          : siteCheck.rendimientoVolumetrico >= 95
-                          ? 'text-systemOrange'
-                          : 'text-systemRed'
-                      }`}>
-                        {siteCheck.rendimientoVolumetrico.toFixed(1)}%
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Metrics */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-white/10">
-                  <div>
-                    <p className="text-caption text-label-tertiary mb-1">Masa Unitaria</p>
-                    <p className="text-footnote font-medium text-label-primary">
-                      {siteCheck.masaUnitaria.toFixed(0)} kg/m³
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <p className="text-caption text-label-tertiary mb-1 flex items-center gap-1">
-                      <Thermometer className="w-3 h-3" />
-                      Temp. Concreto
-                    </p>
-                    <p className="text-footnote font-medium text-label-primary">
-                      {siteCheck.temperaturaConcreto.toFixed(1)}°C
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <p className="text-caption text-label-tertiary mb-1 flex items-center gap-1">
-                      <Thermometer className="w-3 h-3" />
-                      Temp. Ambiente
-                    </p>
-                    <p className="text-footnote font-medium text-label-primary">
-                      {siteCheck.temperaturaAmbiente.toFixed(1)}°C
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <p className="text-caption text-label-tertiary mb-1">Revenimiento</p>
-                    <p className="text-footnote font-medium text-label-primary">
-                      {siteCheck.revenimientoSitio.toFixed(1)} cm
-                    </p>
-                  </div>
-                </div>
-
-                {/* Additional Info */}
-                {siteCheck.concrete_specs && (
-                  <div className="mt-4 pt-4 border-t border-white/10">
-                    <p className="text-caption text-label-tertiary mb-2">Especificaciones del Concreto</p>
-                    <div className="glass-thin rounded-lg p-3">
-                      <pre className="text-caption text-label-secondary overflow-x-auto">
-                        {JSON.stringify(siteCheck.concrete_specs, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            ))
-          ) : (
-            <div className="glass-thick rounded-3xl p-12 text-center">
-              <CheckCircle2 className="w-16 h-16 text-label-tertiary mx-auto mb-4" />
-              <h3 className="text-title-2 font-bold text-label-primary mb-3">
-                No hay verificaciones en sitio
-              </h3>
-              <p className="text-body text-label-secondary">
-                Todos los muestreos en este período tienen ensayos de resistencia
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
+      </motion.div>
 
       {/* Modal de Certificados */}
       {selectedMaterial && (
