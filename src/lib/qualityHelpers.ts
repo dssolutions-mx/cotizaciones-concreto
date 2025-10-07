@@ -138,8 +138,8 @@ export function processComplianceDistribution(data: ClientQualityData): any[] {
 }
 
 /**
- * Process resistance trend for chart - Simple and clear
- * Returns resistance achieved vs target
+ * Process resistance trend for chart - Shows compliance percentage
+ * Returns compliance percentage directly from ensayos
  * Includes ALL ensayos at edad_garantia (including fuera de tiempo)
  */
 export function processResistanceTrend(data: ClientQualityData): any[] {
@@ -149,6 +149,7 @@ export function processResistanceTrend(data: ClientQualityData): any[] {
     if (!acc[date]) {
       acc[date] = {
         date,
+        compliances: [],
         resistencias: [],
         targets: []
       };
@@ -159,13 +160,16 @@ export function processResistanceTrend(data: ClientQualityData): any[] {
       m.muestras.forEach((mu: any) => {
         mu.ensayos.forEach((e: any) => {
           // Include all ensayos at edad_garantia, regardless of timing
-          if (e.isEdadGarantia && e.resistenciaCalculada && e.resistenciaCalculada > 0) {
-            acc[date].resistencias.push(e.resistenciaCalculada);
-          }
-          
-          // Get target
-          if (e.isEdadGarantia && e.resistenciaEspecificada && e.resistenciaEspecificada > 0) {
-            acc[date].targets.push(e.resistenciaEspecificada);
+          if (e.isEdadGarantia && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined) {
+            acc[date].compliances.push(e.porcentajeCumplimiento);
+            
+            // Also collect resistance and target for tooltip
+            if (e.resistenciaCalculada && e.resistenciaCalculada > 0) {
+              acc[date].resistencias.push(e.resistenciaCalculada);
+            }
+            if (e.resistenciaEspecificada && e.resistenciaEspecificada > 0) {
+              acc[date].targets.push(e.resistenciaEspecificada);
+            }
           }
         });
       });
@@ -176,18 +180,22 @@ export function processResistanceTrend(data: ClientQualityData): any[] {
   
   // Convert to simple array
   return Object.values(byDate)
-    .filter((day: any) => day.resistencias.length > 0)
+    .filter((day: any) => day.compliances.length > 0)
     .map((day: any) => {
-      const avgResistencia = day.resistencias.reduce((sum: number, r: number) => sum + r, 0) / day.resistencias.length;
+      const avgCompliance = day.compliances.reduce((sum: number, c: number) => sum + c, 0) / day.compliances.length;
+      const avgResistencia = day.resistencias.length > 0
+        ? day.resistencias.reduce((sum: number, r: number) => sum + r, 0) / day.resistencias.length
+        : null;
       const avgTarget = day.targets.length > 0 
         ? day.targets.reduce((sum: number, t: number) => sum + t, 0) / day.targets.length 
         : null;
       
       return {
         date: day.date,
-        resistencia: Math.round(avgResistencia),
+        cumplimiento: Math.round(avgCompliance * 10) / 10, // Main data - compliance %
+        resistencia: avgResistencia ? Math.round(avgResistencia) : null,
         objetivo: avgTarget ? Math.round(avgTarget) : null,
-        ensayos: day.resistencias.length
+        ensayos: day.compliances.length
       };
     })
     .sort((a: any, b: any) => a.date.localeCompare(b.date));

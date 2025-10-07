@@ -86,7 +86,7 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
           )}
         </motion.div>
 
-        {/* Resistance Performance Chart */}
+        {/* Compliance Performance Chart */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -95,10 +95,10 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
         >
           <div className="mb-4">
             <h3 className="text-title-3 font-semibold text-label-primary mb-1">
-              Resistencia Obtenida vs. Objetivo
+              Porcentaje de Cumplimiento
             </h3>
             <p className="text-footnote text-label-secondary">
-              Resistencia a compresión por fecha • Barras verdes cumplen objetivo
+              🟢 ≥100% Excelente  •  🟠 ≥85% Aceptable  •  🔴 &lt;85% Requiere atención
             </p>
           </div>
           {resistanceData.length > 0 ? (

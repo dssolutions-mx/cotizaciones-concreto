@@ -37,32 +37,46 @@ export function QualityChart({
   // Custom tooltip with iOS 26 styling
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
+      const data = payload[0]?.payload;
+      const cumplimiento = data?.cumplimiento;
+      const resistencia = data?.resistencia;
+      const objetivo = data?.objetivo;
+      
       return (
-        <div className="glass-thick rounded-xl p-4 border border-white/20 shadow-xl">
-          <p className="text-footnote font-semibold text-label-primary mb-2">
+        <div className="glass-thick rounded-xl p-4 border border-white/20 shadow-xl min-w-[220px]">
+          <p className="text-footnote font-semibold text-label-primary mb-3">
             {label}
           </p>
-          {payload.map((entry: any, index: number) => (
-            <div 
-              key={index} 
-              className="flex items-center justify-between gap-3 text-caption"
-            >
-              <span className="text-label-secondary">{entry.name}:</span>
-              <span 
-                className="font-bold"
-                style={{ color: entry.color }}
-              >
-                {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
-                {entry.name.toLowerCase().includes('porcentaje') || 
-                 entry.name.toLowerCase().includes('cumplimiento') || 
-                 entry.name.toLowerCase().includes('rendimiento') ? '%' : ''}
+          
+          {/* Compliance percentage - main metric */}
+          <div className="flex items-center justify-between gap-4 mb-3 pb-3 border-b border-white/10">
+            <span className="text-caption text-label-secondary">Cumplimiento:</span>
+            <span className={`text-title-3 font-bold ${
+              cumplimiento >= 100 ? 'text-systemGreen' : 
+              cumplimiento >= 85 ? 'text-systemOrange' : 
+              'text-systemRed'
+            }`}>
+              {cumplimiento?.toFixed(1)}%
+            </span>
+          </div>
+          
+          {/* Resistance details */}
+          {resistencia !== null && resistencia !== undefined && (
+            <div className="flex items-center justify-between gap-4 mb-2">
+              <span className="text-caption text-label-tertiary">Resistencia obtenida:</span>
+              <span className="text-callout text-label-secondary">
+                {resistencia} kg/cm²
               </span>
             </div>
-          ))}
-          {/* Show number of ensayos if available */}
-          {payload[0]?.payload?.ensayos && (
-            <div className="mt-2 pt-2 border-t border-white/10 text-caption text-label-tertiary">
-              {payload[0].payload.ensayos} ensayo{payload[0].payload.ensayos !== 1 ? 's' : ''}
+          )}
+          
+          {/* Target resistance */}
+          {objetivo !== null && objetivo !== undefined && objetivo > 0 && (
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-caption text-label-tertiary">f'c diseño:</span>
+              <span className="text-callout text-label-secondary">
+                {objetivo} kg/cm²
+              </span>
             </div>
           )}
         </div>
@@ -200,7 +214,7 @@ export function QualityChart({
     );
   }
 
-  // Resistance Performance Chart - Simple and Clear
+  // Resistance Performance Chart - Shows Compliance Percentage
   if (type === 'resistance-performance') {
     return (
       <ResponsiveContainer width="100%" height={height}>
@@ -214,42 +228,59 @@ export function QualityChart({
           />
           
           <YAxis 
+            domain={[80, 120]}
             tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
             stroke="rgba(255,255,255,0.3)"
-            label={{ value: 'Resistencia (kg/cm²)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.6)' }}
+            label={{ value: 'Cumplimiento (%)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.6)' }}
           />
           
           <Tooltip content={<CustomTooltip />} />
           {showLegend && <Legend wrapperStyle={{ paddingTop: '10px' }} />}
           
-          {/* Target line - if available */}
-          {data.some(d => d.objetivo) && (
-            <ReferenceLine 
-              y={data.find(d => d.objetivo)?.objetivo || 0}
-              stroke="#FF9500" 
-              strokeDasharray="5 5"
-              strokeWidth={2}
-              label={{ 
-                value: `Objetivo: ${data.find(d => d.objetivo)?.objetivo || 0} kg/cm²`, 
-                fill: '#FF9500', 
-                fontSize: 12,
-                position: 'top'
-              }}
-            />
-          )}
+          {/* Target line at 100% */}
+          <ReferenceLine 
+            y={100}
+            stroke="#34C759" 
+            strokeDasharray="5 5"
+            strokeWidth={2}
+            label={{ 
+              value: 'Objetivo 100%', 
+              fill: '#34C759', 
+              fontSize: 12,
+              position: 'top'
+            }}
+          />
           
-          {/* Bars for actual resistance */}
+          {/* Minimum acceptable line at 85% */}
+          <ReferenceLine 
+            y={85}
+            stroke="#FF9500" 
+            strokeDasharray="5 5"
+            strokeWidth={1}
+            label={{ 
+              value: 'Mínimo 85%', 
+              fill: '#FF9500', 
+              fontSize: 11,
+              position: 'right'
+            }}
+          />
+          
+          {/* Bars for compliance percentage */}
           <Bar 
-            dataKey="resistencia" 
-            name="Resistencia Obtenida"
+            dataKey="cumplimiento" 
+            name="% Cumplimiento"
             radius={[8, 8, 0, 0]}
             fill="#AF52DE"
           >
-            {/* Color bars based on meeting target */}
+            {/* Color bars based on compliance level */}
             {data.map((entry, index) => (
               <Cell 
                 key={`cell-${index}`}
-                fill={entry.objetivo && entry.resistencia >= entry.objetivo ? '#34C759' : '#AF52DE'}
+                fill={
+                  entry.cumplimiento >= 100 ? '#34C759' : 
+                  entry.cumplimiento >= 85 ? '#FF9500' : 
+                  '#FF3B30'
+                }
               />
             ))}
           </Bar>
