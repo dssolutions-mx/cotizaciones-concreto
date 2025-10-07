@@ -2,8 +2,5 @@
   "buildCommand": "node build.js",
   "devCommand": "next dev",
   "installCommand": "npm install",
-  "trailingSlash": false,
-  "git": {
-    "lfs": true
-  }
+  "trailingSlash": false
 } 

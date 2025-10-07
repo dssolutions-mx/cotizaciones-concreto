@@ -131,46 +131,6 @@ const ensureStandaloneManifests = () => {
   }
 };
 
-// Ensure public directory is copied to standalone build
-const ensureStandalonePublic = () => {
-  const sourcePublicDir = path.join('.', 'public');
-  const destPublicDir = path.join('.next', 'standalone', 'public');
-
-  console.log('Ensuring public directory is available in standalone build...');
-
-  if (fs.existsSync(sourcePublicDir)) {
-    // Copy entire public directory
-    const copyRecursive = (src, dest) => {
-      const stats = fs.statSync(src);
-      if (stats.isDirectory()) {
-        if (!fs.existsSync(dest)) {
-          fs.mkdirSync(dest, { recursive: true });
-        }
-        fs.readdirSync(src).forEach(file => {
-          copyRecursive(path.join(src, file), path.join(dest, file));
-        });
-      } else {
-        fs.copyFileSync(src, dest);
-      }
-    };
-
-    copyRecursive(sourcePublicDir, destPublicDir);
-    console.log(`Copied public directory to standalone build: ${destPublicDir}`);
-
-    // Verify the image exists
-    const imagePath = path.join(destPublicDir, 'images', 'dcconcretos', 'hero1.jpg');
-    if (fs.existsSync(imagePath)) {
-      const stats = fs.statSync(imagePath);
-      console.log(`Hero image copied successfully: ${imagePath} (${(stats.size / 1024 / 1024).toFixed(2)} MB)`);
-    } else {
-      console.error(`Hero image not found in build output: ${imagePath}`);
-    }
-  } else {
-    console.warn('Public directory not found in source');
-  }
-};
-
 ensureStandaloneManifests();
-ensureStandalonePublic();
 
 console.log('Build completed successfully!'); 
