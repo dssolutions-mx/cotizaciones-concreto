@@ -230,7 +230,7 @@ export function QualityChart({
           />
           
           <YAxis 
-            domain={[96, 104]}
+            domain={[90, 105]}
             tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.4)' }}
             stroke="rgba(255,255,255,0.1)"
             axisLine={false}
