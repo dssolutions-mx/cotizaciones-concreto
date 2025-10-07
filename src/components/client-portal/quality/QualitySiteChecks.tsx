@@ -1,6 +1,6 @@
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mountain,
   Droplet,
@@ -9,7 +9,10 @@ import {
   Box,
   Search,
   Loader2,
-  FileText
+  FileText,
+  Download,
+  Sparkles,
+  X
 } from 'lucide-react';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 import MaterialCertificateViewer from './MaterialCertificateViewer';
@@ -58,6 +61,7 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
   const [selectedPlant, setSelectedPlant] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<string>('agregados');
   const [selectedMaterial, setSelectedMaterial] = useState<{ id: string; name: string; category: string } | null>(null);
+  const [showComingSoon, setShowComingSoon] = useState(false);
 
   // Cargar plantas y materiales
   useEffect(() => {
@@ -281,12 +285,27 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <h1 className="text-large-title font-bold text-label-primary mb-3">
-          Verificación de Materiales
-        </h1>
-        <p className="text-body text-label-secondary">
-          Consulta los certificados de calidad de los materiales utilizados en tus órdenes
-        </p>
+        <div className="flex items-start justify-between gap-6 mb-3">
+          <div className="flex-1">
+            <h1 className="text-large-title font-bold text-label-primary mb-3">
+              Dossier de Calidad
+            </h1>
+            <p className="text-body text-label-secondary">
+              Consulta los certificados de calidad de los materiales utilizados en tus órdenes
+            </p>
+          </div>
+          
+          {/* Download Dossier Button */}
+          <motion.button
+            onClick={() => setShowComingSoon(true)}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="flex items-center gap-2.5 px-6 py-3.5 glass-interactive border-2 border-white/30 hover:border-white/50 text-label-primary rounded-2xl transition-all duration-300 font-semibold text-callout shadow-sm hover:shadow-md flex-shrink-0"
+          >
+            <Download className="w-5 h-5" />
+            <span className="hidden md:inline">Descargar Dossier</span>
+          </motion.button>
+        </div>
       </motion.div>
 
       {/* Filtros - iOS 26 Refined */}
@@ -634,6 +653,92 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
           onClose={() => setSelectedMaterial(null)}
         />
       )}
+
+      {/* Coming Soon Modal - iOS 26 Style */}
+      <AnimatePresence>
+        {showComingSoon && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 bg-black/40 backdrop-blur-md z-50 flex items-center justify-center p-4"
+            onClick={() => setShowComingSoon(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+              className="glass-thick rounded-3xl shadow-2xl max-w-md w-full border border-white/30 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header with refined accent */}
+              <div className="relative p-8 pb-6">
+                {/* Sparkle icon with subtle background */}
+                <div className="mb-6 flex justify-center">
+                  <div className="relative">
+                    <div className="absolute inset-0 bg-gradient-to-br from-slate-200 via-gray-100 to-slate-200 dark:from-slate-700 dark:via-gray-800 dark:to-slate-700 rounded-full blur-xl opacity-60"></div>
+                    <div className="relative p-4 bg-gradient-to-br from-slate-100 via-gray-50 to-slate-100 dark:from-slate-700 dark:via-gray-800 dark:to-slate-700 rounded-full shadow-lg">
+                      <Sparkles className="w-8 h-8 text-slate-600 dark:text-slate-300" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Close button */}
+                <motion.button
+                  onClick={() => setShowComingSoon(false)}
+                  whileHover={{ scale: 1.1, rotate: 90 }}
+                  whileTap={{ scale: 0.9 }}
+                  className="absolute top-6 right-6 p-2 hover:bg-white/20 dark:hover:bg-gray-700/40 rounded-full transition-colors"
+                >
+                  <X className="w-5 h-5 text-label-secondary" />
+                </motion.button>
+
+                <h3 className="text-title-1 font-bold text-label-primary mb-3 text-center">
+                  Próximamente
+                </h3>
+                <p className="text-callout text-label-secondary text-center leading-relaxed">
+                  La descarga del <span className="font-semibold text-label-primary">Dossier de Calidad</span> completo estará disponible muy pronto
+                </p>
+              </div>
+
+              {/* Feature preview section */}
+              <div className="px-8 pb-8">
+                <div className="glass-thin rounded-2xl p-4 border border-white/20">
+                  <p className="text-footnote text-label-secondary text-center mb-3 font-medium">
+                    Esta función incluirá:
+                  </p>
+                  <ul className="space-y-2.5 text-footnote text-label-secondary">
+                    <li className="flex items-center gap-2.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></div>
+                      <span>Todos los certificados en un solo archivo</span>
+                    </li>
+                    <li className="flex items-center gap-2.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></div>
+                      <span>Reporte completo de conformidad</span>
+                    </li>
+                    <li className="flex items-center gap-2.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></div>
+                      <span>Formato PDF optimizado</span>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* CTA Button */}
+                <motion.button
+                  onClick={() => setShowComingSoon(false)}
+                  whileHover={{ scale: 1.02, y: -1 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="w-full mt-6 px-6 py-4 glass-interactive border-2 border-white/30 hover:border-white/50 text-label-primary rounded-2xl font-semibold text-callout shadow-sm hover:shadow-md transition-all duration-300"
+                >
+                  Entendido
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
