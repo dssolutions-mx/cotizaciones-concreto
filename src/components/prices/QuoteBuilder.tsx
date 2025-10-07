@@ -1610,38 +1610,45 @@ export default function QuoteBuilder() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-[700px] w-[90vw] h-[90vh] overflow-hidden p-0 flex flex-col">
-          <div className="p-4 border-b border-gray-200 flex-shrink-0">
-            <DialogTitle>Crear Nueva Obra</DialogTitle>
-            <DialogDescription>
+        <DialogContent className="sm:max-w-[700px] w-[95vw] sm:w-[90vw] max-h-[90vh] h-[90vh] overflow-hidden p-0 flex flex-col">
+          {/* Fixed Header */}
+          <div className="flex-shrink-0 p-4 sm:p-6 border-b border-gray-200 bg-white">
+            <DialogTitle className="text-lg font-semibold">Crear Nueva Obra</DialogTitle>
+            <DialogDescription className="text-sm text-gray-600 mt-1">
               Completa los detalles de la nueva obra y selecciona su ubicación en el mapa.
             </DialogDescription>
           </div>
-          <div className="flex-1 overflow-hidden p-4">
-          {selectedClient ? (
-            <>
-              {/* Show debug info */}
-              {process.env.NODE_ENV === 'development' && (
-                <div className="bg-blue-50 p-2 mb-4 text-sm">
-                  <p>Google Maps API cargada: {typeof google !== 'undefined' && google.maps ? 'Sí' : 'No'}</p>
-                  <p>API Key presente: {!!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? 'Sí' : 'No'}</p>
+          
+          {/* Scrollable Body */}
+          <div className="flex-1 overflow-hidden p-4 sm:p-6 flex flex-col">
+            {selectedClient ? (
+              <div className="h-full flex flex-col">
+                {/* Show debug info */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="bg-blue-50 p-2 mb-2 text-sm rounded flex-shrink-0">
+                    <p>Google Maps API cargada: {typeof google !== 'undefined' && google.maps ? 'Sí' : 'No'}</p>
+                    <p>API Key presente: {!!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? 'Sí' : 'No'}</p>
+                  </div>
+                )}
+                <div className="flex-1 min-h-0">
+                  <ConstructionSiteForm
+                    clientId={selectedClient}
+                    onSiteCreated={(id: string, name: string, loc?: string, lat?: number, lng?: number) => handleSiteCreated(id, name, loc, lat, lng)}
+                    onCancel={() => setShowCreateSiteDialog(false)}
+                  />
                 </div>
-              )}
-                <ConstructionSiteForm
-                  clientId={selectedClient}
-                  onSiteCreated={(id: string, name: string, loc?: string, lat?: number, lng?: number) => handleSiteCreated(id, name, loc, lat, lng)}
-                  onCancel={() => setShowCreateSiteDialog(false)}
-                />
-              </>
+              </div>
             ) : (
-              <div className="p-4 text-center">
-                <p>Por favor, selecciona un cliente primero.</p>
-                <button
-                  onClick={() => setShowCreateSiteDialog(false)}
-                  className="mt-4 px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md"
-                >
-                  Cerrar
-                </button>
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center">
+                  <p className="mb-4">Por favor, selecciona un cliente primero.</p>
+                  <button
+                    onClick={() => setShowCreateSiteDialog(false)}
+                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md"
+                  >
+                    Cerrar
+                  </button>
+                </div>
               </div>
             )}
           </div>
