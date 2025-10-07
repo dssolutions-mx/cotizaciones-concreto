@@ -22,29 +22,31 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    // Check if user has permission to view materials
-    const allowedRoles = ['EXECUTIVE', 'PLANT_MANAGER', 'DOSIFICADOR'];
-    if (!allowedRoles.includes(profile.role)) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-    }
-
     // Get query parameters
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id');
+    const activeParam = searchParams.get('active');
 
     // Build query for materials
+    // IMPORTANT: RLS policies automatically filter materials based on user role:
+    // - EXTERNAL_CLIENT: Only materials from plants where they have orders AND used in those orders
+    // - Other roles (QUALITY_TEAM, PLANT_MANAGER, EXECUTIVE, etc.): All materials
     let query = supabase
       .from('materials')
       .select('*')
-      .eq('is_active', true)
       .order('material_name');
+
+    // Filter by active status - default to true if not specified
+    if (activeParam !== 'false') {
+      query = query.eq('is_active', true);
+    }
 
     // Filter by plant if specified
     if (plantId) {
       query = query.eq('plant_id', plantId);
     }
 
-    // Fetch materials
+    // Fetch materials (RLS policies automatically apply client-specific filtering)
     const { data: materials, error } = await query;
 
     if (error) {
@@ -52,7 +54,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to fetch materials' }, { status: 500 });
     }
 
-    return NextResponse.json({ materials });
+    return NextResponse.json({ success: true, data: materials });
   } catch (error) {
     console.error('Error in materials API:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
