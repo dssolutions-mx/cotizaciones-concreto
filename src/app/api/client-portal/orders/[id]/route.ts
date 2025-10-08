@@ -283,15 +283,21 @@ export async function GET(
       // Calculate rendimiento volumétrico for this remision
       let rendimientoVolumetrico = null;
       if (remisionMaterialesData.length > 0 && remision.volumen_fabricado > 0) {
-        // Sum all material quantities (kg)
-        const totalMaterialReal = remisionMaterialesData.reduce((sum: number, m: any) => 
+        // Sum all material quantities (kg) - use cantidad_real (actual materials used)
+        const sumaMateriales = remisionMaterialesData.reduce((sum: number, m: any) => 
           sum + (parseFloat(m.cantidad_real) || 0), 0);
-        const totalMaterialTeorico = remisionMaterialesData.reduce((sum: number, m: any) => 
-          sum + (parseFloat(m.cantidad_teorica) || 0), 0);
         
-        if (totalMaterialTeorico > 0) {
-          // Rendimiento = (Material Teórico / Material Real) * 100
-          rendimientoVolumetrico = (totalMaterialTeorico / totalMaterialReal) * 100;
+        // Get masa unitaria from muestreos for this remision
+        const remisionMuestreos = muestreos.filter(m => m.remision_id === remision.id);
+        const avgMasaUnitaria = remisionMuestreos.length > 0
+          ? remisionMuestreos.reduce((sum: number, m: any) => sum + (m.masa_unitaria || 0), 0) / remisionMuestreos.length
+          : 0;
+        
+        if (sumaMateriales > 0 && avgMasaUnitaria > 0) {
+          // Correct formula: Rendimiento = (Volumen Fabricado / Volumen Teórico) * 100
+          // Where: Volumen Teórico = Suma Materiales / Masa Unitaria
+          const volumenTeorico = sumaMateriales / avgMasaUnitaria;
+          rendimientoVolumetrico = (remision.volumen_fabricado / volumenTeorico) * 100;
         }
       }
       

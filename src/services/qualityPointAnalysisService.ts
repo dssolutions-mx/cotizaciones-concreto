@@ -225,13 +225,13 @@ export async function fetchPointAnalysisData(point: DatoGraficoResistencia): Pro
     const masaUnitaria = Number(muestreoData.masa_unitaria) || 0;
     const materiales = (muestreoData.remision?.remision_materiales || []) as Array<{ material_type: string; cantidad_real: number }>;
     const totalMateriales = materiales.reduce((s, m) => s + (Number(m.cantidad_real) || 0), 0);
-    const volumenReal = masaUnitaria > 0 && totalMateriales > 0 ? totalMateriales / masaUnitaria : 0;
-    const volumenRemision = Number(muestreoData.remision?.volumen_fabricado) || 0;
-    const rendimientoVolumetrico = volumenReal > 0 && volumenRemision > 0 ? (volumenReal / volumenRemision) * 100 : 0;
+    const volumenTeorico = masaUnitaria > 0 && totalMateriales > 0 ? totalMateriales / masaUnitaria : 0;
+    const volumenFabricado = Number(muestreoData.remision?.volumen_fabricado) || 0;
+    const rendimientoVolumetrico = volumenTeorico > 0 && volumenFabricado > 0 ? (volumenFabricado / volumenTeorico) * 100 : 0;
     const cementKg = materiales
       .filter(m => (m.material_type || '').toString().toUpperCase().includes('CEMENT'))
       .reduce((s, m) => s + (Number(m.cantidad_real) || 0), 0);
-    const consumoCementoReal = volumenReal > 0 ? cementKg / volumenReal : 0; // kg/m³
+    const consumoCementoReal = volumenTeorico > 0 ? cementKg / volumenTeorico : 0; // kg/m³
 
     // Average resistance at guarantee age for this muestreo
     let resistenciaGarantia = 0;
