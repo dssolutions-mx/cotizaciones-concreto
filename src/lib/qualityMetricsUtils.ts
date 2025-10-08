@@ -102,7 +102,7 @@ export function calcularEficiencia(
 
 /**
  * Calculate volumetric yield percentage
- * @param volumenFabricado Manufactured volume
+ * @param volumenFabricado Manufactured volume (volumen_real)
  * @param sumaMateriales Sum of materials in the recipe
  * @param masaUnitaria Unit mass
  * @returns Volumetric yield as a percentage
@@ -118,8 +118,8 @@ export function calcularRendimientoVolumetrico(
   const volumenTeorico = sumaMateriales / masaUnitaria;
   if (volumenTeorico === 0) return 0;
   
-  // Calculate and return yield percentage
-  return (volumenFabricado / volumenTeorico) * 100;
+  // CORRECTED FORMULA: (volumen_teorico / volumen_real) * 100
+  return (volumenTeorico / volumenFabricado) * 100;
 }
 
 /**
