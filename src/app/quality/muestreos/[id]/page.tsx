@@ -592,7 +592,7 @@ export default function MuestreoDetailPage() {
                       <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
                       <span className="text-sm text-gray-500">Calculando...</span>
                     </div>
-                  ) : rendimientoVolumetrico?.value !== null ? (
+                  ) : (rendimientoVolumetrico && rendimientoVolumetrico.value != null) ? (
                     <div className="space-y-2">
                       <div className="text-2xl font-bold text-gray-900">
                         {rendimientoVolumetrico.value.toFixed(1)}

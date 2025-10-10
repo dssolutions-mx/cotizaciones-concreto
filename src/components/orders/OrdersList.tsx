@@ -492,7 +492,7 @@ export default function OrdersList({
         // Attach creator profiles for initials
         let processedData = processedDataBase;
         try {
-          const creatorIds = Array.from(new Set((data || []).map((o: any) => o.created_by).filter(Boolean)));
+          const creatorIds = Array.from(new Set((transformedData || []).map((o: any) => o.created_by).filter(Boolean)));
           if (creatorIds.length > 0) {
             const { data: creators } = await supabase
               .from('user_profiles')
@@ -509,15 +509,6 @@ export default function OrdersList({
 
         setOrders(processedData);
       } else {
-        // Transform regular orders data structure to match OrderWithClient
-        const transformedData = (data || []).map((order: any) => ({
-          ...order,
-          site_access_rating: order.site_access_rating,
-          order_site_validations: order.order_site_validations,
-          // Ensure products field exists for compatibility
-          products: order.order_items || []
-        }));
-
         const { supabase } = await import('@/lib/supabase/client');
         let query = supabase
           .from('orders')
