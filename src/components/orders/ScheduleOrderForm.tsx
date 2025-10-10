@@ -7,6 +7,7 @@ import { clientService } from '@/lib/supabase/clients';
 import { supabase } from '@/lib/supabase';
 import orderService from '@/services/orderService';
 import { EmptyTruckDetails, PumpServiceDetails } from '@/types/orders';
+import SiteAccessValidation, { SiteAccessRating, SiteValidationState } from '@/components/orders/SiteAccessValidation';
 import { usePlantContext } from '@/contexts/PlantContext';
 // Map preview uses a simple Google Maps embed with marker; no JS API needed
 
@@ -225,6 +226,11 @@ export default function ScheduleOrderForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [invoiceSelection, setInvoiceSelection] = useState<boolean | null>(null);
+  
+  // Site access validation state
+  const [siteAccessRating, setSiteAccessRating] = useState<SiteAccessRating | null>(null);
+  const [siteValidation, setSiteValidation] = useState<SiteValidationState>({ evidence_photo_urls: [] });
+  const [siteValidationShowErrors, setSiteValidationShowErrors] = useState<boolean>(false);
   
   // Load clients on component mount
   useEffect(() => {
@@ -894,6 +900,31 @@ export default function ScheduleOrderForm({
       return;
     }
     
+    // Validate site access rating rules
+    if (!siteAccessRating) {
+      setSiteValidationShowErrors(true);
+      setError('Seleccione una validación de acceso a obra (Verde/Amarillo/Rojo)');
+      return;
+    }
+
+    if (siteAccessRating === 'yellow') {
+      const v = siteValidation;
+      if (!v.road_type || !v.road_slope || !v.recent_weather_impact || !v.route_incident_history || (v.evidence_photo_urls || []).length < 2) {
+        setSiteValidationShowErrors(true);
+        setError('Complete la validación de acceso (checklist y 2–3 fotos)');
+        return;
+      }
+    }
+
+    if (siteAccessRating === 'red') {
+      const v = siteValidation;
+      if (!v.road_slope || (v.road_slope !== 'moderate' && v.road_slope !== 'steep') || !v.recent_weather_impact || !v.route_incident_history || (v.evidence_photo_urls || []).length < 2) {
+        setSiteValidationShowErrors(true);
+        setError('Complete la validación roja (pendiente, clima, historial y 2–3 fotos)');
+        return;
+      }
+    }
+
     try {
       setIsSubmitting(true);
       setError(null);
@@ -1003,7 +1034,18 @@ export default function ScheduleOrderForm({
       }
       
       // Create order
-      const result = await orderService.createOrder(orderData, emptyTruckData, pumpServiceData);
+      // Attach site access info
+      const orderDataWithAccess: any = {
+        ...orderData,
+        site_access_rating: siteAccessRating,
+        site_validation: siteAccessRating !== 'green' ? {
+          ...siteValidation,
+          // Ensure road_type for red
+          road_type: siteAccessRating === 'red' ? 'gravel_rough' : siteValidation.road_type,
+        } : undefined
+      };
+
+      const result = await orderService.createOrder(orderDataWithAccess, emptyTruckData, pumpServiceData);
       
       console.log('Order created successfully:', result);
       
@@ -1750,33 +1792,53 @@ export default function ScheduleOrderForm({
                     </ol>
                   </div>
                 </div>
-                <div>
-                  <label htmlFor="deliveryDate" className="block text-sm font-medium mb-1">
-                    Fecha de Entrega
-                  </label>
-                  <input
-                    id="deliveryDate"
-                    type="date"
-                    value={deliveryDate}
-                    onChange={(e) => setDeliveryDate(e.target.value)}
-                    min=""
-                    required
-                    className="w-full rounded-md border border-gray-300 px-3 py-2"
+                {/* Site Access Validation Step */}
+                <div className="mt-2">
+                  <SiteAccessValidation
+                    rating={siteAccessRating}
+                    onChangeRating={(r) => {
+                      setSiteAccessRating(r);
+                      // Auto-fill for red handled in child, but ensure local state exists
+                      if (r === 'red') {
+                        setSiteValidation(prev => ({ ...prev, road_type: 'gravel_rough' }));
+                      }
+                    }}
+                    value={siteValidation}
+                    onChange={(v) => setSiteValidation(v)}
+                    showErrors={siteValidationShowErrors}
                   />
                 </div>
 
-                <div>
-                  <label htmlFor="deliveryTime" className="block text-sm font-medium mb-1">
-                    Hora de Entrega
-                  </label>
-                  <input
-                    id="deliveryTime"
-                    type="time"
-                    value={deliveryTime}
-                    onChange={(e) => setDeliveryTime(e.target.value)}
-                    required
-                    className="w-full rounded-md border border-gray-300 px-3 py-2"
-                  />
+                {/* Delivery date/time now after validation */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label htmlFor="deliveryDate" className="block text-sm font-medium mb-1">
+                      Fecha de Entrega
+                    </label>
+                    <input
+                      id="deliveryDate"
+                      type="date"
+                      value={deliveryDate}
+                      onChange={(e) => setDeliveryDate(e.target.value)}
+                      min=""
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="deliveryTime" className="block text-sm font-medium mb-1">
+                      Hora de Entrega
+                    </label>
+                    <input
+                      id="deliveryTime"
+                      type="time"
+                      value={deliveryTime}
+                      onChange={(e) => setDeliveryTime(e.target.value)}
+                      required
+                      className="w-full rounded-md border border-gray-300 px-3 py-2"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1917,6 +1979,14 @@ export default function ScheduleOrderForm({
                 Entrega: {deliveryDate.split('-').reverse().join('/')} a las {deliveryTime}
               </p>
 
+              {/* Site Access Summary */}
+              <div className="flex items-center justify-between bg-white/50 p-2 rounded-md">
+                <div className="text-sm text-gray-700">
+                  <span className="font-medium">🚦 Acceso:</span> {siteAccessRating ? (siteAccessRating === 'green' ? 'Verde' : siteAccessRating === 'yellow' ? 'Amarillo' : 'Rojo') : '—'}
+                  {siteAccessRating && siteAccessRating !== 'green' ? ` • Fotos: ${siteValidation.evidence_photo_urls?.length || 0}` : ''}
+                </div>
+              </div>
+
               {/* Coordinates summary */}
               <div className="flex items-center justify-between bg-white/50 p-2 rounded-md">
                 <div className="text-sm text-gray-700">
@@ -1952,7 +2022,22 @@ export default function ScheduleOrderForm({
                 invoiceSelection === null ||
                 !latitude ||
                 !longitude ||
-                !!coordinatesError
+                  !!coordinatesError ||
+                  !siteAccessRating ||
+                  (siteAccessRating === 'yellow' && (
+                    !siteValidation.road_type ||
+                    !siteValidation.road_slope ||
+                    !siteValidation.recent_weather_impact ||
+                    !siteValidation.route_incident_history ||
+                    (siteValidation.evidence_photo_urls?.length || 0) < 2
+                  )) ||
+                  (siteAccessRating === 'red' && (
+                    !siteValidation.road_slope ||
+                    (siteValidation.road_slope !== 'moderate' && siteValidation.road_slope !== 'steep') ||
+                    !siteValidation.recent_weather_impact ||
+                    !siteValidation.route_incident_history ||
+                    (siteValidation.evidence_photo_urls?.length || 0) < 2
+                  ))
               }
               className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
             >

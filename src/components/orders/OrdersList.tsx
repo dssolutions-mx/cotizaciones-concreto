@@ -73,6 +73,20 @@ function getPaymentTypeIndicator(requiresInvoice: boolean | undefined) {
   return 'bg-gray-100 text-gray-800 border border-gray-300';
 }
 
+function getAccessDotClass(rating?: string | null) {
+  if (!rating) return 'bg-gray-300';
+  switch (rating) {
+    case 'green':
+      return 'bg-green-500';
+    case 'yellow':
+      return 'bg-yellow-500';
+    case 'red':
+      return 'bg-red-500';
+    default:
+      return 'bg-gray-300';
+  }
+}
+
 function translateStatus(status: string) {
   switch (status) {
     case 'created':
@@ -222,6 +236,17 @@ function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWi
               {order.clients?.business_name || 'Cliente no disponible'}
             </h3>
             <span className="ml-2 text-sm text-gray-500">#{order.order_number}</span>
+            {/* Site Access semaforization dot */}
+            {(() => {
+              const rating = (order as any).site_access_rating as string | undefined;
+              const title = rating ? `Acceso: ${rating.toUpperCase()}` : 'Acceso: N/D';
+              return (
+                <span
+                  className={`ml-2 inline-block w-2.5 h-2.5 rounded-full ${getAccessDotClass(rating)}`}
+                  title={title}
+                />
+              );
+            })()}
             {initials && (
               <span className="ml-3 inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold" title="Creador del pedido">
                 {initials}
@@ -472,6 +497,7 @@ export default function OrdersList({
             special_requirements,
             preliminary_amount,
             final_amount,
+            site_access_rating,
             created_by,
             credit_status,
             order_status,

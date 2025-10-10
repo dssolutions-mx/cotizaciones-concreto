@@ -1212,8 +1212,15 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       <div className="mb-6 flex justify-between items-center">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold text-gray-900">
+            <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
               Orden #{order?.order_number || orderId.substring(0, 8)}
+              {/* Site Access semaforization dot */}
+              {(() => {
+                const rating = (order as any)?.site_access_rating as string | undefined;
+                const color = rating === 'green' ? 'bg-green-500' : rating === 'yellow' ? 'bg-yellow-500' : rating === 'red' ? 'bg-red-500' : 'bg-gray-300';
+                const title = rating ? `Acceso: ${rating.toUpperCase()}` : 'Acceso: N/D';
+                return <span className={`inline-block w-3 h-3 rounded-full ${color}`} title={title} />;
+              })()}
             </h1>
             {/* Quality Indicator Badge */}
             {hasRemisiones && (
