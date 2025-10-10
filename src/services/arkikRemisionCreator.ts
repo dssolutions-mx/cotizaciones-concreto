@@ -63,8 +63,18 @@ export class ArkikRemisionCreator {
         .insert({
           order_id: orderId,
           remision_number: stagingRemision.remision_number,
-          fecha: stagingRemision.fecha.toISOString().split('T')[0],
-          hora_carga: stagingRemision.hora_carga.toISOString(),
+          fecha: (() => {
+            const year = stagingRemision.fecha.getFullYear();
+            const month = String(stagingRemision.fecha.getMonth() + 1).padStart(2, '0');
+            const day = String(stagingRemision.fecha.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          })(),
+          hora_carga: (() => {
+            const hours = String(stagingRemision.hora_carga.getHours()).padStart(2, '0');
+            const minutes = String(stagingRemision.hora_carga.getMinutes()).padStart(2, '0');
+            const seconds = String(stagingRemision.hora_carga.getSeconds()).padStart(2, '0');
+            return `${hours}:${minutes}:${seconds}`;
+          })(),
           volumen_fabricado: stagingRemision.volumen_fabricado,
           conductor: stagingRemision.conductor,
           placas: stagingRemision.placas,

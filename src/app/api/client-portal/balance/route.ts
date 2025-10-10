@@ -5,6 +5,26 @@ export async function GET(request: Request) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
 
+    // Get date range from query parameters
+    const { searchParams } = new URL(request.url);
+    const daysParam = searchParams.get('days');
+    const fromParam = searchParams.get('from');
+    const toParam = searchParams.get('to');
+    
+    // Determine date range strategy
+    let daysToFetch: number | null = null;
+    let customFromDate: string | null = null;
+    let customToDate: string | null = null;
+    
+    if (fromParam && toParam) {
+      // Custom date range
+      customFromDate = fromParam;
+      customToDate = toParam;
+    } else if (daysParam && daysParam !== 'all') {
+      // Preset days
+      daysToFetch = parseInt(daysParam, 10);
+    }
+
     // Get authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) {
@@ -51,7 +71,23 @@ export async function GET(request: Request) {
     const generalBalance = balances?.find(b => b.construction_site === null && b.construction_site_id === null);
     const siteBalances = balances?.filter(b => b.construction_site !== null || b.construction_site_id !== null) || [];
 
-    // Fetch recent payments - RLS will filter automatically
+    // Calculate date range
+    let dateFromStr: string | null = null;
+    let dateToStr: string | null = null;
+    
+    if (customFromDate && customToDate) {
+      // Use custom date range
+      dateFromStr = customFromDate;
+      dateToStr = customToDate;
+    } else if (daysToFetch) {
+      // Calculate from days parameter
+      const dateRangeAgo = new Date();
+      dateRangeAgo.setDate(dateRangeAgo.getDate() - daysToFetch);
+      dateFromStr = dateRangeAgo.toISOString();
+      dateToStr = new Date().toISOString();
+    }
+
+    // Fetch recent payments for display (last 10) - RLS will filter automatically
     const { data: payments, error: paymentsError } = await supabase
       .from('client_payments')
       .select('id, amount, payment_date, payment_method, reference_number, construction_site, notes')
@@ -63,6 +99,25 @@ export async function GET(request: Request) {
       console.error('Balance API: Payments query error:', paymentsError);
     }
 
+    // Fetch payments for the selected date range for total calculation
+    let paymentsQuery = supabase
+      .from('client_payments')
+      .select('amount, payment_date')
+      .eq('client_id', clientId);
+    
+    if (dateFromStr) {
+      paymentsQuery = paymentsQuery.gte('payment_date', dateFromStr);
+    }
+    if (dateToStr) {
+      paymentsQuery = paymentsQuery.lte('payment_date', dateToStr);
+    }
+
+    const { data: paymentsInRange, error: paymentsRangeError } = await paymentsQuery;
+
+    if (paymentsRangeError) {
+      console.error('Balance API: Payments (range) query error:', paymentsRangeError);
+    }
+
     // Fetch balance adjustments - RLS will filter automatically
     const { data: adjustments, error: adjustmentsError } = await supabase
       .rpc('get_client_balance_adjustments', { p_client_id: clientId })
@@ -72,11 +127,20 @@ export async function GET(request: Request) {
       console.error('Balance API: Adjustments query error:', adjustmentsError);
     }
 
-    // Get orders with construction site information
-    const { data: orders, error: ordersError } = await supabase
+    // Get orders with construction site information for the selected date range
+    let ordersQuery = supabase
       .from('orders')
-      .select('id, final_amount, construction_site')
+      .select('id, final_amount, construction_site, created_at')
       .eq('client_id', clientId);
+    
+    if (dateFromStr) {
+      ordersQuery = ordersQuery.gte('created_at', dateFromStr);
+    }
+    if (dateToStr) {
+      ordersQuery = ordersQuery.lte('created_at', dateToStr);
+    }
+
+    const { data: orders, error: ordersError } = await ordersQuery;
 
     if (ordersError) {
       console.error('Balance API: Orders query error:', ordersError);
@@ -143,9 +207,9 @@ export async function GET(request: Request) {
       }
     });
 
-    // Calculate totals
+    // Calculate totals for selected date range
     const totalDeliveredVolume = orderItems.reduce((sum, item) => sum + (parseFloat(item.volume) || 0), 0);
-    const totalPaid = payments?.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0) || 0;
+    const totalPaid = paymentsInRange?.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0) || 0;
     const totalConsumption = orders
       ?.filter(o => ordersWithItems.has(o.id))
       .reduce((sum, o) => sum + (parseFloat(o.final_amount as any) || 0), 0) || 0;

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   DollarSign, 
   TrendingDown, 
@@ -10,7 +10,8 @@ import {
   Calendar,
   Download,
   CreditCard,
-  Building
+  Building,
+  Filter
 } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
 import { Card as BaseCard } from '@/components/ui/Card';
@@ -18,8 +19,32 @@ import { MetricCard } from '@/components/ui/MetricCard';
 import { DataList } from '@/components/ui/DataList';
 import { Button } from '@/components/ui/button';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
-import { format } from 'date-fns';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import DateRangeFilter from '@/components/client-portal/DateRangeFilter';
+import { format, startOfDay, endOfDay, subDays, differenceInDays } from 'date-fns';
 import { es } from 'date-fns/locale';
+
+// Helper to safely format date from timestamp or date string
+const formatDateFromString = (date: string | null | undefined): string => {
+  if (!date) return 'Fecha inválida';
+  try {
+    const dateObj = new Date(date);
+    if (isNaN(dateObj.getTime())) return 'Fecha inválida';
+    return dateObj.toLocaleDateString('es-MX', {
+      day: 'numeric',
+      month: 'short'
+    });
+  } catch (error) {
+    console.warn('Error formatting date:', date, error);
+    return 'Fecha inválida';
+  }
+};
 
 interface BalanceData {
   general: {
@@ -42,16 +67,46 @@ interface BalanceData {
   }>;
 }
 
+type DateRange = '7' | '15' | '30' | '60' | '90' | 'all';
+
+const getDateRangeLabel = (range: DateRange): string => {
+  switch (range) {
+    case '7': return '7 días';
+    case '15': return '15 días';
+    case '30': return '30 días';
+    case '60': return '60 días';
+    case '90': return '90 días';
+    case 'all': return 'todo el tiempo';
+    default: return '30 días';
+  }
+};
+
 export default function BalancePage() {
   const router = useRouter();
   const [data, setData] = useState<BalanceData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dateRange, setDateRange] = useState<DateRange>('30');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [customDateRange, setCustomDateRange] = useState<{ from: Date; to: Date } | null>(null);
 
   useEffect(() => {
     async function fetchBalance() {
+      setLoading(true);
       try {
+        // Build URL with date range parameter
+        const url = new URL('/api/client-portal/balance', window.location.origin);
+        
+        if (customDateRange) {
+          // Use custom date range
+          url.searchParams.set('from', customDateRange.from.toISOString());
+          url.searchParams.set('to', customDateRange.to.toISOString());
+        } else if (dateRange !== 'all') {
+          // Use preset days
+          url.searchParams.set('days', dateRange);
+        }
+        
         // Use the dedicated balance API which returns complete financial data
-        const response = await fetch('/api/client-portal/balance');
+        const response = await fetch(url.toString());
         const balanceData = await response.json();
 
         if (!response.ok) throw new Error(balanceData.error || 'Failed to fetch balance data');
@@ -80,7 +135,23 @@ export default function BalancePage() {
     }
 
     fetchBalance();
-  }, []);
+  }, [dateRange, customDateRange]);
+
+  const handleApplyCustomDateRange = (range: { from: Date; to: Date }) => {
+    setCustomDateRange(range);
+    setShowDatePicker(false);
+  };
+
+  const handleCancelDatePicker = () => {
+    setShowDatePicker(false);
+  };
+
+  const getActiveDateRangeLabel = () => {
+    if (customDateRange) {
+      return `${format(customDateRange.from, 'dd MMM', { locale: es })} - ${format(customDateRange.to, 'dd MMM yyyy', { locale: es })}`;
+    }
+    return getDateRangeLabel(dateRange);
+  };
 
   if (loading) {
     return <ClientPortalLoader message="Cargando balance..." />;
@@ -95,17 +166,60 @@ export default function BalancePage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded-2xl glass-thick flex items-center justify-center border border-white/30">
-              <DollarSign className="w-6 h-6 text-label-primary" />
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl glass-thick flex items-center justify-center border border-white/30">
+                <DollarSign className="w-6 h-6 text-label-primary" />
+              </div>
+              <div>
+                <h1 className="text-large-title font-bold text-label-primary">
+                  Balance Financiero
+                </h1>
+                <p className="text-body text-label-secondary">
+                  Estado de cuenta actualizado
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-large-title font-bold text-label-primary">
-                Balance Financiero
-              </h1>
-              <p className="text-body text-label-secondary">
-                Estado de cuenta actualizado
-              </p>
+            
+            {/* Date Range Filter */}
+            <div className="flex items-center gap-3">
+              <Filter className="w-5 h-5 text-label-tertiary" />
+              <Select 
+                value={customDateRange ? 'custom' : dateRange} 
+                onValueChange={(value) => {
+                  if (value === 'custom') {
+                    setShowDatePicker(true);
+                  } else {
+                    setCustomDateRange(null);
+                    setDateRange(value as DateRange);
+                  }
+                }}
+              >
+                <SelectTrigger className="w-[220px] glass-base border-white/20">
+                  <SelectValue placeholder="Seleccionar período" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="7">Últimos 7 días</SelectItem>
+                  <SelectItem value="15">Últimos 15 días</SelectItem>
+                  <SelectItem value="30">Últimos 30 días</SelectItem>
+                  <SelectItem value="60">Últimos 60 días</SelectItem>
+                  <SelectItem value="90">Últimos 90 días</SelectItem>
+                  <SelectItem value="all">Todo el tiempo</SelectItem>
+                  <SelectItem value="custom">
+                    {customDateRange ? `${format(customDateRange.from, 'dd/MM', { locale: es })} - ${format(customDateRange.to, 'dd/MM/yy', { locale: es })}` : 'Rango personalizado...'}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              
+              <Button
+                variant="glass"
+                size="sm"
+                onClick={() => setShowDatePicker(true)}
+                className="flex items-center gap-2"
+              >
+                <Calendar className="w-4 h-4" />
+                Personalizar
+              </Button>
             </div>
           </div>
         </motion.div>
@@ -158,7 +272,7 @@ export default function BalancePage() {
                   <div className="flex items-center gap-4 mb-3">
                     <TrendingUp className="w-5 h-5 text-label-tertiary" />
                     <p className="text-footnote text-label-tertiary uppercase tracking-wide">
-                      Total Entregado
+                      Total Entregado ({getActiveDateRangeLabel()})
                     </p>
                   </div>
                   <p className="text-title-2 font-bold text-label-primary">
@@ -173,7 +287,7 @@ export default function BalancePage() {
                   <div className="flex items-center gap-4 mb-3">
                     <TrendingDown className="w-5 h-5 text-label-tertiary" />
                     <p className="text-footnote text-label-tertiary uppercase tracking-wide">
-                      Total Pagado
+                      Total Pagado ({getActiveDateRangeLabel()})
                     </p>
                   </div>
                   <p className="text-title-2 font-bold text-label-primary">
@@ -325,7 +439,7 @@ export default function BalancePage() {
                           </div>
                         </div>
                         <p className="text-footnote text-label-tertiary">
-                          {format(new Date(payment.payment_date), 'd MMM', { locale: es })}
+                          {formatDateFromString(payment.payment_date)}
                         </p>
                       </div>
                     </motion.div>
@@ -342,6 +456,22 @@ export default function BalancePage() {
             </div>
           </motion.div>
         </div>
+
+        {/* Custom Date Range Picker Modal */}
+        <AnimatePresence>
+          {showDatePicker && (
+            <DateRangeFilter
+              dateRange={
+                customDateRange || {
+                  from: startOfDay(subDays(new Date(), 30)),
+                  to: endOfDay(new Date())
+                }
+              }
+              onApply={handleApplyCustomDateRange}
+              onCancel={handleCancelDatePicker}
+            />
+          )}
+        </AnimatePresence>
       </Container>
     </div>
   );

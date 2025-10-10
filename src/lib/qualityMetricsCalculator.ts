@@ -104,8 +104,9 @@ function calculateIndividualAdvancedMetrics(rawData: RawDataBundle): { efficienc
         
         let rendimientoVolumetrico: number | null = null;
         if (masaUnitaria && masaUnitaria > 0 && volumenRegistrado && volumenRegistrado > 0 && sumaMateriales > 0) {
-            const volumenReal = sumaMateriales / masaUnitaria;
-            rendimientoVolumetrico = (volumenReal / volumenRegistrado) * 100;
+            const volumenTeorico = sumaMateriales / masaUnitaria;
+            // CORRECTED FORMULA: (volumen_teorico / volumen_real) * 100
+            rendimientoVolumetrico = (volumenTeorico / volumenRegistrado) * 100;
             if (!isNaN(rendimientoVolumetrico)) { // Check for NaN
                calculatedYields.push(rendimientoVolumetrico);
             }

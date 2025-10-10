@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Beaker, Filter, Calendar } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
-import { format, subDays } from 'date-fns';
+import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import QualityTabs from '@/components/client-portal/quality/QualityTabs';
-import DatePicker from '@/components/client-portal/quality/DatePicker';
+import DateRangeFilter from '@/components/client-portal/DateRangeFilter';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 
@@ -19,11 +19,27 @@ export default function QualityPage() {
   const [loadingStage, setLoadingStage] = useState('Inicializando...');
   const [showFilters, setShowFilters] = useState(false);
   const [dateRange, setDateRange] = useState({
-    from: subDays(new Date(), 30), // Default to last 30 days
-    to: new Date()
+    from: startOfDay(subDays(new Date(), 30)), // Default to last 30 days
+    to: endOfDay(new Date())
   });
 
-  const fetchQualityData = async () => {
+  // Helper to format date without timezone conversion
+  const formatDateForAPI = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Helper to parse date string (YYYY-MM-DD) without timezone conversion
+  const parseLocalDate = (dateString: string): Date => {
+    const [year, month, day] = dateString.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  const fetchQualityData = async (range?: { from: Date; to: Date }) => {
+    const rangeToUse = range || dateRange;
+    
     try {
       setLoading(true);
       setLoadingProgress(0);
@@ -39,8 +55,8 @@ export default function QualityPage() {
       ];
 
       const params = new URLSearchParams({
-        from: format(dateRange.from, 'yyyy-MM-dd'),
-        to: format(dateRange.to, 'yyyy-MM-dd')
+        from: formatDateForAPI(rangeToUse.from),
+        to: formatDateForAPI(rangeToUse.to)
       });
 
       // Start progress simulation
@@ -123,7 +139,7 @@ export default function QualityPage() {
               Control de Calidad
             </h1>
             <p className="text-body text-label-secondary">
-              {format(new Date(summary.period.from), "dd MMM", { locale: es })} - {format(new Date(summary.period.to), "dd MMM yyyy", { locale: es })}
+              {format(parseLocalDate(summary.period.from), "dd MMM", { locale: es })} - {format(parseLocalDate(summary.period.to), "dd MMM yyyy", { locale: es })}
             </p>
           </div>
           
@@ -136,82 +152,18 @@ export default function QualityPage() {
           </button>
         </motion.div>
 
-        {/* Filters */}
+        {/* Date Range Filter Modal */}
         <AnimatePresence>
           {showFilters && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.3 }}
-              className="overflow-hidden mb-8"
-            >
-              <div className="glass-thick rounded-3xl p-6">
-                <h3 className="text-title-3 font-semibold text-label-primary mb-4">
-                  Filtrar por Período
-                </h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <DatePicker
-                    label="Desde"
-                    value={dateRange.from}
-                    onChange={(date) => setDateRange(prev => ({ ...prev, from: date }))}
-                    maxDate={dateRange.to}
-                  />
-                  
-                  <DatePicker
-                    label="Hasta"
-                    value={dateRange.to}
-                    onChange={(date) => setDateRange(prev => ({ ...prev, to: date }))}
-                    minDate={dateRange.from}
-                    maxDate={new Date()}
-                  />
-                </div>
-
-                {/* Quick Filters */}
-                <div className="mt-6 pt-6 border-t border-white/10">
-                  <p className="text-caption font-medium text-label-secondary mb-3">
-                    Accesos Rápidos
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { label: 'Últimos 7 días', days: 7 },
-                      { label: 'Últimos 30 días', days: 30 },
-                      { label: 'Últimos 60 días', days: 60 },
-                      { label: 'Últimos 90 días', days: 90 }
-                    ].map(({ label, days }) => (
-                      <button
-                        key={days}
-                        onClick={() => {
-                          setDateRange({
-                            from: subDays(new Date(), days),
-                            to: new Date()
-                          });
-                        }}
-                        className="px-4 py-2 rounded-xl glass-thin hover:glass-interactive text-footnote text-label-primary transition-all"
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={fetchQualityData}
-                    className="flex-1 px-6 py-3 bg-systemBlue hover:bg-systemBlue/90 text-white rounded-xl text-callout font-medium transition-all shadow-lg"
-                  >
-                    Aplicar Filtros
-                  </button>
-                  <button
-                    onClick={() => setShowFilters(false)}
-                    className="px-6 py-3 glass-thin hover:glass-interactive text-label-primary rounded-xl text-callout font-medium transition-all"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </div>
-            </motion.div>
+            <DateRangeFilter
+              dateRange={dateRange}
+              onApply={(newRange) => {
+                setDateRange(newRange);
+                setShowFilters(false);
+                fetchQualityData(newRange);
+              }}
+              onCancel={() => setShowFilters(false)}
+            />
           )}
         </AnimatePresence>
 

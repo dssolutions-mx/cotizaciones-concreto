@@ -22,17 +22,26 @@ export async function GET(request: Request) {
       console.error('Dashboard API: Orders query error:', ordersError);
     }
 
-    // Get delivered volume from order_items - more efficient than remisiones
+    // Get delivered volume from order_items for current month only
     // RLS will automatically filter through the orders relationship
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    
+    const firstDayStr = firstDayOfMonth.toISOString().split('T')[0];
+    const lastDayStr = lastDayOfMonth.toISOString().split('T')[0];
+
     const { data: orderItems, error: orderItemsError } = await supabase
       .from('order_items')
-      .select('concrete_volume_delivered, volume');
+      .select('concrete_volume_delivered, orders!inner(delivery_date)')
+      .gte('orders.delivery_date', firstDayStr)
+      .lte('orders.delivery_date', lastDayStr);
 
     if (orderItemsError) {
       console.error('Dashboard API: Order items query error:', orderItemsError);
     }
 
-    // Calculate total delivered volume from order_items
+    // Calculate delivered volume for current month
     const deliveredVolume = orderItems?.reduce(
       (sum, item) => sum + (parseFloat(item.concrete_volume_delivered as any) || 0),
       0
@@ -53,6 +62,39 @@ export async function GET(request: Request) {
 
     const currentBalance = balance?.current_balance || 0;
 
+    // Get client_id for RPC call
+    const { data: clientData } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('portal_user_id', user.id)
+      .single();
+
+    const clientId = clientData?.id;
+
+    // Get quality score using the same RPC function as quality page
+    let qualityScore = 0;
+    if (clientId) {
+      // Get quality summary from last 90 days
+      const toDate = new Date().toISOString().split('T')[0];
+      const fromDate = (() => {
+        const date = new Date();
+        date.setDate(date.getDate() - 90);
+        return date.toISOString().split('T')[0];
+      })();
+
+      const { data: qualitySummary, error: qualityError } = await supabase
+        .rpc('get_client_quality_summary', {
+          p_client_id: clientId,
+          p_from_date: fromDate,
+          p_to_date: toDate
+        })
+        .single();
+
+      if (!qualityError && qualitySummary) {
+        qualityScore = Math.round(Number(qualitySummary.avg_compliance) || 0);
+      }
+    }
+
     // Get recent activity: orders, payments, and quality tests
     let recentActivity: any[] = [];
     let validEnsayos: any[] = [];
@@ -72,50 +114,43 @@ export async function GET(request: Request) {
         .order('payment_date', { ascending: false })
         .limit(10);
 
-      // 3. Get quality data for quality score
-      const { data: clientOrders } = await supabase
-        .from('orders')
-        .select('id');
+      // 3. Get recent quality tests for activity feed only (using optimized query)
+      if (clientId) {
+        const toDateActivity = new Date().toISOString().split('T')[0];
+        const fromDateActivity = (() => {
+          const date = new Date();
+          date.setDate(date.getDate() - 30);
+          return date.toISOString().split('T')[0];
+        })();
 
-      const orderIds = clientOrders?.map(o => o.id) || [];
+        const { data: qualityDetails } = await supabase
+          .rpc('get_client_quality_details', {
+            p_client_id: clientId,
+            p_from_date: fromDateActivity,
+            p_to_date: toDateActivity,
+            p_limit: 50,
+            p_offset: 0
+          });
 
-      // Get recent quality tests
-      if (orderIds.length > 0) {
-        const { data: remisiones } = await supabase
-          .from('remisiones')
-          .select('id')
-          .in('order_id', orderIds);
-
-        const remisionIds = remisiones?.map(r => r.id) || [];
-
-        if (remisionIds.length > 0) {
-          const { data: muestreos } = await supabase
-            .from('muestreos')
-            .select('id')
-            .in('remision_id', remisionIds);
-
-          const muestreoIds = muestreos?.map(m => m.id) || [];
-
-          if (muestreoIds.length > 0) {
-            const { data: muestras } = await supabase
-              .from('muestras')
-              .select('id')
-              .in('muestreo_id', muestreoIds);
-
-            const muestraIds = muestras?.map(m => m.id) || [];
-
-            if (muestraIds.length > 0) {
-              const { data: ensayos } = await supabase
-                .from('ensayos')
-                .select('id, fecha_ensayo, resistencia_calculada, porcentaje_cumplimiento, created_at')
-                .in('muestra_id', muestraIds)
-                .not('porcentaje_cumplimiento', 'is', null)
-                .order('fecha_ensayo', { ascending: false })
-                .limit(100);
-
-              validEnsayos = ensayos || [];
-            }
-          }
+        // Extract ensayos from quality details for activity feed
+        if (qualityDetails && qualityDetails.length > 0) {
+          validEnsayos = qualityDetails
+            .flatMap((r: any) => 
+              (r.muestreos || []).flatMap((m: any) => 
+                (m.muestras || []).flatMap((mu: any) => 
+                  (mu.ensayos || []).map((e: any) => ({
+                    id: e.id,
+                    fecha_ensayo: e.fechaEnsayo,
+                    resistencia_calculada: e.resistenciaCalculada,
+                    porcentaje_cumplimiento: e.porcentajeCumplimiento,
+                    created_at: e.fechaEnsayo
+                  }))
+                )
+              )
+            )
+            .filter((e: any) => e.porcentaje_cumplimiento != null)
+            .sort((a: any, b: any) => new Date(b.fecha_ensayo).getTime() - new Date(a.fecha_ensayo).getTime())
+            .slice(0, 10);
         }
       }
 
@@ -166,11 +201,6 @@ export async function GET(request: Request) {
       console.error('Dashboard API: Recent activity query error:', error);
       // Continue with empty activity data rather than failing
     }
-
-    // Calculate quality score from all ensayos
-    const qualityScore = validEnsayos.length
-      ? Math.round(validEnsayos.reduce((sum, e) => sum + (parseFloat(e.porcentaje_cumplimiento) || 0), 0) / validEnsayos.length)
-      : 0;
 
     // Ensure we always return valid data structure
     const responseData = {

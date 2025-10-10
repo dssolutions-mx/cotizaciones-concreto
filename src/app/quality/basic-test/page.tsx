@@ -430,11 +430,11 @@ export default function QualityBasicTestPage() {
       let consumoCemento = null;
       let eficiencia = null;
 
-      // Calculate volumen real
+      // Calculate volumen teorico
       if (masaUnitaria > 0 && sumaMateriales > 0) {
         volumenReal = sumaMateriales / masaUnitaria;
         
-        // Calculate rendimiento volumetrico
+        // CORRECTED FORMULA: Calculate rendimiento volumetrico
         if (volumenRegistrado > 0) {
           rendimientoVolumetrico = (volumenReal / volumenRegistrado) * 100;
         }

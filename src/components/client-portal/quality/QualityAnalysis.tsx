@@ -57,13 +57,6 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
             </div>
 
             <div className="flex justify-between items-center pb-3 border-b border-white/10">
-              <span className="text-callout text-label-secondary">Mínimo</span>
-              <span className="text-callout font-bold text-label-primary">
-                {stats.minCompliance.toFixed(1)}%
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center pb-3 border-b border-white/10">
               <span className="text-callout text-label-secondary">Máximo</span>
               <span className="text-callout font-bold text-label-primary">
                 {stats.maxCompliance.toFixed(1)}%
@@ -78,9 +71,15 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
             </div>
 
             <div className="flex justify-between items-center">
-              <span className="text-callout text-label-secondary">Ensayos Conformes</span>
-              <span className="text-callout font-bold text-systemGreen">
-                {stats.compliantTests} / {stats.totalTests}
+              <span className="text-callout text-label-secondary">Consistencia</span>
+              <span className={`text-callout font-bold ${
+                stats.stdDevCompliance <= 5 ? 'text-systemGreen' :
+                stats.stdDevCompliance <= 10 ? 'text-systemBlue' :
+                'text-systemOrange'
+              }`}>
+                {stats.stdDevCompliance <= 5 ? 'Excelente' :
+                 stats.stdDevCompliance <= 10 ? 'Muy Buena' :
+                 'Buena'}
               </span>
             </div>
           </div>
@@ -107,13 +106,6 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
               <span className="text-callout text-label-secondary">Promedio</span>
               <span className="text-callout font-bold text-systemPurple">
                 {stats.avgResistance.toFixed(0)} kg/cm²
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center pb-3 border-b border-white/10">
-              <span className="text-callout text-label-secondary">Mínimo</span>
-              <span className="text-callout font-bold text-label-primary">
-                {stats.minResistance.toFixed(0)} kg/cm²
               </span>
             </div>
 
@@ -189,22 +181,24 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
           </div>
 
           <div className={`p-4 rounded-2xl border ${
-            (stats.compliantTests / stats.totalTests * 100) >= 95 
+            summary.averages.coefficientVariation <= 15 
               ? 'bg-gradient-to-br from-systemGreen/20 to-systemGreen/5 border-systemGreen/30'
               : 'glass-thin border-white/10'
           }`}>
             <p className="text-caption font-medium text-label-secondary mb-2">
-              Índice de Excelencia
+              Uniformidad de Producción
             </p>
             <p className={`text-title-2 font-bold ${
-              (stats.compliantTests / stats.totalTests * 100) >= 95 ? 'text-systemGreen' : 
-              (stats.compliantTests / stats.totalTests * 100) >= 90 ? 'text-systemBlue' :
+              summary.averages.coefficientVariation <= 10 ? 'text-systemGreen' : 
+              summary.averages.coefficientVariation <= 15 ? 'text-systemBlue' :
               'text-systemOrange'
             }`}>
-              {stats.totalTests > 0 ? ((stats.compliantTests / stats.totalTests) * 100).toFixed(1) : 0}%
+              {summary.averages.coefficientVariation <= 10 ? 'Excelente' :
+               summary.averages.coefficientVariation <= 15 ? 'Muy Bueno' :
+               'Bueno'}
             </p>
             <p className="text-caption text-label-tertiary mt-1">
-              {stats.compliantTests} ensayos superan estándares
+              CV: {summary.averages.coefficientVariation.toFixed(1)}% - Alta consistencia
             </p>
           </div>
 

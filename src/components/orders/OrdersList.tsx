@@ -73,6 +73,20 @@ function getPaymentTypeIndicator(requiresInvoice: boolean | undefined) {
   return 'bg-gray-100 text-gray-800 border border-gray-300';
 }
 
+function getAccessDotClass(rating?: string | null) {
+  if (!rating) return 'bg-gray-300';
+  switch (rating) {
+    case 'green':
+      return 'bg-green-500';
+    case 'yellow':
+      return 'bg-yellow-500';
+    case 'red':
+      return 'bg-red-500';
+    default:
+      return 'bg-gray-300';
+  }
+}
+
 function translateStatus(status: string) {
   switch (status) {
     case 'created':
@@ -222,13 +236,24 @@ function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWi
               {order.clients?.business_name || 'Cliente no disponible'}
             </h3>
             <span className="ml-2 text-sm text-gray-500">#{order.order_number}</span>
+            {/* Site Access semaforization dot */}
+            {(() => {
+              const rating = (order as any).site_access_rating as string | undefined;
+              const title = rating ? `Acceso: ${rating.toUpperCase()}` : 'Acceso: N/D';
+              return (
+                <span
+                  className={`ml-2 inline-block w-2.5 h-2.5 rounded-full ${getAccessDotClass(rating)}`}
+                  title={title}
+                />
+              );
+            })()}
             {initials && (
               <span className="ml-3 inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-200 text-gray-700 text-xs font-semibold" title="Creador del pedido">
                 {initials}
               </span>
             )}
           </div>
-          <div className="flex flex-wrap gap-2 mt-1 mb-2">
+          <div className="flex flex-wrap gap-2 mt-1 mb-1">
             <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(order.order_status)}`}>
               {translateStatus(order.order_status)}
             </span>
@@ -239,6 +264,26 @@ function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWi
               {requiresInvoice === true ? 'Fiscal' : requiresInvoice === false ? 'Efectivo' : 'No especificado'}
             </span>
           </div>
+          {/* Site access summary for Yellow/Red */}
+          {(() => {
+            const rating = (order as any).site_access_rating as string | undefined;
+            // Handle both array and object formats for order_site_validations
+            const validations = (order as any).order_site_validations;
+            const v = Array.isArray(validations) ? validations[0] : validations;
+            if (!rating || rating === 'green' || !v) return null;
+            const mapRoad: any = { paved: 'Pav.', gravel_good: 'Terr. buena', gravel_rough: 'Terr. mala' };
+            const mapSlope: any = { none: 'sin pend.', moderate: 'pend. mod.', steep: 'pend. pron.' };
+            const mapWeather: any = { dry: 'seco', light_rain: 'lluvia ligera', heavy_rain: 'lluvia fuerte' };
+            const mapHist: any = { none: 'sin inc.', minor: 'inc. menores', major: 'inc. mayores' };
+            return (
+              <div className="mb-2">
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-800 border border-amber-200">
+                  <span className={`inline-block w-2 h-2 rounded-full mr-2 ${getAccessDotClass(rating)}`}></span>
+                  {rating === 'yellow' ? 'Acceso Amarillo' : 'Acceso Rojo'} • {mapRoad[v?.road_type] || '—'} • {mapSlope[v?.road_slope] || '—'} • {mapWeather[v?.recent_weather_impact] || '—'} • {mapHist[v?.route_incident_history] || '—'}
+                </span>
+              </div>
+            );
+          })()}
           {order.construction_site && (
             <p className="text-sm text-gray-700">
               <span className="font-medium">Obra:</span> {order.construction_site}
@@ -360,10 +405,20 @@ export default function OrdersList({
       if (isDosificador) {
         const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
         const data = await getOrdersForDosificador();
+
+        // Transform DOSIFICADOR data structure to match OrderWithClient
+        const transformedData = (data || []).map((order: any) => ({
+          ...order,
+          site_access_rating: order.site_access_rating,
+          order_site_validations: order.order_site_validations,
+          // Ensure products field exists for compatibility
+          products: order.order_items || []
+        }));
+
         const { supabase } = await import('@/lib/supabase/client');
 
         // Compute volumes/prices consistently for DOSIFICADOR
-        const processedDataBase = (data || []).map((order: any) => {
+        const processedDataBase = (transformedData || []).map((order: any) => {
           const orderItems = order.order_items || [];
           let concreteVolumePlanned = 0;
           let concreteVolumeDelivered = 0;
@@ -437,7 +492,7 @@ export default function OrdersList({
         // Attach creator profiles for initials
         let processedData = processedDataBase;
         try {
-          const creatorIds = Array.from(new Set((data || []).map((o: any) => o.created_by).filter(Boolean)));
+          const creatorIds = Array.from(new Set((transformedData || []).map((o: any) => o.created_by).filter(Boolean)));
           if (creatorIds.length > 0) {
             const { data: creators } = await supabase
               .from('user_profiles')
@@ -454,7 +509,6 @@ export default function OrdersList({
 
         setOrders(processedData);
       } else {
-        // Create a plant-aware query directly with volume information
         const { supabase } = await import('@/lib/supabase/client');
         let query = supabase
           .from('orders')
@@ -472,6 +526,7 @@ export default function OrdersList({
             special_requirements,
             preliminary_amount,
             final_amount,
+            site_access_rating,
             created_by,
             credit_status,
             order_status,
@@ -482,6 +537,12 @@ export default function OrdersList({
               client_code,
               contact_name,
               phone
+            ),
+            order_site_validations (
+              road_type,
+              road_slope,
+              recent_weather_impact,
+              route_incident_history
             ),
             order_items (
               id,

@@ -750,15 +750,16 @@ export default function RemisionManualForm({ orderId, onSuccess, allowedRecipeId
         </Card>
       )}
       
-      {/* Submit Button - Restored original */}
+      {/* Submit Button */}
       <div className="flex justify-end pt-4 border-t mt-4">
-        <Button
+        <button
           type="submit"
           disabled={loading || loadingRecipes}
-          className="bg-green-600 text-white hover:bg-green-700"
+          className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ border: '0' }}
         >
           {loading ? 'Guardando...' : 'Guardar Remisión'}
-        </Button>
+        </button>
       </div>
     </form>
   );

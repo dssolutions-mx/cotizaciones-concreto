@@ -213,7 +213,7 @@ export class ClientQualityService {
         let rendimientoVolumetrico = 0;
         if (muestreos.length > 0 && remision.volumen_fabricado > 0) {
           // Sum all material quantities (cantidad_real)
-          const totalMaterialQuantity = (remision.remision_materiales || [])
+          const sumaMateriales = (remision.remision_materiales || [])
             .reduce((sum: number, material: any) => sum + (material.cantidad_real || 0), 0);
           
           // Get average masa unitaria from muestreos
@@ -221,9 +221,11 @@ export class ClientQualityService {
             ? muestreos.reduce((sum: number, m: any) => sum + (m.masa_unitaria || 0), 0) / muestreos.length
             : 0;
           
-          if (totalMaterialQuantity > 0 && avgMasaUnitaria > 0) {
-            // Rendimiento volumétrico = (total_materiales / masa_unitaria) / volumen_remision * 100 (para porcentaje)
-            rendimientoVolumetrico = ((totalMaterialQuantity / avgMasaUnitaria) / remision.volumen_fabricado) * 100;
+          if (sumaMateriales > 0 && avgMasaUnitaria > 0) {
+            // Correct formula: Rendimiento = (Volumen Fabricado / Volumen Teórico) * 100
+            // Where: Volumen Teórico = Suma Materiales / Masa Unitaria
+            const volumenTeorico = sumaMateriales / avgMasaUnitaria;
+            rendimientoVolumetrico = (remision.volumen_fabricado / volumenTeorico) * 100;
           }
         }
 

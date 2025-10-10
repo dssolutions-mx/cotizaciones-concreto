@@ -5,7 +5,7 @@ import QualityMetricCard from './QualityMetricCard';
 import QualityChart from './QualityChart';
 import { Target, Award, TrendingUp, Activity, AlertTriangle, XCircle } from 'lucide-react';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
-import { processComplianceDistribution, processResistanceTrend } from '@/lib/qualityHelpers';
+import { processVolumetricTrend, processResistanceTrend } from '@/lib/qualityHelpers';
 
 interface QualitySummaryProps {
   data: ClientQualityData;
@@ -13,7 +13,7 @@ interface QualitySummaryProps {
 }
 
 export function QualitySummary({ data, summary }: QualitySummaryProps) {
-  const complianceData = processComplianceDistribution(data);
+  const volumetricData = processVolumetricTrend(data);
   const resistanceData = processResistanceTrend(data);
 
   return (
@@ -25,7 +25,7 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
           value={summary.averages.rendimientoVolumetrico > 0 ? `${summary.averages.rendimientoVolumetrico.toFixed(1)}%` : 'N/A'}
           subtitle="Eficiencia de producción"
           icon={<Target className="w-6 h-6" />}
-          trend={summary.averages.rendimientoVolumetrico >= 98 ? 'up' : summary.averages.rendimientoVolumetrico >= 95 ? 'neutral' : 'down'}
+          trend={summary.averages.rendimientoVolumetrico >= 100 ? 'up' : summary.averages.rendimientoVolumetrico >= 98 ? 'neutral' : 'down'}
           color="primary"
           delay={0}
         />
@@ -62,7 +62,7 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
 
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Compliance Distribution Chart */}
+        {/* Volumetric Trend Chart */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -70,35 +70,59 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
           className="glass-thick rounded-3xl p-6"
         >
           <h3 className="text-title-3 font-semibold text-label-primary mb-4">
-            Distribución de Cumplimiento
+            Rendimiento Volumétrico en el Tiempo
           </h3>
-          {complianceData.some(d => d.count > 0) ? (
+          {volumetricData.length > 0 ? (
             <QualityChart 
-              type="compliance-distribution" 
-              data={complianceData}
+              type="volumetric-trend" 
+              data={volumetricData}
               height={300}
               showLegend={false}
             />
           ) : (
             <div className="flex items-center justify-center h-64 text-label-tertiary">
-              <p>Sin datos de ensayos</p>
+              <p>Sin datos de rendimiento volumétrico</p>
             </div>
           )}
         </motion.div>
 
-        {/* Resistance Trend Chart */}
+        {/* Compliance Performance Chart */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.5 }}
           className="glass-thick rounded-3xl p-6"
         >
-          <h3 className="text-title-3 font-semibold text-label-primary mb-4">
-            Tendencia de Resistencia
-          </h3>
+          <div className="mb-4">
+            <h3 className="text-title-3 font-semibold text-label-primary mb-3">
+              Desempeño de Cumplimiento
+            </h3>
+            <div className="flex items-center gap-5 text-callout text-label-secondary">
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-3.5 h-3.5 rounded-full shadow-sm flex-shrink-0"
+                  style={{ 
+                    backgroundColor: '#34C759',
+                    border: '1px solid rgba(52, 199, 89, 0.2)'
+                  }}
+                ></div>
+                <span>Excelente: ≥100%</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div 
+                  className="w-3.5 h-3.5 rounded-full shadow-sm flex-shrink-0"
+                  style={{ 
+                    backgroundColor: '#FF9500',
+                    border: '1px solid rgba(255, 149, 0, 0.2)'
+                  }}
+                ></div>
+                <span>Aceptable: 98-100%</span>
+              </div>
+            </div>
+          </div>
           {resistanceData.length > 0 ? (
             <QualityChart 
-              type="resistance-trend" 
+              type="resistance-performance" 
               data={resistanceData}
               height={300}
               showLegend={false}
@@ -177,11 +201,12 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
             </p>
           </div>
           <div>
-            <p className="text-caption text-label-tertiary mb-1">Ensayos a Tiempo</p>
+            <p className="text-caption text-label-tertiary mb-1">Promedio de Cumplimiento</p>
             <p className={`text-callout font-bold ${
-              summary.performance.onTimeTestingRate >= 90 ? 'text-systemGreen' : 'text-systemOrange'
+              summary.averages.complianceRate >= 95 ? 'text-systemGreen' : 
+              summary.averages.complianceRate >= 85 ? 'text-systemOrange' : 'text-systemRed'
             }`}>
-              {summary.performance.onTimeTestingRate.toFixed(0)}%
+              {summary.averages.complianceRate.toFixed(1)}%
             </p>
           </div>
           <div>

@@ -138,24 +138,97 @@ export function processComplianceDistribution(data: ClientQualityData): any[] {
 }
 
 /**
- * Process resistance trend for chart
+ * Process resistance trend for chart - Shows compliance percentage
+ * Returns compliance percentage directly from ensayos
+ * Includes ALL ensayos at edad_garantia (including fuera de tiempo)
  */
 export function processResistanceTrend(data: ClientQualityData): any[] {
   // Group by date
   const byDate = data.remisiones.reduce((acc: any, r: any) => {
-    if (!r.avgResistencia || r.avgResistencia <= 0) return acc;
+    const date = new Date(r.fecha).toISOString().split('T')[0];
+    if (!acc[date]) {
+      acc[date] = {
+        date,
+        compliances: [],
+        resistencias: [],
+        targets: []
+      };
+    }
+    
+    // Collect ALL ensayos at edad_garantia (including fuera de tiempo)
+    r.muestreos.forEach((m: any) => {
+      m.muestras.forEach((mu: any) => {
+        mu.ensayos.forEach((e: any) => {
+          // Include all ensayos at edad_garantia, regardless of timing
+          if (e.isEdadGarantia && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined) {
+            acc[date].compliances.push(e.porcentajeCumplimiento);
+            
+            // Also collect resistance and target for tooltip
+            if (e.resistenciaCalculada && e.resistenciaCalculada > 0) {
+              acc[date].resistencias.push(e.resistenciaCalculada);
+            }
+            if (e.resistenciaEspecificada && e.resistenciaEspecificada > 0) {
+              acc[date].targets.push(e.resistenciaEspecificada);
+            }
+          }
+        });
+      });
+    });
+    
+    return acc;
+  }, {});
+  
+  // Convert to simple array and filter to only show compliance >= 98%
+  return Object.values(byDate)
+    .filter((day: any) => day.compliances.length > 0)
+    .map((day: any) => {
+      const avgCompliance = day.compliances.reduce((sum: number, c: number) => sum + c, 0) / day.compliances.length;
+      const avgResistencia = day.resistencias.length > 0
+        ? day.resistencias.reduce((sum: number, r: number) => sum + r, 0) / day.resistencias.length
+        : null;
+      const avgTarget = day.targets.length > 0 
+        ? day.targets.reduce((sum: number, t: number) => sum + t, 0) / day.targets.length 
+        : null;
+      
+      return {
+        date: day.date,
+        cumplimiento: Math.round(avgCompliance * 10) / 10, // Main data - compliance %
+        resistencia: avgResistencia ? Math.round(avgResistencia) : null,
+        objetivo: avgTarget ? Math.round(avgTarget) : null,
+        ensayos: day.compliances.length
+      };
+    })
+    .filter((item: any) => item.cumplimiento >= 98) // Only show compliance >= 98%
+    .sort((a: any, b: any) => a.date.localeCompare(b.date));
+}
+
+/**
+ * Process volumetric percentage trend for chart
+ * Normalizes data to avoid unrealistic values above 110%
+ */
+export function processVolumetricTrend(data: ClientQualityData): any[] {
+  // Group by date, filtering out invalid values
+  const byDate = data.remisiones.reduce((acc: any, r: any) => {
+    // Skip invalid values: <= 0 or > 110%
+    if (!r.rendimientoVolumetrico || 
+        r.rendimientoVolumetrico <= 0 || 
+        r.rendimientoVolumetrico > 110) {
+      return acc;
+    }
     
     const date = new Date(r.fecha).toISOString().split('T')[0];
     if (!acc[date]) {
       acc[date] = {
         date,
-        resistenciaSum: 0,
-        count: 0
+        rendimientoSum: 0,
+        count: 0,
+        values: []
       };
     }
     
-    acc[date].resistenciaSum += r.avgResistencia;
+    acc[date].rendimientoSum += r.rendimientoVolumetrico;
     acc[date].count++;
+    acc[date].values.push(r.rendimientoVolumetrico);
     
     return acc;
   }, {});
@@ -163,7 +236,7 @@ export function processResistanceTrend(data: ClientQualityData): any[] {
   // Convert to array and calculate averages
   return Object.values(byDate).map((day: any) => ({
     date: day.date,
-    resistencia: day.count > 0 ? day.resistenciaSum / day.count : 0
+    rendimiento: day.count > 0 ? Math.min(day.rendimientoSum / day.count, 110) : 0
   })).sort((a: any, b: any) => a.date.localeCompare(b.date));
 }
 

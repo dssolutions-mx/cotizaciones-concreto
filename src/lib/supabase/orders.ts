@@ -404,14 +404,25 @@ export async function getOrdersForDosificador() {
         delivery_date,
         delivery_time,
         construction_site,
+        delivery_latitude,
+        delivery_longitude,
+        delivery_google_maps_url,
         requires_invoice,
         special_requirements,
         preliminary_amount,
         final_amount,
+        site_access_rating,
         credit_status,
         order_status,
         plant_id,
         clients:clients(business_name, client_code),
+        order_site_validations(
+          road_type,
+          road_slope,
+          recent_weather_impact,
+          route_incident_history,
+          evidence_photo_urls
+        ),
         order_items(
           id,
           product_type,
@@ -452,17 +463,30 @@ export async function getOrdersForDosificador() {
 export async function getOrderDetailsForDosificador(orderId: string) {
   // Fetch specific order details for DOSIFICADOR role
   try {
-    const { data, error } = await browserClient
-      .from('orders')
-      .select(`
-        id, 
-        order_number, 
-        delivery_date, 
-        delivery_time, 
-        order_status, 
-        clients:clients(business_name, client_code),
-        order_items(*)
-      `)
+  const { data, error } = await browserClient
+    .from('orders')
+    .select(`
+      id,
+      order_number,
+      delivery_date,
+      delivery_time,
+      order_status,
+      site_access_rating,
+      delivery_latitude,
+      delivery_longitude,
+      delivery_google_maps_url,
+      construction_site,
+      clients:clients(business_name, client_code),
+      order_items(*),
+      order_site_validations(
+        road_type,
+        road_slope,
+        recent_weather_impact,
+        route_incident_history,
+        validation_notes,
+        evidence_photo_urls
+      )
+    `)
       .eq('id', orderId)
       .single();
       

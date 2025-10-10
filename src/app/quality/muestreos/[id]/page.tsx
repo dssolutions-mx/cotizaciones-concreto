@@ -47,6 +47,8 @@ import Link from 'next/link';
 import { formatDate, createSafeDate } from '@/lib/utils';
 import AddSampleModal from '@/components/quality/muestreos/AddSampleModal';
 import RemisionMaterialsAnalysis from '@/components/quality/RemisionMaterialsAnalysis';
+import { calcularRendimientoVolumetrico } from '@/lib/qualityMetricsUtils';
+import { supabase } from '@/lib/supabase';
 
 // Helper function to get order info for integration
 function getOrderInfo(muestreo: MuestreoWithRelations) {
@@ -64,10 +66,17 @@ export default function MuestreoDetailPage() {
     totalOrderSamplings: number;
     totalRemisiones: number;
   } | null>(null);
+  const [rendimientoVolumetrico, setRendimientoVolumetrico] = useState<{
+    value: number | null;
+    sumaMateriales: number;
+    volumenFabricado: number;
+    masaUnitaria: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAddSampleModal, setShowAddSampleModal] = useState(false);
   const [orderTotalsLoading, setOrderTotalsLoading] = useState(false);
+  const [rendimientoLoading, setRendimientoLoading] = useState(false);
   
   const fetchMuestreoDetails = async () => {
     if (!params.id) return;
@@ -128,6 +137,45 @@ export default function MuestreoDetailPage() {
           // Don't fail the entire component if order totals fail
         } finally {
           setOrderTotalsLoading(false);
+        }
+      }
+
+      // Fetch remision materials and calculate rendimiento volumetrico
+      if (data?.remision?.id && data.masa_unitaria) {
+        setRendimientoLoading(true);
+        try {
+          const { data: materialesData, error: materialesError } = await supabase
+            .from('remision_materiales')
+            .select('cantidad_real')
+            .eq('remision_id', data.remision.id);
+
+          if (materialesError) {
+            console.error('Error fetching remision materials:', materialesError);
+          } else if (materialesData) {
+            const sumaMateriales = materialesData.reduce((sum, material) => 
+              sum + (material.cantidad_real || 0), 0
+            );
+            
+            const volumenFabricado = data.remision.volumen_fabricado || 0;
+            const masaUnitaria = data.masa_unitaria;
+            
+            const rendimientoValue = calcularRendimientoVolumetrico(
+              volumenFabricado,
+              sumaMateriales,
+              masaUnitaria
+            );
+            
+            setRendimientoVolumetrico({
+              value: rendimientoValue,
+              sumaMateriales,
+              volumenFabricado,
+              masaUnitaria
+            });
+          }
+        } catch (err) {
+          console.error('Error calculating rendimiento volumetrico:', err);
+        } finally {
+          setRendimientoLoading(false);
         }
       }
     } catch (err) {
@@ -535,6 +583,33 @@ export default function MuestreoDetailPage() {
                     </div>
                   </div>
                 )}
+
+                {/* Rendimiento Volumétrico */}
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-1">Rendimiento Volumétrico</p>
+                  {rendimientoLoading ? (
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                      <span className="text-sm text-gray-500">Calculando...</span>
+                    </div>
+                  ) : (rendimientoVolumetrico && rendimientoVolumetrico.value != null) ? (
+                    <div className="space-y-2">
+                      <div className="text-2xl font-bold text-gray-900">
+                        {rendimientoVolumetrico.value.toFixed(1)}
+                        <span className="text-sm font-normal text-gray-500 ml-1">%</span>
+                      </div>
+                      <div className="text-xs text-gray-500 space-y-1">
+                        <div>Volumen fabricado: {rendimientoVolumetrico.volumenFabricado.toFixed(2)} m³</div>
+                        <div>Suma materiales: {rendimientoVolumetrico.sumaMateriales.toFixed(0)} kg</div>
+                        <div>Masa unitaria: {rendimientoVolumetrico.masaUnitaria.toFixed(0)} kg/m³</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500">
+                      No disponible
+                    </div>
+                  )}
+                </div>
                 
                 {/* Order summary section */}
                 {getOrderInfo(muestreo) && (

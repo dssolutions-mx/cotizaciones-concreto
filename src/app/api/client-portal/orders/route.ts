@@ -7,6 +7,8 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const statusFilter = searchParams.get('status');
     const searchQuery = searchParams.get('search');
+    const fromDate = searchParams.get('from');
+    const toDate = searchParams.get('to');
 
     // Get authenticated user
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -38,6 +40,14 @@ export async function GET(request: Request) {
       ordersQuery = ordersQuery.or(
         `order_number.ilike.%${searchQuery}%,construction_site.ilike.%${searchQuery}%`
       );
+    }
+
+    // Apply date range filter if provided
+    if (fromDate) {
+      ordersQuery = ordersQuery.gte('delivery_date', fromDate);
+    }
+    if (toDate) {
+      ordersQuery = ordersQuery.lte('delivery_date', toDate);
     }
 
     const { data: orders, error: ordersError } = await ordersQuery;

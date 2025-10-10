@@ -1,10 +1,44 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { CreditCard, Calendar } from 'lucide-react';
+import { CreditCard, Calendar, ChevronLeft } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { Container } from '@/components/ui/Container';
+
+// Helper to safely format date from timestamp or date string
+const formatDateFromString = (date: string | null | undefined): string => {
+  if (!date) return 'Fecha inválida';
+  try {
+    const dateObj = new Date(date);
+    if (isNaN(dateObj.getTime())) return 'Fecha inválida';
+    return dateObj.toLocaleDateString('es-MX', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    });
+  } catch (error) {
+    console.warn('Error formatting date:', date, error);
+    return 'Fecha inválida';
+  }
+};
+
+// Helper to format time from timestamp
+const formatTimeFromString = (date: string | null | undefined): string => {
+  if (!date) return '';
+  try {
+    const dateObj = new Date(date);
+    if (isNaN(dateObj.getTime())) return '';
+    return dateObj.toLocaleTimeString('es-MX', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (error) {
+    console.warn('Error formatting time:', date, error);
+    return '';
+  }
+};
 
 type Payment = {
   id: string;
@@ -17,6 +51,7 @@ type Payment = {
 };
 
 export default function ClientPortalPaymentsPage() {
+  const router = useRouter();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -60,6 +95,14 @@ export default function ClientPortalPaymentsPage() {
           className="mb-8"
         >
           <div className="flex items-center gap-4 mb-4">
+            {/* iOS 26-style back affordance */}
+            <button
+              onClick={() => router.back()}
+              className="group flex items-center gap-1.5 rounded-full px-3 py-1.5 bg-white/60 dark:bg-white/5 border border-white/30 backdrop-blur-sm transition-colors hover:bg-white/70"
+            >
+              <ChevronLeft className="w-4 h-4 text-label-primary" />
+              <span className="text-callout font-medium text-label-primary group-hover:text-label-primary/90">Volver</span>
+            </button>
             <div className="w-12 h-12 rounded-2xl glass-thick flex items-center justify-center border border-white/30">
               <CreditCard className="w-6 h-6 text-label-primary" />
             </div>
@@ -123,7 +166,14 @@ export default function ClientPortalPaymentsPage() {
                         className="hover:bg-white/5 transition-colors"
                       >
                         <td className="px-6 py-4 text-body text-label-primary">
-                          {new Date(payment.payment_date).toLocaleDateString('es-MX')}
+                          <div>
+                            <div>{formatDateFromString(payment.payment_date)}</div>
+                            {formatTimeFromString(payment.payment_date) && (
+                              <div className="text-caption text-label-tertiary">
+                                {formatTimeFromString(payment.payment_date)}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-body font-semibold text-label-primary text-right">
                           ${payment.amount.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}

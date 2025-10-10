@@ -6,7 +6,7 @@ import {
   BarChart2, 
   FlaskConical, 
   TrendingUp, 
-  CheckCircle 
+  FolderCheck 
 } from 'lucide-react';
 import QualitySummary from './QualitySummary';
 import QualityMuestreos from './QualityMuestreos';
@@ -26,7 +26,7 @@ export function QualityTabs({ data, summary }: QualityTabsProps) {
     { id: 'summary' as const, label: 'Resumen', icon: BarChart2 },
     { id: 'muestreos' as const, label: 'Muestreos', icon: FlaskConical },
     { id: 'analysis' as const, label: 'Análisis', icon: TrendingUp },
-    { id: 'site-checks' as const, label: 'Verificaciones', icon: CheckCircle }
+    { id: 'site-checks' as const, label: 'Dossier de Calidad', icon: FolderCheck }
   ];
 
   return (

@@ -1054,13 +1054,14 @@ export default function PumpingServiceForm() {
 
               {/* Submit Button */}
               <div className="flex justify-end pt-4 border-t mt-4">
-                <Button
+                <button
                   type="submit"
                   disabled={loading || plantContextLoading || !formData.plantId}
-                  className="bg-blue-600 text-white hover:bg-blue-700"
+                  className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ border: '0' }}
                 >
                   {loading ? 'Guardando...' : 'Guardar Remisión de Bombeo'}
-                </Button>
+                </button>
               </div>
             </form>
           )}

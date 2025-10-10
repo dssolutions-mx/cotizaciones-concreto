@@ -431,16 +431,17 @@ export default function ConstructionSiteForm({
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-xs">
-      {error && (
-        <div className="bg-red-50 text-red-600 p-3 rounded-md mb-4 border border-red-200">
-          {error}
-        </div>
-      )}
-      
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Datos básicos de la obra */}
-        <div className="bg-white rounded-lg p-4 border border-gray-200">
+    <form onSubmit={handleSubmit} className="flex flex-col h-full">
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto space-y-4 min-h-0">
+          {error && (
+            <div className="bg-red-50 text-red-600 p-3 rounded-md border border-red-200">
+              {error}
+            </div>
+          )}
+          
+          {/* Datos básicos de la obra */}
+          <div className="bg-white rounded-lg p-4 border border-gray-200">
           <h3 className="text-sm font-medium text-gray-800 mb-4 flex items-center gap-2">
             <svg className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" />
@@ -562,13 +563,13 @@ export default function ConstructionSiteForm({
               return null;
             })()}
 
-            <div className="h-[350px] rounded-md overflow-hidden border border-gray-300 shadow-sm">
+            <div className="h-[150px] sm:h-[250px] rounded-md overflow-hidden border border-gray-300 shadow-sm">
               {isMounted ? (
                 <GoogleMapWrapper>
                   <GoogleMapSelector 
                     key={siteData.latitude && siteData.longitude ? `${siteData.latitude}-${siteData.longitude}` : 'map-no-location'} 
                     onSelectLocation={handleLocationSelect} 
-                    height="350px"
+                    height="100%"
                     initialPosition={siteData.latitude && siteData.longitude ? 
                       { lat: siteData.latitude, lng: siteData.longitude } : null}
                     readOnly={false}
@@ -599,25 +600,28 @@ export default function ConstructionSiteForm({
               </div>
             )}
           </div>
-        </div>
-        
-        <div className="flex justify-end space-x-2 pt-4">
-          <Button 
-            type="button" 
-            variant="outline" 
+      </div>
+      </div>
+      
+      {/* Fixed footer with buttons - always visible */}
+      <div className="flex-shrink-0 border-t border-gray-200 pt-4 mt-0 bg-white">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
             onClick={onCancel}
             disabled={isSubmitting}
-            className="bg-white hover:bg-gray-50"
+            className="w-full sm:w-auto px-4 py-3 border border-gray-300 rounded-lg text-gray-700 bg-white hover:bg-gray-50 font-medium disabled:opacity-50 text-sm"
           >
             Cancelar
-          </Button>
-          <Button 
-            type="submit" 
+          </button>
+          <button
+            type="submit"
             disabled={isSubmitting}
-            className="bg-green-600 hover:bg-green-700 text-white"
+            className="w-full sm:w-auto px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium disabled:opacity-50 text-sm"
+            style={{ border: '0' }}
           >
             {isSubmitting ? (
-              <span className="flex items-center">
+              <span className="flex items-center justify-center">
                 <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -625,9 +629,9 @@ export default function ConstructionSiteForm({
                 Creando...
               </span>
             ) : 'Crear Obra'}
-          </Button>
+          </button>
         </div>
-      </form>
-    </div>
+      </div>
+    </form>
   );
 } 

@@ -23,6 +23,19 @@ import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
+// Helper to parse date string (YYYY-MM-DD) without timezone conversion
+const parseLocalDate = (dateString: string): Date => {
+  if (!dateString) return new Date();
+  // Handle both date-only and datetime formats
+  if (dateString.includes('T')) {
+    // It's a datetime string, use normal parsing
+    return new Date(dateString);
+  }
+  // It's a date-only string, parse without timezone
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Date(year, month - 1, day);
+};
+
 interface DashboardData {
   metrics: {
     totalOrders: number;
@@ -161,9 +174,8 @@ export default function ClientPortalDashboard() {
                 <MetricCard
                   title="Volumen Entregado"
                   value={`${(metrics?.deliveredVolume || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³`}
-                  subtitle="Total acumulado"
+                  subtitle="Mes actual"
                   icon={<TrendingUp className="w-6 h-6" />}
-                  trend={{ value: 12.5, label: 'vs mes anterior' }}
                   color="green"
                   onClick={() => router.push('/client-portal/orders')}
                 />
@@ -292,7 +304,7 @@ export default function ClientPortalDashboard() {
                         icon={icon}
                         title={activity.title}
                         description={activity.description}
-                        timestamp={format(new Date(activity.timestamp), "dd MMM yyyy", { locale: es })}
+                        timestamp={format(parseLocalDate(activity.timestamp), "dd MMM yyyy", { locale: es })}
                         status={activity.status as any}
                       />
                     </motion.div>

@@ -28,6 +28,18 @@ export interface OrderCreationParams {
   delivery_latitude?: number | null;
   delivery_longitude?: number | null;
   delivery_google_maps_url?: string | null;
+  // Site access validation
+  site_access_rating?: 'green' | 'yellow' | 'red';
+  site_validation?: {
+    road_type?: 'paved' | 'gravel_good' | 'gravel_rough';
+    road_slope?: 'none' | 'moderate' | 'steep';
+    recent_weather_impact?: 'dry' | 'light_rain' | 'heavy_rain';
+    route_incident_history?: 'none' | 'minor' | 'major';
+    validation_notes?: string | null;
+    evidence_photo_urls?: string[];
+    validated_by?: string | null;
+    validated_at?: string | Date;
+  };
   order_items?: Array<{
     quote_detail_id: string;
     volume: number;
@@ -125,6 +137,11 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       orderInsertData.delivery_google_maps_url = orderData.delivery_google_maps_url;
     }
 
+    // Include site access rating if provided
+    if (orderData.site_access_rating) {
+      orderInsertData.site_access_rating = orderData.site_access_rating;
+    }
+
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .insert(orderInsertData)
@@ -132,6 +149,27 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       .single();
 
     if (orderError) throw orderError;
+    
+    // If Yellow/Red, insert validation record with evidence
+    if (orderData.site_access_rating && orderData.site_access_rating !== 'green' && orderData.site_validation) {
+      const validationInsert = {
+        order_id: order.id,
+        road_type: orderData.site_validation.road_type ?? null,
+        road_slope: orderData.site_validation.road_slope ?? null,
+        recent_weather_impact: orderData.site_validation.recent_weather_impact ?? null,
+        route_incident_history: orderData.site_validation.route_incident_history ?? null,
+        validation_notes: orderData.site_validation.validation_notes ?? null,
+        evidence_photo_urls: orderData.site_validation.evidence_photo_urls ?? [],
+        validated_by: userId,
+        validated_at: new Date().toISOString()
+      } as any;
+
+      const { error: validationError } = await supabase
+        .from('order_site_validations')
+        .insert(validationInsert);
+
+      if (validationError) throw validationError;
+    }
     
     // If order_items are provided, insert them
     if (orderData.order_items && orderData.order_items.length > 0) {
@@ -407,6 +445,14 @@ export async function getOrderById(id: string) {
           code,
           vat_rate
         )
+      ),
+      order_site_validations(
+        road_type,
+        road_slope,
+        recent_weather_impact,
+        route_incident_history,
+        validation_notes,
+        evidence_photo_urls
       )
     `)
     .eq('id', id)

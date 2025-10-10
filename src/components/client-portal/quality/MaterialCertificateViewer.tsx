@@ -37,63 +37,48 @@ export default function MaterialCertificateViewer({
   const [loading, setLoading] = useState(true);
   const [selectedPdf, setSelectedPdf] = useState<string | null>(null);
 
-  // Configuración de colores por categoría
+  // iOS 26 Refined Color Configuration
   const getCategoryColors = (category: string) => {
     switch (category) {
       case 'agregado':
         return {
-          header: 'from-yellow-600 via-amber-600 to-yellow-700',
-          iconBg: 'from-yellow-600 to-amber-600',
-          button: 'bg-yellow-600 hover:bg-yellow-700',
-          loader: 'text-yellow-600',
-          hoverBorder: 'hover:border-yellow-300',
-          notesBg: 'bg-yellow-50/80 border-yellow-200/50',
-          overlay: 'bg-yellow-900/90',
-          pdfHeader: 'from-yellow-700 to-amber-700'
+          iconBg: 'bg-gradient-to-br from-amber-100 via-yellow-50 to-amber-50',
+          iconColor: 'text-amber-700',
+          loader: 'text-amber-600',
+          hoverBorder: 'hover:border-amber-200',
+          notesBg: 'bg-amber-50/60 border-amber-100',
         };
       case 'cemento':
         return {
-          header: 'from-slate-700 via-slate-600 to-slate-800',
-          iconBg: 'from-slate-600 to-slate-700',
-          button: 'bg-slate-600 hover:bg-slate-700',
+          iconBg: 'bg-gradient-to-br from-gray-100 via-slate-50 to-gray-50',
+          iconColor: 'text-slate-600',
           loader: 'text-slate-600',
-          hoverBorder: 'hover:border-slate-300',
-          notesBg: 'bg-slate-50/80 border-slate-200/50',
-          overlay: 'bg-slate-900/90',
-          pdfHeader: 'from-slate-700 to-slate-800'
+          hoverBorder: 'hover:border-slate-200',
+          notesBg: 'bg-slate-50/60 border-slate-100',
         };
       case 'agua':
         return {
-          header: 'from-cyan-600 via-blue-600 to-cyan-700',
-          iconBg: 'from-cyan-600 to-blue-600',
-          button: 'bg-cyan-600 hover:bg-cyan-700',
+          iconBg: 'bg-gradient-to-br from-blue-100 via-cyan-50 to-blue-50',
+          iconColor: 'text-cyan-700',
           loader: 'text-cyan-600',
-          hoverBorder: 'hover:border-cyan-300',
-          notesBg: 'bg-cyan-50/80 border-cyan-200/50',
-          overlay: 'bg-cyan-900/90',
-          pdfHeader: 'from-cyan-700 to-blue-700'
+          hoverBorder: 'hover:border-cyan-200',
+          notesBg: 'bg-cyan-50/60 border-cyan-100',
         };
       case 'aditivo':
         return {
-          header: 'from-emerald-600 via-teal-600 to-emerald-700',
-          iconBg: 'from-emerald-600 to-teal-600',
-          button: 'bg-emerald-600 hover:bg-emerald-700',
+          iconBg: 'bg-gradient-to-br from-teal-100 via-emerald-50 to-teal-50',
+          iconColor: 'text-emerald-700',
           loader: 'text-emerald-600',
-          hoverBorder: 'hover:border-emerald-300',
-          notesBg: 'bg-emerald-50/80 border-emerald-200/50',
-          overlay: 'bg-emerald-900/90',
-          pdfHeader: 'from-emerald-700 to-teal-700'
+          hoverBorder: 'hover:border-emerald-200',
+          notesBg: 'bg-emerald-50/60 border-emerald-100',
         };
       default:
         return {
-          header: 'from-slate-800 via-slate-700 to-slate-900',
-          iconBg: 'from-slate-700 to-slate-800',
-          button: 'bg-slate-700 hover:bg-slate-800',
-          loader: 'text-slate-700',
-          hoverBorder: 'hover:border-slate-300',
-          notesBg: 'bg-slate-50/80 border-slate-200/50',
-          overlay: 'bg-slate-900/90',
-          pdfHeader: 'from-slate-800 to-slate-900'
+          iconBg: 'bg-gradient-to-br from-gray-100 via-gray-50 to-gray-100',
+          iconColor: 'text-gray-600',
+          loader: 'text-gray-600',
+          hoverBorder: 'hover:border-gray-200',
+          notesBg: 'bg-gray-50/60 border-gray-100',
         };
     }
   };
@@ -142,110 +127,133 @@ export default function MaterialCertificateViewer({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+        transition={{ duration: 0.2 }}
+        className="fixed inset-0 bg-black/40 backdrop-blur-md z-50 flex items-center justify-center p-4"
         onClick={onClose}
       >
         <motion.div
-          initial={{ scale: 0.95, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.95, opacity: 0 }}
-          className="bg-white/95 backdrop-blur-xl rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden border border-white/20"
+          initial={{ scale: 0.96, opacity: 0, y: 20 }}
+          animate={{ scale: 1, opacity: 1, y: 0 }}
+          exit={{ scale: 0.96, opacity: 0, y: 20 }}
+          transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+          className="glass-thick rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden border border-white/30"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
-          <div className={`bg-gradient-to-br ${colors.header} p-6 text-white`}>
-            <div className="flex items-start justify-between">
+          {/* iOS 26 Header */}
+          <div className="glass-base border-b border-white/20 p-8">
+            <div className="flex items-start justify-between gap-6">
               <div className="flex-1">
-                <h2 className="text-2xl font-bold mb-2">Certificados de Calidad</h2>
-                <p className="text-white/90 text-sm">{materialName}</p>
+                <h2 className="text-title-1 font-bold text-label-primary mb-2">
+                  Certificados de Calidad
+                </h2>
+                <p className="text-callout text-label-secondary font-medium">
+                  {materialName}
+                </p>
               </div>
-              <button
+              <motion.button
                 onClick={onClose}
-                className="p-2 hover:bg-white/20 rounded-full transition-colors"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="p-3 hover:bg-white/40 dark:hover:bg-gray-700/40 rounded-2xl transition-all"
               >
-                <X className="w-6 h-6" />
-              </button>
+                <X className="w-6 h-6 text-label-primary" />
+              </motion.button>
             </div>
           </div>
 
           {/* Content */}
-          <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+          <div className="p-8 overflow-y-auto max-h-[calc(90vh-160px)]">
             {loading ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className={`w-12 h-12 ${colors.loader} animate-spin mb-4`} />
-                <p className="text-gray-600">Cargando certificados...</p>
+              <div className="flex flex-col items-center justify-center py-16">
+                <Loader2 className={`w-16 h-16 ${colors.loader} animate-spin mb-6`} />
+                <p className="text-callout text-label-secondary">Cargando certificados...</p>
               </div>
             ) : certificates.length === 0 ? (
-              <div className="text-center py-12">
-                <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <p className="text-gray-600 text-lg mb-2">No hay certificados disponibles</p>
-                <p className="text-gray-500 text-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.4 }}
+                className="text-center py-16"
+              >
+                <FileText className="w-20 h-20 text-label-tertiary mx-auto mb-6" />
+                <p className="text-title-2 font-bold text-label-primary mb-3">
+                  No hay certificados disponibles
+                </p>
+                <p className="text-callout text-label-secondary max-w-md mx-auto">
                   Aún no se han cargado certificados para este material.
                 </p>
-              </div>
+              </motion.div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 {certificates.map((cert, index) => (
                   <motion.div
-                    key={cert.id}
+                    key={cert.id || `cert-${index}-${cert.file_name}`}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className={`group bg-gradient-to-br from-white/90 to-gray-50/90 backdrop-blur-xl rounded-2xl p-5 border border-gray-200/50 ${colors.hoverBorder} hover:shadow-lg transition-all duration-300`}
+                    transition={{ delay: index * 0.08, duration: 0.4 }}
+                    whileHover={{ y: -2, transition: { duration: 0.2 } }}
+                    className={`glass-interactive rounded-3xl p-6 border border-white/20 ${colors.hoverBorder} shadow-sm hover:shadow-lg transition-all duration-300`}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-4 flex-1 min-w-0">
-                        <div className={`p-3 bg-gradient-to-br ${colors.iconBg} rounded-xl text-white shrink-0`}>
-                          <FileText className="w-6 h-6" />
+                    <div className="flex items-start justify-between gap-6">
+                      <div className="flex items-start gap-5 flex-1 min-w-0">
+                        {/* Icon */}
+                        <div className={`p-3.5 ${colors.iconBg} rounded-2xl shrink-0 shadow-sm`}>
+                          <FileText className={`w-7 h-7 ${colors.iconColor}`} />
                         </div>
                         
+                        {/* Content */}
                         <div className="flex-1 min-w-0">
-                          <h3 className="font-semibold text-gray-900 mb-1 truncate">
+                          <h3 className="text-title-3 font-semibold text-label-primary mb-2 truncate">
                             {cert.original_name}
                           </h3>
                           
-                          <div className="flex flex-wrap gap-3 text-sm text-gray-600 mb-2">
-                            <div className="flex items-center gap-1">
+                          <div className="flex flex-wrap gap-4 text-footnote text-label-secondary mb-3">
+                            <div className="flex items-center gap-1.5">
                               <FileText className="w-4 h-4" />
-                              <span>{getCertificateTypeLabel(cert.certificate_type)}</span>
+                              <span className="font-medium">{getCertificateTypeLabel(cert.certificate_type)}</span>
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1.5">
                               <Calendar className="w-4 h-4" />
                               <span>
                                 {format(new Date(cert.created_at), 'dd MMM yyyy', { locale: es })}
                               </span>
                             </div>
-                            <div className="text-gray-500">
+                            <div className="text-label-tertiary font-medium">
                               {formatFileSize(cert.file_size)}
                             </div>
                           </div>
 
                           {cert.notes && (
-                            <p className={`text-sm text-gray-600 mt-2 ${colors.notesBg} rounded-lg p-2 border`}>
+                            <p className={`text-footnote text-label-secondary mt-3 ${colors.notesBg} rounded-xl p-3 border`}>
                               {cert.notes}
                             </p>
                           )}
                         </div>
                       </div>
 
-                      <div className="flex gap-2 shrink-0">
+                      {/* Actions */}
+                      <div className="flex gap-2.5 shrink-0">
                         {cert.url && (
                           <>
-                            <button
+                            <motion.button
                               onClick={() => setSelectedPdf(cert.url)}
-                              className={`p-2 ${colors.button} text-white rounded-xl transition-colors shadow-sm`}
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              className="p-3 glass-interactive border-2 border-white/30 hover:border-white/50 text-label-primary rounded-2xl transition-all shadow-sm hover:shadow-md"
                               title="Ver certificado"
                             >
                               <Eye className="w-5 h-5" />
-                            </button>
-                            <a
+                            </motion.button>
+                            <motion.a
                               href={cert.url}
                               download={cert.original_name}
-                              className="p-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl transition-colors shadow-sm"
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              className="p-3 glass-interactive border-2 border-white/30 hover:border-white/50 text-label-primary rounded-2xl transition-all shadow-sm hover:shadow-md"
                               title="Descargar certificado"
                             >
                               <Download className="w-5 h-5" />
-                            </a>
+                            </motion.a>
                           </>
                         )}
                       </div>
@@ -258,34 +266,43 @@ export default function MaterialCertificateViewer({
         </motion.div>
       </motion.div>
 
-      {/* PDF Viewer Modal */}
+      {/* PDF Viewer Modal - iOS 26 Style */}
       {selectedPdf && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className={`fixed inset-0 ${colors.overlay} backdrop-blur-md z-[60] flex items-center justify-center p-4`}
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 bg-black/60 backdrop-blur-lg z-[60] flex items-center justify-center p-4"
           onClick={() => setSelectedPdf(null)}
         >
           <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.9, opacity: 0 }}
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] overflow-hidden border border-white/20"
+            initial={{ scale: 0.92, opacity: 0, y: 30 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.92, opacity: 0, y: 30 }}
+            transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+            className="glass-thick rounded-3xl shadow-2xl w-full max-w-6xl h-[92vh] overflow-hidden border border-white/30"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className={`bg-gradient-to-r ${colors.pdfHeader} p-4 flex items-center justify-between`}>
-              <h3 className="text-white font-semibold text-lg">Vista Previa del Certificado</h3>
-              <button
+            {/* iOS 26 PDF Header */}
+            <div className="glass-base border-b border-white/20 p-5 flex items-center justify-between">
+              <h3 className="text-title-3 font-bold text-label-primary">
+                Vista Previa del Certificado
+              </h3>
+              <motion.button
                 onClick={() => setSelectedPdf(null)}
-                className="p-2 hover:bg-white/10 rounded-lg transition-colors text-white"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="p-2.5 hover:bg-white/40 dark:hover:bg-gray-700/40 rounded-2xl transition-all"
               >
-                <X className="w-5 h-5" />
-              </button>
+                <X className="w-6 h-6 text-label-primary" />
+              </motion.button>
             </div>
+            
+            {/* PDF Iframe */}
             <iframe
               src={selectedPdf}
-              className="w-full h-[calc(90vh-64px)]"
+              className="w-full h-[calc(92vh-84px)] bg-white"
               title="PDF Viewer"
             />
           </motion.div>

@@ -562,14 +562,21 @@ export class ArkikOrderMatcher {
           horaCarga = '08:00:00';
         }
 
-        // Format fecha properly
+        // Format fecha properly using local date components to avoid timezone issues
         let fecha: string;
         if (remision.fecha instanceof Date) {
-          fecha = remision.fecha.toISOString().split('T')[0]; // Extract YYYY-MM-DD
+          const year = remision.fecha.getFullYear();
+          const month = String(remision.fecha.getMonth() + 1).padStart(2, '0');
+          const day = String(remision.fecha.getDate()).padStart(2, '0');
+          fecha = `${year}-${month}-${day}`;
         } else if (typeof remision.fecha === 'string') {
           fecha = remision.fecha;
         } else {
-          fecha = new Date().toISOString().split('T')[0];
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = String(now.getMonth() + 1).padStart(2, '0');
+          const day = String(now.getDate()).padStart(2, '0');
+          fecha = `${year}-${month}-${day}`;
         }
 
         return {
