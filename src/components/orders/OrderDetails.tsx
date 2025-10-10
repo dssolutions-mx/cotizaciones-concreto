@@ -19,6 +19,53 @@ import PaymentForm from '../clients/PaymentForm';
 import ClientBalanceSummary from '../clients/ClientBalanceSummary';
 import { Button } from '@/components/ui/button';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+
+// Component to handle signed URL fetching for evidence images
+function EvidenceImage({ path }: { path: string }) {
+  const [imageUrl, setImageUrl] = React.useState<string>('');
+  const [loading, setLoading] = React.useState(true);
+  
+  React.useEffect(() => {
+    const loadImage = async () => {
+      try {
+        const { createClient } = await import('@/lib/supabase/client');
+        const supabase = createClient();
+        const cleanPath = path.replace('site-validation-evidence/', '');
+        const { data, error } = await supabase.storage
+          .from('site-validation-evidence')
+          .createSignedUrl(cleanPath, 3600); // 1 hour expiry
+        
+        if (data?.signedUrl) {
+          setImageUrl(data.signedUrl);
+        } else if (error) {
+          console.error('Error loading evidence image:', error);
+        }
+      } catch (err) {
+        console.error('Error creating signed URL:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadImage();
+  }, [path]);
+  
+  if (loading) {
+    return <div className="w-16 h-16 bg-gray-200 rounded border animate-pulse" />;
+  }
+  
+  if (!imageUrl) {
+    return null;
+  }
+  
+  return (
+    <img 
+      src={imageUrl} 
+      alt="Evidencia" 
+      className="w-16 h-16 object-cover rounded border cursor-pointer hover:opacity-80" 
+      onClick={() => window.open(imageUrl, '_blank')}
+    />
+  );
+}
 import { // Shadcn Dialog components
   Dialog,
   DialogContent,
@@ -226,7 +273,45 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     try {
       setLoading(true);
       setError(null);
-      const data = await orderService.getOrderById(orderId);
+      // Use DOSIFICADOR function for DOSIFICADOR role, otherwise use regular function
+      let data;
+      if (isDosificador) {
+        const { getOrderDetailsForDosificador } = await import('@/lib/supabase/orders');
+        data = await getOrderDetailsForDosificador(orderId);
+
+        // Transform DOSIFICADOR data structure to match OrderWithDetails
+        if (data && (data as any).order_items) {
+          const transformedData = {
+            ...data,
+            site_access_rating: (data as any).site_access_rating,
+            order_site_validations: (data as any).order_site_validations,
+            client: (data as any).clients || (data as any).client,
+            products: (data as any).order_items.map((item: any) => ({
+              id: item.id,
+              order_id: item.order_id,
+              product_type: item.product_type,
+              volume: item.volume,
+              unit_price: item.unit_price,
+              total_price: item.total_price,
+              has_pump_service: item.has_pump_service,
+              pump_price: item.pump_price,
+              pump_volume: item.pump_volume,
+              has_empty_truck_charge: item.has_empty_truck_charge,
+              empty_truck_volume: item.empty_truck_volume,
+              empty_truck_price: item.empty_truck_price,
+              quote_detail_id: item.quote_detail_id,
+              recipe_id: item.recipe_id,
+              created_at: item.created_at,
+              concrete_volume_delivered: item.concrete_volume_delivered,
+              pump_volume_delivered: item.pump_volume_delivered
+            }))
+          };
+          
+          data = transformedData;
+        }
+      } else {
+        data = await orderService.getOrderById(orderId);
+      }
       setOrder(data as unknown as OrderWithDetails);
       setEditedOrder(null);
       
@@ -1250,6 +1335,38 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           </button>
         </div>
       </div>
+
+      {/* Site access summary section for Yellow/Red */}
+      {(() => {
+        const rating = (order as any)?.site_access_rating as string | undefined;
+        // Handle both array and object formats for order_site_validations
+        const validations = (order as any)?.order_site_validations;
+        const validation = Array.isArray(validations) ? validations[0] : validations;
+        
+        if (!rating || rating === 'green' || !validation) return null;
+        const mapRoad: any = { paved: 'Pavimento', gravel_good: 'Terracería (buena)', gravel_rough: 'Terracería (mala)' };
+        const mapSlope: any = { none: 'Sin pendiente', moderate: 'Pendiente moderada', steep: 'Pendiente pronunciada' };
+        const mapWeather: any = { dry: 'Seco', light_rain: 'Lluvia ligera', heavy_rain: 'Lluvia fuerte' };
+        const mapHist: any = { none: 'Sin incidentes', minor: 'Incidentes menores', major: 'Incidentes mayores' };
+        return (
+          <div className={`mb-4 p-3 rounded border ${rating === 'red' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-yellow-50 border-yellow-200 text-yellow-800'}`}>
+            <div className="flex items-center gap-2 font-medium">
+              <span className={`inline-block w-3 h-3 rounded-full ${rating === 'red' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
+              {rating === 'red' ? 'Acceso ROJO' : 'Acceso AMARILLO'}
+            </div>
+            <div className="mt-1 text-sm">
+              {mapRoad[validation?.road_type] || '—'} • {mapSlope[validation?.road_slope] || '—'} • {mapWeather[validation?.recent_weather_impact] || '—'} • {mapHist[validation?.route_incident_history] || '—'}
+            </div>
+            {Array.isArray(validation?.evidence_photo_urls) && validation.evidence_photo_urls.length > 0 && (
+              <div className="mt-2 flex gap-2">
+                {validation.evidence_photo_urls.slice(0,3).map((p: string, idx: number) => (
+                  <EvidenceImage key={`${p}-${idx}`} path={p} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {error && (
         <div className="mb-6 rounded-md bg-red-50 p-4">

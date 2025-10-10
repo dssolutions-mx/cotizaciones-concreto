@@ -3,6 +3,44 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 
+// Component to display image with signed URL
+function StorageImage({ bucket, path }: { bucket: string; path: string }) {
+  const [imageUrl, setImageUrl] = React.useState<string>('');
+  const [loading, setLoading] = React.useState(true);
+  
+  React.useEffect(() => {
+    const loadImage = async () => {
+      try {
+        const cleanPath = path.replace(`${bucket}/`, '');
+        const { data, error } = await supabase.storage
+          .from(bucket)
+          .createSignedUrl(cleanPath, 3600); // 1 hour expiry
+        
+        if (data?.signedUrl) {
+          setImageUrl(data.signedUrl);
+        } else if (error) {
+          console.error('Error loading image:', error);
+        }
+      } catch (err) {
+        console.error('Error creating signed URL:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadImage();
+  }, [bucket, path]);
+  
+  if (loading) {
+    return <div className="w-full h-24 bg-gray-200 animate-pulse" />;
+  }
+  
+  if (!imageUrl) {
+    return <div className="w-full h-24 bg-gray-300 flex items-center justify-center text-xs text-gray-500">Error</div>;
+  }
+  
+  return <img src={imageUrl} alt="Evidencia" className="w-full h-24 object-cover" />;
+}
+
 type PhotoUploadComponentProps = {
   bucket?: string;
   prefix?: string; // e.g., order draft id or timestamp prefix
@@ -128,20 +166,16 @@ export default function PhotoUploadComponent({
 
       {urls.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
-          {urls.map((u, i) => {
-            // Get public URL from Supabase Storage
-            const { data } = supabase.storage.from(bucket).getPublicUrl(u.replace(`${bucket}/`, ''));
-            return (
-              <div key={u} className="relative border rounded overflow-hidden">
-                <img src={data.publicUrl} alt="Evidencia" className="w-full h-24 object-cover" />
-                <button
-                  type="button"
-                  onClick={() => removeUrl(i)}
-                  className="absolute top-1 right-1 bg-white/80 hover:bg-white text-red-600 rounded px-1 text-xs"
-                >Quitar</button>
-              </div>
-            );
-          })}
+          {urls.map((u, i) => (
+            <div key={u} className="relative border rounded overflow-hidden">
+              <StorageImage bucket={bucket} path={u} />
+              <button
+                type="button"
+                onClick={() => removeUrl(i)}
+                className="absolute top-1 right-1 bg-white/80 hover:bg-white text-red-600 rounded px-1 text-xs"
+              >Quitar</button>
+            </div>
+          ))}
         </div>
       )}
     </div>

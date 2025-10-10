@@ -78,7 +78,58 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
       if (isDosificador) {
         const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
         const data = await getOrdersForDosificador();
-        setOrders(data);
+        
+        // Transform and compute volumes consistently for DOSIFICADOR
+        const processedData = (data || []).map((order: any) => {
+          const orderItems = order.order_items || [];
+          let concreteVolume = 0;
+          let pumpVolume = 0;
+          let hasPumpService = false;
+
+          if (orderItems.length > 0) {
+            orderItems.forEach((item: any) => {
+              const productType = item.product_type || '';
+              const volume = item.volume || 0;
+              const pumpVolumeItem = item.pump_volume || 0;
+
+              const isEmptyTruckCharge = item.has_empty_truck_charge ||
+                productType === 'VACÍO DE OLLA' ||
+                productType === 'EMPTY_TRUCK_CHARGE';
+
+              const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+                productType.toLowerCase().includes('bombeo') ||
+                productType.toLowerCase().includes('pump');
+
+              if (!isEmptyTruckCharge && !isPumpService) {
+                concreteVolume += volume;
+              }
+
+              if (item.has_pump_service || isPumpService) {
+                if (pumpVolumeItem > 0) {
+                  pumpVolume += pumpVolumeItem;
+                } else if (isPumpService && volume > 0) {
+                  pumpVolume += volume;
+                }
+                hasPumpService = true;
+              }
+            });
+          }
+
+          return {
+            ...order,
+            concreteVolume: concreteVolume > 0 ? concreteVolume : undefined,
+            pumpVolume: pumpVolume > 0 ? pumpVolume : undefined,
+            hasPumpService,
+            // Ensure these fields are preserved for semaforization
+            site_access_rating: order.site_access_rating,
+            order_site_validations: order.order_site_validations,
+            delivery_latitude: order.delivery_latitude,
+            delivery_longitude: order.delivery_longitude,
+            delivery_google_maps_url: order.delivery_google_maps_url
+          };
+        });
+        
+        setOrders(processedData);
       } else {
         // Create a plant-aware query directly with volume information
         const { supabase } = await import('@/lib/supabase/client');
@@ -98,6 +149,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
             special_requirements,
             preliminary_amount,
             final_amount,
+            site_access_rating,
             credit_status,
             order_status,
             created_at,
@@ -107,6 +159,13 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
               client_code,
               contact_name,
               phone
+            ),
+            order_site_validations (
+              road_type,
+              road_slope,
+              recent_weather_impact,
+              route_incident_history,
+              evidence_photo_urls
             ),
             order_items (
               id,
@@ -499,7 +558,16 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
                       className={`block p-3 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs`}
                     >
-                      <div className="font-medium">{order.clients?.business_name || 'Cliente no disponible'}</div>
+                      <div className="font-medium flex items-center gap-2">
+                        {/* Semaforization dot */}
+                        {(() => {
+                          const rating = (order as any).site_access_rating as string | undefined;
+                          const color = rating === 'green' ? 'bg-green-500' : rating === 'yellow' ? 'bg-yellow-500' : rating === 'red' ? 'bg-red-500' : 'bg-gray-300';
+                          const title = rating ? `Acceso: ${rating.toUpperCase()}` : 'Acceso: N/D';
+                          return <span className={`inline-block w-2.5 h-2.5 rounded-full ${color}`} title={title} />;
+                        })()}
+                        {order.clients?.business_name || 'Cliente no disponible'}
+                      </div>
                       <div className="flex items-center mt-1 text-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
@@ -542,6 +610,23 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                            ` • Bomba: ${(order as any).pumpVolume} m³` : ''}
                         </span>
                       </div>
+                      {/* Yellow/Red summary for daily view */}
+                      {(() => {
+                        const rating = (order as any).site_access_rating as string | undefined;
+                        const validations = (order as any).order_site_validations;
+                        const v = Array.isArray(validations) ? validations[0] : validations;
+                        if (!rating || rating === 'green' || !v) return null;
+                        const mapRoad: any = { paved: 'Pav.', gravel_good: 'Terr. buena', gravel_rough: 'Terr. mala' };
+                        const mapSlope: any = { none: 'sin pend.', moderate: 'pend. mod.', steep: 'pend. pron.' };
+                        const mapWeather: any = { dry: 'seco', light_rain: 'll. ligera', heavy_rain: 'll. fuerte' };
+                        const mapHist: any = { none: 'sin inc.', minor: 'inc. menor', major: 'inc. mayor' };
+                        return (
+                          <div className="mt-1 text-xs text-amber-800 bg-amber-50 inline-flex items-center px-1.5 py-0.5 rounded border border-amber-200">
+                            <span className={`inline-block w-2 h-2 rounded-full mr-1 ${rating === 'red' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
+                            {mapRoad[v?.road_type] || '—'} • {mapSlope[v?.road_slope] || '—'} • {mapWeather[v?.recent_weather_impact] || '—'} • {mapHist[v?.route_incident_history] || '—'}
+                          </div>
+                        );
+                      })()}
                       <div className="mt-1 flex justify-between items-center">
                         <span className="text-xs capitalize">{order.order_status}</span>
                         {order.credit_status && (
@@ -614,7 +699,15 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
                       className={`block p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-sm`}
                     >
-                      <div className="font-medium truncate">{order.clients?.business_name || 'Cliente no disponible'}</div>
+                      <div className="font-medium flex items-center gap-1">
+                        {(() => {
+                          const rating = (order as any).site_access_rating as string | undefined;
+                          const color = rating === 'green' ? 'bg-green-500' : rating === 'yellow' ? 'bg-yellow-500' : rating === 'red' ? 'bg-red-500' : 'bg-gray-300';
+                          const title = rating ? `Acceso: ${rating.toUpperCase()}` : 'Acceso: N/D';
+                          return <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${color}`} title={title} />;
+                        })()}
+                        <span className="truncate">{order.clients?.business_name || 'Cliente no disponible'}</span>
+                      </div>
                       <div className="flex items-center mt-1 text-xs">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
@@ -632,6 +725,23 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           )}
                         </span>
                       </div>
+                      {(() => {
+                        const rating = (order as any).site_access_rating as string | undefined;
+                        // Handle both array and object formats for order_site_validations
+                        const validations = (order as any).order_site_validations;
+                        const v = Array.isArray(validations) ? validations[0] : validations;
+                        if (!rating || rating === 'green' || !v) return null;
+                        const mapRoad: any = { paved: 'Pav.', gravel_good: 'Terr. buena', gravel_rough: 'Terr. mala' };
+                        const mapSlope: any = { none: 'sin pend.', moderate: 'pend. mod.', steep: 'pend. pron.' };
+                        const mapWeather: any = { dry: 'seco', light_rain: 'll. ligera', heavy_rain: 'll. fuerte' };
+                        const mapHist: any = { none: 'sin inc.', minor: 'inc. menor', major: 'inc. mayor' };
+                        return (
+                          <div className="mt-1 text-xs text-amber-800 bg-amber-50 inline-flex items-center px-1.5 py-0.5 rounded border border-amber-200">
+                            <span className={`inline-block w-2 h-2 rounded-full mr-1 ${rating === 'red' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
+                            {mapRoad[v?.road_type] || '—'} • {mapSlope[v?.road_slope] || '—'} • {mapWeather[v?.recent_weather_impact] || '—'} • {mapHist[v?.route_incident_history] || '—'}
+                          </div>
+                        );
+                      })()}
                       {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
                         <div className="mt-1">
                           <button
@@ -728,7 +838,15 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                     onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
                     className={`block p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-xs`}
                   >
-                    <div className="font-medium truncate">{order.clients?.business_name || 'Cliente no disponible'}</div>
+                    <div className="font-medium flex items-center gap-1">
+                      {(() => {
+                        const rating = (order as any).site_access_rating as string | undefined;
+                        const color = rating === 'green' ? 'bg-green-500' : rating === 'yellow' ? 'bg-yellow-500' : rating === 'red' ? 'bg-red-500' : 'bg-gray-300';
+                        const title = rating ? `Acceso: ${rating.toUpperCase()}` : 'Acceso: N/D';
+                        return <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${color}`} title={title} />;
+                      })()}
+                      <span className="truncate">{order.clients?.business_name || 'Cliente no disponible'}</span>
+                    </div>
                     <div className="text-xs mt-1 flex items-center">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
@@ -746,6 +864,21 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                         )}
                       </span>
                     </div>
+                    {(() => {
+                      const rating = (order as any).site_access_rating as string | undefined;
+                      const v = ((order as any).order_site_validations || [])[0] as any;
+                      if (!rating || rating === 'green' || !v) return null;
+                      const mapRoad: any = { paved: 'Pav.', gravel_good: 'Terr. buena', gravel_rough: 'Terr. mala' };
+                      const mapSlope: any = { none: 'sin pend.', moderate: 'pend. mod.', steep: 'pend. pron.' };
+                      const mapWeather: any = { dry: 'seco', light_rain: 'll. ligera', heavy_rain: 'll. fuerte' };
+                      const mapHist: any = { none: 'sin inc.', minor: 'inc. menor', major: 'inc. mayor' };
+                      return (
+                        <div className="mt-1 text-[10px] text-amber-800 bg-amber-50 inline-flex items-center px-1 py-0.5 rounded border border-amber-200">
+                          <span className={`inline-block w-2 h-2 rounded-full mr-1 ${rating === 'red' ? 'bg-red-500' : 'bg-yellow-500'}`}></span>
+                          {mapRoad[v?.road_type] || '—'} • {mapSlope[v?.road_slope] || '—'} • {mapWeather[v?.recent_weather_impact] || '—'} • {mapHist[v?.route_incident_history] || '—'}
+                        </div>
+                      );
+                    })()}
                     <div className="flex items-center mt-1 text-xs overflow-hidden">
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M10 2a4 4 0 00-4 4v1H5a1 1 0 00-.994.89l-1 9A1 1 0 004 18h12a1 1 0 00.994-1.11l-1-9A1 1 0 0015 7h-1V6a4 4 0 00-4-4zm2 5V6a2 2 0 10-4 0v1h4zm-6 3a1 1 0 112 0 1 1 0 01-2 0zm7-1a1 1 0 100 2 1 1 0 000-2z" clipRule="evenodd" />

@@ -445,6 +445,14 @@ export async function getOrderById(id: string) {
           code,
           vat_rate
         )
+      ),
+      order_site_validations(
+        road_type,
+        road_slope,
+        recent_weather_impact,
+        route_incident_history,
+        validation_notes,
+        evidence_photo_urls
       )
     `)
     .eq('id', id)
