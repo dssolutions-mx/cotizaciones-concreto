@@ -159,7 +159,10 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
                   *,
                   quote_details (
                     final_price,
-                    recipe_id
+                    recipe_id,
+                    recipes (
+                      recipe_code
+                    )
                   )
                 `)
                 .in('order_id', orderIdsToFetch);

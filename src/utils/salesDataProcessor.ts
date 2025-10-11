@@ -187,6 +187,18 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
       })
     : undefined;
   
+  // 1b) NEW: If recipe_id didn't match, try matching by recipe_code
+  //     This handles cases where remision.recipe_id != quote_detail.recipe_id
+  //     but both recipes have the same recipe_code
+  if (!concreteProduct && productType) {
+    concreteProduct = orderSpecificProducts.find(p => {
+      const qd = getQuoteDetails(p);
+      const qdRecipe = qd?.recipes || qd?.recipe;
+      const qdRecipeCode = qdRecipe?.recipe_code;
+      return qdRecipeCode && qdRecipeCode === productType;
+    });
+  }
+  
   // 2) Try exact match by order_item.recipe_id if provided
   if (!concreteProduct && recipeIdStr) {
     concreteProduct = orderSpecificProducts.find(p => p.recipe_id && String(p.recipe_id) === recipeIdStr);
