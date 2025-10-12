@@ -121,6 +121,8 @@ export default function CurvaGranulometrica({
     // Fondo
     'Fondo': 0.0,
     'fondo': 0.0,
+    'Charola': 0.0,
+    'charola': 0.0,
     'pan': 0.0
   };
 

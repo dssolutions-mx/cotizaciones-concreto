@@ -16,14 +16,16 @@ import {
   AlertCircle,
   Info,
   Timer,
-  Thermometer
+  Thermometer,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 
 interface AbsorcionResultados {
-  // Pesos de la muestra
-  peso_muestra_seca: number;
-  peso_muestra_saturada: number;
+  // Pesos de la muestra según norma
+  peso_muestra_seca_horno: number; // Ms - Peso seco al horno
+  peso_muestra_sss: number; // Msss - Peso saturado superficialmente seco
   
   // Condiciones del ensayo
   tiempo_saturacion: number; // en horas
@@ -31,11 +33,15 @@ interface AbsorcionResultados {
   metodo_secado: string;
   
   // Resultados calculados
-  absorcion_porcentaje: number;
-  incremento_peso: number;
+  absorcion_porcentaje: number; // A = [(F - G) / G] × 100
+  incremento_peso: number; // F - G
   
   // Clasificación
   clasificacion_absorcion: string;
+  
+  // Metadata
+  norma_aplicada?: string;
+  tipo_agregado?: string;
   
   observaciones?: string;
 }
@@ -56,45 +62,125 @@ export default function AbsorcionForm({
   isLoading = false 
 }: AbsorcionFormProps) {
   const [formData, setFormData] = useState<AbsorcionResultados>(() => {
-    if (initialData) return initialData;
+    if (initialData) {
+      // Migrar datos antiguos si existen
+      return {
+        peso_muestra_seca_horno: (initialData as any).peso_muestra_seca || initialData.peso_muestra_seca_horno || 0,
+        peso_muestra_sss: (initialData as any).peso_muestra_saturada || initialData.peso_muestra_sss || 0,
+        tiempo_saturacion: initialData.tiempo_saturacion || 24,
+        temperatura_agua: initialData.temperatura_agua || 23,
+        metodo_secado: initialData.metodo_secado || 'Horno 110°C ± 5°C',
+        absorcion_porcentaje: initialData.absorcion_porcentaje || 0,
+        incremento_peso: initialData.incremento_peso || 0,
+        clasificacion_absorcion: initialData.clasificacion_absorcion || '',
+        norma_aplicada: initialData.norma_aplicada,
+        tipo_agregado: initialData.tipo_agregado,
+        observaciones: initialData.observaciones || ''
+      };
+    }
     
     return {
-      peso_muestra_seca: 0,
-      peso_muestra_saturada: 0,
+      peso_muestra_seca_horno: 0,
+      peso_muestra_sss: 0,
       tiempo_saturacion: 24,
       temperatura_agua: 23,
-      metodo_secado: 'Horno 110°C',
+      metodo_secado: 'Horno 110°C ± 5°C',
       absorcion_porcentaje: 0,
       incremento_peso: 0,
       clasificacion_absorcion: '',
+      norma_aplicada: undefined,
+      tipo_agregado: undefined,
       observaciones: ''
     };
   });
 
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loadingMaterial, setLoadingMaterial] = useState(true);
+  const [tipoMaterial, setTipoMaterial] = useState<string>('');
+  const [normaAplicable, setNormaAplicable] = useState<string>('NMX-C-164 / NMX-C-165');
+
+  // Cargar información del material para determinar la norma aplicable
+  useEffect(() => {
+    const loadMaterialInfo = async () => {
+      try {
+        setLoadingMaterial(true);
+        
+        // Obtener el estudio seleccionado para obtener el alta_estudio_id
+        const { data: estudioData, error: estudioError } = await supabase
+          .from('estudios_seleccionados')
+          .select('alta_estudio_id')
+          .eq('id', estudioId)
+          .single();
+
+        if (estudioError) throw estudioError;
+
+        // Obtener información del material desde alta_estudio
+        const { data: altaEstudioData, error: altaError } = await supabase
+          .from('alta_estudio')
+          .select('tipo_material, nombre_material')
+          .eq('id', estudioData.alta_estudio_id)
+          .single();
+
+        if (altaError) throw altaError;
+
+        const tipo = altaEstudioData.tipo_material?.toLowerCase() || '';
+        setTipoMaterial(tipo);
+
+        // Determinar la norma según el tipo de material
+        let norma = 'NMX-C-164 / NMX-C-165';
+        if (tipo.includes('arena') || tipo.includes('fino')) {
+          norma = 'NMX-C-165-ONNCCE-2020';
+        } else if (tipo.includes('grava') || tipo.includes('grueso')) {
+          norma = 'NMX-C-164-ONNCCE-2014';
+        }
+        
+        setNormaAplicable(norma);
+        
+        // Actualizar el formData con la información del material
+        setFormData(prev => ({
+          ...prev,
+          norma_aplicada: norma,
+          tipo_agregado: tipo
+        }));
+
+      } catch (error) {
+        console.error('Error loading material info:', error);
+        toast.error('Error al cargar información del material');
+      } finally {
+        setLoadingMaterial(false);
+      }
+    };
+
+    loadMaterialInfo();
+  }, [estudioId]);
 
   // Calcular automáticamente los resultados cuando cambian los pesos
   useEffect(() => {
     calcularResultados();
-  }, [formData.peso_muestra_seca, formData.peso_muestra_saturada]);
+  }, [formData.peso_muestra_seca_horno, formData.peso_muestra_sss]);
 
   const calcularResultados = () => {
-    const { peso_muestra_seca, peso_muestra_saturada } = formData;
+    const { peso_muestra_seca_horno, peso_muestra_sss } = formData;
     
-    if (peso_muestra_seca <= 0 || peso_muestra_saturada <= 0) {
+    // Ms = Peso seco al horno
+    // Msss = Peso saturado superficialmente seco (SSS)
+    const Ms = peso_muestra_seca_horno;
+    const Msss = peso_muestra_sss;
+    
+    if (Ms <= 0 || Msss <= 0) {
       return;
     }
 
-    // Calcular incremento de peso
-    const incrementoPeso = peso_muestra_saturada - peso_muestra_seca;
+    // Calcular incremento de peso (Msss - Ms)
+    const incrementoPeso = Msss - Ms;
 
-    // Calcular porcentaje de absorción
-    const absorcionPorcentaje = peso_muestra_seca > 0 
-      ? (incrementoPeso / peso_muestra_seca) * 100 
+    // Calcular porcentaje de absorción según norma: Abs = [(Msss - Ms) / Ms] × 100
+    const absorcionPorcentaje = Ms > 0 
+      ? ((Msss - Ms) / Ms) * 100 
       : 0;
 
-    // Clasificar absorción
+    // Clasificar absorción según valores típicos para agregados
     let clasificacionAbsorcion = '';
     if (absorcionPorcentaje < 0.5) {
       clasificacionAbsorcion = 'Muy baja';
@@ -110,7 +196,7 @@ export default function AbsorcionForm({
 
     setFormData(prev => ({
       ...prev,
-      incremento_peso: Number(incrementoPeso.toFixed(1)),
+      incremento_peso: Number(incrementoPeso.toFixed(2)),
       absorcion_porcentaje: Number(absorcionPorcentaje.toFixed(2)),
       clasificacion_absorcion: clasificacionAbsorcion
     }));
@@ -134,20 +220,20 @@ export default function AbsorcionForm({
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (formData.peso_muestra_seca <= 0) {
-      newErrors.peso_muestra_seca = 'El peso de la muestra seca debe ser mayor a 0';
+    if (formData.peso_muestra_seca_horno <= 0) {
+      newErrors.peso_muestra_seca_horno = 'El peso de la muestra seca (Ms) debe ser mayor a 0';
     }
 
-    if (formData.peso_muestra_saturada <= 0) {
-      newErrors.peso_muestra_saturada = 'El peso de la muestra saturada debe ser mayor a 0';
+    if (formData.peso_muestra_sss <= 0) {
+      newErrors.peso_muestra_sss = 'El peso de la muestra SSS (Msss) debe ser mayor a 0';
     }
 
-    if (formData.peso_muestra_saturada < formData.peso_muestra_seca) {
-      newErrors.peso_muestra_saturada = 'El peso saturado debe ser mayor o igual al peso seco';
+    if (formData.peso_muestra_sss < formData.peso_muestra_seca_horno) {
+      newErrors.peso_muestra_sss = 'El peso SSS (Msss) debe ser mayor o igual al peso seco (Ms)';
     }
 
     if (formData.tiempo_saturacion < 12 || formData.tiempo_saturacion > 48) {
-      newErrors.tiempo_saturacion = 'El tiempo de saturación debe estar entre 12 y 48 horas';
+      newErrors.tiempo_saturacion = 'El tiempo de saturación debe estar entre 12 y 48 horas (típicamente 24h)';
     }
 
     if (formData.temperatura_agua < 15 || formData.temperatura_agua > 35) {
@@ -167,52 +253,24 @@ export default function AbsorcionForm({
     try {
       setSaving(true);
       await onSave(formData);
-      toast.success('Análisis de absorción guardado exitosamente');
-    } catch (error) {
+      // El toast de éxito se muestra solo si no hay error
+    } catch (error: any) {
       console.error('Error saving absorcion:', error);
-      toast.error('Error al guardar el análisis de absorción');
+      // El error ya se maneja en el EstudioFormModal, no mostrar toast duplicado
     } finally {
       setSaving(false);
     }
   };
 
-  const getColorClasificacion = (clasificacion: string) => {
-    switch (clasificacion) {
-      case 'Muy baja': return 'text-green-700 bg-green-100';
-      case 'Baja': return 'text-green-600 bg-green-50';
-      case 'Moderada': return 'text-yellow-700 bg-yellow-100';
-      case 'Alta': return 'text-orange-700 bg-orange-100';
-      case 'Muy alta': return 'text-red-700 bg-red-100';
-      default: return 'text-gray-700 bg-gray-100';
-    }
-  };
 
-  const getIconClasificacion = (clasificacion: string) => {
-    switch (clasificacion) {
-      case 'Muy baja':
-      case 'Baja':
-        return '✅';
-      case 'Moderada':
-        return '⚠️';
-      case 'Alta':
-      case 'Muy alta':
-        return '❌';
-      default:
-        return '❓';
-    }
-  };
-
-  const getRecomendacion = (absorcion: number) => {
-    if (absorcion < 1) {
-      return 'Excelente para concreto de alta resistencia y durabilidad.';
-    } else if (absorcion < 2) {
-      return 'Bueno para la mayoría de aplicaciones de concreto estructural.';
-    } else if (absorcion < 4) {
-      return 'Aceptable para concreto convencional, considerar ajustes en diseño de mezcla.';
-    } else {
-      return 'Requiere evaluación especial. Puede necesitar tratamiento o rechazo.';
-    }
-  };
+  if (loadingMaterial) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-[#069e2d]" />
+        <span className="ml-3 text-gray-600">Cargando información del material...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -221,63 +279,101 @@ export default function AbsorcionForm({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <TestTube className="h-5 w-5 text-[#069e2d]" />
-            Análisis de Absorción
+            Análisis de Absorción de Agua
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Alert>
+          <Alert className="mb-4">
             <Info className="h-4 w-4" />
             <AlertDescription>
-              <strong>Norma:</strong> NMX-C-164 / NMX-C-165 - Determinación de la capacidad de absorción de agua del agregado
+              <div className="space-y-2">
+                <p><strong>Norma Aplicable:</strong> {normaAplicable}</p>
+                <p><strong>Tipo de Agregado:</strong> {tipoMaterial ? tipoMaterial.charAt(0).toUpperCase() + tipoMaterial.slice(1) : 'Agregado'}</p>
+                <p className="text-sm mt-2">
+                  {normaAplicable.includes('165') 
+                    ? 'Método de prueba estándar para agregados finos (arena)'
+                    : normaAplicable.includes('164')
+                    ? 'Método de prueba estándar para agregados gruesos (grava)'
+                    : 'Determinación de la capacidad de absorción de agua del agregado'
+                  }
+                </p>
+              </div>
             </AlertDescription>
           </Alert>
         </CardContent>
       </Card>
 
-      {/* Datos de la Muestra */}
+      {/* Datos de la Muestra según Norma */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Pesos de la Muestra</CardTitle>
+          <CardTitle className="text-lg">Pesos de la Muestra (Según Norma)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Explicación de la nomenclatura */}
+          <Alert className="bg-blue-50 border-blue-200">
+            <Info className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-sm text-blue-800">
+              <strong>Nomenclatura de la Norma:</strong>
+              <ul className="mt-2 space-y-1 ml-4">
+                <li>• <strong>Ms</strong> = Masa de la muestra seca al horno (110°C ± 5°C)</li>
+                <li>• <strong>Msss</strong> = Masa de la muestra en estado saturado superficialmente seco (SSS)</li>
+                <li>• <strong>Fórmula:</strong> Abs = [(Msss - Ms) / Ms] × 100</li>
+              </ul>
+            </AlertDescription>
+          </Alert>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="peso_seca">Peso Muestra Seca (g) *</Label>
+              <Label htmlFor="peso_seca_horno" className="flex items-center gap-2">
+                <span>Peso Seco al Horno</span>
+                <Badge variant="outline" className="text-xs font-mono">Ms</Badge>
+              </Label>
               <Input
-                id="peso_seca"
+                id="peso_seca_horno"
                 type="number"
-                step="0.1"
-                value={formData.peso_muestra_seca || ''}
-                onChange={(e) => handleInputChange('peso_muestra_seca', e.target.value)}
-                className={errors.peso_muestra_seca ? 'border-red-500' : ''}
+                step="0.01"
+                value={formData.peso_muestra_seca_horno || ''}
+                onChange={(e) => handleInputChange('peso_muestra_seca_horno', e.target.value)}
+                className={errors.peso_muestra_seca_horno ? 'border-red-500' : ''}
+                placeholder="gramos"
               />
-              {errors.peso_muestra_seca && (
-                <p className="text-sm text-red-600">{errors.peso_muestra_seca}</p>
+              {errors.peso_muestra_seca_horno && (
+                <p className="text-sm text-red-600">{errors.peso_muestra_seca_horno}</p>
               )}
+              <p className="text-xs text-gray-500">Secado a 110°C ± 5°C hasta masa constante</p>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="peso_saturada">Peso Muestra Saturada (g) *</Label>
+              <Label htmlFor="peso_sss" className="flex items-center gap-2">
+                <span>Peso Saturado SSS</span>
+                <Badge variant="outline" className="text-xs font-mono">Msss</Badge>
+              </Label>
               <Input
-                id="peso_saturada"
+                id="peso_sss"
                 type="number"
-                step="0.1"
-                value={formData.peso_muestra_saturada || ''}
-                onChange={(e) => handleInputChange('peso_muestra_saturada', e.target.value)}
-                className={errors.peso_muestra_saturada ? 'border-red-500' : ''}
+                step="0.01"
+                value={formData.peso_muestra_sss || ''}
+                onChange={(e) => handleInputChange('peso_muestra_sss', e.target.value)}
+                className={errors.peso_muestra_sss ? 'border-red-500' : ''}
+                placeholder="gramos"
               />
-              {errors.peso_muestra_saturada && (
-                <p className="text-sm text-red-600">{errors.peso_muestra_saturada}</p>
+              {errors.peso_muestra_sss && (
+                <p className="text-sm text-red-600">{errors.peso_muestra_sss}</p>
               )}
+              <p className="text-xs text-gray-500">Saturado superficialmente seco (24h de inmersión)</p>
             </div>
             
             <div className="space-y-2">
-              <Label>Incremento de Peso (g)</Label>
+              <Label className="flex items-center gap-2">
+                <span>Incremento de Peso</span>
+                <Badge variant="outline" className="text-xs font-mono">Msss - Ms</Badge>
+              </Label>
               <Input
-                value={formData.incremento_peso.toFixed(1)}
+                value={formData.incremento_peso.toFixed(2)}
                 disabled
                 className="bg-[#069e2d]/10 font-semibold text-[#069e2d]"
               />
+              <p className="text-xs text-gray-500">Agua absorbida (gramos)</p>
             </div>
           </div>
         </CardContent>
@@ -335,11 +431,11 @@ export default function AbsorcionForm({
                 onChange={(e) => handleInputChange('metodo_secado', e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <option value="Horno 110°C">Horno 110°C</option>
+                <option value="Horno 110°C ± 5°C">Horno 110°C ± 5°C (Norma NMX)</option>
                 <option value="Horno 105°C">Horno 105°C</option>
-                <option value="Aire libre">Aire libre</option>
-                <option value="Estufa">Estufa</option>
+                <option value="Horno 100°C">Horno 100°C</option>
               </select>
+              <p className="text-xs text-gray-500">La norma especifica 110°C ± 5°C hasta masa constante</p>
             </div>
           </div>
         </CardContent>
@@ -354,125 +450,102 @@ export default function AbsorcionForm({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-4">
             {/* Absorción */}
-            <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900 border-b pb-2">Absorción</h3>
-              
-              <div className="space-y-3">
-                <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <TestTube className="h-5 w-5 text-[#069e2d]" />
-                    <span className="font-medium text-[#069e2d]">Absorción:</span>
-                  </div>
-                  <Badge className="bg-[#069e2d] text-white text-xl px-4 py-2">
-                    {formData.absorcion_porcentaje.toFixed(2)}%
-                  </Badge>
-                </div>
-                
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="text-sm text-gray-600 mb-1">Fórmula utilizada:</div>
-                  <div className="text-xs font-mono bg-white p-2 rounded border">
-                    Absorción (%) = [(Peso Saturado - Peso Seco) / Peso Seco] × 100
-                  </div>
-                </div>
+            <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
+              <div className="flex items-center gap-2">
+                <TestTube className="h-5 w-5 text-[#069e2d]" />
+                <span className="font-medium text-[#069e2d]">Absorción:</span>
+              </div>
+              <Badge className="bg-[#069e2d] text-white text-xl px-4 py-2">
+                {formData.absorcion_porcentaje.toFixed(2)}%
+              </Badge>
+            </div>
+            
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-sm text-gray-600 mb-1">Fórmula según {normaAplicable}:</div>
+              <div className="text-xs font-mono bg-white p-2 rounded border space-y-1">
+                <div><strong>Abs = [(Msss - Ms) / Ms] × 100</strong></div>
+                <div className="text-gray-600">Donde:</div>
+                <div>• Abs = Absorción en porcentaje</div>
+                <div>• Msss = Peso saturado SSS (g)</div>
+                <div>• Ms = Peso seco al horno (g)</div>
+              </div>
+              <div className="mt-2 text-xs bg-blue-50 p-2 rounded border border-blue-200 text-blue-800">
+                <strong>Cálculo:</strong> Abs = [({formData.peso_muestra_sss.toFixed(2)} - {formData.peso_muestra_seca_horno.toFixed(2)}) / {formData.peso_muestra_seca_horno.toFixed(2)}] × 100 = {formData.absorcion_porcentaje.toFixed(2)}%
               </div>
             </div>
 
-            {/* Clasificación */}
-            <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900 border-b pb-2">Clasificación</h3>
-              
-              <div className="space-y-3">
-                <div className={`p-4 rounded-lg ${getColorClasificacion(formData.clasificacion_absorcion)}`}>
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium">Clasificación:</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">{getIconClasificacion(formData.clasificacion_absorcion)}</span>
-                      <Badge variant="outline" className="font-semibold">
-                        {formData.clasificacion_absorcion}
-                      </Badge>
-                    </div>
-                  </div>
-                  <p className="text-sm opacity-90">
-                    {getRecomendacion(formData.absorcion_porcentaje)}
-                  </p>
-                </div>
-              </div>
-
-              {/* Guía de interpretación */}
-                <div className="p-3 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/20">
-                  <h4 className="text-sm font-medium text-[#069e2d] mb-2">Guía de Interpretación:</h4>
-                <div className="text-xs text-gray-700 space-y-1">
-                  <div>• &lt; 0.5%: Muy baja absorción ✅</div>
-                  <div>• 0.5-1.0%: Baja absorción ✅</div>
-                  <div>• 1.0-2.0%: Absorción moderada ⚠️</div>
-                  <div>• 2.0-4.0%: Alta absorción ❌</div>
-                  <div>• &gt; 4.0%: Muy alta absorción ❌</div>
-                </div>
-              </div>
+            <div className="space-y-2 mt-6">
+              <Label htmlFor="observaciones">Observaciones</Label>
+              <Textarea
+                id="observaciones"
+                value={formData.observaciones || ''}
+                onChange={(e) => handleInputChange('observaciones', e.target.value)}
+                placeholder="Observaciones adicionales del análisis..."
+                rows={3}
+              />
             </div>
-          </div>
-
-          <Separator className="my-6" />
-
-          {/* Análisis Técnico */}
-          <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
-                  <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
-              <AlertCircle className="h-4 w-4" />
-              Análisis Técnico
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-blue-800 mb-2">
-                  <strong>Impacto en el concreto:</strong>
-                </p>
-                <ul className="text-blue-700 space-y-1 text-xs">
-                  <li>• Afecta la relación agua/cemento efectiva</li>
-                  <li>• Influye en la trabajabilidad de la mezcla</li>
-                  <li>• Impacta la durabilidad del concreto</li>
-                </ul>
-              </div>
-              <div>
-                <p className="text-blue-800 mb-2">
-                  <strong>Consideraciones de diseño:</strong>
-                </p>
-                <ul className="text-blue-700 space-y-1 text-xs">
-                  <li>• Ajustar agua de mezclado</li>
-                  <li>• Considerar pre-saturación del agregado</li>
-                  <li>• Evaluar compatibilidad con aditivos</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-2 mt-6">
-            <Label htmlFor="observaciones">Observaciones</Label>
-            <Textarea
-              id="observaciones"
-              value={formData.observaciones || ''}
-              onChange={(e) => handleInputChange('observaciones', e.target.value)}
-              placeholder="Observaciones adicionales del análisis..."
-              rows={3}
-            />
           </div>
         </CardContent>
       </Card>
 
-      {/* Información Técnica */}
+      {/* Información Técnica según Norma */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Información Técnica</CardTitle>
+          <CardTitle className="text-lg">Procedimiento según {normaAplicable}</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              <div className="space-y-2">
-                <p><strong>Absorción:</strong> Cantidad de agua que puede absorber un agregado expresada como porcentaje de su peso seco.</p>
-                <p><strong>Importancia:</strong> Determina cuánta agua adicional se necesita en la mezcla de concreto y afecta las propiedades del concreto fresco y endurecido.</p>
-                <p><strong>Procedimiento:</strong> La muestra se satura completamente en agua durante 24 horas, se seca superficialmente y se pesa.</p>
-                <p><strong>Aplicación:</strong> Esencial para el diseño de mezclas de concreto y control de calidad de agregados.</p>
+              <div className="space-y-3">
+                <div>
+                  <p className="font-semibold text-gray-900 mb-1">Definición:</p>
+                  <p className="text-sm">La absorción es la cantidad de agua que penetra los poros permeables de un agregado durante un período establecido, expresada como porcentaje de la masa seca.</p>
+                </div>
+                
+                <Separator />
+                
+                <div>
+                  <p className="font-semibold text-gray-900 mb-1">Procedimiento Resumido:</p>
+                  <ol className="text-sm space-y-1 ml-4">
+                    <li>1. <strong>Saturación:</strong> Sumergir la muestra en agua durante 24 ± 4 horas</li>
+                    <li>2. <strong>Estado SSS:</strong> Secar la superficie hasta condición saturada superficialmente seca</li>
+                    <li>3. <strong>Pesado Msss:</strong> Pesar la muestra en estado SSS (Msss)</li>
+                    <li>4. <strong>Secado:</strong> Secar en horno a 110°C ± 5°C hasta masa constante</li>
+                    <li>5. <strong>Pesado Ms:</strong> Pesar la muestra seca (Ms)</li>
+                    <li>6. <strong>Cálculo:</strong> Abs = [(Msss - Ms) / Ms] × 100</li>
+                  </ol>
+                </div>
+                
+                <Separator />
+                
+                <div>
+                  <p className="font-semibold text-gray-900 mb-1">Importancia:</p>
+                  <ul className="text-sm space-y-1 ml-4">
+                    <li>• Determina el agua adicional necesaria en el diseño de mezclas</li>
+                    <li>• Afecta la trabajabilidad del concreto fresco</li>
+                    <li>• Influye en la durabilidad y resistencia del concreto endurecido</li>
+                    <li>• Criterio de aceptación/rechazo de agregados</li>
+                  </ul>
+                </div>
+                
+                {normaAplicable.includes('165') && (
+                  <div className="p-2 bg-yellow-50 rounded border border-yellow-200">
+                    <p className="text-xs text-yellow-800">
+                      <strong>Nota para Arena (NMX-C-165):</strong> El procedimiento para determinar la condición SSS en agregado fino utiliza el método del cono truncado.
+                    </p>
+                  </div>
+                )}
+                
+                {normaAplicable.includes('164') && (
+                  <div className="p-2 bg-yellow-50 rounded border border-yellow-200">
+                    <p className="text-xs text-yellow-800">
+                      <strong>Nota para Grava (NMX-C-164):</strong> La condición SSS se logra secando la superficie con un paño absorbente hasta que no haya película visible de agua.
+                    </p>
+                  </div>
+                )}
               </div>
             </AlertDescription>
           </Alert>

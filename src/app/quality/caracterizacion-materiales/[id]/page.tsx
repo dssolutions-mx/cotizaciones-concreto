@@ -250,7 +250,7 @@ export default function EstudioDetallePage() {
         return BarChart3;
       case 'Densidad':
         return Scale;
-      case 'Masa Volumétrico':
+      case 'Masa Volumétrica':
         return Layers;
       case 'Pérdida por Lavado':
         return Droplets;
@@ -295,7 +295,7 @@ export default function EstudioDetallePage() {
           </div>
         );
       }
-      case 'Masa Volumétrico': {
+      case 'Masa Volumétrica': {
         return (
           <div>
             {r.masa_volumetrica_suelta != null && (

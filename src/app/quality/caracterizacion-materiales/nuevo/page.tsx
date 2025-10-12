@@ -89,7 +89,7 @@ const ESTUDIOS_DISPONIBLES: TipoEstudioDisponible[] = [
       },
       {
         id: "masa_volumetrico",
-        nombre: "Masa Volumétrico",
+        nombre: "Masa Volumétrica",
         descripcion: "Determinación de la masa volumétrica suelto y compactado",
         norma: "NMX-C-073",
         aplicable_arena: true,

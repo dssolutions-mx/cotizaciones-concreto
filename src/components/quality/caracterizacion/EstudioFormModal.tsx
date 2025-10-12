@@ -1,14 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from '@/components/ui/button';
-import { X } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -47,95 +45,54 @@ export default function EstudioFormModal({
   onSave
 }: EstudioFormModalProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [normaCorregida, setNormaCorregida] = useState<string>(estudio.norma_referencia);
+
+  // Corregir la norma para Absorción basándose en el tipo de material
+  useEffect(() => {
+    const corregirNorma = async () => {
+      if (estudio.nombre_estudio === 'Absorción' && isOpen) {
+        try {
+          // Obtener información del material desde alta_estudio
+          const altaEstudioId = estudio.alta_estudio_id;
+          if (!altaEstudioId) return;
+
+          const { data: altaEstudioData, error } = await supabase
+            .from('alta_estudio')
+            .select('tipo_material')
+            .eq('id', altaEstudioId)
+            .single();
+
+          if (error) {
+            console.error('Error loading material info:', error);
+            return;
+          }
+
+          const tipo = altaEstudioData?.tipo_material?.toLowerCase() || '';
+          
+          // Determinar la norma según el tipo de material
+          let norma = 'NMX-C-164 / NMX-C-165';
+          if (tipo.includes('arena') || tipo.includes('fino')) {
+            norma = 'NMX-C-165-ONNCCE-2020';
+          } else if (tipo.includes('grava') || tipo.includes('grueso')) {
+            norma = 'NMX-C-164-ONNCCE-2014';
+          }
+          
+          setNormaCorregida(norma);
+        } catch (error) {
+          console.error('Error corrigiendo norma:', error);
+        }
+      }
+    };
+
+    corregirNorma();
+  }, [estudio.nombre_estudio, estudio.alta_estudio_id, isOpen]);
 
   const handleSave = async (resultados: any) => {
     try {
       setIsLoading(true);
-      
-      // Obtener el alta_estudio_id del estudio seleccionado
-      let altaEstudioId = estudio.alta_estudio_id;
-      
-      if (!altaEstudioId) {
-        const { data: estudioData, error: estudioError } = await supabase
-          .from('estudios_seleccionados')
-          .select('alta_estudio_id')
-          .eq('id', estudio.id)
-          .single();
-
-        if (estudioError) throw estudioError;
-        altaEstudioId = estudioData.alta_estudio_id;
-      }
-
-      const estudioData = { alta_estudio_id: altaEstudioId };
-
-      // Guardar según el tipo de estudio
-      if (estudio.nombre_estudio === 'Análisis Granulométrico') {
-        // Para granulometría, guardar en tabla granulometrias
-        if (resultados.mallas && Array.isArray(resultados.mallas)) {
-          // Primero eliminar datos existentes
-          await supabase
-            .from('granulometrias')
-            .delete()
-            .eq('alta_estudio_id', estudioData.alta_estudio_id);
-
-          // Insertar nuevos datos
-          const granulometriaData = resultados.mallas.map((malla: any, index: number) => ({
-            alta_estudio_id: estudioData.alta_estudio_id,
-            no_malla: malla.numero_malla,
-            retenido: malla.peso_retenido || 0,
-            porc_retenido: malla.porcentaje_retenido || 0,
-            porc_acumulado: malla.porcentaje_acumulado || 0,
-            porc_pasa: malla.porcentaje_pasa || 0,
-            orden_malla: index + 1
-          }));
-
-          const { error: granError } = await supabase
-            .from('granulometrias')
-            .insert(granulometriaData);
-
-          if (granError) throw granError;
-        }
-      } else {
-        // Para otros estudios, guardar en tabla caracterizacion
-        const updateData: any = {};
-        
-        switch (estudio.nombre_estudio) {
-          case 'Densidad':
-            updateData.masa_especifica = resultados.densidad_relativa;
-            updateData.masa_especifica_sss = resultados.densidad_sss;
-            updateData.masa_especifica_seca = resultados.densidad_aparente;
-            updateData.absorcion_porcentaje = resultados.absorcion;
-            break;
-            
-          case 'Masa Volumétrico':
-            updateData.masa_volumetrica_suelta = resultados.masa_volumetrica_suelta;
-            updateData.masa_volumetrica_compactada = resultados.masa_volumetrica_compactada;
-            break;
-            
-          case 'Pérdida por Lavado':
-            updateData.perdida_lavado = resultados.perdida_lavado;
-            updateData.perdida_lavado_porcentaje = resultados.porcentaje_perdida;
-            break;
-            
-          case 'Absorción':
-            updateData.absorcion = resultados.incremento_peso;
-            updateData.absorcion_porcentaje = resultados.absorcion_porcentaje;
-            break;
-        }
-
-        if (Object.keys(updateData).length > 0) {
-          updateData.updated_at = new Date().toISOString();
-          
-          const { error: caracError } = await supabase
-            .from('caracterizacion')
-            .update(updateData)
-            .eq('alta_estudio_id', estudioData.alta_estudio_id);
-
-          if (caracError) throw caracError;
-        }
-      }
 
       // Actualizar el estado del estudio seleccionado
+      // Todos los datos se guardan en la columna resultados (JSONB)
       const { error } = await supabase
         .from('estudios_seleccionados')
         .update({
@@ -151,11 +108,16 @@ export default function EstudioFormModal({
       // Llamar al callback del padre
       await onSave(estudio.id, resultados);
       
+      // Mostrar mensaje de éxito
+      toast.success('Estudio guardado exitosamente');
+      
       // Cerrar modal
       onClose();
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving estudio:', error);
+      const errorMessage = error?.message || error?.error?.message || 'Error desconocido al guardar';
+      toast.error(`Error al guardar: ${errorMessage}`);
       throw error; // Re-throw para que el formulario maneje el error
     } finally {
       setIsLoading(false);
@@ -172,7 +134,8 @@ export default function EstudioFormModal({
       initialData: estudio.resultados,
       onSave: handleSave,
       onCancel: handleCancel,
-      isLoading
+      isLoading,
+      altaEstudioId: estudio.alta_estudio_id
     };
 
     switch (estudio.nombre_estudio) {
@@ -182,7 +145,7 @@ export default function EstudioFormModal({
       case 'Densidad':
         return <DensidadForm {...commonProps} />;
       
-      case 'Masa Volumétrico':
+      case 'Masa Volumétrica':
         return <MasaVolumetricoForm {...commonProps} />;
       
       case 'Pérdida por Lavado':
@@ -208,18 +171,10 @@ export default function EstudioFormModal({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+        <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
             {estudio.nombre_estudio}
           </DialogTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            className="h-8 w-8 p-0"
-          >
-            <X className="h-4 w-4" />
-          </Button>
         </DialogHeader>
         
         <div className="space-y-4">
@@ -233,7 +188,7 @@ export default function EstudioFormModal({
               </div>
               <div>
                 <p className="text-[#069e2d]">
-                  <strong>Norma:</strong> {estudio.norma_referencia}
+                  <strong>Norma:</strong> {normaCorregida}
                 </p>
               </div>
               <div>

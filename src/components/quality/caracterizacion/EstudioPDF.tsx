@@ -320,7 +320,7 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
     e.tipo_estudio === 'Granulometría' || e.tipo_estudio === 'Análisis Granulométrico'
   );
   const caracterizacion = estudio.estudios.find(e => e.tipo_estudio === 'Caracterización Física');
-  const masaVolumetrica = estudio.estudios.find(e => e.tipo_estudio === 'Masa Volumétrico');
+  const masaVolumetrica = estudio.estudios.find(e => e.tipo_estudio === 'Masa Volumétrica');
   const densidad = estudio.estudios.find(e => e.tipo_estudio === 'Densidad');
   const perdidaLavado = estudio.estudios.find(e => e.tipo_estudio === 'Pérdida por Lavado');
   const absorcion = estudio.estudios.find(e => e.tipo_estudio === 'Absorción');

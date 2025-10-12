@@ -15,33 +15,25 @@ import {
   Layers, 
   AlertCircle,
   Info,
-  Package
+  Package,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { createClient } from '@/lib/supabase/client';
 
 interface MasaVolumetricoResultados {
-  // Datos del recipiente
-  peso_recipiente_vacio: number;
-  volumen_recipiente: number;
-  
-  // Masa volumétrica suelta
-  peso_recipiente_muestra_suelta: number;
-  peso_muestra_suelta: number;
-  masa_volumetrica_suelta: number;
-  
-  // Masa volumétrica compactada
-  peso_recipiente_muestra_compactada: number;
-  peso_muestra_compactada: number;
-  masa_volumetrica_compactada: number;
+  // Datos de entrada
+  masa_suelta: number; // kg
+  masa_compactada: number; // kg
+  factor: number; // Factor de conversión a kg/m³
   
   // Resultados calculados
-  factor_compactacion: number;
-  porcentaje_vacios_suelta: number;
-  porcentaje_vacios_compactada: number;
+  masa_volumetrica_suelta: number; // kg/m³
+  masa_volumetrica_compactada: number; // kg/m³
   
-  // Datos adicionales
-  densidad_relativa_agregado: number; // Para calcular % de vacíos
-  
+  // Metadatos
+  norma_aplicada?: string;
+  tipo_agregado?: string;
   observaciones?: string;
 }
 
@@ -51,6 +43,7 @@ interface MasaVolumetricoFormProps {
   onSave: (data: MasaVolumetricoResultados) => Promise<void>;
   onCancel: () => void;
   isLoading?: boolean;
+  altaEstudioId?: string;
 }
 
 export default function MasaVolumetricoForm({ 
@@ -58,24 +51,22 @@ export default function MasaVolumetricoForm({
   initialData, 
   onSave, 
   onCancel, 
-  isLoading = false 
+  isLoading = false,
+  altaEstudioId
 }: MasaVolumetricoFormProps) {
+  const supabase = createClient();
+  const [tipoMaterial, setTipoMaterial] = useState<string>('');
+  const [loadingMaterial, setLoadingMaterial] = useState(true);
+
   const [formData, setFormData] = useState<MasaVolumetricoResultados>(() => {
     if (initialData) return initialData;
     
     return {
-      peso_recipiente_vacio: 0,
-      volumen_recipiente: 0,
-      peso_recipiente_muestra_suelta: 0,
-      peso_muestra_suelta: 0,
+      masa_suelta: 0,
+      masa_compactada: 0,
+      factor: 0,
       masa_volumetrica_suelta: 0,
-      peso_recipiente_muestra_compactada: 0,
-      peso_muestra_compactada: 0,
       masa_volumetrica_compactada: 0,
-      factor_compactacion: 0,
-      porcentaje_vacios_suelta: 0,
-      porcentaje_vacios_compactada: 0,
-      densidad_relativa_agregado: 2.65, // Valor típico para agregados
       observaciones: ''
     };
   });
@@ -83,62 +74,57 @@ export default function MasaVolumetricoForm({
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  // Obtener tipo de material
+  useEffect(() => {
+    const fetchMaterialType = async () => {
+      if (!altaEstudioId) {
+        setLoadingMaterial(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('alta_estudio')
+          .select('tipo_material')
+          .eq('id', altaEstudioId)
+          .single();
+
+        if (error) {
+          console.error('Error loading material info:', error);
+          setLoadingMaterial(false);
+          return;
+        }
+
+        const tipo = data?.tipo_material?.toLowerCase() || '';
+        setTipoMaterial(tipo);
+        setLoadingMaterial(false);
+      } catch (error) {
+        console.error('Error fetching material type:', error);
+        setLoadingMaterial(false);
+      }
+    };
+
+    fetchMaterialType();
+  }, [altaEstudioId, supabase]);
+
   // Calcular automáticamente los resultados cuando cambian los valores
   useEffect(() => {
-    calcularResultados();
-  }, [
-    formData.peso_recipiente_vacio,
-    formData.volumen_recipiente,
-    formData.peso_recipiente_muestra_suelta,
-    formData.peso_recipiente_muestra_compactada,
-    formData.densidad_relativa_agregado
-  ]);
-
-  const calcularResultados = () => {
-    const { 
-      peso_recipiente_vacio, 
-      volumen_recipiente,
-      peso_recipiente_muestra_suelta,
-      peso_recipiente_muestra_compactada,
-      densidad_relativa_agregado
-    } = formData;
+    const { masa_suelta, masa_compactada, factor } = formData;
     
-    if (peso_recipiente_vacio <= 0 || volumen_recipiente <= 0) {
-      return;
-    }
-
-    // Calcular pesos netos de las muestras
-    const pesoMuestraSuelta = peso_recipiente_muestra_suelta - peso_recipiente_vacio;
-    const pesoMuestraCompactada = peso_recipiente_muestra_compactada - peso_recipiente_vacio;
-
-    // Calcular masas volumétricas (kg/m³)
-    const masaVolumetricaSuelta = volumen_recipiente > 0 ? (pesoMuestraSuelta / volumen_recipiente) * 1000 : 0;
-    const masaVolumetricaCompactada = volumen_recipiente > 0 ? (pesoMuestraCompactada / volumen_recipiente) * 1000 : 0;
-
-    // Factor de compactación
-    const factorCompactacion = masaVolumetricaSuelta > 0 ? masaVolumetricaCompactada / masaVolumetricaSuelta : 0;
-
-    // Porcentaje de vacíos
-    // % vacíos = (1 - (masa volumétrica / (densidad relativa × 1000))) × 100
-    const densidadAbsoluta = densidad_relativa_agregado * 1000; // kg/m³
-    const porcentajeVaciosSuelta = masaVolumetricaSuelta > 0 
-      ? (1 - (masaVolumetricaSuelta / densidadAbsoluta)) * 100 
-      : 0;
-    const porcentajeVaciosCompactada = masaVolumetricaCompactada > 0 
-      ? (1 - (masaVolumetricaCompactada / densidadAbsoluta)) * 100 
-      : 0;
+    // Calcular masas volumétricas: MV = masa × factor
+    const masaVolumetricaSuelta = masa_suelta * factor;
+    const masaVolumetricaCompactada = masa_compactada * factor;
 
     setFormData(prev => ({
       ...prev,
-      peso_muestra_suelta: Number(pesoMuestraSuelta.toFixed(1)),
-      peso_muestra_compactada: Number(pesoMuestraCompactada.toFixed(1)),
-      masa_volumetrica_suelta: Number(masaVolumetricaSuelta.toFixed(1)),
-      masa_volumetrica_compactada: Number(masaVolumetricaCompactada.toFixed(1)),
-      factor_compactacion: Number(factorCompactacion.toFixed(3)),
-      porcentaje_vacios_suelta: Number(porcentajeVaciosSuelta.toFixed(1)),
-      porcentaje_vacios_compactada: Number(porcentajeVaciosCompactada.toFixed(1))
+      masa_volumetrica_suelta: Number(masaVolumetricaSuelta.toFixed(0)),
+      masa_volumetrica_compactada: Number(masaVolumetricaCompactada.toFixed(0))
     }));
-  };
+  }, [
+    formData.masa_suelta,
+    formData.masa_compactada,
+    formData.factor
+  ]);
 
   const handleInputChange = (field: keyof MasaVolumetricoResultados, value: string) => {
     const numericValue = parseFloat(value) || 0;
@@ -151,28 +137,20 @@ export default function MasaVolumetricoForm({
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (formData.peso_recipiente_vacio <= 0) {
-      newErrors.peso_recipiente_vacio = 'El peso del recipiente vacío debe ser mayor a 0';
+    if (formData.masa_suelta <= 0) {
+      newErrors.masa_suelta = 'La masa suelta debe ser mayor a 0';
     }
 
-    if (formData.volumen_recipiente <= 0) {
-      newErrors.volumen_recipiente = 'El volumen del recipiente debe ser mayor a 0';
+    if (formData.masa_compactada <= 0) {
+      newErrors.masa_compactada = 'La masa compactada debe ser mayor a 0';
     }
 
-    if (formData.peso_recipiente_muestra_suelta <= formData.peso_recipiente_vacio) {
-      newErrors.peso_recipiente_muestra_suelta = 'El peso con muestra suelta debe ser mayor al peso vacío';
+    if (formData.factor <= 0) {
+      newErrors.factor = 'El factor debe ser mayor a 0';
     }
 
-    if (formData.peso_recipiente_muestra_compactada <= formData.peso_recipiente_vacio) {
-      newErrors.peso_recipiente_muestra_compactada = 'El peso con muestra compactada debe ser mayor al peso vacío';
-    }
-
-    if (formData.peso_recipiente_muestra_compactada < formData.peso_recipiente_muestra_suelta) {
-      newErrors.peso_recipiente_muestra_compactada = 'El peso compactado debe ser mayor o igual al peso suelto';
-    }
-
-    if (formData.densidad_relativa_agregado < 2.0 || formData.densidad_relativa_agregado > 3.5) {
-      newErrors.densidad_relativa_agregado = 'La densidad relativa debe estar entre 2.0 y 3.5';
+    if (formData.masa_compactada < formData.masa_suelta) {
+      newErrors.masa_compactada = 'La masa compactada debe ser mayor o igual a la masa suelta';
     }
 
     setErrors(newErrors);
@@ -187,24 +165,29 @@ export default function MasaVolumetricoForm({
 
     try {
       setSaving(true);
-      await onSave(formData);
-      toast.success('Análisis de masa volumétrico guardado exitosamente');
-    } catch (error) {
+      // Agregar metadatos de norma aplicada
+      const dataToSave = {
+        ...formData,
+        norma_aplicada: 'NMX-C-073-ONNCCE-2004',
+        tipo_agregado: tipoMaterial
+      };
+      await onSave(dataToSave);
+    } catch (error: any) {
       console.error('Error saving masa volumetrico:', error);
-      toast.error('Error al guardar el análisis de masa volumétrico');
+      // El error ya se maneja en el EstudioFormModal
     } finally {
       setSaving(false);
     }
   };
 
-  const getInterpretacionFactorCompactacion = (factor: number) => {
-    if (factor < 1.1) return { texto: 'Baja compactabilidad', color: 'text-red-600' };
-    if (factor < 1.2) return { texto: 'Compactabilidad moderada', color: 'text-yellow-600' };
-    if (factor < 1.3) return { texto: 'Buena compactabilidad', color: 'text-green-600' };
-    return { texto: 'Excelente compactabilidad', color: 'text-[#069e2d]' };
-  };
-
-  const interpretacionFactor = getInterpretacionFactorCompactacion(formData.factor_compactacion);
+  if (loadingMaterial) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-[#069e2d]" />
+        <span className="ml-3 text-gray-600">Cargando información del material...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -213,172 +196,101 @@ export default function MasaVolumetricoForm({
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Layers className="h-5 w-5 text-[#069e2d]" />
-            Análisis de Masa Volumétrico
+            Análisis de Masa Volumétrica
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Alert>
+          <Alert className="mb-4">
             <Info className="h-4 w-4" />
             <AlertDescription>
-              <strong>Norma:</strong> NMX-C-073 - Determinación de la masa volumétrica suelto y compactado
+              <div className="space-y-2">
+                <p><strong>Norma Aplicable:</strong> NMX-C-073-ONNCCE-2004</p>
+                <p><strong>Tipo de Agregado:</strong> {tipoMaterial ? tipoMaterial.charAt(0).toUpperCase() + tipoMaterial.slice(1) : 'Agregado'}</p>
+                <p className="text-sm mt-2">Determinación de la masa volumétrica de agregados en estado suelto y compactado</p>
+              </div>
             </AlertDescription>
           </Alert>
         </CardContent>
       </Card>
 
-      {/* Datos del Recipiente */}
+      {/* Datos de la Muestra según Norma */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Datos del Recipiente</CardTitle>
+          <CardTitle className="text-lg">Datos de la Muestra (Según Norma)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Explicación de la nomenclatura */}
+          <Alert className="bg-blue-50 border-blue-200">
+            <Info className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-sm text-blue-800">
+              <strong>Nomenclatura de la Norma:</strong>
+              <ul className="mt-2 space-y-1 ml-4">
+                <li>• <strong>MVS</strong> = Masa volumétrica suelta (kg/m³)</li>
+                <li>• <strong>MVC</strong> = Masa volumétrica compactada (kg/m³)</li>
+                <li>• <strong>Fórmula:</strong> MV = Masa (kg) × Factor</li>
+              </ul>
+            </AlertDescription>
+          </Alert>
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="peso_recipiente">Peso Recipiente Vacío (kg) *</Label>
+              <Label htmlFor="masa_suelta" className="flex items-center gap-2">
+                <span>Masa Suelta</span>
+                <Badge variant="outline" className="text-xs font-mono">kg</Badge>
+              </Label>
               <Input
-                id="peso_recipiente"
+                id="masa_suelta"
                 type="number"
                 step="0.01"
-                value={formData.peso_recipiente_vacio || ''}
-                onChange={(e) => handleInputChange('peso_recipiente_vacio', e.target.value)}
-                className={errors.peso_recipiente_vacio ? 'border-red-500' : ''}
+                value={formData.masa_suelta || ''}
+                onChange={(e) => handleInputChange('masa_suelta', e.target.value)}
+                className={errors.masa_suelta ? 'border-red-500' : ''}
+                placeholder="kilogramos"
               />
-              {errors.peso_recipiente_vacio && (
-                <p className="text-sm text-red-600">{errors.peso_recipiente_vacio}</p>
+              {errors.masa_suelta && (
+                <p className="text-sm text-red-600">{errors.masa_suelta}</p>
               )}
+              <p className="text-xs text-gray-500">Peso del agregado en estado suelto</p>
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="volumen_recipiente">Volumen Recipiente (L) *</Label>
+              <Label htmlFor="masa_compactada" className="flex items-center gap-2">
+                <span>Masa Compactada</span>
+                <Badge variant="outline" className="text-xs font-mono">kg</Badge>
+              </Label>
               <Input
-                id="volumen_recipiente"
+                id="masa_compactada"
                 type="number"
-                step="0.001"
-                value={formData.volumen_recipiente || ''}
-                onChange={(e) => handleInputChange('volumen_recipiente', e.target.value)}
-                className={errors.volumen_recipiente ? 'border-red-500' : ''}
+                step="0.01"
+                value={formData.masa_compactada || ''}
+                onChange={(e) => handleInputChange('masa_compactada', e.target.value)}
+                className={errors.masa_compactada ? 'border-red-500' : ''}
+                placeholder="kilogramos"
               />
-              {errors.volumen_recipiente && (
-                <p className="text-sm text-red-600">{errors.volumen_recipiente}</p>
+              {errors.masa_compactada && (
+                <p className="text-sm text-red-600">{errors.masa_compactada}</p>
               )}
+              <p className="text-xs text-gray-500">Peso del agregado compactado con varilla</p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="densidad_relativa">Densidad Relativa Agregado *</Label>
+              <Label htmlFor="factor" className="flex items-center gap-2">
+                <span>Factor</span>
+                <Badge variant="outline" className="text-xs font-mono">1/m³</Badge>
+              </Label>
               <Input
-                id="densidad_relativa"
+                id="factor"
                 type="number"
                 step="0.01"
-                value={formData.densidad_relativa_agregado || ''}
-                onChange={(e) => handleInputChange('densidad_relativa_agregado', e.target.value)}
-                className={errors.densidad_relativa_agregado ? 'border-red-500' : ''}
+                value={formData.factor || ''}
+                onChange={(e) => handleInputChange('factor', e.target.value)}
+                className={errors.factor ? 'border-red-500' : ''}
+                placeholder="Factor de conversión"
               />
-              {errors.densidad_relativa_agregado && (
-                <p className="text-sm text-red-600">{errors.densidad_relativa_agregado}</p>
+              {errors.factor && (
+                <p className="text-sm text-red-600">{errors.factor}</p>
               )}
-              <p className="text-xs text-gray-500">Valor típico: 2.65</p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Masa Volumétrica Suelta */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Package className="h-5 w-5 text-green-600" />
-            Masa Volumétrica Suelta
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="peso_suelta">Peso Recipiente + Muestra (kg) *</Label>
-              <Input
-                id="peso_suelta"
-                type="number"
-                step="0.01"
-                value={formData.peso_recipiente_muestra_suelta || ''}
-                onChange={(e) => handleInputChange('peso_recipiente_muestra_suelta', e.target.value)}
-                className={errors.peso_recipiente_muestra_suelta ? 'border-red-500' : ''}
-              />
-              {errors.peso_recipiente_muestra_suelta && (
-                <p className="text-sm text-red-600">{errors.peso_recipiente_muestra_suelta}</p>
-              )}
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Peso Neto Muestra (kg)</Label>
-              <Input
-                value={formData.peso_muestra_suelta.toFixed(1)}
-                disabled
-                className="bg-gray-50"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Masa Volumétrica Suelta (kg/m³)</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={formData.masa_volumetrica_suelta.toFixed(1)}
-                  disabled
-                  className="bg-green-50 font-semibold"
-                />
-                <Badge className="bg-green-600 text-white">
-                  Suelta
-                </Badge>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Masa Volumétrica Compactada */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-                <Package className="h-5 w-5 text-[#069e2d]" />
-            Masa Volumétrica Compactada
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="peso_compactada">Peso Recipiente + Muestra (kg) *</Label>
-              <Input
-                id="peso_compactada"
-                type="number"
-                step="0.01"
-                value={formData.peso_recipiente_muestra_compactada || ''}
-                onChange={(e) => handleInputChange('peso_recipiente_muestra_compactada', e.target.value)}
-                className={errors.peso_recipiente_muestra_compactada ? 'border-red-500' : ''}
-              />
-              {errors.peso_recipiente_muestra_compactada && (
-                <p className="text-sm text-red-600">{errors.peso_recipiente_muestra_compactada}</p>
-              )}
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Peso Neto Muestra (kg)</Label>
-              <Input
-                value={formData.peso_muestra_compactada.toFixed(1)}
-                disabled
-                className="bg-gray-50"
-              />
-            </div>
-            
-            <div className="space-y-2">
-              <Label>Masa Volumétrica Compactada (kg/m³)</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  value={formData.masa_volumetrica_compactada.toFixed(1)}
-                  disabled
-                  className="bg-[#069e2d]/10 font-semibold"
-                />
-                <Badge className="bg-[#069e2d] text-white">
-                  Compactada
-                </Badge>
-              </div>
+              <p className="text-xs text-gray-500">Factor de conversión (ej: 198.95)</p>
             </div>
           </div>
         </CardContent>
@@ -393,99 +305,108 @@ export default function MasaVolumetricoForm({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Factor de Compactación */}
-            <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900 border-b pb-2">Factor de Compactación</h3>
-              
-              <div className="space-y-3">
-                <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
-                  <span className="font-medium text-[#069e2d]">Factor de Compactación:</span>
-                  <Badge className="bg-[#069e2d] text-white text-lg px-3 py-1">
-                    {formData.factor_compactacion.toFixed(3)}
-                  </Badge>
-                </div>
-                
-                <div className="p-3 bg-gray-50 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600">Interpretación:</span>
-                    <span className={`text-sm font-medium ${interpretacionFactor.color}`}>
-                      {interpretacionFactor.texto}
-                    </span>
-                  </div>
-                </div>
+          <div className="space-y-4">
+            {/* Masa Volumétrica Suelta */}
+            <div className="flex justify-between items-center p-4 bg-green-50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-green-600" />
+                <span className="font-medium text-green-600">Masa Volumétrica Suelta:</span>
               </div>
-
-              {/* Guía de interpretación */}
-                <div className="p-3 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/20">
-                  <h4 className="text-sm font-medium text-[#069e2d] mb-2">Guía de Interpretación:</h4>
-                  <div className="text-xs text-gray-700 space-y-1">
-                  <div>• &lt; 1.1: Baja compactabilidad</div>
-                  <div>• 1.1-1.2: Compactabilidad moderada</div>
-                  <div>• 1.2-1.3: Buena compactabilidad</div>
-                  <div>• &gt; 1.3: Excelente compactabilidad</div>
-                </div>
+              <Badge className="bg-green-600 text-white text-xl px-4 py-2">
+                {formData.masa_volumetrica_suelta.toFixed(0)} kg/m³
+              </Badge>
+            </div>
+            
+            {/* Masa Volumétrica Compactada */}
+            <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-[#069e2d]" />
+                <span className="font-medium text-[#069e2d]">Masa Volumétrica Compactada:</span>
+              </div>
+              <Badge className="bg-[#069e2d] text-white text-xl px-4 py-2">
+                {formData.masa_volumetrica_compactada.toFixed(0)} kg/m³
+              </Badge>
+            </div>
+            
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-sm text-gray-600 mb-1">Fórmula según NMX-C-073-ONNCCE-2004:</div>
+              <div className="text-xs font-mono bg-white p-2 rounded border space-y-1">
+                <div><strong>MV = Masa (kg) × Factor</strong></div>
+                <div className="text-gray-600">Donde:</div>
+                <div>• MV = Masa volumétrica (kg/m³)</div>
+                <div>• Masa = Peso del agregado (kg)</div>
+                <div>• Factor = Factor de conversión (1/m³)</div>
+              </div>
+              <div className="mt-2 text-xs bg-blue-50 p-2 rounded border border-blue-200 text-blue-800">
+                <strong>Cálculo (MVS):</strong> MV = {formData.masa_suelta.toFixed(2)} kg × {formData.factor.toFixed(2)} = {formData.masa_volumetrica_suelta.toFixed(0)} kg/m³
+              </div>
+              <div className="mt-2 text-xs bg-green-50 p-2 rounded border border-green-200 text-green-800">
+                <strong>Cálculo (MVC):</strong> MV = {formData.masa_compactada.toFixed(2)} kg × {formData.factor.toFixed(2)} = {formData.masa_volumetrica_compactada.toFixed(0)} kg/m³
               </div>
             </div>
 
-            {/* Porcentaje de Vacíos */}
-            <div className="space-y-4">
-              <h3 className="font-semibold text-gray-900 border-b pb-2">Porcentaje de Vacíos</h3>
-              
-              <div className="space-y-3">
-                <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                  <span className="font-medium text-green-900">Vacíos Suelta:</span>
-                  <Badge className="bg-green-600 text-white">
-                    {formData.porcentaje_vacios_suelta.toFixed(1)}%
-                  </Badge>
-                </div>
-                
-                <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
-                  <span className="font-medium text-[#069e2d]">Vacíos Compactada:</span>
-                  <Badge className="bg-[#069e2d] text-white">
-                    {formData.porcentaje_vacios_compactada.toFixed(1)}%
-                  </Badge>
-                </div>
-                
-                <div className="flex justify-between items-center p-3 bg-[#069e2d]/10 rounded-lg">
-                  <span className="font-medium text-[#069e2d]">Reducción de Vacíos:</span>
-                  <Badge className="bg-[#069e2d] text-white">
-                    {(formData.porcentaje_vacios_suelta - formData.porcentaje_vacios_compactada).toFixed(1)}%
-                  </Badge>
-                </div>
-              </div>
+            <div className="space-y-2 mt-6">
+              <Label htmlFor="observaciones">Observaciones</Label>
+              <Textarea
+                id="observaciones"
+                value={formData.observaciones || ''}
+                onChange={(e) => setFormData(prev => ({ ...prev, observaciones: e.target.value }))}
+                placeholder="Observaciones adicionales del análisis..."
+                rows={3}
+              />
             </div>
-          </div>
-
-          <Separator className="my-6" />
-
-          <div className="space-y-2">
-            <Label htmlFor="observaciones">Observaciones</Label>
-            <Textarea
-              id="observaciones"
-              value={formData.observaciones || ''}
-              onChange={(e) => setFormData(prev => ({ ...prev, observaciones: e.target.value }))}
-              placeholder="Observaciones adicionales del análisis..."
-              rows={3}
-            />
           </div>
         </CardContent>
       </Card>
 
-      {/* Información Técnica */}
+      {/* Información Técnica según Norma */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Información Técnica</CardTitle>
+          <CardTitle className="text-lg">Procedimiento según NMX-C-073-ONNCCE-2004</CardTitle>
         </CardHeader>
         <CardContent>
           <Alert>
             <AlertCircle className="h-4 w-4" />
             <AlertDescription>
-              <div className="space-y-2">
-                <p><strong>Masa Volumétrica Suelta:</strong> Masa del agregado por unidad de volumen en estado suelto.</p>
-                <p><strong>Masa Volumétrica Compactada:</strong> Masa del agregado por unidad de volumen después de compactación.</p>
-                <p><strong>Factor de Compactación:</strong> Relación entre masa volumétrica compactada y suelta.</p>
-                <p><strong>Porcentaje de Vacíos:</strong> Volumen de espacios vacíos entre partículas expresado como porcentaje.</p>
+              <div className="space-y-3">
+                <div>
+                  <p className="font-semibold text-gray-900 mb-1">Definición:</p>
+                  <p className="text-sm">La masa volumétrica es la masa del agregado que ocuparía un recipiente de volumen conocido. Se determina en dos condiciones: estado suelto y estado compactado.</p>
+                </div>
+                
+                <Separator />
+                
+                <div>
+                  <p className="font-semibold text-gray-900 mb-1">Procedimiento Resumido:</p>
+                  <ol className="text-sm space-y-1 ml-4">
+                    <li>1. <strong>Calibración:</strong> Pesar el recipiente vacío y determinar su volumen</li>
+                    <li>2. <strong>Estado Suelto:</strong> Llenar el recipiente dejando caer el agregado desde una altura constante</li>
+                    <li>3. <strong>Enrase:</strong> Enrasar con una varilla sin compactar</li>
+                    <li>4. <strong>Pesado Suelto:</strong> Pesar el recipiente con agregado suelto</li>
+                    <li>5. <strong>Estado Compactado:</strong> Llenar el recipiente en tres capas iguales</li>
+                    <li>6. <strong>Compactación:</strong> Apisonar cada capa con 25 golpes de varilla</li>
+                    <li>7. <strong>Pesado Compactado:</strong> Pesar el recipiente con agregado compactado</li>
+                    <li>8. <strong>Cálculo:</strong> Masa Volumétrica = Masa × Factor</li>
+                  </ol>
+                </div>
+                
+                <Separator />
+                
+                <div>
+                  <p className="font-semibold text-gray-900 mb-1">Importancia:</p>
+                  <ul className="text-sm space-y-1 ml-4">
+                    <li>• Conversión de masa a volumen para dosificación de concreto</li>
+                    <li>• Determina la compactabilidad del agregado</li>
+                    <li>• Calcula el contenido de vacíos en el agregado</li>
+                    <li>• Estimación de rendimiento volumétrico del concreto</li>
+                  </ul>
+                </div>
+                
+                <div className="p-2 bg-blue-50 rounded border border-blue-200">
+                  <p className="text-xs text-blue-800">
+                    <strong>Nota:</strong> Esta prueba aplica tanto para agregados finos (arena) como para agregados gruesos (grava). El tamaño del recipiente debe seleccionarse según el tamaño máximo nominal del agregado.
+                  </p>
+                </div>
               </div>
             </AlertDescription>
           </Alert>
@@ -496,7 +417,7 @@ export default function MasaVolumetricoForm({
       <Card>
         <CardContent className="pt-6">
           <div className="flex justify-end space-x-4">
-            <Button variant="outline" onClick={onCancel} disabled={saving}>
+            <Button variant="secondary" onClick={onCancel} disabled={saving}>
               Cancelar
             </Button>
             <Button onClick={handleSave} disabled={saving || isLoading}>

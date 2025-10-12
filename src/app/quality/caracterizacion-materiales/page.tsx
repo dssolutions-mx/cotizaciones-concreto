@@ -815,7 +815,7 @@ export default function CaracterizacionMaterialesHistoricoPage() {
                                                     </div>
                                                   );
                                                 }
-                                                case 'Masa Volumétrico': {
+                                                case 'Masa Volumétrica': {
                                                   return (
                                                     <div>
                                                       {r.masa_volumetrica_suelta != null && (
