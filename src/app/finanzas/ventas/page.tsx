@@ -876,6 +876,139 @@ export default function VentasDashboard() {
     XLSX.writeFile(wb, filename);
   };
 
+  // Debug tool state
+  const [showDebugTool, setShowDebugTool] = useState(false);
+  const [debugData, setDebugData] = useState<any[]>([]);
+  const [debugLoading, setDebugLoading] = useState(false);
+
+  // Debug tool function to compare sales report vs view pricing
+  const runDebugComparison = async () => {
+    if (!startDate || !endDate || !currentPlant) return;
+    
+    setDebugLoading(true);
+    try {
+      const from = format(startDate, 'yyyy-MM-dd');
+      const to = format(endDate, 'yyyy-MM-dd');
+      
+      // Fetch data from the view with proper date filtering
+      const { data: viewData, error: viewError } = await supabase
+        .from('remisiones_with_pricing')
+        .select('*')
+        .eq('plant_id', currentPlant.id)
+        .gte('fecha', from)
+        .lte('fecha', to)
+        .order('fecha', { ascending: false });
+
+      if (viewError) throw viewError;
+
+      // Debug: Log date range and data counts
+      console.log('Debug Tool - Date Range:', { from, to });
+      console.log('Debug Tool - View Data Count:', viewData?.length || 0);
+      console.log('Debug Tool - Sales Report Data Count:', filteredRemisionesWithVacioDeOlla.length);
+
+      // Process each remisión with sales report logic
+      const comparisonData = filteredRemisionesWithVacioDeOlla.map(remision => {
+        // Match by remision_id, handling both string and UUID formats
+        const viewItem = viewData?.find(v => 
+          v.remision_id === remision.id?.toString() || 
+          v.remision_id === remision.id
+        );
+        
+        // Skip if no matching view item found
+        if (!viewItem) {
+          return null;
+        }
+
+        // Ensure we're comparing the same type of remisión
+        const salesReportType = remision.tipo_remision || 'CONCRETO';
+        const viewType = viewItem.tipo_remision || 'CONCRETO';
+        
+        // Skip if types don't match (this prevents comparing pumping vs concrete)
+        if (salesReportType !== viewType) {
+          console.warn(`Type mismatch for remisión ${remision.id}: Sales Report=${salesReportType}, View=${viewType}`);
+          return null;
+        }
+        
+        // Calculate sales report price using the same logic
+        let salesReportPrice = 0;
+        let salesReportAmount = 0;
+        let pricingMethod = '';
+
+        if (remision.tipo_remision === 'VACÍO DE OLLA' || remision.isVirtualVacioDeOlla) {
+          salesReportPrice = findProductPrice('SER001', remision.order_id, null, orderItems);
+          pricingMethod = 'SER001';
+        } else if (remision.tipo_remision === 'BOMBEO') {
+          salesReportPrice = findProductPrice('SER002', remision.order_id, null, orderItems);
+          pricingMethod = 'SER002';
+        } else {
+          // Concrete pricing - ALWAYS use concrete price, even if pump service exists
+          const recipeCode = remision.recipe?.recipe_code;
+          const recipeId = remision.recipe?.id;
+          salesReportPrice = findProductPrice(recipeCode, remision.order_id, recipeId, orderItems);
+          pricingMethod = 'CONCRETE';
+        }
+
+        salesReportAmount = salesReportPrice * (remision.volumen_fabricado || 0);
+
+        return {
+          remision_id: remision.id,
+          remision_number: remision.remision_number || 'N/A',
+          fecha: remision.fecha,
+          unidad: remision.unidad,
+          tipo_remision: remision.tipo_remision,
+          volumen_fabricado: remision.volumen_fabricado || 0,
+          recipe_code: remision.recipe?.recipe_code || 'N/A',
+          order_id: remision.order_id,
+          
+          // Sales Report Calculations
+          sales_report_price: salesReportPrice,
+          sales_report_amount: salesReportAmount,
+          sales_report_pricing_method: pricingMethod,
+          
+          // View Calculations
+          view_price: viewItem?.unit_price_resolved || 0,
+          view_amount: viewItem?.subtotal_amount || 0,
+          view_pricing_method: viewItem?.pricing_method || 'N/A',
+          
+          // Differences
+          price_difference: Math.abs(salesReportPrice - (viewItem?.unit_price_resolved || 0)),
+          amount_difference: Math.abs(salesReportAmount - (viewItem?.subtotal_amount || 0)),
+          
+          // Additional debug info
+          order_has_pump_service: viewItem?.order_has_pump_service || false,
+          is_virtual: remision.isVirtualVacioDeOlla || false,
+          requires_invoice: remision.order?.requires_invoice || false
+        };
+      }).filter(Boolean); // Remove null entries
+
+      // Debug: Log comparison results by type
+      const discrepancies = comparisonData.filter(d => d.price_difference > 0.01 || d.amount_difference > 0.01);
+      const concreteComparisons = comparisonData.filter(d => d.tipo_remision === 'CONCRETO');
+      const pumpComparisons = comparisonData.filter(d => d.tipo_remision === 'BOMBEO');
+      const vacioComparisons = comparisonData.filter(d => d.tipo_remision === 'VACÍO DE OLLA');
+      
+      const salesReportTotal = comparisonData.reduce((sum, d) => sum + d.sales_report_amount, 0);
+      const viewTotal = comparisonData.reduce((sum, d) => sum + d.view_amount, 0);
+      const totalDifference = Math.abs(salesReportTotal - viewTotal);
+      
+      console.log('Debug Tool - Total Comparisons:', comparisonData.length);
+      console.log('Debug Tool - Concrete Comparisons:', concreteComparisons.length);
+      console.log('Debug Tool - Pump Comparisons:', pumpComparisons.length);
+      console.log('Debug Tool - Vacío Comparisons:', vacioComparisons.length);
+      console.log('Debug Tool - Discrepancies Found:', discrepancies.length);
+      console.log('Debug Tool - Sales Report Total:', salesReportTotal.toFixed(2));
+      console.log('Debug Tool - View Total:', viewTotal.toFixed(2));
+      console.log('Debug Tool - Total Difference:', totalDifference.toFixed(2));
+      console.log('Debug Tool - Individual Differences Sum:', discrepancies.reduce((sum, d) => sum + d.amount_difference, 0).toFixed(2));
+
+      setDebugData(comparisonData);
+    } catch (error) {
+      console.error('Debug comparison error:', error);
+    } finally {
+      setDebugLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="container mx-auto p-6">
@@ -905,15 +1038,38 @@ export default function VentasDashboard() {
 
   return (
     <div className="container mx-auto p-6">
-      {/* Layout Toggle */}
-      <div className="flex items-center justify-end space-x-2 mb-4">
-        <Label htmlFor="layout-toggle">Vista Actual</Label>
-        <Switch
-          id="layout-toggle"
-          checked={layoutType === 'powerbi'}
-          onCheckedChange={(checked) => setLayoutType(checked ? 'powerbi' : 'current')}
-        />
-        <Label htmlFor="layout-toggle">Vista PowerBI</Label>
+      {/* Layout Toggle and Debug Tool */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center space-x-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowDebugTool(!showDebugTool)}
+            className="flex items-center gap-2"
+          >
+            🔍 Debug Tool
+          </Button>
+          {showDebugTool && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={runDebugComparison}
+              disabled={debugLoading}
+              className="flex items-center gap-2"
+            >
+              {debugLoading ? 'Comparando...' : 'Comparar Precios'}
+            </Button>
+          )}
+        </div>
+        <div className="flex items-center space-x-2">
+          <Label htmlFor="layout-toggle">Vista Actual</Label>
+          <Switch
+            id="layout-toggle"
+            checked={layoutType === 'powerbi'}
+            onCheckedChange={(checked) => setLayoutType(checked ? 'powerbi' : 'current')}
+          />
+          <Label htmlFor="layout-toggle">Vista PowerBI</Label>
+        </div>
       </div>
 
       {layoutType === 'current' && (
@@ -1613,6 +1769,153 @@ export default function VentasDashboard() {
               </CardContent>
             </Card>
         </>
+      )}
+
+      {/* Debug Tool */}
+      {showDebugTool && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="text-lg font-semibold text-red-600">🔍 Debug Tool - Comparación de Precios</CardTitle>
+            <CardDescription>
+              Compara los precios calculados por el reporte de ventas vs la vista de base de datos
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {debugLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="text-center">
+                  <div className="text-lg font-medium mb-2">Comparando precios...</div>
+                  <div className="text-sm text-gray-500">Analizando diferencias entre reporte y vista</div>
+                </div>
+              </div>
+            ) : debugData.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <div className="text-lg font-medium mb-2">No hay datos de comparación</div>
+                <div className="text-sm">Haz clic en "Comparar Precios" para ejecutar el análisis</div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Summary Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <Card className="p-4">
+                    <div className="text-sm text-gray-600">Total Remisiones</div>
+                    <div className="text-2xl font-bold">{debugData.length}</div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Concreto: {debugData.filter(d => d.tipo_remision === 'CONCRETO').length} | 
+                      Bombeo: {debugData.filter(d => d.tipo_remision === 'BOMBEO').length} | 
+                      Vacío: {debugData.filter(d => d.tipo_remision === 'VACÍO DE OLLA').length}
+                    </div>
+                  </Card>
+                  <Card className="p-4">
+                    <div className="text-sm text-gray-600">Con Diferencias</div>
+                    <div className="text-2xl font-bold text-red-600">
+                      {debugData.filter(d => d.price_difference > 0.01).length}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Concreto: {debugData.filter(d => d.tipo_remision === 'CONCRETO' && d.price_difference > 0.01).length} | 
+                      Bombeo: {debugData.filter(d => d.tipo_remision === 'BOMBEO' && d.price_difference > 0.01).length}
+                    </div>
+                  </Card>
+                  <Card className="p-4">
+                    <div className="text-sm text-gray-600">Diferencia Total</div>
+                    <div className="text-2xl font-bold text-red-600">
+                      ${debugData.reduce((sum, d) => sum + d.amount_difference, 0).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Concreto: ${debugData.filter(d => d.tipo_remision === 'CONCRETO').reduce((sum, d) => sum + d.amount_difference, 0).toFixed(2)}
+                    </div>
+                  </Card>
+                  <Card className="p-4">
+                    <div className="text-sm text-gray-600">Diferencia Promedio</div>
+                    <div className="text-2xl font-bold text-red-600">
+                      ${(debugData.reduce((sum, d) => sum + d.amount_difference, 0) / debugData.length).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Solo Concreto: ${(debugData.filter(d => d.tipo_remision === 'CONCRETO').reduce((sum, d) => sum + d.amount_difference, 0) / Math.max(debugData.filter(d => d.tipo_remision === 'CONCRETO').length, 1)).toFixed(2)}
+                    </div>
+                  </Card>
+                </div>
+
+                {/* Detailed Table */}
+                <div className="overflow-x-auto">
+                  <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Remisión</TableHead>
+                      <TableHead>Unidad</TableHead>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Volumen</TableHead>
+                      <TableHead>Recipe</TableHead>
+                      <TableHead>Precio Reporte</TableHead>
+                      <TableHead>Precio Vista</TableHead>
+                      <TableHead>Diferencia</TableHead>
+                      <TableHead>Monto Reporte</TableHead>
+                      <TableHead>Monto Vista</TableHead>
+                      <TableHead>Diff Monto</TableHead>
+                      <TableHead>Método Reporte</TableHead>
+                      <TableHead>Método Vista</TableHead>
+                      <TableHead>Pump Service</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                    <TableBody>
+                      {debugData
+                        .filter(d => d.price_difference > 0.01 || d.amount_difference > 0.01) // Show price OR amount discrepancies
+                        .sort((a, b) => b.amount_difference - a.amount_difference)
+                        .slice(0, 50) // Limit to top 50 discrepancies (increased from 20)
+                        .map((item, index) => (
+                      <TableRow key={index} className={item.price_difference > 0.01 ? 'bg-red-50' : ''}>
+                        <TableCell className="text-sm">
+                          {item.fecha ?
+                            format(new Date(item.fecha + 'T00:00:00'), 'dd/MM', { locale: es }) :
+                            'N/A'
+                          }
+                        </TableCell>
+                        <TableCell className="text-sm font-mono font-semibold">{item.remision_number}</TableCell>
+                        <TableCell className="text-sm font-mono">{item.unidad}</TableCell>
+                        <TableCell className="text-sm">{item.tipo_remision}</TableCell>
+                        <TableCell className="text-sm">{item.volumen_fabricado}</TableCell>
+                        <TableCell className="text-sm font-mono text-xs">{item.recipe_code}</TableCell>
+                          <TableCell className="text-sm font-mono">${item.sales_report_price.toFixed(2)}</TableCell>
+                          <TableCell className="text-sm font-mono">${item.view_price.toFixed(2)}</TableCell>
+                          <TableCell className="text-sm font-mono text-red-600">${item.price_difference.toFixed(2)}</TableCell>
+                          <TableCell className="text-sm font-mono">${item.sales_report_amount.toFixed(2)}</TableCell>
+                          <TableCell className="text-sm font-mono">${item.view_amount.toFixed(2)}</TableCell>
+                          <TableCell className="text-sm font-mono text-red-600">${item.amount_difference.toFixed(2)}</TableCell>
+                          <TableCell className="text-sm text-xs">{item.sales_report_pricing_method}</TableCell>
+                          <TableCell className="text-sm text-xs">{item.view_pricing_method}</TableCell>
+                          <TableCell className="text-sm">
+                            {item.order_has_pump_service ? '✅' : '❌'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+              {debugData.filter(d => d.price_difference > 0.01 || d.amount_difference > 0.01).length === 0 && (
+                <div className="text-center py-8 text-green-600">
+                  <div className="text-lg font-medium mb-2">✅ Perfecto!</div>
+                  <div className="text-sm">No se encontraron diferencias entre el reporte y la vista</div>
+                </div>
+              )}
+              
+              {/* Show debug info if there are no individual discrepancies but summary shows difference */}
+              {debugData.length > 0 && debugData.filter(d => d.price_difference > 0.01 || d.amount_difference > 0.01).length === 0 && (
+                <div className="text-center py-8 text-blue-600">
+                  <div className="text-lg font-medium mb-2">ℹ️ Información de Debug</div>
+                  <div className="text-sm">
+                    Total comparaciones: {debugData.length}<br/>
+                    Suma de montos del reporte: ${debugData.reduce((sum, d) => sum + d.sales_report_amount, 0).toFixed(2)}<br/>
+                    Suma de montos de la vista: ${debugData.reduce((sum, d) => sum + d.view_amount, 0).toFixed(2)}<br/>
+                    Diferencia calculada: ${Math.abs(debugData.reduce((sum, d) => sum + d.sales_report_amount, 0) - debugData.reduce((sum, d) => sum + d.view_amount, 0)).toFixed(2)}
+                  </div>
+                </div>
+              )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   );
