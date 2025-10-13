@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase/client';
 import { normalizeRecipeCode } from '@/lib/utils/recipeCodeUtils';
 import { StagingRemision, OrderSuggestion } from '@/types/arkik';
 import { Order, OrderItem } from '@/types/orders';
+import { hasStrictRecipeMatch } from './arkikMatchingUtils';
 
 export interface ExistingOrderMatch {
   order: Order;
@@ -185,7 +186,10 @@ export class ArkikOrderMatcher {
       .from('orders')
       .select(`
         *,
-        order_items (*),
+        order_items (
+          *,
+          quote_details:quote_detail_id (* )
+        ),
         clients!inner (
           id,
           business_name,
@@ -235,7 +239,13 @@ export class ArkikOrderMatcher {
     const remisionYmd = this.formatYmd(this.parseLocalDate(firstRemision.fecha as any));
 
     // Evaluate all candidates and mark if same-day
-    const evaluated = candidateOrders.map(order => {
+    // Filter out orders that do not strictly match recipes for ALL remisiones with recipe_id
+    const strictlyCompatible = candidateOrders.filter(order => {
+      const items = (order as any).order_items as any[] | undefined;
+      return remisiones.every(r => !r.recipe_id || hasStrictRecipeMatch(items as any, r));
+    });
+
+    const evaluated = strictlyCompatible.map(order => {
       const match = this.evaluateOrderMatch(remisiones, order);
       const orderYmd = this.formatYmd(this.parseLocalDate((order as any).delivery_date));
       const isSameDay = orderYmd === remisionYmd;
@@ -365,22 +375,7 @@ export class ArkikOrderMatcher {
     
     // Check each remision against order items for strict recipe matching
     for (const remision of remisiones) {
-      const remisionRecipeId = remision.recipe_id;
-      const remisionArkikCode = this.normalizeRecipeCode(remision.product_description || remision.recipe_code || '');
-      
-      const hasMatchingRecipe = orderItems.some((item: any) => {
-        // First check: exact recipe_id match
-        const idMatch = item.recipe_id && remisionRecipeId && item.recipe_id === remisionRecipeId;
-        
-        // Second check: normalized recipe code match (more strict)
-        const itemArkik = this.normalizeRecipeCode(item.recipes?.arkik_long_code || item.recipes?.recipe_code || item.product_type || '');
-        const codeMatch = !!remisionArkikCode && remisionArkikCode.length > 0 && itemArkik === remisionArkikCode;
-        
-        // Third check: quote_detail_id match (highest priority)
-        const quoteMatch = item.quote_detail_id && remision.quote_detail_id && item.quote_detail_id === remision.quote_detail_id;
-        
-        return quoteMatch || idMatch || codeMatch;
-      });
+      const hasMatchingRecipe = hasStrictRecipeMatch(orderItems as any, remision);
       
       if (hasMatchingRecipe) {
         recipeMatchScore += 1;
@@ -549,6 +544,25 @@ export class ArkikOrderMatcher {
   }> {
     try {
       console.log(`[ArkikOrderMatcher] Adding ${remisiones.length} remisiones to existing order ${orderId}`);
+      // Fetch order items to enforce strict gate before inserting
+      const { data: orderItems, error: orderItemsError } = await supabase
+        .from('order_items')
+        .select(`*, quote_details:quote_detail_id ( id, recipe_id )`)
+        .eq('order_id', orderId);
+
+      if (orderItemsError) {
+        throw orderItemsError;
+      }
+
+      // Enforce strict recipe match for all remisiones with recipe_id
+      const blocked = remisiones.filter(r => r.recipe_id && !hasStrictRecipeMatch(orderItems as any, r));
+      if (blocked.length > 0) {
+        const nums = blocked.map(b => b.remision_number).join(', ');
+        return {
+          success: false,
+          error: `No hay items compatibles por receta para remisiones: ${nums}`
+        };
+      }
       
       // Step 1: Insert remisiones into the database using the same field mapping as dedicated mode
       const remisionesToInsert = remisiones.map(remision => {

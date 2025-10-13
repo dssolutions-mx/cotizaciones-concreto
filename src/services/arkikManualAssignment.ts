@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase/client';
 import type { StagingRemision } from '@/types/arkik';
+import { hasStrictRecipeMatch } from './arkikMatchingUtils';
 
 export interface CompatibleOrder {
   id: string;
@@ -171,6 +172,10 @@ export class ArkikManualAssignmentService {
             volume,
             unit_price,
             quote_detail_id,
+            quote_details:quote_detail_id (
+              id,
+              recipe_id
+            ),
             recipes!inner (
               id,
               recipe_code,
@@ -215,6 +220,10 @@ export class ArkikManualAssignmentService {
               volume,
               unit_price,
               quote_detail_id,
+              quote_details:quote_detail_id (
+                id,
+                recipe_id
+              ),
               recipes!inner (
                 id,
                 recipe_code,
@@ -262,6 +271,10 @@ export class ArkikManualAssignmentService {
               volume,
               unit_price,
               quote_detail_id,
+              quote_details:quote_detail_id (
+                id,
+                recipe_id
+              ),
               recipes!inner (
                 id,
                 recipe_code,
@@ -543,21 +556,13 @@ export class ArkikManualAssignmentService {
 
     // Recipe/Product compatibility
     const orderItems = order.order_items || [];
-    const remisionRecipeId = (remision as any).recipe_id as string | undefined;
-    const remisionArkikCode = this.normalizeRecipeCode((remision as any).arkik_long_code || (remision as any).recipe_code);
-    const hasMatchingRecipe = orderItems.some((item: any) => {
-      const idMatch = item.recipe_id && remisionRecipeId && item.recipe_id === remisionRecipeId;
-      const itemArkik = this.normalizeRecipeCode(item.recipes?.arkik_long_code || item.recipes?.recipe_code);
-      const codeMatch = !!remisionArkikCode && remisionArkikCode.length > 0 && itemArkik === remisionArkikCode;
-      return idMatch || codeMatch;
-    });
-
-    if (hasMatchingRecipe) {
-      score += 2;
-      reasons.push('Receta compatible');
-    } else {
-      reasons.push('Receta diferente');
+    const strictRecipeOk = hasStrictRecipeMatch(orderItems as any, remision);
+    if (!strictRecipeOk) {
+      // Block manual assignment if strict match fails
+      return { score: 0, reasons: [...reasons, 'Receta diferente (no coincide con items de la orden)'] };
     }
+    score += 2;
+    reasons.push('Receta compatible');
 
     // Quote compatibility (bonus points)
     if (remision.quote_detail_id) {

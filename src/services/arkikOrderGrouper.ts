@@ -1,5 +1,6 @@
 import { StagingRemision, OrderSuggestion, ValidationError } from '@/types/arkik';
 import { ExistingOrderMatch } from './arkikOrderMatcher';
+import { hasStrictRecipeMatch } from './arkikMatchingUtils';
 
 export interface OrderGroupingOptions {
   processingMode: 'dedicated' | 'commercial';
@@ -54,15 +55,18 @@ export class ArkikOrderGrouper {
     const suggestions: OrderSuggestion[] = [];
     const processedRemisionIds = new Set<string>();
 
-    // Process existing order matches first
+    // Process existing order matches first, but only keep remisiones that strictly match recipes
     existingMatches.forEach(match => {
-      const suggestion = this.createOrderSuggestionFromExistingOrder(match);
-      suggestions.push(suggestion);
-      
-      // Mark remisiones as processed
-      match.matchedRemisiones.forEach(remision => {
-        processedRemisionIds.add(remision.id);
-      });
+      const items = (match.order as any).order_items as any[] | undefined;
+      const strictlyCompatibleRemisiones = match.matchedRemisiones.filter(r => !r.recipe_id || hasStrictRecipeMatch(items as any, r));
+      if (strictlyCompatibleRemisiones.length > 0) {
+        const filteredMatch = { ...match, matchedRemisiones: strictlyCompatibleRemisiones } as any;
+        const suggestion = this.createOrderSuggestionFromExistingOrder(filteredMatch);
+        suggestions.push(suggestion);
+        strictlyCompatibleRemisiones.forEach(remision => {
+          processedRemisionIds.add(remision.id);
+        });
+      }
     });
 
     // Process manual assignments
@@ -82,7 +86,7 @@ export class ArkikOrderGrouper {
         processedRemisionIds.add(remision.id);
       });
 
-      // Create suggestions for manual assignments
+      // Create suggestions for manual assignments (kept; strict gating occurs in the service)
       manualGroups.forEach((assignedRemisiones, orderId) => {
         const suggestion = this.createOrderSuggestionFromManualAssignment(assignedRemisiones, orderId);
         suggestions.push(suggestion);
