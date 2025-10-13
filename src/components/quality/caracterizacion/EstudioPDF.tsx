@@ -435,12 +435,6 @@ const GranulometricCurveChart = ({
 };
 
 export function EstudioPDF({ estudio }: EstudioPDFProps) {
-  // Debug: Log the data structure
-  console.log('EstudioPDF received data:', {
-    estudiosCount: estudio.estudios.length,
-    estudios: estudio.estudios.map(e => ({ nombre: e.nombre_estudio, estado: e.estado, hasResultados: !!e.resultados }))
-  });
-
   // Extract study data
   const granulometria = estudio.estudios.find(e => 
     e.nombre_estudio === 'Granulometría' || e.nombre_estudio === 'Análisis Granulométrico'
@@ -449,23 +443,6 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
   const densidad = estudio.estudios.find(e => e.nombre_estudio === 'Densidad');
   const perdidaLavado = estudio.estudios.find(e => e.nombre_estudio === 'Pérdida por Lavado');
   const absorcion = estudio.estudios.find(e => e.nombre_estudio === 'Absorción');
-
-  console.log('Found studies:', {
-    granulometria: !!granulometria,
-    masaVolumetrica: !!masaVolumetrica,
-    densidad: !!densidad,
-    perdidaLavado: !!perdidaLavado,
-    absorcion: !!absorcion
-  });
-
-  // Debug specific study data
-  if (granulometria) {
-    console.log('Granulometria data:', {
-      hasResultados: !!granulometria.resultados,
-      resultadosKeys: granulometria.resultados ? Object.keys(granulometria.resultados) : 'no resultados',
-      mallasCount: granulometria.resultados?.mallas?.length || 0
-    });
-  }
 
   // NMX references text
   const normasText = "Referencia: NMX-C-111-ONNCCE-2018, NMX-C-030-ONNCCE-2004, NMX-C-170-ONNCCE-2015, NMX-C-077-ONNCCE-2019, NMX-C-073-ONNCCE-2004, NMX-C-165-ONNCCE-2020, NMX-C-166-ONNCCE-2006, NMX-C-084-ONNCCE-2018, NMX-C-416-ONNCCE-2003 y NMX-C-088-ONNCCE-2019";
@@ -547,24 +524,6 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
               <Text style={styles.metadataLabel}>Planta de procedencia:</Text>
               <Text style={styles.metadataValue}>{estudio.alta_estudio.planta?.nombre || 'N/A'}</Text>
             </View>
-          </View>
-        </View>
-
-        {/* Debug: Always show test card */}
-        <View style={styles.card}>
-          <View style={styles.cardHeader}>
-            <Text style={styles.cardHeaderText}>Debug: Test Card</Text>
-          </View>
-          <View style={styles.cardBody}>
-            <Text style={styles.formulaText}>
-              Estudios encontrados: {estudio.estudios.length}
-            </Text>
-            <Text style={styles.formulaText}>
-              Granulometria encontrada: {granulometria ? 'Sí' : 'No'}
-            </Text>
-            <Text style={styles.formulaText}>
-              Granulometria con resultados: {granulometria?.resultados ? 'Sí' : 'No'}
-            </Text>
           </View>
         </View>
 
@@ -788,26 +747,6 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
             )}
           </View>
         </View>
-
-        {/* Debug: Show if no studies found */}
-        {estudio.estudios.length === 0 && (
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.cardHeaderText}>Debug: No Studies Found</Text>
-            </View>
-            <View style={styles.cardBody}>
-              <Text style={styles.formulaText}>
-                Total estudios recibidos: {estudio.estudios.length}
-              </Text>
-              <Text style={styles.formulaText}>
-                Estudios completados: {estudio.estudios.filter(e => e.estado === 'completado').length}
-              </Text>
-              <Text style={styles.formulaText}>
-                Estudios con resultados: {estudio.estudios.filter(e => e.resultados).length}
-              </Text>
-            </View>
-          </View>
-        )}
 
         {/* Footer */}
         <View style={styles.footer}>
