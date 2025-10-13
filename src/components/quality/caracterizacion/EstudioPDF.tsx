@@ -453,7 +453,7 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
         {/* Header */}
         <View style={styles.header}>
           <Image 
-            src="/images/dcconcretos/DC_LOGO_F_2.jpg" 
+            src="/images/dc-concretos-logo.png" 
             style={styles.logo}
           />
           <View style={styles.titleSection}>
@@ -546,9 +546,9 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                       <Text style={[styles.tableHeaderCell, styles.colAcumulado]}>% Acum.</Text>
                       <Text style={[styles.tableHeaderCell, styles.colPasa]}>% Pasa</Text>
                     </View>
-                    {/* Show ALL mallas, even without data */}
+                    {/* Show only mallas with data (nulls hidden, zeros shown) */}
                     {granulometria.resultados.mallas
-                      .filter((m: any) => m.numero_malla !== 'Fondo')
+                      .filter((m: any) => m.numero_malla !== 'Fondo' && m.peso_retenido !== null)
                       .map((malla: any, index: number) => (
                         <View key={index} style={styles.tableRow}>
                           <Text style={[styles.tableCellBold, styles.colMalla]}>
