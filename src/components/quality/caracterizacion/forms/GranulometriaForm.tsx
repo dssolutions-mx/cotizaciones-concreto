@@ -38,7 +38,7 @@ interface MallaData {
   id: string;
   numero_malla: string;
   abertura_mm: number;
-  peso_retenido: number | null;
+  peso_retenido: number;
   porcentaje_retenido: number;
   porcentaje_acumulado: number;
   porcentaje_pasa: number;
@@ -100,7 +100,7 @@ export default function GranulometriaForm({
       mallas: MALLAS_ESTANDAR.map((malla, index) => ({
         id: `malla-${index}`,
         ...malla,
-        peso_retenido: null,
+        peso_retenido: 0,
         porcentaje_retenido: 0,
         porcentaje_acumulado: 0,
         porcentaje_pasa: 100
@@ -280,13 +280,13 @@ export default function GranulometriaForm({
 
     // Calcular peso total retenido
     const pesoTotalRetenido = mallas.reduce((sum, malla) => 
-      sum + (malla.peso_retenido || 0), 0
+      sum + malla.peso_retenido, 0
     );
 
     // Calcular porcentajes
     let acumulado = 0;
     const mallasActualizadas = mallas.map(malla => {
-      const pesoRetenido = malla.peso_retenido || 0;
+      const pesoRetenido = malla.peso_retenido;
       const porcentajeRetenido = pesoMuestraInicial > 0 
         ? (pesoRetenido / pesoMuestraInicial) * 100 
         : 0;
@@ -339,7 +339,7 @@ export default function GranulometriaForm({
   };
 
   const handlePesoRetenidoChange = (mallaId: string, value: string) => {
-    const peso = value === '' ? null : parseFloat(value) || 0;
+    const peso = value === '' ? 0 : parseFloat(value) || 0;
     setFormData(prev => {
       const mallasActualizadas = prev.mallas.map(malla =>
         malla.id === mallaId 
@@ -368,7 +368,7 @@ export default function GranulometriaForm({
     }
 
     const pesosTotales = formData.mallas.reduce((sum, malla) => 
-      sum + (malla.peso_retenido || 0), 0
+      sum + malla.peso_retenido, 0
     );
 
     if (pesosTotales > formData.peso_muestra_inicial) {
@@ -376,7 +376,7 @@ export default function GranulometriaForm({
     }
 
     const tieneAlgunPeso = formData.mallas.some(malla => 
-      malla.peso_retenido !== null && malla.peso_retenido > 0
+      malla.peso_retenido > 0
     );
 
     if (!tieneAlgunPeso) {
@@ -785,10 +785,10 @@ export default function GranulometriaForm({
                           <Input
                             type="number"
                             step="0.1"
-                            value={malla.peso_retenido || ''}
+                            value={malla.peso_retenido}
                             onChange={(e) => handlePesoRetenidoChange(malla.id, e.target.value)}
                             className="w-24 h-9 rounded-lg transition-all duration-150 border text-center"
-                            placeholder="0.0"
+                            placeholder="0"
                             style={{ 
                               ...typography.callout,
                               borderColor: 'rgba(0, 0, 0, 0.12)',

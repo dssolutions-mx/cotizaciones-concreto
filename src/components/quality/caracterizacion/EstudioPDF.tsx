@@ -209,7 +209,7 @@ const styles = StyleSheet.create({
 interface MallaData {
   numero_malla: string;
   abertura_mm: number;
-  peso_retenido: number | null;
+  peso_retenido: number;
   porcentaje_retenido: number;
   porcentaje_acumulado: number;
   porcentaje_pasa: number;
@@ -555,7 +555,7 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                             {malla.numero_malla}
                           </Text>
                           <Text style={[styles.tableCell, styles.colRetenido]}>
-                            {malla.peso_retenido !== null ? malla.peso_retenido.toFixed(1) : '-'}
+                            {malla.peso_retenido > 0 ? malla.peso_retenido.toFixed(1) : '-'}
                           </Text>
                           <Text style={[styles.tableCell, styles.colPorcentaje]}>
                             {malla.porcentaje_retenido.toFixed(1)}
