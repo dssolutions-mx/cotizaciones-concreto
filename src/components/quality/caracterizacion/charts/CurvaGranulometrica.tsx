@@ -20,7 +20,7 @@ import { typography } from '@/lib/design-system/typography';
 interface MallaData {
   numero_malla: string;
   abertura_mm: number;
-  peso_retenido: number;
+  peso_retenido: number | null;
   porcentaje_retenido: number;
   porcentaje_acumulado: number;
   porcentaje_pasa: number;
@@ -170,13 +170,13 @@ export default function CurvaGranulometrica({
     });
 
     // Combinar datos de mallas con límites
-    // Solo incluir mallas que fueron llenadas (tienen peso_retenido > 0)
+    // Solo incluir mallas que fueron llenadas (tienen peso_retenido NO null)
     const mallasFiltradas = mallas.filter(malla => {
       // Excluir Fondo y mallas sin abertura
       if (malla.numero_malla === 'Fondo' || malla.abertura_mm <= 0) return false;
       
-      // Solo incluir mallas que fueron llenadas (peso_retenido > 0)
-      if (malla.peso_retenido <= 0) return false;
+      // Solo incluir mallas que fueron llenadas (no null)
+      if (malla.peso_retenido === null || malla.peso_retenido === undefined) return false;
       
       return true;
     });

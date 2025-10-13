@@ -11,7 +11,7 @@ export interface GranulometriaResultados {
     id: string;
     numero_malla: string;
     abertura_mm: number;
-    peso_retenido: number;
+    peso_retenido: number | null;
     porcentaje_retenido: number;
     porcentaje_acumulado: number;
     porcentaje_pasa: number;
