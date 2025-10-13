@@ -42,13 +42,14 @@ import {
   TestTube,
   Printer
 } from 'lucide-react';
-import { PDFDownloadLink } from '@react-pdf/renderer';
 import { EstudioPDF } from '@/components/quality/caracterizacion/EstudioPDF';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { formatDate } from '@/lib/utils';
 import EstudioFormModal from '@/components/quality/caracterizacion/EstudioFormModal';
+import { caracterizacionService } from '@/services/caracterizacionService';
+import { pdf } from '@react-pdf/renderer';
 
 interface EstudioDetalle {
   id: string;
@@ -94,6 +95,7 @@ export default function EstudioDetallePage() {
   const [updatingEstado, setUpdatingEstado] = useState<string | null>(null);
   const [selectedEstudio, setSelectedEstudio] = useState<EstudioSeleccionadoDetalle | null>(null);
   const [showFormModal, setShowFormModal] = useState(false);
+  const [generatingPDF, setGeneratingPDF] = useState(false);
 
   // Cargar detalle del estudio
   useEffect(() => {
@@ -261,6 +263,58 @@ export default function EstudioDetallePage() {
     }
   };
 
+  // Handler for generating PDF with limits
+  const handleGeneratePDF = async () => {
+    if (!estudio) return;
+    
+    setGeneratingPDF(true);
+    try {
+      // Load limits if there's a tamaño
+      let limites: any[] = [];
+      const tamaño = estudio.tamaño || estudio.estudios_seleccionados.find(e => e.resultados?.tamaño)?.resultados?.tamaño;
+      
+      if (tamaño && estudio.tipo_material) {
+        try {
+          const limitesData = await caracterizacionService.getLimitesGranulometricos(
+            estudio.tipo_material as 'Arena' | 'Grava',
+            tamaño
+          );
+          if (limitesData && limitesData.mallas) {
+            limites = limitesData.mallas;
+          }
+        } catch (error) {
+          console.error('Error loading limits:', error);
+          // Continue without limits if there's an error
+        }
+      }
+
+      // Generate PDF
+      const pdfDocument = <EstudioPDF
+        estudio={{
+          alta_estudio: estudio,
+          estudios: estudio.estudios_seleccionados?.filter(e => e.estado === 'completado' && e.resultados) || [],
+          limites: limites,
+          tamaño: tamaño
+        }}
+      />;
+
+      const blob = await pdf(pdfDocument).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Reporte_Caracterizacion_${estudio.nombre_material}_${format(new Date(), 'yyyyMMdd')}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      toast.success('PDF generado exitosamente');
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast.error('Error al generar el PDF');
+    } finally {
+      setGeneratingPDF(false);
+    }
+  };
+
   const ResumenResultados = ({ e }: { e: EstudioSeleccionadoDetalle }) => {
     const nombre = e.nombre_estudio;
     const r: any = e.resultados || {};
@@ -412,39 +466,24 @@ export default function EstudioDetallePage() {
         <div className="flex gap-2">
           {/* Botón de Imprimir Reporte Completo */}
           {estudio.estudios_seleccionados.some(e => e.estado === 'completado' && e.resultados) && (
-            <PDFDownloadLink
-              document={
-                <EstudioPDF
-                  estudio={{
-                    alta_estudio: estudio,
-                    estudios: estudio.estudios_seleccionados.filter(e => e.estado === 'completado' && e.resultados),
-                    limites: [],
-                    tamaño: estudio.estudios_seleccionados.find(e => e.resultados?.tamaño)?.resultados?.tamaño
-                  }}
-                />
-              }
-              fileName={`Reporte_Caracterizacion_${estudio.nombre_material}_${format(new Date(), 'yyyyMMdd')}.pdf`}
+            <Button
+              variant="default"
+              className="bg-[#069E2D] hover:bg-[#069E2D]/90 text-white"
+              disabled={generatingPDF}
+              onClick={handleGeneratePDF}
             >
-              {({ loading }) => (
-                <Button
-                  variant="default"
-                  className="bg-[#069E2D] hover:bg-[#069E2D]/90 text-white"
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Generando PDF...
-                    </>
-                  ) : (
-                    <>
-                      <Printer className="h-4 w-4 mr-2" />
-                      Imprimir Reporte
-                    </>
-                  )}
-                </Button>
+              {generatingPDF ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Generando PDF...
+                </>
+              ) : (
+                <>
+                  <Printer className="h-4 w-4 mr-2" />
+                  Imprimir Reporte
+                </>
               )}
-            </PDFDownloadLink>
+            </Button>
           )}
           
           <Button variant="outline" onClick={() => router.back()}>

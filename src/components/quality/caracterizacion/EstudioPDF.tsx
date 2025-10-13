@@ -17,7 +17,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 10,
     paddingBottom: 8,
-    borderBottom: 2,
+    borderBottomWidth: 2,
     borderBottomColor: '#0C1F28',
   },
   logo: {
@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
     padding: 8,
     backgroundColor: '#F9FAFB',
     borderRadius: 4,
-    border: 1,
+    borderWidth: 1,
     borderColor: '#E5E7EB',
   },
   metadataRow: {
@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
   // Card styles
   card: {
     marginBottom: 8,
-    border: 1,
+    borderWidth: 1,
     borderColor: '#D1D5DB',
     borderRadius: 4,
     backgroundColor: 'white',
@@ -108,13 +108,13 @@ const styles = StyleSheet.create({
   tableHeader: {
     flexDirection: 'row',
     backgroundColor: '#F3F4F6',
-    borderBottom: 1,
+    borderBottomWidth: 1,
     borderBottomColor: '#D1D5DB',
     paddingVertical: 3,
   },
   tableRow: {
     flexDirection: 'row',
-    borderBottom: 0.5,
+    borderBottomWidth: 0.5,
     borderBottomColor: '#E5E7EB',
     paddingVertical: 2,
   },
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
     bottom: 15,
     left: 20,
     right: 20,
-    borderTop: 1,
+    borderTopWidth: 1,
     borderTopColor: '#E5E7EB',
     paddingTop: 8,
     flexDirection: 'row',
@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
   // Graph container
   graphContainer: {
     marginBottom: 8,
-    border: 1,
+    borderWidth: 1,
     borderColor: '#D1D5DB',
     borderRadius: 4,
     padding: 8,
@@ -232,9 +232,17 @@ interface EstudioData {
     };
   };
   estudios: Array<{
+    id: string;
+    alta_estudio_id: string;
     tipo_estudio: string;
+    nombre_estudio: string;
+    descripcion?: string;
+    norma_referencia?: string;
     estado: string;
+    fecha_programada?: string;
+    fecha_completado?: string;
     resultados?: any;
+    observaciones?: string;
   }>;
   limites?: Array<{
     malla: string;
@@ -427,14 +435,37 @@ const GranulometricCurveChart = ({
 };
 
 export function EstudioPDF({ estudio }: EstudioPDFProps) {
+  // Debug: Log the data structure
+  console.log('EstudioPDF received data:', {
+    estudiosCount: estudio.estudios.length,
+    estudios: estudio.estudios.map(e => ({ nombre: e.nombre_estudio, estado: e.estado, hasResultados: !!e.resultados }))
+  });
+
   // Extract study data
   const granulometria = estudio.estudios.find(e => 
-    e.tipo_estudio === 'Granulometría' || e.tipo_estudio === 'Análisis Granulométrico'
+    e.nombre_estudio === 'Granulometría' || e.nombre_estudio === 'Análisis Granulométrico'
   );
-  const masaVolumetrica = estudio.estudios.find(e => e.tipo_estudio === 'Masa Volumétrica');
-  const densidad = estudio.estudios.find(e => e.tipo_estudio === 'Densidad');
-  const perdidaLavado = estudio.estudios.find(e => e.tipo_estudio === 'Pérdida por Lavado');
-  const absorcion = estudio.estudios.find(e => e.tipo_estudio === 'Absorción');
+  const masaVolumetrica = estudio.estudios.find(e => e.nombre_estudio === 'Masa Volumétrica');
+  const densidad = estudio.estudios.find(e => e.nombre_estudio === 'Densidad');
+  const perdidaLavado = estudio.estudios.find(e => e.nombre_estudio === 'Pérdida por Lavado');
+  const absorcion = estudio.estudios.find(e => e.nombre_estudio === 'Absorción');
+
+  console.log('Found studies:', {
+    granulometria: !!granulometria,
+    masaVolumetrica: !!masaVolumetrica,
+    densidad: !!densidad,
+    perdidaLavado: !!perdidaLavado,
+    absorcion: !!absorcion
+  });
+
+  // Debug specific study data
+  if (granulometria) {
+    console.log('Granulometria data:', {
+      hasResultados: !!granulometria.resultados,
+      resultadosKeys: granulometria.resultados ? Object.keys(granulometria.resultados) : 'no resultados',
+      mallasCount: granulometria.resultados?.mallas?.length || 0
+    });
+  }
 
   // NMX references text
   const normasText = "Referencia: NMX-C-111-ONNCCE-2018, NMX-C-030-ONNCCE-2004, NMX-C-170-ONNCCE-2015, NMX-C-077-ONNCCE-2019, NMX-C-073-ONNCCE-2004, NMX-C-165-ONNCCE-2020, NMX-C-166-ONNCCE-2006, NMX-C-084-ONNCCE-2018, NMX-C-416-ONNCCE-2003 y NMX-C-088-ONNCCE-2019";
@@ -519,6 +550,24 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
           </View>
         </View>
 
+        {/* Debug: Always show test card */}
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardHeaderText}>Debug: Test Card</Text>
+          </View>
+          <View style={styles.cardBody}>
+            <Text style={styles.formulaText}>
+              Estudios encontrados: {estudio.estudios.length}
+            </Text>
+            <Text style={styles.formulaText}>
+              Granulometria encontrada: {granulometria ? 'Sí' : 'No'}
+            </Text>
+            <Text style={styles.formulaText}>
+              Granulometria con resultados: {granulometria?.resultados ? 'Sí' : 'No'}
+            </Text>
+          </View>
+        </View>
+
         {/* Two-column layout */}
         <View style={styles.twoColumnContainer}>
           {/* Left Column */}
@@ -563,7 +612,7 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                     <View style={[styles.tableRow, { backgroundColor: '#F9FAFB' }]}>
                       <Text style={[styles.tableCellBold, styles.colMalla]}>Total</Text>
                       <Text style={[styles.tableCellBold, styles.colRetenido]}>
-                        {granulometria.resultados.peso_total_retenido.toFixed(1)}
+                        {(granulometria.resultados.peso_total_retenido || 0).toFixed(1)}
                       </Text>
                       <Text style={styles.colPorcentaje}></Text>
                       <Text style={styles.colAcumulado}></Text>
@@ -573,7 +622,7 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                   <View style={{ marginTop: 4 }}>
                     <Text style={styles.formulaText}>
                       Módulo de finura ( esp. de 2.3 a 3.1) ={' '}
-                      <Text style={styles.formulaBold}>{granulometria.resultados.modulo_finura.toFixed(2)}</Text>
+                      <Text style={styles.formulaBold}>{(granulometria.resultados.modulo_finura || 0).toFixed(2)}</Text>
                     </Text>
                   </View>
                 </View>
@@ -588,15 +637,15 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                 </View>
                 <View style={styles.cardBody}>
                   <Text style={styles.formulaText}>
-                    Masa v. suelta: {masaVolumetrica.resultados.masa_suelta.toFixed(2)} kg × Factor = {' '}
-                    <Text style={styles.formulaBold}>{masaVolumetrica.resultados.masa_volumetrica_suelta.toFixed(0)}</Text> kg/m³
+                    Masa v. suelta: {(masaVolumetrica.resultados.masa_suelta || 0).toFixed(2)} kg × Factor = {' '}
+                    <Text style={styles.formulaBold}>{(masaVolumetrica.resultados.masa_volumetrica_suelta || 0).toFixed(0)}</Text> kg/m³
                   </Text>
                   <Text style={styles.formulaText}>
-                    Masa v. Compactada: {masaVolumetrica.resultados.masa_compactada.toFixed(2)} kg × Factor = {' '}
-                    <Text style={styles.formulaBold}>{masaVolumetrica.resultados.masa_volumetrica_compactada.toFixed(0)}</Text> kg/m³
+                    Masa v. Compactada: {(masaVolumetrica.resultados.masa_compactada || 0).toFixed(2)} kg × Factor = {' '}
+                    <Text style={styles.formulaBold}>{(masaVolumetrica.resultados.masa_volumetrica_compactada || 0).toFixed(0)}</Text> kg/m³
                   </Text>
                   <Text style={[styles.formulaText, { marginTop: 3 }]}>
-                    Factor = <Text style={styles.formulaBold}>{masaVolumetrica.resultados.factor.toFixed(2)}</Text> 1/m³
+                    Factor = <Text style={styles.formulaBold}>{(masaVolumetrica.resultados.factor || 0).toFixed(2)}</Text> 1/m³
                   </Text>
                 </View>
               </View>
@@ -613,14 +662,16 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                     <Text style={styles.formulaBold}>
                       Me_sss = S / (B + S - C)
                     </Text>
-                    <Text style={styles.formulaText}>
-                      = {densidad.resultados.peso_muestra_sss?.toFixed(1) || 'N/A'} /{' '}
-                      ({(densidad.resultados.volumen_desplazado + densidad.resultados.peso_muestra_sss)?.toFixed(1) || 'N/A'} +{' '}
-                      {densidad.resultados.peso_muestra_sss?.toFixed(1) || 'N/A'} -{' '}
-                      {densidad.resultados.peso_muestra_sumergida?.toFixed(1) || 'N/A'})
-                    </Text>
+                    {densidad.resultados.peso_muestra_sss && (
+                      <Text style={styles.formulaText}>
+                        = {densidad.resultados.peso_muestra_sss.toFixed(1)} /{' '}
+                        ({((densidad.resultados.volumen_desplazado || 0) + densidad.resultados.peso_muestra_sss).toFixed(1)} +{' '}
+                        {densidad.resultados.peso_muestra_sss.toFixed(1)} -{' '}
+                        {(densidad.resultados.peso_muestra_sumergida || 0).toFixed(1)})
+                      </Text>
+                    )}
                     <Text style={styles.formulaResult}>
-                      = {densidad.resultados.densidad_relativa_sss.toFixed(2)} g / cm³
+                      = {(densidad.resultados.densidad_relativa_sss || 0).toFixed(2)} g / cm³
                     </Text>
                   </View>
                   <Text style={styles.variableLegend}>
@@ -644,11 +695,11 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                       Me_seca = Me_sss / (1 + (% Abs/100))
                     </Text>
                     <Text style={styles.formulaText}>
-                      = {densidad.resultados.densidad_relativa_sss.toFixed(2)} /{' '}
-                      {(1 + densidad.resultados.absorcion / 100).toFixed(2)}
+                      = {(densidad.resultados.densidad_relativa_sss || 0).toFixed(2)} /{' '}
+                      {(1 + (densidad.resultados.absorcion || 0) / 100).toFixed(2)}
                     </Text>
                     <Text style={styles.formulaResult}>
-                      = {densidad.resultados.densidad_relativa_seca.toFixed(2)} g / cm³
+                      = {(densidad.resultados.densidad_relativa_seca || 0).toFixed(2)} g / cm³
                     </Text>
                   </View>
                   <Text style={styles.variableLegend}>
@@ -686,15 +737,17 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                     <Text style={styles.formulaBold}>
                       % Absorción = (masa muestra SSS (g) - masa muestra seca (g)) / masa muestra seca (g) × 100
                     </Text>
-                    <Text style={styles.formulaText}>
-                      {absorcion?.resultados ? (
-                        `% Absorción = (${absorcion.resultados.peso_muestra_sss?.toFixed(1)} - ${absorcion.resultados.peso_muestra_seca_horno?.toFixed(1)}) / ${absorcion.resultados.peso_muestra_seca_horno?.toFixed(1)} × 100`
-                      ) : densidad?.resultados ? (
-                        `% Absorción = (${densidad.resultados.peso_muestra_sss?.toFixed(1)} - ${densidad.resultados.peso_muestra_seca_horno?.toFixed(1)}) / ${densidad.resultados.peso_muestra_seca_horno?.toFixed(1)} × 100`
-                      ) : ''}
-                    </Text>
+                    {(absorcion?.resultados || densidad?.resultados) && (
+                      <Text style={styles.formulaText}>
+                        {absorcion?.resultados ? (
+                          `% Absorción = (${(absorcion.resultados.peso_muestra_sss || 0).toFixed(1)} - ${(absorcion.resultados.peso_muestra_seca_horno || 0).toFixed(1)}) / ${(absorcion.resultados.peso_muestra_seca_horno || 1).toFixed(1)} × 100`
+                        ) : densidad?.resultados ? (
+                          `% Absorción = (${(densidad.resultados.peso_muestra_sss || 0).toFixed(1)} - ${(densidad.resultados.peso_muestra_seca_horno || 0).toFixed(1)}) / ${(densidad.resultados.peso_muestra_seca_horno || 1).toFixed(1)} × 100`
+                        ) : ''}
+                      </Text>
+                    )}
                     <Text style={styles.formulaResult}>
-                      = {(absorcion?.resultados?.absorcion_porcentaje || densidad?.resultados?.absorcion)?.toFixed(1)}%
+                      = {(absorcion?.resultados?.absorcion_porcentaje || densidad?.resultados?.absorcion || 0).toFixed(1)}%
                     </Text>
                   </View>
                 </View>
@@ -711,23 +764,23 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                   <Text style={[styles.formulaBold, { marginBottom: 3 }]}>Secado a masa constante</Text>
                   <Text style={styles.formulaText}>
                     Masa muestra seca "Ms" ( g ) = {' '}
-                    <Text style={styles.formulaBold}>{perdidaLavado.resultados.peso_muestra_inicial?.toFixed(1)}</Text> g
+                    <Text style={styles.formulaBold}>{(perdidaLavado.resultados.peso_muestra_inicial || 0).toFixed(1)}</Text> g
                   </Text>
                   <Text style={styles.formulaText}>
                     Masa muestra seca lavada = {' '}
-                    <Text style={styles.formulaBold}>{perdidaLavado.resultados.peso_muestra_despues_lavado?.toFixed(1)}</Text> g
+                    <Text style={styles.formulaBold}>{(perdidaLavado.resultados.peso_muestra_despues_lavado || 0).toFixed(1)}</Text> g
                   </Text>
                   <View style={styles.formulaBox}>
                     <Text style={styles.formulaBold}>
                       % P x L = (Ms - Msl) / Ms × 100
                     </Text>
                     <Text style={styles.formulaText}>
-                      = ({perdidaLavado.resultados.peso_muestra_inicial?.toFixed(1)} -{' '}
-                      {perdidaLavado.resultados.peso_muestra_despues_lavado?.toFixed(1)}) /{' '}
-                      {perdidaLavado.resultados.peso_muestra_inicial?.toFixed(1)} × 100
+                      = ({(perdidaLavado.resultados.peso_muestra_inicial || 0).toFixed(1)} -{' '}
+                      {(perdidaLavado.resultados.peso_muestra_despues_lavado || 0).toFixed(1)}) /{' '}
+                      {(perdidaLavado.resultados.peso_muestra_inicial || 1).toFixed(1)} × 100
                     </Text>
                     <Text style={styles.formulaResult}>
-                      = {perdidaLavado.resultados.porcentaje_perdida?.toFixed(1)}%
+                      = {(perdidaLavado.resultados.porcentaje_perdida || 0).toFixed(1)}%
                     </Text>
                   </View>
                 </View>
@@ -735,6 +788,26 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
             )}
           </View>
         </View>
+
+        {/* Debug: Show if no studies found */}
+        {estudio.estudios.length === 0 && (
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardHeaderText}>Debug: No Studies Found</Text>
+            </View>
+            <View style={styles.cardBody}>
+              <Text style={styles.formulaText}>
+                Total estudios recibidos: {estudio.estudios.length}
+              </Text>
+              <Text style={styles.formulaText}>
+                Estudios completados: {estudio.estudios.filter(e => e.estado === 'completado').length}
+              </Text>
+              <Text style={styles.formulaText}>
+                Estudios con resultados: {estudio.estudios.filter(e => e.resultados).length}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Footer */}
         <View style={styles.footer}>

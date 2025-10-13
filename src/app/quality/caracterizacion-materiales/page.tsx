@@ -51,9 +51,10 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import Link from 'next/link';
-import { PDFDownloadLink } from '@react-pdf/renderer';
 import { EstudioPDF } from '@/components/quality/caracterizacion/EstudioPDF';
 import { format } from 'date-fns';
+import { caracterizacionService } from '@/services/caracterizacionService';
+import { pdf } from '@react-pdf/renderer';
 
 interface Plant {
   id: string;
@@ -103,6 +104,7 @@ export default function CaracterizacionMaterialesHistoricoPage() {
   const [selectedPlant, setSelectedPlant] = useState<string>('all');
   const [selectedMaterial, setSelectedMaterial] = useState<string>('all');
   const [selectedTipoEstudio, setSelectedTipoEstudio] = useState<string>('all');
+  const [generatingPDFIds, setGeneratingPDFIds] = useState<Set<string>>(new Set());
 
   // Cargar plantas
   useEffect(() => {
@@ -203,6 +205,60 @@ export default function CaracterizacionMaterialesHistoricoPage() {
 
   const handleNavigateToDetail = (estudio: EstudioHistorico) => {
     window.location.href = `/quality/caracterizacion-materiales/${estudio.id}?tab=estudios`;
+  };
+
+  // Handler for generating PDF with limits
+  const handleGeneratePDF = async (estudio: EstudioHistorico) => {
+    setGeneratingPDFIds(prev => new Set(prev).add(estudio.id));
+    try {
+      // Load limits if there's a tamaño
+      let limites: any[] = [];
+      const tamaño = estudio.tamaño || estudio.estudios_seleccionados?.find((e: any) => e.resultados?.tamaño)?.resultados?.tamaño;
+      
+      if (tamaño && estudio.tipo_material) {
+        try {
+          const limitesData = await caracterizacionService.getLimitesGranulometricos(
+            estudio.tipo_material as 'Arena' | 'Grava',
+            tamaño
+          );
+          if (limitesData && limitesData.mallas) {
+            limites = limitesData.mallas;
+          }
+        } catch (error) {
+          console.error('Error loading limits:', error);
+          // Continue without limits if there's an error
+        }
+      }
+
+      // Generate PDF
+      const pdfDocument = <EstudioPDF
+        estudio={{
+          alta_estudio: estudio,
+          estudios: estudio.estudios_seleccionados?.filter((e: any) => e.estado === 'completado' && e.resultados) || [],
+          limites: limites,
+          tamaño: tamaño
+        }}
+      />;
+
+      const blob = await pdf(pdfDocument).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Reporte_Caracterizacion_${estudio.nombre_material}_${format(new Date(), 'yyyyMMdd')}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+      
+      toast.success('PDF generado exitosamente');
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast.error('Error al generar el PDF');
+    } finally {
+      setGeneratingPDFIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(estudio.id);
+        return newSet;
+      });
+    }
   };
 
   // Función para recargar estudios (útil después de actualizar datos)
@@ -901,35 +957,20 @@ export default function CaracterizacionMaterialesHistoricoPage() {
                             {/* Botón de impresión PDF */}
                             {estudio.estudios_seleccionados && 
                              estudio.estudios_seleccionados.some((e: any) => e.estado === 'completado' && e.resultados) ? (
-                              <PDFDownloadLink
-                                document={
-                                  <EstudioPDF
-                                    estudio={{
-                                      alta_estudio: estudio,
-                                      estudios: estudio.estudios_seleccionados.filter((e: any) => e.estado === 'completado' && e.resultados),
-                                      limites: [],
-                                      tamaño: estudio.estudios_seleccionados.find((e: any) => e.resultados?.tamaño)?.resultados?.tamaño
-                                    }}
-                                  />
-                                }
-                                fileName={`Reporte_Caracterizacion_${estudio.nombre_material}_${format(new Date(), 'yyyyMMdd')}.pdf`}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
+                                title="Imprimir/Descargar PDF"
+                                disabled={generatingPDFIds.has(estudio.id)}
+                                onClick={() => handleGeneratePDF(estudio)}
                               >
-                                {({ loading }) => (
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 w-8 p-0 hover:bg-[#069e2d]/10"
-                                    title="Imprimir/Descargar PDF"
-                                    disabled={loading}
-                                  >
-                                    {loading ? (
-                                      <Loader2 className="h-4 w-4 text-gray-600 animate-spin" />
-                                    ) : (
-                                      <Printer className="h-4 w-4 text-gray-600" />
-                                    )}
-                                  </Button>
+                                {generatingPDFIds.has(estudio.id) ? (
+                                  <Loader2 className="h-4 w-4 text-gray-600 animate-spin" />
+                                ) : (
+                                  <Printer className="h-4 w-4 text-gray-600" />
                                 )}
-                              </PDFDownloadLink>
+                              </Button>
                             ) : (
                               <Button
                                 variant="ghost"
