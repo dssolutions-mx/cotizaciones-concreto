@@ -11,71 +11,7 @@ import {
  * Service for managing order-related operations
  */
 export const orderService = {
-  /**
-   * Creates an order from a quote
-   * @param quoteId - ID of the quote
-   * @param deliveryDate - Date of delivery
-   * @param deliveryTime - Time of delivery
-   * @param requiresInvoice - Whether invoice is required
-   * @param specialRequirements - Any special requirements
-   * @param emptyTruckDetails - Optional empty truck charge details
-   * @param client - Optional Supabase client instance (server or browser)
-   */
-  async createOrder(
-    quoteId: string, 
-    deliveryDate: string, 
-    deliveryTime: string, 
-    requiresInvoice: boolean, 
-    specialRequirements?: string,
-    emptyTruckDetails?: {
-      hasEmptyTruckCharge: boolean,
-      emptyTruckVolume: number,
-      emptyTruckPrice: number
-    },
-    client?: SupabaseClient<Database>
-  ) {
-    const supabase = client || browserClient;
-    try {
-      let response;
-      
-      // If empty truck details are provided, use the create_order_with_details function
-      if (emptyTruckDetails?.hasEmptyTruckCharge) {
-        const { data, error } = await supabase
-          .rpc('create_order_with_details', {
-            quote_id: quoteId,
-            delivery_date: deliveryDate,
-            delivery_time: deliveryTime,
-            requires_invoice: requiresInvoice,
-            special_requirements: specialRequirements || null,
-            empty_truck_volume: emptyTruckDetails.emptyTruckVolume,
-            has_empty_truck_charge: emptyTruckDetails.hasEmptyTruckCharge,
-            empty_truck_price: emptyTruckDetails.emptyTruckPrice
-          });
-          
-        if (error) throw error;
-        response = data;
-      } else {
-        // Otherwise, use the basic create_order_from_quote function
-        const { data, error } = await supabase
-          .rpc('create_order_from_quote', {
-            quote_id: quoteId,
-            delivery_date: deliveryDate,
-            delivery_time: deliveryTime,
-            requires_invoice: requiresInvoice,
-            special_requirements: specialRequirements || null
-          });
-          
-        if (error) throw error;
-        response = data;
-      }
-      
-      return { data: response, error: null };
-    } catch (error) {
-      const errorMessage = handleError(error, 'createOrder');
-      console.error(errorMessage);
-      return { data: null, error: errorMessage };
-    }
-  },
+  // Deprecated: RPC-based order creation removed. Use '@/services/orderService' for creating orders.
 
   /**
    * Gets all orders with basic filtering

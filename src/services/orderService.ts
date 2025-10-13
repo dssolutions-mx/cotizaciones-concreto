@@ -223,6 +223,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
         return {
           order_id: order.id,
           quote_detail_id: item.quote_detail_id,
+          recipe_id: quoteDetail?.recipe_id || null,
           product_type: productType,
           volume: item.volume,
           unit_price: quoteDetail?.final_price || 0,
