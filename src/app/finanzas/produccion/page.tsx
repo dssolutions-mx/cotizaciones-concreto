@@ -194,6 +194,183 @@ export default function ComparativaProduccion() {
 
   // Cost calculation moved to the progressive hook
 
+  // Export combined plant data to Excel
+  const exportCombinedDataToExcel = () => {
+    if (combinedPlantData.length === 0) {
+      alert('No hay datos para exportar');
+      return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+
+    // Prepare data for export
+    const exportData = combinedPlantData.map(plant => {
+      const cementPerM3 = plant.produced_volume > 0 ? plant.cement_consumption / plant.produced_volume : 0;
+      return {
+        'Planta': plant.plant_code,
+        'Nombre': plant.plant_name,
+        'Volumen Concreto (m³)': plant.sold_concrete_volume.toFixed(2),
+        'Volumen Producido (m³)': plant.produced_volume.toFixed(2),
+        'Resistencia Ponderada (kg/cm²)': plant.fc_ponderada.toFixed(2),
+        'Edad Garantía Ponderada (días)': plant.edad_ponderada.toFixed(2),
+        'Ventas Concreto (Subtotal)': plant.concrete_subtotal.toFixed(2),
+        'Precio Promedio': plant.avg_price.toFixed(2),
+        'Total $ Materia Prima': plant.total_material_cost.toFixed(2),
+        'Total $ Materia Prima / m³': plant.avg_cost_per_m3.toFixed(2),
+        'Cemento / m³ (kg)': cementPerM3.toFixed(2),
+        '$ Cemento / m³': plant.cement_cost_per_m3.toFixed(2),
+      };
+    });
+
+    // Add totals row if available
+    if (totalsRow) {
+      exportData.push({
+        'Planta': 'TOTAL',
+        'Nombre': '',
+        'Volumen Concreto (m³)': totalsRow.sold_concrete_volume.toFixed(2),
+        'Volumen Producido (m³)': totalsRow.produced_volume.toFixed(2),
+        'Resistencia Ponderada (kg/cm²)': totalsRow.fc_ponderada.toFixed(2),
+        'Edad Garantía Ponderada (días)': totalsRow.edad_ponderada.toFixed(2),
+        'Ventas Concreto (Subtotal)': totalsRow.concrete_subtotal.toFixed(2),
+        'Precio Promedio': totalsRow.avg_price.toFixed(2),
+        'Total $ Materia Prima': totalsRow.total_material_cost.toFixed(2),
+        'Total $ Materia Prima / m³': totalsRow.avg_cost_per_m3.toFixed(2),
+        'Cemento / m³ (kg)': totalsRow.cement_per_m3.toFixed(2),
+        '$ Cemento / m³': totalsRow.cement_cost_per_m3.toFixed(2),
+      });
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Ventas y Producción');
+
+    const fileName = `comparativo_ventas_produccion_${dateRangeText.replace(/\//g, '-')}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+  };
+
+  // Export financial analysis to Excel (transposed format)
+  const exportFinancialAnalysisToExcel = () => {
+    if (combinedPlantData.length === 0) {
+      alert('No hay datos para exportar');
+      return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+
+    // Create data in transposed format (plants as columns)
+    const rows: any[] = [];
+
+    // Header row with plant codes
+    const headerRow: any = { 'Concepto': '' };
+    combinedPlantData.forEach(plant => {
+      headerRow[plant.plant_code] = plant.plant_code;
+    });
+    rows.push(headerRow);
+
+    // Ingresos Concreto section
+    rows.push({ 'Concepto': 'INGRESOS CONCRETO' });
+    
+    const volumeRow: any = { 'Concepto': 'Volumen Concreto (m³)' };
+    combinedPlantData.forEach(plant => {
+      volumeRow[plant.plant_code] = plant.sold_concrete_volume.toFixed(2);
+    });
+    rows.push(volumeRow);
+
+    const fcRow: any = { 'Concepto': "f'c Ponderada (kg/cm²)" };
+    combinedPlantData.forEach(plant => {
+      fcRow[plant.plant_code] = plant.fc_ponderada.toFixed(2);
+    });
+    rows.push(fcRow);
+
+    const edadRow: any = { 'Concepto': 'Edad Ponderada (días)' };
+    combinedPlantData.forEach(plant => {
+      edadRow[plant.plant_code] = plant.edad_ponderada.toFixed(2);
+    });
+    rows.push(edadRow);
+
+    const pvRow: any = { 'Concepto': 'PV Unitario' };
+    combinedPlantData.forEach(plant => {
+      pvRow[plant.plant_code] = plant.avg_price.toFixed(2);
+    });
+    rows.push(pvRow);
+
+    const ventasRow: any = { 'Concepto': 'Ventas Total Concreto' };
+    combinedPlantData.forEach(plant => {
+      ventasRow[plant.plant_code] = plant.concrete_subtotal.toFixed(2);
+    });
+    rows.push(ventasRow);
+
+    // Costo Materia Prima section
+    rows.push({ 'Concepto': '' });
+    rows.push({ 'Concepto': 'COSTO MATERIA PRIMA' });
+
+    const volProducidoRow: any = { 'Concepto': 'Volumen Producido (m³)' };
+    combinedPlantData.forEach(plant => {
+      volProducidoRow[plant.plant_code] = plant.produced_volume.toFixed(2);
+    });
+    rows.push(volProducidoRow);
+
+    const costoMPUnitRow: any = { 'Concepto': 'Costo MP Unitario' };
+    combinedPlantData.forEach(plant => {
+      costoMPUnitRow[plant.plant_code] = plant.avg_cost_per_m3.toFixed(2);
+    });
+    rows.push(costoMPUnitRow);
+
+    const consumoCemRow: any = { 'Concepto': 'Consumo Cem / m3 (kg)' };
+    combinedPlantData.forEach(plant => {
+      const cementPerM3 = plant.produced_volume > 0 ? plant.cement_consumption / plant.produced_volume : 0;
+      consumoCemRow[plant.plant_code] = cementPerM3.toFixed(2);
+    });
+    rows.push(consumoCemRow);
+
+    const costoCemRow: any = { 'Concepto': 'Costo Cem / m3 ($ Unitario)' };
+    combinedPlantData.forEach(plant => {
+      costoCemRow[plant.plant_code] = plant.cement_cost_per_m3.toFixed(2);
+    });
+    rows.push(costoCemRow);
+
+    const costoMPTotalRow: any = { 'Concepto': 'Costo MP Total Concreto' };
+    combinedPlantData.forEach(plant => {
+      costoMPTotalRow[plant.plant_code] = plant.total_material_cost.toFixed(2);
+    });
+    rows.push(costoMPTotalRow);
+
+    const costoMPPercRow: any = { 'Concepto': 'Costo MP %' };
+    combinedPlantData.forEach(plant => {
+      const percentage = plant.concrete_subtotal > 0 
+        ? (plant.total_material_cost / plant.concrete_subtotal) * 100 
+        : 0;
+      costoMPPercRow[plant.plant_code] = percentage.toFixed(1) + '%';
+    });
+    rows.push(costoMPPercRow);
+
+    // SPREAD section
+    rows.push({ 'Concepto': '' });
+    rows.push({ 'Concepto': 'SPREAD' });
+
+    const spreadUnitRow: any = { 'Concepto': 'Spread Unitario' };
+    combinedPlantData.forEach(plant => {
+      const spreadUnitario = plant.avg_price - plant.avg_cost_per_m3;
+      spreadUnitRow[plant.plant_code] = spreadUnitario.toFixed(2);
+    });
+    rows.push(spreadUnitRow);
+
+    const spreadPercRow: any = { 'Concepto': 'Spread Unitario %' };
+    combinedPlantData.forEach(plant => {
+      const spreadUnitario = plant.avg_price - plant.avg_cost_per_m3;
+      const percentage = plant.avg_price > 0 
+        ? (spreadUnitario / plant.avg_price) * 100 
+        : 0;
+      spreadPercRow[plant.plant_code] = percentage.toFixed(1) + '%';
+    });
+    rows.push(spreadPercRow);
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Análisis Financiero');
+
+    const fileName = `analisis_financiero_plantas_${dateRangeText.replace(/\//g, '-')}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+  };
+
   // Export data to Excel
   const exportToExcel = () => {
     if (!comparativeData || comparativeData.section1.length === 0) {
@@ -1305,13 +1482,27 @@ export default function ComparativaProduccion() {
           {/* Nueva Sección: Tabla Comparativa Ventas + Producción */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="h-5 w-5" />
-                Comparativo Ventas + Producción por Planta
-              </CardTitle>
-              <CardDescription>
-                Análisis integrado de ventas de concreto y producción con costos de materia prima
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    Comparativo Ventas + Producción por Planta
+                  </CardTitle>
+                  <CardDescription>
+                    Análisis integrado de ventas de concreto y producción con costos de materia prima
+                  </CardDescription>
+                </div>
+                <Button
+                  onClick={exportCombinedDataToExcel}
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={combinedPlantData.length === 0}
+                >
+                  <Download className="h-4 w-4" />
+                  Exportar Excel
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {(salesLoading || salesStreaming) && (
@@ -1419,13 +1610,27 @@ export default function ComparativaProduccion() {
           {combinedPlantData.length > 0 && totalsRow && (
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5" />
-                  Análisis Financiero por Planta - Ingresos vs Costos
-                </CardTitle>
-                <CardDescription>
-                  Desglose detallado de ingresos de concreto, costos de materia prima y spread por planta
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <TrendingUp className="h-5 w-5" />
+                      Análisis Financiero por Planta - Ingresos vs Costos
+                    </CardTitle>
+                    <CardDescription>
+                      Desglose detallado de ingresos de concreto, costos de materia prima y spread por planta
+                    </CardDescription>
+                  </div>
+                  <Button
+                    onClick={exportFinancialAnalysisToExcel}
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={combinedPlantData.length === 0}
+                  >
+                    <Download className="h-4 w-4" />
+                    Exportar Excel
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
