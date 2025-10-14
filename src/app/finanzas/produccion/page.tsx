@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/popover";
 import { ChevronDown, Filter, Loader2 } from "lucide-react";
 import { useProgressiveProductionComparison } from '@/hooks/useProgressiveProductionComparison';
+import { useProgressiveSalesByPlant } from '@/hooks/useProgressiveSalesByPlant';
 
 // Types for comparative production data
 interface PlantProductionData {
@@ -69,6 +70,13 @@ export default function ComparativaProduccion() {
     selectedPlantIds: selectedPlants,
   });
 
+  // Hook for sales data by plant (for combined table)
+  const { data: salesData, loading: salesLoading, streaming: salesStreaming, progress: salesProgress, error: salesError } = useProgressiveSalesByPlant({
+    startDate,
+    endDate,
+    selectedPlantIds: selectedPlants,
+  });
+
   // Format the dates for display
   const dateRangeText = useMemo(() => {
     if (!startDate || !endDate) return 'Seleccione un rango de fechas';
@@ -105,6 +113,80 @@ export default function ComparativaProduccion() {
     if (progPrev) setPreviousMonthData(progPrev);
     setLoading(progLoading);
   }, [progData, progPrev, progLoading, progError]);
+
+  // Merge production and sales data for the combined table
+  const combinedPlantData = useMemo(() => {
+    if (!comparativeData || !salesData) return [];
+    
+    // Use section4 (Rendimientos) which has all the production metrics we need
+    const productionPlants = comparativeData.section4;
+    
+    return productionPlants
+      .map(prod => {
+        const sales = salesData.find(s => s.plant_id === prod.plant_id);
+        
+        return {
+          plant_id: prod.plant_id,
+          plant_code: prod.plant_code,
+          plant_name: prod.plant_name,
+          // Sales metrics
+          sold_concrete_volume: sales?.sold_concrete_volume || 0,
+          concrete_subtotal: sales?.concrete_subtotal || 0,
+          avg_price: sales?.avg_price || 0,
+          // Production metrics
+          produced_volume: prod.total_volume,
+          fc_ponderada: prod.fc_ponderada,
+          edad_ponderada: prod.edad_ponderada,
+          total_material_cost: prod.total_material_cost,
+          avg_cost_per_m3: prod.avg_cost_per_m3,
+          cement_consumption: prod.cement_consumption,
+          cement_cost_per_m3: prod.cement_cost_per_m3,
+        };
+      })
+      // Filter out plants with no data (no sales and no production)
+      .filter(plant => plant.sold_concrete_volume > 0 || plant.produced_volume > 0);
+  }, [comparativeData, salesData]);
+
+  // Calculate totals row
+  const totalsRow = useMemo(() => {
+    if (combinedPlantData.length === 0) return null;
+    
+    const totals = combinedPlantData.reduce((acc, plant) => {
+      acc.sold_concrete_volume += plant.sold_concrete_volume;
+      acc.concrete_subtotal += plant.concrete_subtotal;
+      acc.produced_volume += plant.produced_volume;
+      acc.total_material_cost += plant.total_material_cost;
+      acc.cement_consumption += plant.cement_consumption;
+      // For weighted averages, accumulate volume-weighted values
+      acc.fc_sum += plant.fc_ponderada * plant.produced_volume;
+      acc.edad_sum += plant.edad_ponderada * plant.produced_volume;
+      acc.cement_cost_sum += plant.cement_cost_per_m3 * plant.produced_volume;
+      return acc;
+    }, {
+      sold_concrete_volume: 0,
+      concrete_subtotal: 0,
+      produced_volume: 0,
+      total_material_cost: 0,
+      cement_consumption: 0,
+      fc_sum: 0,
+      edad_sum: 0,
+      cement_cost_sum: 0,
+    });
+    
+    return {
+      sold_concrete_volume: totals.sold_concrete_volume,
+      concrete_subtotal: totals.concrete_subtotal,
+      avg_price: totals.sold_concrete_volume > 0 ? totals.concrete_subtotal / totals.sold_concrete_volume : 0,
+      produced_volume: totals.produced_volume,
+      fc_ponderada: totals.produced_volume > 0 ? totals.fc_sum / totals.produced_volume : 0,
+      edad_ponderada: totals.produced_volume > 0 ? totals.edad_sum / totals.produced_volume : 0,
+      total_material_cost: totals.total_material_cost,
+      avg_cost_per_m3: totals.produced_volume > 0 ? totals.total_material_cost / totals.produced_volume : 0,
+      cement_consumption: totals.cement_consumption,
+      cement_per_m3: totals.produced_volume > 0 ? totals.cement_consumption / totals.produced_volume : 0,
+      cement_cost_per_m3: totals.produced_volume > 0 ? totals.cement_cost_sum / totals.produced_volume : 0,
+    };
+  }, [combinedPlantData]);
 
   // Previous month data now comes from the progressive hook
 
@@ -1219,6 +1301,327 @@ export default function ComparativaProduccion() {
               </Table>
             </CardContent>
           </Card>
+
+          {/* Nueva Sección: Tabla Comparativa Ventas + Producción */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5" />
+                Comparativo Ventas + Producción por Planta
+              </CardTitle>
+              <CardDescription>
+                Análisis integrado de ventas de concreto y producción con costos de materia prima
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {(salesLoading || salesStreaming) && (
+                <div className="mb-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm">Cargando datos de ventas...</span>
+                  </div>
+                  <div className="w-full bg-gray-100 border rounded h-2 overflow-hidden">
+                    <div className="bg-green-500 h-2" style={{ width: `${Math.round((salesProgress.processed / Math.max(1, salesProgress.total)) * 100)}%` }} />
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {Math.round((salesProgress.processed / Math.max(1, salesProgress.total)) * 100)}% ({salesProgress.processed}/{Math.max(1, salesProgress.total)})
+                  </div>
+                </div>
+              )}
+              {salesError && (
+                <Alert className="mb-4">
+                  <AlertDescription>{salesError}</AlertDescription>
+                </Alert>
+              )}
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Planta</TableHead>
+                      <TableHead className="text-right">Volumen Concreto (m³)</TableHead>
+                      <TableHead className="text-right">Volumen Producido (m³)</TableHead>
+                      <TableHead className="text-right">Resistencia Ponderada (kg/cm²)</TableHead>
+                      <TableHead className="text-right">Edad Garantía Ponderada (días)</TableHead>
+                      <TableHead className="text-right">Ventas Concreto (Subtotal)</TableHead>
+                      <TableHead className="text-right">Precio promedio</TableHead>
+                      <TableHead className="text-right">Total $ Materia Prima</TableHead>
+                      <TableHead className="text-right">Total $ Materia Prima / m³</TableHead>
+                      <TableHead className="text-right">Cemento / m³ (kg)</TableHead>
+                      <TableHead className="text-right">$ Cemento / m³</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {combinedPlantData.map((plant) => {
+                      const cementPerM3 = plant.produced_volume > 0 ? plant.cement_consumption / plant.produced_volume : 0;
+                      return (
+                        <TableRow key={plant.plant_id}>
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{plant.plant_code}</div>
+                              <div className="text-sm text-muted-foreground">{plant.plant_name}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {plant.sold_concrete_volume.toLocaleString('es-MX', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })}
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {plant.produced_volume.toLocaleString('es-MX', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {plant.fc_ponderada.toLocaleString('es-MX', { 
+                              minimumFractionDigits: 0, 
+                              maximumFractionDigits: 0 
+                            })}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {plant.edad_ponderada.toLocaleString('es-MX', { 
+                              minimumFractionDigits: 0, 
+                              maximumFractionDigits: 0 
+                            })}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(plant.concrete_subtotal)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(plant.avg_price)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(plant.total_material_cost)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(plant.avg_cost_per_m3)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {cementPerM3.toLocaleString('es-MX', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatCurrency(plant.cement_cost_per_m3)}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Nueva Sección: Tabla Comparativa Detallada (como screenshot) */}
+          {combinedPlantData.length > 0 && totalsRow && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  Análisis Financiero por Planta - Ingresos vs Costos
+                </CardTitle>
+                <CardDescription>
+                  Desglose detallado de ingresos de concreto, costos de materia prima y spread por planta
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="border-r"></TableHead>
+                        {combinedPlantData.map(plant => (
+                          <TableHead key={plant.plant_id} className="text-center border-r font-bold">
+                            {plant.plant_code}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {/* Sección: Ingresos Concreto */}
+                      <TableRow className="bg-blue-50/50">
+                        <TableCell colSpan={combinedPlantData.length + 1} className="font-bold italic">
+                          Ingresos Concreto
+                        </TableCell>
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell className="font-semibold border-r">Volumen Concreto (m³)</TableCell>
+                        {combinedPlantData.map(plant => (
+                          <TableCell key={plant.plant_id} className="text-right border-r">
+                            {plant.sold_concrete_volume.toLocaleString('es-MX', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell className="font-semibold border-r">f'c Ponderada (kg/cm²)</TableCell>
+                        {combinedPlantData.map(plant => (
+                          <TableCell key={plant.plant_id} className="text-right border-r">
+                            {plant.fc_ponderada.toLocaleString('es-MX', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell className="font-semibold border-r">Edad Ponderada (días)</TableCell>
+                        {combinedPlantData.map(plant => (
+                          <TableCell key={plant.plant_id} className="text-right border-r">
+                            {plant.edad_ponderada.toLocaleString('es-MX', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell className="font-semibold border-r">PV Unitario</TableCell>
+                        {combinedPlantData.map(plant => (
+                          <TableCell key={plant.plant_id} className="text-right border-r">
+                            {formatCurrency(plant.avg_price)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      
+                      <TableRow className="bg-green-50/50">
+                        <TableCell className="font-bold border-r">Ventas Total Concreto</TableCell>
+                        {combinedPlantData.map(plant => (
+                          <TableCell key={plant.plant_id} className="text-right border-r font-bold">
+                            {formatCurrency(plant.concrete_subtotal)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      
+                      {/* Sección: Costo Materia Prima */}
+                      <TableRow className="bg-orange-50/50">
+                        <TableCell colSpan={combinedPlantData.length + 1} className="font-bold italic">
+                          Costo Materia Prima
+                        </TableCell>
+                      </TableRow>
+                      
+                      <TableRow className="bg-orange-100/30">
+                        <TableCell className="font-semibold border-r">Volumen Producido (m³)</TableCell>
+                        {combinedPlantData.map(plant => (
+                          <TableCell key={plant.plant_id} className="text-right border-r font-medium">
+                            {plant.produced_volume.toLocaleString('es-MX', { 
+                              minimumFractionDigits: 2, 
+                              maximumFractionDigits: 2 
+                            })}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell className="font-semibold border-r">Costo MP Unitario</TableCell>
+                        {combinedPlantData.map(plant => (
+                          <TableCell key={plant.plant_id} className="text-right border-r">
+                            {formatCurrency(plant.avg_cost_per_m3)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell className="font-semibold border-r">Consumo Cem / m3 (kg)</TableCell>
+                        {combinedPlantData.map(plant => {
+                          const cementPerM3 = plant.produced_volume > 0 ? plant.cement_consumption / plant.produced_volume : 0;
+                          return (
+                            <TableCell key={plant.plant_id} className="text-right border-r">
+                              {cementPerM3.toLocaleString('es-MX', { 
+                                minimumFractionDigits: 2, 
+                                maximumFractionDigits: 2 
+                              })}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell className="font-semibold border-r">Costo Cem / m3 ($ Unitario)</TableCell>
+                        {combinedPlantData.map(plant => (
+                          <TableCell key={plant.plant_id} className="text-right border-r">
+                            {formatCurrency(plant.cement_cost_per_m3)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      
+                      <TableRow className="bg-red-50/50">
+                        <TableCell className="font-bold border-r">Costo MP Total Concreto</TableCell>
+                        {combinedPlantData.map(plant => (
+                          <TableCell key={plant.plant_id} className="text-right border-r font-bold">
+                            {formatCurrency(plant.total_material_cost)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell className="font-semibold border-r">Costo MP %</TableCell>
+                        {combinedPlantData.map(plant => {
+                          const percentage = plant.concrete_subtotal > 0 
+                            ? (plant.total_material_cost / plant.concrete_subtotal) * 100 
+                            : 0;
+                          return (
+                            <TableCell key={plant.plant_id} className="text-right border-r">
+                              {percentage.toLocaleString('es-MX', { 
+                                minimumFractionDigits: 1, 
+                                maximumFractionDigits: 1 
+                              })}%
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                      
+                      {/* Sección: SPREAD */}
+                      <TableRow className="bg-purple-50/50">
+                        <TableCell colSpan={combinedPlantData.length + 1} className="font-bold italic">
+                          SPREAD
+                        </TableCell>
+                      </TableRow>
+                      
+                      <TableRow className="bg-green-100/50">
+                        <TableCell className="font-bold border-r">Spread Unitario</TableCell>
+                        {combinedPlantData.map(plant => {
+                          const spreadUnitario = plant.avg_price - plant.avg_cost_per_m3;
+                          return (
+                            <TableCell key={plant.plant_id} className="text-right border-r font-bold">
+                              {formatCurrency(spreadUnitario)}
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                      
+                      <TableRow>
+                        <TableCell className="font-semibold border-r">Spread Unitario %</TableCell>
+                        {combinedPlantData.map(plant => {
+                          const spreadUnitario = plant.avg_price - plant.avg_cost_per_m3;
+                          const percentage = plant.avg_price > 0 
+                            ? (spreadUnitario / plant.avg_price) * 100 
+                            : 0;
+                          return (
+                            <TableCell key={plant.plant_id} className="text-right border-r">
+                              {percentage.toLocaleString('es-MX', { 
+                                minimumFractionDigits: 1, 
+                                maximumFractionDigits: 1 
+                              })}%
+                            </TableCell>
+                          );
+                        })}
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
