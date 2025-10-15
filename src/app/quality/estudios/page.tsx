@@ -25,6 +25,7 @@ import { toast } from 'sonner';
 import Link from 'next/link';
 import MaterialCertificateManager from '@/components/quality/MaterialCertificateManager';
 import PlantCertificateManager from '@/components/quality/PlantCertificateManager';
+import PlantDossierManager from '@/components/quality/PlantDossierManager';
 
 interface Plant {
   id: string;
@@ -381,14 +382,28 @@ export default function EstudiosPage() {
         {/* Certificados de Planta - visible solo con planta seleccionada */}
         {selectedPlant !== 'all' && (
           <div className="bg-white rounded-2xl shadow-md border border-gray-200 p-5 mb-8">
-            <div className="mb-3">
-              <h2 className="text-lg font-bold text-gray-900">Certificados de Planta</h2>
-              <p className="text-sm text-gray-600">Gestiona certificados generales de la planta seleccionada</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <div className="mb-3">
+                  <h2 className="text-lg font-bold text-gray-900">Certificados de Planta</h2>
+                  <p className="text-sm text-gray-600">Gestiona certificados generales de la planta seleccionada</p>
+                </div>
+                <PlantCertificateManager
+                  plantId={selectedPlant}
+                  plantCode={plants.find(p => p.id === selectedPlant)?.code}
+                />
+              </div>
+              <div>
+                <div className="mb-3">
+                  <h2 className="text-lg font-bold text-gray-900">Dossier de Calidad</h2>
+                  <p className="text-sm text-gray-600">PDF principal del dossier (aparece en la raíz del ZIP)</p>
+                </div>
+                <PlantDossierManager
+                  plantId={selectedPlant}
+                  plantCode={plants.find(p => p.id === selectedPlant)?.code}
+                />
+              </div>
             </div>
-            <PlantCertificateManager
-              plantId={selectedPlant}
-              plantCode={plants.find(p => p.id === selectedPlant)?.code}
-            />
           </div>
         )}
 

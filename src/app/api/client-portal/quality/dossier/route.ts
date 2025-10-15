@@ -155,6 +155,43 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No fue posible preparar certificados para descarga' }, { status: 404 });
     }
 
+    // Root-level Dossier de Calidad (outside all folders), if available (from plant_dossiers)
+    try {
+      let dossierCert: { file_path: string; original_name: string | null; file_name: string | null } | null = null;
+      if (plantId && plantId !== 'all') {
+        const { data } = await supabase
+          .from('plant_dossiers')
+          .select('file_path, original_name, file_name')
+          .eq('plant_id', plantId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data) dossierCert = data as any;
+      } else if (plantIds.length > 0) {
+        const { data } = await supabase
+          .from('plant_dossiers')
+          .select('file_path, original_name, file_name')
+          .in('plant_id', plantIds)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data) dossierCert = data as any;
+      }
+
+      if (dossierCert?.file_path) {
+        const { data: signedRoot, error: signedRootErr } = await supabase
+          .storage
+          .from('material-certificates')
+          .createSignedUrl(dossierCert.file_path, 600);
+        if (!signedRootErr && signedRoot?.signedUrl) {
+          const rootName = 'DOSSIER_DE_CALIDAD.pdf';
+          entries.unshift({ url: signedRoot.signedUrl, name: rootName });
+        }
+      }
+    } catch (e) {
+      console.warn('[Dossier] Failed adding root-level dossier PDF:', e);
+    }
+
     // Create archive and stream it to the client
     const archive = archiver('zip', { zlib: { level: 9 } });
     const stream = new PassThrough();
