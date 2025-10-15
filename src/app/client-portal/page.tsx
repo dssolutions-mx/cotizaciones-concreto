@@ -204,7 +204,6 @@ export default function ClientPortalDashboard() {
                   value={`${metrics?.qualityScore || 0}%`}
                   subtitle="Cumplimiento"
                   icon={<CheckCircle className="w-6 h-6" />}
-                  trend={{ value: 2.3, label: 'vs mes anterior' }}
                   color="blue"
                   onClick={() => router.push('/client-portal/quality')}
                 />

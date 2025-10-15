@@ -19,7 +19,7 @@ export default function QualityPage() {
   const [loadingStage, setLoadingStage] = useState('Inicializando...');
   const [showFilters, setShowFilters] = useState(false);
   const [dateRange, setDateRange] = useState({
-    from: startOfDay(subDays(new Date(), 30)), // Default to last 30 days
+    from: startOfDay(subDays(new Date(), 365)), // Default to last 12 months
     to: endOfDay(new Date())
   });
 
