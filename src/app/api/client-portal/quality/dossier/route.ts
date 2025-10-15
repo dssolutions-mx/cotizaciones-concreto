@@ -1,11 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
-import archiver from 'archiver';
-import { Readable } from 'stream';
 
-export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 minutes max
 
 export async function GET(request: Request) {
   try {
@@ -212,103 +208,13 @@ export async function GET(request: Request) {
       console.warn('[Dossier] Failed adding root-level dossier PDF:', e);
     }
 
-    // Limit to prevent timeout (can be adjusted based on your needs)
-    const MAX_FILES = 100;
-    if (entries.length > MAX_FILES) {
-      console.warn(`[Dossier] Too many files (${entries.length}), limiting to ${MAX_FILES}`);
-      entries.splice(MAX_FILES);
-    }
+    console.log(`[Dossier] Returning ${entries.length} signed URLs for client-side ZIP creation`);
 
-    console.log(`[Dossier] Creating streaming ZIP with ${entries.length} files...`);
-
-    // Create archive with minimal compression for maximum speed
-    const archive = archiver('zip', { 
-      zlib: { level: 1 }, // Fastest compression
-      store: true // Store only for PDFs (already compressed)
-    });
-    
-    let filesAdded = 0;
-    let filesFailed = 0;
-
-    archive.on('warning', (err) => {
-      console.warn('[Dossier] Archive warning:', err);
-    });
-    archive.on('error', (err) => {
-      console.error('[Dossier] Archive error:', err);
-    });
-
-    // Add files to archive as streams (no memory buffering)
-    const addPromises: Promise<void>[] = [];
-    
-    for (const entry of entries) {
-      const addPromise = (async () => {
-        try {
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout per file
-          
-          const res = await fetch(entry.url, { signal: controller.signal });
-          clearTimeout(timeout);
-          
-          if (!res.ok || !res.body) {
-            throw new Error(`HTTP ${res.status}`);
-          }
-
-          // Convert Web ReadableStream to Node Readable
-          const webStream = res.body;
-          const reader = webStream.getReader();
-          const nodeStream = new Readable({
-            async read() {
-              try {
-                const { done, value } = await reader.read();
-                if (done) {
-                  this.push(null);
-                } else {
-                  this.push(Buffer.from(value));
-                }
-              } catch (err) {
-                this.destroy(err as Error);
-              }
-            }
-          });
-
-          archive.append(nodeStream, { name: entry.name });
-          filesAdded++;
-          
-          if (filesAdded % 5 === 0) {
-            console.log(`[Dossier] Added ${filesAdded}/${entries.length} files`);
-          }
-        } catch (e) {
-          filesFailed++;
-          console.warn('[Dossier] Failed to add file:', entry.name, e instanceof Error ? e.message : 'Unknown error');
-        }
-      })();
-      
-      addPromises.push(addPromise);
-    }
-
-    // Wait for all files to be added (or fail)
-    await Promise.allSettled(addPromises);
-
-    if (filesAdded === 0) {
-      return NextResponse.json({ error: 'No se pudieron agregar certificados al ZIP' }, { status: 500 });
-    }
-
-    console.log(`[Dossier] Finalizing ZIP: ${filesAdded} successful, ${filesFailed} failed`);
-
-    // Finalize the archive
-    await archive.finalize();
-
-    // Convert to Web ReadableStream for response
-    const webStream = Readable.toWeb(archive as any) as ReadableStream;
-
-    console.log(`[Dossier] ZIP stream ready with ${filesAdded} files`);
-
-    return new Response(webStream, {
-      headers: {
-        'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
-        'Transfer-Encoding': 'chunked'
-      }
+    // Return the list of files with signed URLs for client-side ZIP creation
+    return NextResponse.json({
+      success: true,
+      fileName,
+      files: entries
     });
   } catch (error) {
     console.error('[Dossier] Unexpected error:', error);

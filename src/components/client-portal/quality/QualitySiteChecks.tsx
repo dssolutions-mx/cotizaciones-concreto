@@ -19,6 +19,8 @@ import MaterialCertificateViewer from './MaterialCertificateViewer';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useState, useEffect } from 'react';
+// @ts-ignore - JSZip types will be available after npm install
+import JSZip from 'jszip';
 
 interface Material {
   id: string;
@@ -63,6 +65,7 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
   const [selectedMaterial, setSelectedMaterial] = useState<{ id: string; name: string; category: string } | null>(null);
   const [showComingSoon, setShowComingSoon] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, status: '' });
 
   // Cargar plantas y materiales
   useEffect(() => {
@@ -301,30 +304,84 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
             onClick={async () => {
               try {
                 setDownloading(true);
+                setDownloadProgress({ current: 0, total: 0, status: 'Obteniendo lista de certificados...' });
+                
                 const params = new URLSearchParams();
                 if (selectedPlant && selectedPlant !== 'all') params.set('plant_id', selectedPlant);
+                
                 const res = await fetch(`/api/client-portal/quality/dossier${params.toString() ? `?${params.toString()}` : ''}`);
                 if (!res.ok) {
                   console.error('Dossier download failed');
+                  alert('Error al obtener certificados');
                   setDownloading(false);
                   return;
                 }
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
+                
+                const data = await res.json();
+                if (!data.success || !data.files || data.files.length === 0) {
+                  alert('No hay certificados para descargar');
+                  setDownloading(false);
+                  return;
+                }
+                
+                const files = data.files as { url: string; name: string }[];
+                setDownloadProgress({ current: 0, total: files.length, status: 'Descargando certificados...' });
+                
+                // Create ZIP in browser
+                const zip = new JSZip();
+                let downloaded = 0;
+                
+                // Download files in batches of 3 for speed
+                const BATCH_SIZE = 3;
+                for (let i = 0; i < files.length; i += BATCH_SIZE) {
+                  const batch = files.slice(i, i + BATCH_SIZE);
+                  await Promise.all(
+                    batch.map(async (file) => {
+                      try {
+                        const fileRes = await fetch(file.url);
+                        if (fileRes.ok) {
+                          const blob = await fileRes.blob();
+                          zip.file(file.name, blob);
+                          downloaded++;
+                          setDownloadProgress({ current: downloaded, total: files.length, status: `Descargando ${downloaded}/${files.length}...` });
+                        }
+                      } catch (err) {
+                        console.warn('Failed to download file:', file.name, err);
+                      }
+                    })
+                  );
+                }
+                
+                if (downloaded === 0) {
+                  alert('No se pudieron descargar certificados');
+                  setDownloading(false);
+                  return;
+                }
+                
+                setDownloadProgress({ current: downloaded, total: files.length, status: 'Creando archivo ZIP...' });
+                
+                // Generate ZIP
+                const zipBlob = await zip.generateAsync({ 
+                  type: 'blob',
+                  compression: 'DEFLATE',
+                  compressionOptions: { level: 6 }
+                });
+                
+                // Download
+                const url = URL.createObjectURL(zipBlob);
                 const a = document.createElement('a');
                 a.href = url;
-                const today = new Date();
-                const y = String(today.getFullYear());
-                const m = String(today.getMonth() + 1).padStart(2, '0');
-                const d = String(today.getDate()).padStart(2, '0');
-                a.download = `dossier_calidad_${y}${m}${d}.zip`;
+                a.download = data.fileName || 'dossier_calidad.zip';
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
                 URL.revokeObjectURL(url);
+                
+                setDownloadProgress({ current: downloaded, total: files.length, status: '¡Completado!' });
+                setTimeout(() => setDownloading(false), 1000);
               } catch (e) {
                 console.error('Error downloading dossier:', e);
-              } finally {
+                alert('Error al crear el dossier');
                 setDownloading(false);
               }
             }}
@@ -336,7 +393,11 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
             {downloading ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span className="hidden md:inline">Preparando...</span>
+                <span className="hidden md:inline">
+                  {downloadProgress.total > 0 
+                    ? `${downloadProgress.current}/${downloadProgress.total}` 
+                    : downloadProgress.status}
+                </span>
               </>
             ) : (
               <>
