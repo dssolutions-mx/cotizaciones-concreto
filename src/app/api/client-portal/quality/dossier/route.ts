@@ -104,6 +104,53 @@ export async function GET(request: Request) {
       }
     }
 
+    // Also include plant certificates in separate folder certificados_de_planta/{plant_code}/...
+    const plantIdsSet = new Set<string>((materials || []).map(m => m.plant_id).filter(Boolean) as string[]);
+    const plantIds = Array.from(plantIdsSet);
+    if (plantIds.length > 0) {
+      const { data: plants, error: plantsError } = await supabase
+        .from('plants')
+        .select('id, code')
+        .in('id', plantIds);
+      if (plantsError) {
+        console.warn('[Dossier] Plants query error:', plantsError);
+      }
+
+      const codeByPlantId = new Map<string, string>();
+      for (const p of plants || []) codeByPlantId.set(p.id, p.code);
+
+      const { data: plantCerts, error: plantCertsError } = await supabase
+        .from('plant_certificates')
+        .select('id, plant_id, file_path, original_name, file_name, created_at')
+        .in('plant_id', plantIds)
+        .order('created_at', { ascending: false });
+      if (plantCertsError) {
+        console.warn('[Dossier] Plant certificates query error:', plantCertsError);
+      }
+
+      for (const cert of plantCerts || []) {
+        try {
+          const { data: signed, error: signedError } = await supabase
+            .storage
+            .from('material-certificates')
+            .createSignedUrl(cert.file_path, 600);
+          if (signedError || !signed?.signedUrl) {
+            console.warn('[Dossier] Failed to sign plant certificate URL for', cert.file_path, signedError);
+            continue;
+          }
+          const plantCode = codeByPlantId.get(cert.plant_id) || cert.plant_id;
+          const folder = `certificados_de_planta/${plantCode}`;
+          const base = (cert.original_name || cert.file_name || cert.file_path.split('/').pop() || 'certificado.pdf')
+            .toString()
+            .replace(/[\n\r]/g, '')
+            .slice(0, 128);
+          entries.push({ url: signed.signedUrl, name: `${folder}/${base}` });
+        } catch (e) {
+          console.warn('[Dossier] Error preparing plant certificate entry:', e);
+        }
+      }
+    }
+
     if (entries.length === 0) {
       return NextResponse.json({ error: 'No fue posible preparar certificados para descarga' }, { status: 404 });
     }

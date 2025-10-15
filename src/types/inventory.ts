@@ -16,6 +16,26 @@ export interface MaterialEntry {
   entered_by: string;
   created_at: string;
   updated_at: string;
+  // Fleet tracking
+  fleet_supplier_id?: string;
+  fleet_cost?: number;
+  // Pricing review workflow
+  pricing_status?: 'pending' | 'reviewed';
+  reviewed_by?: string;
+  reviewed_at?: string;
+  // Optional joined data
+  material?: {
+    id: string;
+    material_name: string;
+    category: string;
+    unit_of_measure: string;
+  };
+  entered_by_user?: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+  };
 }
 
 export interface MaterialAdjustment {

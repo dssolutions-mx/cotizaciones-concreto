@@ -87,9 +87,11 @@ Los certificados se organizan de la siguiente manera:
 ```
 material-certificates/
 ├── {plant_id}/
-│   └── certificates/
-│       ├── {material_id}_{timestamp}_{random}.pdf
-│       ├── {material_id}_{timestamp}_{random}.pdf
+│   ├── certificates/
+│   │   ├── {material_id}_{timestamp}_{random}.pdf
+│   │   └── ...
+│   └── plant_certificates/
+│       ├── {timestamp}_{random}.pdf
 │       └── ...
 └── general/
     └── certificates/

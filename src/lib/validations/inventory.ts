@@ -9,6 +9,11 @@ export const MaterialEntryInputSchema = z.object({
   notes: z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres').optional(),
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
   plant_id: z.string().uuid('ID de planta debe ser un UUID válido').optional(),
+  // Pricing fields (for accounting review)
+  unit_price: z.number().nonnegative('El precio unitario debe ser no negativo').optional(),
+  total_cost: z.number().nonnegative('El costo total debe ser no negativo').optional(),
+  fleet_supplier_id: z.string().uuid('ID de proveedor de flota debe ser un UUID válido').optional(),
+  fleet_cost: z.number().nonnegative('El costo de flota debe ser no negativo').optional(),
 });
 
 export const MaterialAdjustmentInputSchema = z.object({

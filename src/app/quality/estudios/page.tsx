@@ -24,6 +24,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import Link from 'next/link';
 import MaterialCertificateManager from '@/components/quality/MaterialCertificateManager';
+import PlantCertificateManager from '@/components/quality/PlantCertificateManager';
 
 interface Plant {
   id: string;
@@ -376,6 +377,20 @@ export default function EstudiosPage() {
             )}
           </div>
         </div>
+
+        {/* Certificados de Planta - visible solo con planta seleccionada */}
+        {selectedPlant !== 'all' && (
+          <div className="bg-white rounded-2xl shadow-md border border-gray-200 p-5 mb-8">
+            <div className="mb-3">
+              <h2 className="text-lg font-bold text-gray-900">Certificados de Planta</h2>
+              <p className="text-sm text-gray-600">Gestiona certificados generales de la planta seleccionada</p>
+            </div>
+            <PlantCertificateManager
+              plantId={selectedPlant}
+              plantCode={plants.find(p => p.id === selectedPlant)?.code}
+            />
+          </div>
+        )}
 
         {/* Categorías - Rediseñadas como tabs */}
         <div className="bg-white rounded-2xl shadow-md border border-gray-200 p-1.5 mb-6">

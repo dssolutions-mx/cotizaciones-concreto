@@ -15,10 +15,11 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const queryParams = {
-      date: searchParams.get('date') || new Date().toISOString().split('T')[0], // Default to today
+      date: searchParams.get('date') || undefined,
       date_from: searchParams.get('date_from') || undefined,
       date_to: searchParams.get('date_to') || undefined,
       material_id: searchParams.get('material_id') || undefined,
+      pricing_status: searchParams.get('pricing_status') || undefined,
       limit: searchParams.get('limit') || '20',
       offset: searchParams.get('offset') || '0',
     };
@@ -57,10 +58,24 @@ export async function GET(request: NextRequest) {
     
     console.log('User has inventory permissions');
 
-    // Build query for material entries
+    // Build query for material entries with joined data
     let query = supabase
       .from('material_entries')
-      .select('*');
+      .select(`
+        *,
+        material:materials!material_id (
+          id,
+          material_name,
+          category,
+          unit_of_measure
+        ),
+        entered_by_user:user_profiles!entered_by (
+          id,
+          first_name,
+          last_name,
+          email
+        )
+      `);
     
     console.log('Base query created');
 
@@ -93,24 +108,28 @@ export async function GET(request: NextRequest) {
       console.log('Applied plant filter:', plantFilter);
     }
 
-    // Handle date filtering
-    if (queryParams.date) {
+    // Handle date filtering - prefer range when provided, fallback to single date, then to today
+    if (queryParams.date_from && queryParams.date_to) {
+      console.log('Filtering by date range:', queryParams.date_from, 'to', queryParams.date_to);
+      query = query.gte('entry_date', queryParams.date_from).lte('entry_date', queryParams.date_to);
+    } else if (queryParams.date) {
       console.log('Filtering by specific date:', queryParams.date);
-      // If a specific date is provided, filter by that date
       query = query.eq('entry_date', queryParams.date);
-    } else if (queryParams.date_from) {
-      console.log('Filtering by date_from:', queryParams.date_from);
-      query = query.gte('entry_date', queryParams.date_from);
-    }
-
-    if (queryParams.date_to) {
-      console.log('Filtering by date_to:', queryParams.date_to);
-      query = query.lte('entry_date', queryParams.date_to);
+    } else {
+      // Default to today only if no date parameters provided
+      const todayStr = new Date().toISOString().split('T')[0];
+      console.log('No date params provided, defaulting to today:', todayStr);
+      query = query.eq('entry_date', todayStr);
     }
 
     if (queryParams.material_id) {
       console.log('Filtering by material_id:', queryParams.material_id);
       query = query.eq('material_id', queryParams.material_id);
+    }
+
+    if (queryParams.pricing_status) {
+      console.log('Filtering by pricing_status:', queryParams.pricing_status);
+      query = query.eq('pricing_status', queryParams.pricing_status);
     }
 
     console.log('About to execute query...');
@@ -409,17 +428,44 @@ export async function PUT(request: NextRequest) {
     const validatedData = UpdateMaterialEntrySchema.parse(body);
     const { id, ...updateData } = validatedData;
 
-    // Update material entry
-    const { data: result, error: updateError } = await supabase
+    // Prepare update payload
+    const updatePayload: Record<string, any> = {
+      ...updateData,
+      updated_at: new Date().toISOString(),
+    };
+
+    // If pricing fields are being updated, mark as reviewed
+    if (
+      (updateData.unit_price !== undefined || 
+       updateData.total_cost !== undefined || 
+       updateData.fleet_supplier_id !== undefined || 
+       updateData.fleet_cost !== undefined) &&
+      profile.role === 'ADMIN_OPERATIONS'
+    ) {
+      updatePayload.pricing_status = 'reviewed';
+      updatePayload.reviewed_by = user.id;
+      updatePayload.reviewed_at = new Date().toISOString();
+    }
+
+    // Build the update query based on user role
+    let updateQuery = supabase
       .from('material_entries')
-      .update({
-        ...updateData,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .eq('plant_id', profile.plant_id) // Ensure user can only update their plant's entries
-      .select()
-      .single();
+      .update(updatePayload)
+      .eq('id', id);
+
+    // Apply plant filtering unless user is EXECUTIVE or ADMIN_OPERATIONS
+    if (profile.role !== 'EXECUTIVE' && profile.role !== 'ADMIN_OPERATIONS') {
+      if (profile.plant_id) {
+        updateQuery = updateQuery.eq('plant_id', profile.plant_id);
+      } else {
+        return NextResponse.json(
+          { success: false, error: 'Usuario sin planta asignada' },
+          { status: 403 }
+        );
+      }
+    }
+
+    const { data: result, error: updateError } = await updateQuery.select().single();
 
     if (updateError) {
       throw new Error(`Error al actualizar entrada: ${updateError.message}`);
