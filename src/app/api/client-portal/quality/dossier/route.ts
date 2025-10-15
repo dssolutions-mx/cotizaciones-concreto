@@ -58,12 +58,14 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No hay materiales disponibles' }, { status: 404 });
     }
 
-    // Fetch certificates for these materials
+    // Fetch certificates for these materials (limit to most recent to avoid timeouts)
+    const MAX_CERTS_PER_MATERIAL = 3; // Only include 3 most recent certs per material
     const { data: certificates, error: certsError } = await supabase
       .from('material_certificates')
       .select('id, material_id, file_path, original_name, file_name, created_at')
       .in('material_id', materialIds)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(50); // Hard limit for safety
 
     if (certsError) {
       console.error('[Dossier] Certificates query error:', certsError);
@@ -74,6 +76,22 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No hay certificados para descargar' }, { status: 404 });
     }
 
+    // Group by material and take only most recent per material
+    const certsByMaterial = new Map<string, typeof certificates>();
+    for (const cert of certificates) {
+      if (!certsByMaterial.has(cert.material_id)) {
+        certsByMaterial.set(cert.material_id, []);
+      }
+      const materialCerts = certsByMaterial.get(cert.material_id)!;
+      if (materialCerts.length < MAX_CERTS_PER_MATERIAL) {
+        materialCerts.push(cert);
+      }
+    }
+    
+    // Flatten back to array
+    const limitedCertificates = Array.from(certsByMaterial.values()).flat();
+    console.log(`[Dossier] Using ${limitedCertificates.length} certificates from ${certificates.length} total`);
+
     // Map material id -> code for naming inside the ZIP
     const materialCodeById = new Map<string, string>();
     for (const m of materials || []) {
@@ -82,7 +100,7 @@ export async function GET(request: Request) {
 
     // Pre-generate signed URLs and target names, skip failures
     const entries: { url: string; name: string }[] = [];
-    for (const cert of certificates) {
+    for (const cert of limitedCertificates) {
       try {
         const { data: signed, error: signedError } = await supabase
           .storage
@@ -124,7 +142,8 @@ export async function GET(request: Request) {
         .from('plant_certificates')
         .select('id, plant_id, file_path, original_name, file_name, created_at')
         .in('plant_id', plantIds)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false})
+        .limit(10); // Limit plant certs to avoid timeout
       if (plantCertsError) {
         console.warn('[Dossier] Plant certificates query error:', plantCertsError);
       }
@@ -193,74 +212,102 @@ export async function GET(request: Request) {
       console.warn('[Dossier] Failed adding root-level dossier PDF:', e);
     }
 
-    // Download files in parallel batches for speed (max 5 concurrent)
-    console.log(`[Dossier] Downloading ${entries.length} files in parallel...`);
-    const BATCH_SIZE = 5;
-    const buffers: { buffer: Buffer; name: string }[] = [];
-    
-    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-      const batch = entries.slice(i, i + BATCH_SIZE);
-      const results = await Promise.allSettled(
-        batch.map(async (entry) => {
-          const res = await fetch(entry.url);
-          if (!res.ok || !res.body) {
-            throw new Error(`HTTP ${res.status}`);
-          }
-          const arrayBuffer = await res.arrayBuffer();
-          return { buffer: Buffer.from(arrayBuffer), name: entry.name };
-        })
-      );
-
-      for (let j = 0; j < results.length; j++) {
-        const result = results[j];
-        if (result.status === 'fulfilled') {
-          buffers.push(result.value);
-        } else {
-          console.warn('[Dossier] Failed to download:', batch[j].name, result.reason);
-        }
-      }
-
-      console.log(`[Dossier] Progress: ${Math.min(i + BATCH_SIZE, entries.length)}/${entries.length}`);
+    // Limit to prevent timeout (can be adjusted based on your needs)
+    const MAX_FILES = 100;
+    if (entries.length > MAX_FILES) {
+      console.warn(`[Dossier] Too many files (${entries.length}), limiting to ${MAX_FILES}`);
+      entries.splice(MAX_FILES);
     }
 
-    if (buffers.length === 0) {
-      return NextResponse.json({ error: 'No se pudieron descargar certificados' }, { status: 500 });
-    }
+    console.log(`[Dossier] Creating streaming ZIP with ${entries.length} files...`);
 
-    console.log(`[Dossier] Creating ZIP with ${buffers.length} files...`);
-
-    // Create archive with lower compression for speed
-    const archive = archiver('zip', { zlib: { level: 6 } });
+    // Create archive with minimal compression for maximum speed
+    const archive = archiver('zip', { 
+      zlib: { level: 1 }, // Fastest compression
+      store: true // Store only for PDFs (already compressed)
+    });
     
+    let filesAdded = 0;
+    let filesFailed = 0;
+
     archive.on('warning', (err) => {
       console.warn('[Dossier] Archive warning:', err);
     });
     archive.on('error', (err) => {
       console.error('[Dossier] Archive error:', err);
-      throw err;
     });
 
-    // Add all files to archive
-    for (const { buffer, name } of buffers) {
-      archive.append(buffer, { name });
+    // Add files to archive as streams (no memory buffering)
+    const addPromises: Promise<void>[] = [];
+    
+    for (const entry of entries) {
+      const addPromise = (async () => {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout per file
+          
+          const res = await fetch(entry.url, { signal: controller.signal });
+          clearTimeout(timeout);
+          
+          if (!res.ok || !res.body) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+
+          // Convert Web ReadableStream to Node Readable
+          const webStream = res.body;
+          const reader = webStream.getReader();
+          const nodeStream = new Readable({
+            async read() {
+              try {
+                const { done, value } = await reader.read();
+                if (done) {
+                  this.push(null);
+                } else {
+                  this.push(Buffer.from(value));
+                }
+              } catch (err) {
+                this.destroy(err as Error);
+              }
+            }
+          });
+
+          archive.append(nodeStream, { name: entry.name });
+          filesAdded++;
+          
+          if (filesAdded % 5 === 0) {
+            console.log(`[Dossier] Added ${filesAdded}/${entries.length} files`);
+          }
+        } catch (e) {
+          filesFailed++;
+          console.warn('[Dossier] Failed to add file:', entry.name, e instanceof Error ? e.message : 'Unknown error');
+        }
+      })();
+      
+      addPromises.push(addPromise);
     }
 
-    // Finalize archive (returns promise)
-    const finalizePromise = archive.finalize();
+    // Wait for all files to be added (or fail)
+    await Promise.allSettled(addPromises);
 
-    // Convert archive to Web ReadableStream for Next.js Response
-    const nodeStream = archive;
-    const webStream = Readable.toWeb(nodeStream as any) as ReadableStream;
+    if (filesAdded === 0) {
+      return NextResponse.json({ error: 'No se pudieron agregar certificados al ZIP' }, { status: 500 });
+    }
 
-    // Wait for finalization to complete
-    await finalizePromise;
+    console.log(`[Dossier] Finalizing ZIP: ${filesAdded} successful, ${filesFailed} failed`);
 
-    console.log(`[Dossier] ZIP stream created successfully with ${buffers.length} files`);
+    // Finalize the archive
+    await archive.finalize();
+
+    // Convert to Web ReadableStream for response
+    const webStream = Readable.toWeb(archive as any) as ReadableStream;
+
+    console.log(`[Dossier] ZIP stream ready with ${filesAdded} files`);
 
     return new Response(webStream, {
       headers: {
         'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${fileName}"`
+        'Content-Disposition': `attachment; filename="${fileName}"`,
+        'Transfer-Encoding': 'chunked'
       }
     });
   } catch (error) {
