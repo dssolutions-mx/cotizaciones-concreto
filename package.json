@@ -40,6 +40,7 @@
     "@types/xlsx": "^0.0.35",
     "@vercel/analytics": "^1.5.0",
     "antd": "^5.24.8",
+    "archiver": "^6.0.1",
     "apexcharts": "^4.7.0",
     "chart.js": "^4.4.9",
     "class-variance-authority": "^0.7.1",
