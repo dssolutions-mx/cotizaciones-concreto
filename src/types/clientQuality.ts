@@ -89,6 +89,18 @@ export interface ClientQualityRemisionData {
   }>;
 }
 
+// Per-recipe coefficient of variation breakdown
+export interface RecipeCVBreakdown {
+  recipeCode: string;
+  strengthFc: number;
+  ageDays: number;
+  coefficientVariation: number;
+  ensayoCount: number;
+  muestreoCount: number; // Number of muestreos (samplings) used for CV calculation
+  avgResistencia: number;
+  avgCompliance: number;
+}
+
 // Summary statistics for client quality analysis
 export interface ClientQualitySummary {
   clientInfo: ClientInfo;
@@ -113,6 +125,7 @@ export interface ClientQualitySummary {
     masaUnitaria: number;
     rendimientoVolumetrico: number;
     coefficientVariation: number;
+    cvByRecipe?: RecipeCVBreakdown[];
   };
   performance: {
     complianceRate: number;

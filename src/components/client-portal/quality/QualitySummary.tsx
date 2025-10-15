@@ -16,6 +16,13 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
   const volumetricData = processVolumetricTrend(data);
   const resistanceData = processResistanceTrend(data);
 
+  // Helper to get CV color based on value
+  const getCVColor = (cv: number) => {
+    if (cv <= 15) return 'text-systemGreen';
+    if (cv <= 20) return 'text-systemOrange';
+    return 'text-systemRed';
+  };
+
   return (
     <div className="space-y-6">
       {/* Primary Metrics Grid */}
@@ -49,15 +56,90 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
           delay={0.2}
         />
         
-        <QualityMetricCard
-          title="Coeficiente de Variación"
-          value={`${summary.averages.coefficientVariation.toFixed(1)}%`}
-          subtitle="Consistencia de calidad"
-          icon={<Activity className="w-6 h-6" />}
-          trend={summary.averages.coefficientVariation <= 15 ? 'up' : summary.averages.coefficientVariation <= 20 ? 'neutral' : 'down'}
-          color="info"
-          delay={0.3}
-        />
+        {/* Expanded CV Card with per-recipe breakdown */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.3, ease: 'easeOut' }}
+          whileHover={{ y: -4, transition: { duration: 0.2 } }}
+          className="
+            glass-thick 
+            rounded-3xl 
+            p-6
+            border
+            border-systemPurple/20
+            bg-gradient-to-br from-systemPurple/20 to-systemPurple/5
+            transition-all duration-200
+            hover:shadow-lg
+            relative
+            overflow-hidden
+          "
+        >
+          {/* Subtle gradient overlay */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/5 to-transparent rounded-full blur-2xl" />
+          
+          <div className="relative">
+            {/* Header with icon */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="p-3 rounded-2xl glass-thin text-systemPurple">
+                <Activity className="w-6 h-6" />
+              </div>
+              {summary.averages.coefficientVariation > 0 && (
+                <div className="flex items-center gap-1">
+                  {summary.averages.coefficientVariation <= 15 ? (
+                    <TrendingUp className="w-4 h-4 text-systemGreen" />
+                  ) : summary.averages.coefficientVariation <= 20 ? (
+                    <Activity className="w-4 h-4 text-label-tertiary" />
+                  ) : (
+                    <TrendingUp className="w-4 h-4 text-systemRed" />
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Value */}
+            <div className="mb-2">
+              <h3 className="text-title-1 font-bold text-label-primary mb-1">
+                {summary.averages.coefficientVariation.toFixed(1)}%
+              </h3>
+              <p className="text-callout font-medium text-label-secondary">
+                Coeficiente de Variación
+              </p>
+            </div>
+
+            {/* Subtitle */}
+            <p className="text-footnote text-label-tertiary mb-3">
+              Consistencia de calidad
+            </p>
+
+            {/* Per-recipe breakdown */}
+            {summary.averages.cvByRecipe && summary.averages.cvByRecipe.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-fill-tertiary">
+                <p className="text-caption font-semibold text-label-secondary mb-2">
+                  Por Receta:
+                </p>
+                <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar">
+                  {summary.averages.cvByRecipe.map((recipe, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between text-caption"
+                    >
+                      <span className="text-label-secondary">
+                        FC{recipe.strengthFc.toFixed(0)} - {recipe.ageDays} días
+                      </span>
+                      <span className={`font-bold ${getCVColor(recipe.coefficientVariation)}`}>
+                        {recipe.coefficientVariation.toFixed(1)}%
+                        <span className="text-label-tertiary font-normal ml-1">
+                          (n={recipe.muestreoCount})
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </motion.div>
       </div>
 
       {/* Charts Row */}

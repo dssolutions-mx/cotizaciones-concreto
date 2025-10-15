@@ -89,6 +89,22 @@ export async function GET(request: Request) {
 
     console.log(`[Quality API] Details retrieved (${remisionesData?.length || 0} remisiones) in ${Date.now() - detailsStartTime}ms`);
 
+    // Step 6: Get per-recipe CV breakdown
+    const cvStartTime = Date.now();
+    const { data: cvByRecipeData, error: cvError } = await supabase
+      .rpc('get_client_quality_cv_by_recipe', {
+        p_client_id: clientId,
+        p_from_date: fromDate,
+        p_to_date: toDate
+      });
+
+    if (cvError) {
+      console.error('[Quality API] CV by recipe error:', cvError);
+      // Don't fail the entire request, just log the error
+    }
+
+    console.log(`[Quality API] CV by recipe retrieved (${cvByRecipeData?.length || 0} recipes) in ${Date.now() - cvStartTime}ms`);
+
     // Handle empty data case
     if (!remisionesData || remisionesData.length === 0) {
       console.log(`[Quality API] No remisiones found for client in date range`);
@@ -140,7 +156,19 @@ export async function GET(request: Request) {
       });
     }
 
-    // Step 6: Transform data to match expected format
+    // Step 7: Transform CV by recipe data
+    const cvByRecipe = (cvByRecipeData || []).map((r: any) => ({
+      recipeCode: r.recipe_code,
+      strengthFc: Number(r.strength_fc) || 0,
+      ageDays: Number(r.age_days) || 0,
+      coefficientVariation: Number(r.coefficient_variation) || 0,
+      ensayoCount: Number(r.ensayo_count) || 0,
+      muestreoCount: Number(r.muestreo_count) || 0,
+      avgResistencia: Number(r.avg_resistencia) || 0,
+      avgCompliance: Number(r.avg_compliance) || 0
+    }));
+
+    // Step 8: Transform data to match expected format
     const summary: ClientQualitySummary = {
       clientInfo: {
         id: client.id,
@@ -165,7 +193,8 @@ export async function GET(request: Request) {
         complianceRate: Number(summaryData.avg_compliance) || 0,
         masaUnitaria: Number(summaryData.avg_masa_unitaria) || 0,
         rendimientoVolumetrico: Number(summaryData.avg_rendimiento_volumetrico) || 0,
-        coefficientVariation: Number(summaryData.coefficient_variation) || 0
+        coefficientVariation: Number(summaryData.coefficient_variation) || 0,
+        cvByRecipe: cvByRecipe.length > 0 ? cvByRecipe : undefined
       },
       performance: {
         complianceRate: Number(summaryData.avg_compliance) || 0,
