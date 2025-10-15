@@ -106,7 +106,7 @@ export default function NewSiteCheckPage() {
   return (
     <div className="container mx-auto p-4 md:p-6">
       <div className="mb-6">
-        <Button variant="outline" onClick={() => router.push('/quality')} className="mb-4">
+        <Button variant="secondary" onClick={() => router.push('/quality')} className="mb-4 text-label-primary">
           <ChevronLeft className="mr-2 h-4 w-4" /> Volver a Calidad
         </Button>
         <h1 className="text-2xl md:text-3xl font-bold text-gray-900">Control en Obra</h1>

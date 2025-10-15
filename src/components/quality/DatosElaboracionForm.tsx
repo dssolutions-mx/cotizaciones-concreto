@@ -314,7 +314,7 @@ export default function DatosElaboracionForm({
               </CardTitle>
               <p className="text-sm text-gray-500">Diseño: {diseñoNombre}</p>
             </div>
-            <Button variant="outline" size="sm" onClick={onClose}>
+            <Button variant="secondary" size="sm" className="text-label-primary" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -481,7 +481,7 @@ export default function DatosElaboracionForm({
                   <Clock className="h-5 w-5" />
                   Muestras para Ensayo
                 </CardTitle>
-                <Button onClick={agregarMuestra} variant="outline" size="sm">
+                <Button onClick={agregarMuestra} variant="secondary" size="sm" className="text-label-primary">
                   <Plus className="h-4 w-4 mr-2" />
                   Agregar Muestra
                 </Button>
@@ -498,10 +498,10 @@ export default function DatosElaboracionForm({
                         </h4>
                         {muestras.length > 1 && (
                           <Button 
-                            variant="outline" 
+                            variant="secondary" 
                             size="sm" 
                             onClick={() => eliminarMuestra(index)}
-                            className="text-red-600 hover:text-red-700"
+                            className="text-label-primary"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -717,7 +717,8 @@ export default function DatosElaboracionForm({
 
               <div className="flex justify-between mt-6">
                 <Button 
-                  variant="outline" 
+                  variant="secondary" 
+                  className="text-label-primary"
                   onClick={() => setCurrentStep('elaboracion')}
                 >
                   <Calculator className="w-4 h-4 mr-2" />

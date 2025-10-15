@@ -30,8 +30,8 @@ interface UploadRow {
 }
 
 export default function RelojChecadorPage() {
-  const { selectedPlant, currentPlant } = usePlantContext()
-  const effectivePlant = currentPlant || selectedPlant || null
+  const { currentPlant } = usePlantContext()
+  const effectivePlant = currentPlant
   const [file, setFile] = useState<File | null>(null)
   const [selectedDate, setSelectedDate] = useState<string>('')
   const [attestationText, setAttestationText] = useState<string>('Declaro bajo protesta de decir verdad que este archivo no ha sido modificado y refleja fielmente la asistencia diaria. Atentamente, el dosificador responsable.')
@@ -268,7 +268,7 @@ export default function RelojChecadorPage() {
                     </Button>
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="secondary"
                       onClick={() => { setFile(null); setSelectedDate(''); setSignerName(''); setConfirmAttestation(false) }}
                       disabled={loading}
                       className="text-label-primary"
@@ -295,7 +295,7 @@ export default function RelojChecadorPage() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
-                  <Button type="button" variant="outline" onClick={() => fetchData()} disabled={loading} className="text-label-primary">
+                  <Button type="button" variant="secondary" onClick={() => fetchData()} disabled={loading} className="text-label-primary">
                     Buscar
                   </Button>
                 </div>
@@ -329,7 +329,7 @@ export default function RelojChecadorPage() {
                             <td className="border px-2 py-1">{r.mime_type}</td>
                             <td className="border px-2 py-1">
                               <div className="flex gap-2">
-                                <Button size="sm" variant="outline" onClick={() => handleView(r.file_path)}>Ver</Button>
+                                <Button size="sm" variant="secondary" className="text-label-primary" onClick={() => handleView(r.file_path)}>Ver</Button>
                               </div>
                             </td>
                           </tr>
