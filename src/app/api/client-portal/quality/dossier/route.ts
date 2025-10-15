@@ -192,9 +192,33 @@ export async function GET(request: Request) {
       console.warn('[Dossier] Failed adding root-level dossier PDF:', e);
     }
 
-    // Create archive and stream it to the client
+    // Download all files to buffers first (needed for serverless to avoid race conditions)
+    console.log(`[Dossier] Downloading ${entries.length} files...`);
+    const buffers: { buffer: Buffer; name: string }[] = [];
+    for (const entry of entries) {
+      try {
+        const res = await fetch(entry.url);
+        if (!res.ok || !res.body) {
+          console.warn('[Dossier] Skipping file due to fetch error:', entry.name, res.status);
+          continue;
+        }
+        const arrayBuffer = await res.arrayBuffer();
+        buffers.push({ buffer: Buffer.from(arrayBuffer), name: entry.name });
+      } catch (e) {
+        console.warn('[Dossier] Error downloading file:', entry.name, e);
+      }
+    }
+
+    if (buffers.length === 0) {
+      return NextResponse.json({ error: 'No se pudieron descargar certificados' }, { status: 500 });
+    }
+
+    console.log(`[Dossier] Creating ZIP with ${buffers.length} files...`);
+
+    // Create archive and add all buffered files
     const archive = archiver('zip', { zlib: { level: 9 } });
     const stream = new PassThrough();
+    
     archive.on('warning', (err) => {
       console.warn('[Dossier] Archive warning:', err);
     });
@@ -203,32 +227,30 @@ export async function GET(request: Request) {
       stream.destroy(err);
     });
 
-    // Start appending files sequentially to control memory/FD usage
-    (async () => {
-      for (const entry of entries) {
-        try {
-          const res = await fetch(entry.url);
-          if (!res.ok || !res.body) {
-            console.warn('[Dossier] Skipping file due to fetch error:', entry.name, res.status);
-            continue;
-          }
-          // Append the web ReadableStream by converting to Node stream via Readable.fromWeb if available
-          // @ts-ignore - Node 18+ provides fromWeb
-          const nodeStream = (res.body as any).getReader ? (await import('stream')).Readable.fromWeb(res.body as any) : (res as any).body;
-          archive.append(nodeStream as any, { name: entry.name });
-        } catch (e) {
-          console.warn('[Dossier] Error appending file:', entry.name, e);
-        }
-      }
-      archive.finalize();
-    })();
-
     archive.pipe(stream);
 
-    return new Response(stream as any, {
+    // Add all files to archive
+    for (const { buffer, name } of buffers) {
+      archive.append(buffer, { name });
+    }
+
+    // Finalize and wait for completion
+    await archive.finalize();
+
+    // Convert stream to buffer for reliable serverless response
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.from(chunk));
+    }
+    const zipBuffer = Buffer.concat(chunks);
+
+    console.log(`[Dossier] ZIP created successfully, size: ${zipBuffer.length} bytes`);
+
+    return new Response(zipBuffer, {
       headers: {
         'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${fileName}"`
+        'Content-Disposition': `attachment; filename="${fileName}"`,
+        'Content-Length': String(zipBuffer.length)
       }
     });
   } catch (error) {
