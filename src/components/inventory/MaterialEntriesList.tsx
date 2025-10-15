@@ -241,6 +241,11 @@ export default function MaterialEntriesList({ date, dateRange, isEditing }: Mate
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="outline">Entrada</Badge>
+                {entry.pricing_status === 'reviewed' ? (
+                  <Badge variant="default" className="bg-green-600">Revisado</Badge>
+                ) : (
+                  <Badge variant="secondary" className="bg-yellow-500 text-white">Pendiente</Badge>
+                )}
                 {isEditing && (
                   <Button variant="ghost" size="sm">
                     <Edit className="h-4 w-4" />
@@ -255,7 +260,14 @@ export default function MaterialEntriesList({ date, dateRange, isEditing }: Mate
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <h4 className="text-sm font-medium text-gray-900 mb-2">Material</h4>
-                <p className="text-sm text-gray-600">ID: {entry.material_id}</p>
+                {entry.material ? (
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{entry.material.material_name}</p>
+                    <p className="text-xs text-gray-500">{entry.material.category}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-600">ID: {entry.material_id}</p>
+                )}
               </div>
               
               <div>
@@ -264,30 +276,50 @@ export default function MaterialEntriesList({ date, dateRange, isEditing }: Mate
                   {entry.quantity_received.toLocaleString('es-MX', { 
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2 
-                  })} kg
+                  })} {entry.material?.unit_of_measure || 'kg'}
                 </p>
               </div>
             </div>
 
             {/* Cost Information */}
-            {(entry.unit_price || entry.total_cost) && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-3 bg-gray-50 rounded-lg">
-                {entry.unit_price && (
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm text-gray-600">
-                      Precio unitario: ${entry.unit_price.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                )}
-                {entry.total_cost && (
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm font-medium text-gray-900">
-                      Total: ${entry.total_cost.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                )}
+            {(entry.unit_price || entry.total_cost || entry.fleet_cost) && (
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <h5 className="text-sm font-medium text-gray-900 mb-2">Información de Costos</h5>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {entry.unit_price && (
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-gray-500" />
+                      <div>
+                        <p className="text-xs text-gray-500">Precio/kg</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          ${entry.unit_price.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {entry.total_cost && (
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-gray-500" />
+                      <div>
+                        <p className="text-xs text-gray-500">Costo Material</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          ${entry.total_cost.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {entry.fleet_cost && (
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-4 w-4 text-gray-500" />
+                      <div>
+                        <p className="text-xs text-gray-500">Costo Flota</p>
+                        <p className="text-sm font-medium text-gray-900">
+                          ${entry.fleet_cost.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -324,7 +356,7 @@ export default function MaterialEntriesList({ date, dateRange, isEditing }: Mate
             <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t">
               <span className="flex items-center gap-1">
                 <User className="h-3 w-3" />
-                Registrado por: {entry.entered_by}
+                Registrado por: {entry.entered_by_user ? `${entry.entered_by_user.first_name} ${entry.entered_by_user.last_name}` : entry.entered_by}
               </span>
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />

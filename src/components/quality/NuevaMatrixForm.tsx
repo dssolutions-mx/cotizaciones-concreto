@@ -258,7 +258,7 @@ export default function NuevaMatrixForm({ onClose, onSuccess }: NuevaMatrixFormP
               <Plus className="h-5 w-5" />
               Nueva Matriz de Diseño
             </CardTitle>
-            <Button variant="outline" size="sm" onClick={onClose}>
+            <Button variant="secondary" size="sm" className="text-label-primary" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -303,7 +303,7 @@ export default function NuevaMatrixForm({ onClose, onSuccess }: NuevaMatrixFormP
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">Diseños de Mezcla</h3>
-          <Button onClick={agregarDiseño} variant="outline" size="sm">
+          <Button onClick={agregarDiseño} variant="secondary" size="sm" className="text-label-primary">
             <Plus className="h-4 w-4 mr-2" />
             Agregar Diseño
           </Button>
@@ -323,10 +323,10 @@ export default function NuevaMatrixForm({ onClose, onSuccess }: NuevaMatrixFormP
                 </CardTitle>
                 {diseños.length > 1 && (
                   <Button 
-                    variant="outline" 
+                    variant="secondary" 
                     size="sm" 
                     onClick={() => eliminarDiseño(index)}
-                    className="text-red-600 hover:text-red-700"
+                    className="text-label-primary"
                   >
                     <X className="h-4 w-4" />
                   </Button>
@@ -518,7 +518,7 @@ export default function NuevaMatrixForm({ onClose, onSuccess }: NuevaMatrixFormP
           )}
 
           <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={onClose} disabled={loading}>
+            <Button variant="secondary" className="text-label-primary" onClick={onClose} disabled={loading}>
               Cancelar
             </Button>
             <Button onClick={guardarMatrix} disabled={loading} variant="ghost" className="!bg-blue-600 !hover:bg-blue-700 !text-white">

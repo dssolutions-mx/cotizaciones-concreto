@@ -2162,9 +2162,9 @@ Fin del reporte
                           document.body.removeChild(a);
                           URL.revokeObjectURL(url);
                         }}
-                        variant="outline"
+                        variant="secondary"
                         size="sm"
-                        className="text-gray-700"
+                        className="text-label-primary"
                       >
                         <Download className="h-4 w-4 mr-2" />
                         Descargar Lista de Problemas
@@ -2302,9 +2302,9 @@ Fin del reporte
                       console.log('[DEBUG] No duplicate handler or validated data available');
                     }
                   }}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
-                  className="bg-gray-100 hover:bg-gray-200"
+                  className="text-label-primary"
                 >
                   🧪 Test Duplicados
                 </Button>
@@ -2474,8 +2474,8 @@ Fin del reporte
                             <div className="flex flex-col gap-2 ml-4">
                               <Button
                                 size="sm"
-                                variant="outline"
-                                className="bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-300"
+                                variant="secondary"
+                                className="text-label-primary"
                                 onClick={() => handleStatusDecision(remision.id)}
                               >
                                 Procesar Remisión
@@ -2493,7 +2493,7 @@ Fin del reporte
               <div className="flex justify-center gap-4 pt-4 border-t">
                 <Button 
                   onClick={() => setCurrentStep('validation')}
-                  variant="outline"
+                  variant="secondary"
                   className="px-6"
                 >
                   ← Volver a Validación
@@ -2506,7 +2506,7 @@ Fin del reporte
                       console.log('[ArkikProcessor] Direct grouping button clicked - no status processing needed');
                       handleOrderGrouping();
                     }}
-                    variant="ghost"
+                    variant="secondary"
                     className="!bg-green-600 !hover:bg-green-700 !text-white px-8 py-3"
                   >
                     Continuar a Agrupación →
@@ -2518,7 +2518,7 @@ Fin del reporte
                   <Button
                     onClick={handleProcessStatusDecisions}
                     disabled={loading}
-                    variant="ghost"
+                    variant="secondary"
                     className="!bg-blue-600 !hover:bg-blue-700 !text-white px-8 py-3"
                   >
                     {loading ? (
@@ -2749,14 +2749,14 @@ Fin del reporte
                <div className="flex justify-center gap-4 pt-4 border-t">
                  <Button 
                    onClick={() => setCurrentStep('validation')}
-                   variant="outline"
+                   variant="secondary"
                    className="px-6"
                  >
                    ← Volver a Validación
                  </Button>
-                <Button
+               <Button
                   onClick={() => setCurrentStep('confirmation')}
-                  variant="ghost"
+                 variant="secondary"
                   className="!bg-green-600 !hover:bg-green-700 !text-white px-8 py-3"
                 >
                   Continuar a Confirmación →
@@ -2878,12 +2878,12 @@ Fin del reporte
 
                 {result?.validated && (
                   <Button
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     onClick={() => {
                       loadNamesFromDatabase(result.validated);
                     }}
-                    className="flex items-center gap-2"
+                    className="flex items-center gap-2 text-label-primary"
                     disabled={namesLoading}
                   >
                     {namesLoading ? (
@@ -3026,11 +3026,11 @@ Fin del reporte
                             </div>
                           </td>
                           <td className="p-2">
-                            <Button 
-                              variant="outline" 
+                  <Button 
+                              variant="secondary" 
                               size="sm"
                               onClick={() => toggleRowExpansion(row.id)}
-                              className="flex items-center gap-1"
+                              className="flex items-center gap-1 text-label-primary"
                             >
                               {expandedRows.has(row.id) ? '−' : '+'}
                               {expandedRows.has(row.id) ? 'Ocultar' : 'Ver'}

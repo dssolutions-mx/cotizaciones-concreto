@@ -454,15 +454,15 @@ export default function DuplicateHandlingInterface({
       <div className="flex justify-center gap-4 pt-6 border-t">
         <Button 
           onClick={onCancel}
-          variant="outline"
-          className="px-6"
+          variant="secondary"
+          className="px-6 text-label-primary"
         >
           Cancelar
         </Button>
         
         <Button 
           onClick={handleContinue}
-          className="bg-green-600 hover:bg-green-700 text-white px-8 py-3"
+          className="!bg-green-600 !hover:bg-green-700 !text-white px-8 py-3"
         >
           Continuar con Decisiones →
         </Button>

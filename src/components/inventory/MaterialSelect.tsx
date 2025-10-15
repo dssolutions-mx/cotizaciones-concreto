@@ -76,14 +76,23 @@ export default function MaterialSelect({
     
     try {
       setLoading(true)
+      console.log('Fetching materials for plant:', plantId)
       const response = await fetch(`/api/materials?plant_id=${plantId}`)
       if (response.ok) {
         const data = await response.json()
+        console.log('Materials API response:', data)
+        // The API returns data.data, not data.materials
+        const materialsArray = data.data || data.materials || []
+        console.log('Materials array:', materialsArray)
         // Filter by plant_id and active status
-        const plantMaterials = data.materials?.filter((m: Material) => 
-          m.is_active && (!m.plant_id || m.plant_id === plantId)
-        ) || []
+        const plantMaterials = materialsArray.filter((m: Material) => 
+          m.is_active && m.plant_id === plantId
+        )
+        console.log('Filtered plant materials:', plantMaterials)
         setMaterials(plantMaterials)
+      } else {
+        console.error('Materials API error:', response.status, response.statusText)
+        setMaterials([])
       }
     } catch (error) {
       console.error('Error fetching materials:', error)

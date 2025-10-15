@@ -1,18 +1,19 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarComponent } from '@/components/ui/calendar'
-import { Package, Plus, List, Calendar as CalendarIcon } from 'lucide-react'
+import { Package, Plus, List, Calendar as CalendarIcon, DollarSign } from 'lucide-react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { cn } from '@/lib/utils'
 import MaterialEntryForm from './MaterialEntryForm'
 import MaterialEntriesList from './MaterialEntriesList'
 import InventoryBreadcrumb from './InventoryBreadcrumb'
+import EntryPricingReviewList from './EntryPricingReviewList'
 
 export default function MaterialEntriesPage() {
   const [activeTab, setActiveTab] = useState('new')
@@ -22,10 +23,32 @@ export default function MaterialEntriesPage() {
     from: new Date(),
     to: new Date()
   })
+  const [userRole, setUserRole] = useState<string | null>(null)
+
+  useEffect(() => {
+    // Check user role for conditional tab display
+    fetchUserRole()
+  }, [])
+
+  const fetchUserRole = async () => {
+    try {
+      const response = await fetch('/api/user/profile')
+      if (response.ok) {
+        const data = await response.json()
+        setUserRole(data.role)
+      }
+    } catch (error) {
+      console.error('Error fetching user role:', error)
+    }
+  }
 
   const handleEntrySuccess = () => {
     setRefreshList(prev => prev + 1)
     setActiveTab('list')
+  }
+
+  const handlePricingSuccess = () => {
+    setRefreshList(prev => prev + 1)
   }
 
   return (
@@ -43,7 +66,10 @@ export default function MaterialEntriesPage() {
 
       {/* Main Content */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-md">
+        <TabsList className={cn(
+          "grid w-full max-w-md",
+          userRole === 'ADMIN_OPERATIONS' ? "grid-cols-3" : "grid-cols-2"
+        )}>
           <TabsTrigger value="new" className="flex items-center gap-2">
             <Plus className="h-4 w-4" />
             Nueva Entrada
@@ -52,6 +78,12 @@ export default function MaterialEntriesPage() {
             <List className="h-4 w-4" />
             Lista de Entradas
           </TabsTrigger>
+          {userRole === 'ADMIN_OPERATIONS' && (
+            <TabsTrigger value="review" className="flex items-center gap-2">
+              <DollarSign className="h-4 w-4" />
+              Revisión
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="new" className="mt-6">
@@ -134,6 +166,28 @@ export default function MaterialEntriesPage() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {userRole === 'ADMIN_OPERATIONS' && (
+          <TabsContent value="review" className="mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <DollarSign className="h-5 w-5" />
+                  Revisión de Precios
+                </CardTitle>
+                <CardDescription>
+                  Entradas pendientes de revisión de costos
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EntryPricingReviewList 
+                  onSuccess={handlePricingSuccess}
+                  key={refreshList}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   )

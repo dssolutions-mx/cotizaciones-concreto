@@ -62,6 +62,7 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
   const [activeTab, setActiveTab] = useState<string>('agregados');
   const [selectedMaterial, setSelectedMaterial] = useState<{ id: string; name: string; category: string } | null>(null);
   const [showComingSoon, setShowComingSoon] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Cargar plantas y materiales
   useEffect(() => {
@@ -297,13 +298,52 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
           
           {/* Download Dossier Button */}
           <motion.button
-            onClick={() => setShowComingSoon(true)}
+            onClick={async () => {
+              try {
+                setDownloading(true);
+                const params = new URLSearchParams();
+                if (selectedPlant && selectedPlant !== 'all') params.set('plant_id', selectedPlant);
+                const res = await fetch(`/api/client-portal/quality/dossier${params.toString() ? `?${params.toString()}` : ''}`);
+                if (!res.ok) {
+                  console.error('Dossier download failed');
+                  setDownloading(false);
+                  return;
+                }
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const today = new Date();
+                const y = String(today.getFullYear());
+                const m = String(today.getMonth() + 1).padStart(2, '0');
+                const d = String(today.getDate()).padStart(2, '0');
+                a.download = `dossier_calidad_${y}${m}${d}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+              } catch (e) {
+                console.error('Error downloading dossier:', e);
+              } finally {
+                setDownloading(false);
+              }
+            }}
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            className="flex items-center gap-2.5 px-6 py-3.5 glass-interactive border-2 border-white/30 hover:border-white/50 text-label-primary rounded-2xl transition-all duration-300 font-semibold text-callout shadow-sm hover:shadow-md flex-shrink-0"
+            disabled={downloading}
+            className={`flex items-center gap-2.5 px-6 py-3.5 glass-interactive border-2 border-white/30 hover:border-white/50 text-label-primary rounded-2xl transition-all duration-300 font-semibold text-callout shadow-sm hover:shadow-md flex-shrink-0 ${downloading ? 'opacity-70 cursor-not-allowed' : ''}`}
           >
-            <Download className="w-5 h-5" />
-            <span className="hidden md:inline">Descargar Dossier</span>
+            {downloading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="hidden md:inline">Preparando...</span>
+              </>
+            ) : (
+              <>
+                <Download className="w-5 h-5" />
+                <span className="hidden md:inline">Descargar Dossier</span>
+              </>
+            )}
           </motion.button>
         </div>
       </motion.div>
