@@ -262,11 +262,17 @@ export default function RelojChecadorPage() {
                     <Button
                       type="submit"
                       disabled={!file || loading || !selectedDate || !signerName || !confirmAttestation}
-                      className="bg-emerald-600 text-white hover:bg-emerald-700"
+                      className="text-label-primary"
                     >
                       {loading ? 'Cargando...' : 'Subir archivo'}
                     </Button>
-                    <Button type="button" variant="outline" onClick={() => { setFile(null); setSelectedDate(''); setSignerName(''); setConfirmAttestation(false) }} disabled={loading}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => { setFile(null); setSelectedDate(''); setSignerName(''); setConfirmAttestation(false) }}
+                      disabled={loading}
+                      className="text-label-primary"
+                    >
                       Limpiar
                     </Button>
                   </div>
@@ -289,7 +295,7 @@ export default function RelojChecadorPage() {
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
-                  <Button type="button" variant="outline" onClick={() => fetchData()} disabled={loading}>
+                  <Button type="button" variant="outline" onClick={() => fetchData()} disabled={loading} className="text-label-primary">
                     Buscar
                   </Button>
                 </div>
