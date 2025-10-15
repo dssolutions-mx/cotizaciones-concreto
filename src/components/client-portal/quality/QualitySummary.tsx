@@ -23,6 +23,28 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
     return 'text-systemRed';
   };
 
+  // TEMPORARY: Use hardcoded example data from GRUPO INMOBICARPIO DEL BAJIO report
+  // This will be replaced with real data from the API once available
+  // FORCING hardcoded values to override database data for demonstration
+  const isInmobicarpio = summary.clientInfo.business_name === 'GRUPO INMOBICARPIO DEL BAJIO';
+  
+  const tempCvByRecipe = isInmobicarpio ? [
+    // Data from the FIRST manual report screenshot (the one we want to show)
+    { recipeCode: 'FC150', strengthFc: 150, ageDays: 3, coefficientVariation: 9.26, muestreoCount: 2, ensayoCount: 2, avgResistencia: 165.65, avgCompliance: 100 },
+    { recipeCode: 'FC150', strengthFc: 150, ageDays: 28, coefficientVariation: 7.16, muestreoCount: 2, ensayoCount: 2, avgResistencia: 175.95, avgCompliance: 100 },
+    { recipeCode: 'FC200', strengthFc: 200, ageDays: 3, coefficientVariation: 20.19, muestreoCount: 18, ensayoCount: 18, avgResistencia: 212.13, avgCompliance: 100 },
+    { recipeCode: 'FC200', strengthFc: 200, ageDays: 7, coefficientVariation: 15.27, muestreoCount: 15, ensayoCount: 15, avgResistencia: 245.24, avgCompliance: 100 },
+    { recipeCode: 'FC200', strengthFc: 200, ageDays: 28, coefficientVariation: 3.98, muestreoCount: 8, ensayoCount: 8, avgResistencia: 255.46, avgCompliance: 100 },
+  ] : summary.averages.cvByRecipe;
+
+  // Calculate weighted average CV from the breakdown
+  // Weighted CV = sum(CV * n) / sum(n)
+  const tempOverallCV = isInmobicarpio && tempCvByRecipe ? (() => {
+    const totalWeight = tempCvByRecipe.reduce((sum, r) => sum + r.muestreoCount, 0);
+    const weightedSum = tempCvByRecipe.reduce((sum, r) => sum + (r.coefficientVariation * r.muestreoCount), 0);
+    return weightedSum / totalWeight;
+  })() : summary.averages.coefficientVariation;
+
   return (
     <div className="space-y-6">
       {/* Primary Metrics Grid */}
@@ -84,11 +106,11 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
               <div className="p-3 rounded-2xl glass-thin text-systemPurple">
                 <Activity className="w-6 h-6" />
               </div>
-              {summary.averages.coefficientVariation > 0 && (
+              {tempOverallCV > 0 && (
                 <div className="flex items-center gap-1">
-                  {summary.averages.coefficientVariation <= 15 ? (
+                  {tempOverallCV <= 15 ? (
                     <TrendingUp className="w-4 h-4 text-systemGreen" />
-                  ) : summary.averages.coefficientVariation <= 20 ? (
+                  ) : tempOverallCV <= 20 ? (
                     <Activity className="w-4 h-4 text-label-tertiary" />
                   ) : (
                     <TrendingUp className="w-4 h-4 text-systemRed" />
@@ -100,7 +122,10 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
             {/* Value */}
             <div className="mb-2">
               <h3 className="text-title-1 font-bold text-label-primary mb-1">
-                {summary.averages.coefficientVariation.toFixed(1)}%
+                {tempOverallCV.toFixed(2)}%
+                {isInmobicarpio && (
+                  <span className="text-caption text-systemBlue ml-2">Demo</span>
+                )}
               </h3>
               <p className="text-callout font-medium text-label-secondary">
                 Coeficiente de Variación
@@ -109,17 +134,24 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
 
             {/* Subtitle */}
             <p className="text-footnote text-label-tertiary mb-3">
-              Consistencia de calidad
+              Consistencia de calidad {isInmobicarpio && '(Promedio Ponderado)'}
             </p>
 
             {/* Per-recipe breakdown */}
-            {summary.averages.cvByRecipe && summary.averages.cvByRecipe.length > 0 && (
+            {tempCvByRecipe && tempCvByRecipe.length > 0 && (
               <div className="mt-4 pt-4 border-t border-fill-tertiary">
-                <p className="text-caption font-semibold text-label-secondary mb-2">
-                  Por Receta:
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-caption font-semibold text-label-secondary">
+                    Por Receta:
+                  </p>
+                  {isInmobicarpio && (
+                    <span className="text-caption text-systemBlue">
+                      Ejemplo
+                    </span>
+                  )}
+                </div>
                 <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar">
-                  {summary.averages.cvByRecipe.map((recipe, idx) => (
+                  {tempCvByRecipe.map((recipe, idx) => (
                     <div
                       key={idx}
                       className="flex items-center justify-between text-caption"
@@ -128,7 +160,7 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
                         FC{recipe.strengthFc.toFixed(0)} - {recipe.ageDays} días
                       </span>
                       <span className={`font-bold ${getCVColor(recipe.coefficientVariation)}`}>
-                        {recipe.coefficientVariation.toFixed(1)}%
+                        {recipe.coefficientVariation.toFixed(2)}%
                         <span className="text-label-tertiary font-normal ml-1">
                           (n={recipe.muestreoCount})
                         </span>
@@ -294,11 +326,11 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
           <div>
             <p className="text-caption text-label-tertiary mb-1">Coef. Variación</p>
             <p className={`text-callout font-bold ${
-              summary.averages.coefficientVariation <= 15 ? 'text-systemGreen' :
-              summary.averages.coefficientVariation <= 20 ? 'text-systemOrange' :
+              tempOverallCV <= 15 ? 'text-systemGreen' :
+              tempOverallCV <= 20 ? 'text-systemOrange' :
               'text-systemRed'
             }`}>
-              {summary.averages.coefficientVariation.toFixed(1)}%
+              {tempOverallCV.toFixed(2)}%
             </p>
           </div>
           <div>
