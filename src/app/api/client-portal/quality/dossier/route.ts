@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import archiver from 'archiver';
-import { PassThrough } from 'stream';
+import { Readable } from 'stream';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300; // 5 minutes max
 
 export async function GET(request: Request) {
   try {
@@ -192,21 +193,34 @@ export async function GET(request: Request) {
       console.warn('[Dossier] Failed adding root-level dossier PDF:', e);
     }
 
-    // Download all files to buffers first (needed for serverless to avoid race conditions)
-    console.log(`[Dossier] Downloading ${entries.length} files...`);
+    // Download files in parallel batches for speed (max 5 concurrent)
+    console.log(`[Dossier] Downloading ${entries.length} files in parallel...`);
+    const BATCH_SIZE = 5;
     const buffers: { buffer: Buffer; name: string }[] = [];
-    for (const entry of entries) {
-      try {
-        const res = await fetch(entry.url);
-        if (!res.ok || !res.body) {
-          console.warn('[Dossier] Skipping file due to fetch error:', entry.name, res.status);
-          continue;
+    
+    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+      const batch = entries.slice(i, i + BATCH_SIZE);
+      const results = await Promise.allSettled(
+        batch.map(async (entry) => {
+          const res = await fetch(entry.url);
+          if (!res.ok || !res.body) {
+            throw new Error(`HTTP ${res.status}`);
+          }
+          const arrayBuffer = await res.arrayBuffer();
+          return { buffer: Buffer.from(arrayBuffer), name: entry.name };
+        })
+      );
+
+      for (let j = 0; j < results.length; j++) {
+        const result = results[j];
+        if (result.status === 'fulfilled') {
+          buffers.push(result.value);
+        } else {
+          console.warn('[Dossier] Failed to download:', batch[j].name, result.reason);
         }
-        const arrayBuffer = await res.arrayBuffer();
-        buffers.push({ buffer: Buffer.from(arrayBuffer), name: entry.name });
-      } catch (e) {
-        console.warn('[Dossier] Error downloading file:', entry.name, e);
       }
+
+      console.log(`[Dossier] Progress: ${Math.min(i + BATCH_SIZE, entries.length)}/${entries.length}`);
     }
 
     if (buffers.length === 0) {
@@ -215,42 +229,38 @@ export async function GET(request: Request) {
 
     console.log(`[Dossier] Creating ZIP with ${buffers.length} files...`);
 
-    // Create archive and add all buffered files
-    const archive = archiver('zip', { zlib: { level: 9 } });
-    const stream = new PassThrough();
+    // Create archive with lower compression for speed
+    const archive = archiver('zip', { zlib: { level: 6 } });
     
     archive.on('warning', (err) => {
       console.warn('[Dossier] Archive warning:', err);
     });
     archive.on('error', (err) => {
       console.error('[Dossier] Archive error:', err);
-      stream.destroy(err);
+      throw err;
     });
-
-    archive.pipe(stream);
 
     // Add all files to archive
     for (const { buffer, name } of buffers) {
       archive.append(buffer, { name });
     }
 
-    // Finalize and wait for completion
-    await archive.finalize();
+    // Finalize archive (returns promise)
+    const finalizePromise = archive.finalize();
 
-    // Convert stream to buffer for reliable serverless response
-    const chunks: Buffer[] = [];
-    for await (const chunk of stream) {
-      chunks.push(Buffer.from(chunk));
-    }
-    const zipBuffer = Buffer.concat(chunks);
+    // Convert archive to Web ReadableStream for Next.js Response
+    const nodeStream = archive;
+    const webStream = Readable.toWeb(nodeStream as any) as ReadableStream;
 
-    console.log(`[Dossier] ZIP created successfully, size: ${zipBuffer.length} bytes`);
+    // Wait for finalization to complete
+    await finalizePromise;
 
-    return new Response(zipBuffer, {
+    console.log(`[Dossier] ZIP stream created successfully with ${buffers.length} files`);
+
+    return new Response(webStream, {
       headers: {
         'Content-Type': 'application/zip',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
-        'Content-Length': String(zipBuffer.length)
+        'Content-Disposition': `attachment; filename="${fileName}"`
       }
     });
   } catch (error) {
