@@ -45,9 +45,23 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
     }
   }, [formData.unit_price, entry.quantity_received])
 
+  // Currency formatter for MXN amounts
+  const currencyFormatter = React.useMemo(() => new Intl.NumberFormat('es-MX', {
+    style: 'currency',
+    currency: 'MXN',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }), [])
+
+  const formatCurrency = (value: string | number) => {
+    const num = typeof value === 'string' ? parseFloat(value || '0') : value
+    if (Number.isNaN(num)) return ''
+    return currencyFormatter.format(num)
+  }
+
   const fetchSuppliers = async () => {
     try {
-      const response = await fetch('/api/suppliers')
+      const response = await fetch(`/api/suppliers?plant_id=${entry.plant_id}`)
       if (response.ok) {
         const data = await response.json()
         setSuppliers(data.suppliers || [])
@@ -136,19 +150,23 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
               min="0"
               value={formData.unit_price}
               onChange={(e) => setFormData(prev => ({ ...prev, unit_price: e.target.value }))}
+              onWheel={(e) => e.currentTarget.blur()}
               placeholder="0.00"
               required
             />
+            {formData.unit_price && (
+              <div className="text-xs text-gray-500 mt-1">
+                {formatCurrency(formData.unit_price)} por kg
+              </div>
+            )}
           </div>
           
           <div>
             <Label htmlFor="total_cost">Costo Total (auto-calculado)</Label>
             <Input
               id="total_cost"
-              type="number"
-              step="0.01"
-              min="0"
-              value={formData.total_cost}
+              type="text"
+              value={formatCurrency(formData.total_cost || '0')}
               readOnly
               className="bg-gray-50"
             />
@@ -168,13 +186,13 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
             <Label htmlFor="fleet_supplier">Proveedor de Flota</Label>
             <Select
               value={formData.fleet_supplier_id}
-              onValueChange={(value) => setFormData(prev => ({ ...prev, fleet_supplier_id: value }))}
+              onValueChange={(value) => setFormData(prev => ({ ...prev, fleet_supplier_id: value === 'none' ? '' : value }))}
             >
               <SelectTrigger id="fleet_supplier">
                 <SelectValue placeholder="Seleccione proveedor..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Sin proveedor</SelectItem>
+                <SelectItem value="none">Sin proveedor</SelectItem>
                 {suppliers.map((supplier) => (
                   <SelectItem key={supplier.id} value={supplier.id}>
                     {supplier.name}
@@ -193,8 +211,14 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
               min="0"
               value={formData.fleet_cost}
               onChange={(e) => setFormData(prev => ({ ...prev, fleet_cost: e.target.value }))}
+              onWheel={(e) => e.currentTarget.blur()}
               placeholder="0.00"
             />
+            {formData.fleet_cost && (
+              <div className="text-xs text-gray-500 mt-1">
+                {formatCurrency(formData.fleet_cost)}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -205,13 +229,13 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
           <div className="flex justify-between items-center">
             <span className="text-sm font-medium text-blue-900">Costo Total de la Entrada:</span>
             <span className="text-lg font-bold text-blue-900">
-              ${(parseFloat(formData.total_cost) + parseFloat(formData.fleet_cost || '0')).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+              {formatCurrency(parseFloat(formData.total_cost) + parseFloat(formData.fleet_cost || '0'))}
             </span>
           </div>
           {formData.fleet_cost && parseFloat(formData.fleet_cost) > 0 && (
             <div className="text-xs text-blue-700 mt-1">
-              Material: ${parseFloat(formData.total_cost).toLocaleString('es-MX', { minimumFractionDigits: 2 })} + 
-              Flota: ${parseFloat(formData.fleet_cost).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+              Material: {formatCurrency(parseFloat(formData.total_cost))} + 
+              Flota: {formatCurrency(parseFloat(formData.fleet_cost))}
             </div>
           )}
         </div>

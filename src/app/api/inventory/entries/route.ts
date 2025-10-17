@@ -440,7 +440,7 @@ export async function PUT(request: NextRequest) {
        updateData.total_cost !== undefined || 
        updateData.fleet_supplier_id !== undefined || 
        updateData.fleet_cost !== undefined) &&
-      profile.role === 'ADMIN_OPERATIONS'
+      (profile.role === 'ADMIN_OPERATIONS' || profile.role === 'EXECUTIVE')
     ) {
       updatePayload.pricing_status = 'reviewed';
       updatePayload.reviewed_by = user.id;

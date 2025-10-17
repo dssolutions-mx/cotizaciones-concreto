@@ -68,7 +68,7 @@ export default function MaterialEntriesPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className={cn(
           "grid w-full max-w-md",
-          userRole === 'ADMIN_OPERATIONS' ? "grid-cols-3" : "grid-cols-2"
+          (userRole === 'ADMIN_OPERATIONS' || userRole === 'EXECUTIVE') ? "grid-cols-3" : "grid-cols-2"
         )}>
           <TabsTrigger value="new" className="flex items-center gap-2">
             <Plus className="h-4 w-4" />
@@ -78,7 +78,7 @@ export default function MaterialEntriesPage() {
             <List className="h-4 w-4" />
             Lista de Entradas
           </TabsTrigger>
-          {userRole === 'ADMIN_OPERATIONS' && (
+          {(userRole === 'ADMIN_OPERATIONS' || userRole === 'EXECUTIVE') && (
             <TabsTrigger value="review" className="flex items-center gap-2">
               <DollarSign className="h-4 w-4" />
               Revisión
@@ -167,7 +167,7 @@ export default function MaterialEntriesPage() {
           </Card>
         </TabsContent>
 
-        {userRole === 'ADMIN_OPERATIONS' && (
+        {(userRole === 'ADMIN_OPERATIONS' || userRole === 'EXECUTIVE') && (
           <TabsContent value="review" className="mt-6">
             <Card>
               <CardHeader>
