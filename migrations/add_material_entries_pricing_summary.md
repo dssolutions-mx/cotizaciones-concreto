@@ -124,3 +124,5 @@ Added pricing review workflow and fleet tracking to material entries, enabling t
 - All indexes created to support efficient queries
 - RLS policies remain unchanged; role checks enforced at API level
 
+
+
