@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER'];
+    const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'ADMINISTRATIVE'];
     if (!profile || !allowed.includes(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       .eq('id', user.id)
       .single();
 
-    const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS'];
+    const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'ADMINISTRATIVE'];
     if (!profile || !allowed.includes(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

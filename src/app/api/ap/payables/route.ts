@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
     }
 
-    const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER'];
+    const allowed = ['EXECUTIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER', 'ADMINISTRATIVE'];
     if (!allowed.includes(profile.role)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

@@ -374,6 +374,11 @@ function Navigation({ children }: { children: React.ReactNode }) {
         navItems.push({ href: '/production-control', label: 'Control de Producción', IconComponent: Warehouse });
         addFinanzasLink = true;
         break;
+
+      case 'ADMINISTRATIVE':
+        // Administrative role with access to Finanzas and accounting functions
+        addFinanzasLink = true;
+        break;
         
       case 'QUALITY_TEAM':
         // QUALITY_TEAM only has access to quality module, no other sections
