@@ -6,6 +6,7 @@ export const MaterialEntryInputSchema = z.object({
   supplier_id: z.string().uuid('ID de proveedor debe ser un UUID válido').optional(),
   quantity_received: z.number().positive('La cantidad debe ser positiva'),
   supplier_invoice: z.string().max(100, 'Número de remisión no puede exceder 100 caracteres').optional(),
+  ap_due_date_material: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
   notes: z.string().max(1000, 'Las notas no pueden exceder 1000 caracteres').optional(),
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
   plant_id: z.string().uuid('ID de planta debe ser un UUID válido').optional(),
@@ -14,6 +15,8 @@ export const MaterialEntryInputSchema = z.object({
   total_cost: z.number().nonnegative('El costo total debe ser no negativo').optional(),
   fleet_supplier_id: z.string().uuid('ID de proveedor de flota debe ser un UUID válido').optional(),
   fleet_cost: z.number().nonnegative('El costo de flota debe ser no negativo').optional(),
+  fleet_invoice: z.string().max(100, 'Número de factura de flota no puede exceder 100 caracteres').optional(),
+  ap_due_date_fleet: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
 });
 
 export const MaterialAdjustmentInputSchema = z.object({

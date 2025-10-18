@@ -471,6 +471,80 @@ export async function PUT(request: NextRequest) {
       throw new Error(`Error al actualizar entrada: ${updateError.message}`);
     }
 
+    // After updating entry, optionally upsert Accounts Payable records for material and fleet
+    try {
+      // Resolve VAT from business unit
+      let vatRate = 0.16;
+      const { data: plantRow } = await supabase
+        .from('plants')
+        .select('id, business_unit_id')
+        .eq('id', result.plant_id)
+        .single();
+      if (plantRow?.business_unit_id) {
+        const { data: buRow } = await supabase
+          .from('business_units')
+          .select('iva_rate')
+          .eq('id', plantRow.business_unit_id)
+          .single();
+        if (buRow?.iva_rate !== null && buRow?.iva_rate !== undefined) {
+          vatRate = buRow.iva_rate as unknown as number;
+        }
+      }
+
+      // Helper to upsert payable and return its id
+      const upsertPayable = async (supplierId: string, plantId: string, invoiceNumber: string, dueDate?: string, entryId?: string) => {
+        const payload: Record<string, any> = {
+          supplier_id: supplierId,
+          plant_id: plantId,
+          invoice_number: invoiceNumber,
+          vat_rate: vatRate,
+          currency: 'MXN',
+        };
+        if (dueDate) payload.due_date = dueDate;
+        if (entryId) payload.entry_id = entryId;
+
+        const { data: payableRows, error: payableErr } = await supabase
+          .from('payables')
+          .upsert(payload, { onConflict: 'supplier_id,plant_id,invoice_number' })
+          .select();
+        if (payableErr) throw new Error(`Error al crear/actualizar CXP: ${payableErr.message}`);
+        const payable = Array.isArray(payableRows) ? payableRows[0] : payableRows;
+        return payable.id as string;
+      };
+
+      // Upsert material payable item
+      const amountMaterial = (result.total_cost ?? ((result.unit_price || 0) * (result.quantity_received || 0)));
+      if (result.supplier_id && result.supplier_invoice && amountMaterial > 0) {
+        const materialPayableId = await upsertPayable(result.supplier_id, result.plant_id, result.supplier_invoice, result.ap_due_date_material, result.id);
+        const { error: itemErr } = await supabase
+          .from('payable_items')
+          .upsert({
+            payable_id: materialPayableId,
+            entry_id: result.id,
+            amount: amountMaterial,
+            cost_category: 'material',
+          }, { onConflict: 'entry_id,cost_category' });
+        if (itemErr) throw new Error(`Error al registrar partida CXP material: ${itemErr.message}`);
+      }
+
+      // Upsert fleet payable item (separate supplier/invoice)
+      if (result.fleet_supplier_id && result.fleet_cost && result.fleet_cost > 0 && result.fleet_invoice) {
+        const fleetPayableId = await upsertPayable(result.fleet_supplier_id, result.plant_id, result.fleet_invoice, result.ap_due_date_fleet, result.id);
+        const { error: fleetItemErr } = await supabase
+          .from('payable_items')
+          .upsert({
+            payable_id: fleetPayableId,
+            entry_id: result.id,
+            amount: result.fleet_cost,
+            cost_category: 'fleet',
+          }, { onConflict: 'entry_id,cost_category' });
+        if (fleetItemErr) throw new Error(`Error al registrar partida CXP flota: ${fleetItemErr.message}`);
+      }
+    } catch (apError) {
+      console.error('AP upsert error (non-fatal):', apError);
+      // We do not fail the entire request if AP upsert fails; client can retry from CXP UI
+    }
+
     return NextResponse.json({
       success: true,
       data: result,

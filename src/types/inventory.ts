@@ -10,6 +10,9 @@ export interface MaterialEntry {
   unit_price?: number;
   total_cost?: number;
   supplier_invoice?: string;
+  // Accounts payable due dates (captured during review)
+  ap_due_date_material?: string; // YYYY-MM-DD
+  ap_due_date_fleet?: string; // YYYY-MM-DD
   inventory_before: number;
   inventory_after: number;
   notes?: string;
@@ -19,6 +22,7 @@ export interface MaterialEntry {
   // Fleet tracking
   fleet_supplier_id?: string;
   fleet_cost?: number;
+  fleet_invoice?: string;
   // Pricing review workflow
   pricing_status?: 'pending' | 'reviewed';
   reviewed_by?: string;

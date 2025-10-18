@@ -28,6 +28,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
     total_cost: entry.total_cost?.toString() || '',
     fleet_supplier_id: entry.fleet_supplier_id || '',
     fleet_cost: entry.fleet_cost?.toString() || '',
+    supplier_invoice: entry.supplier_invoice || '',
+    ap_due_date_material: entry.ap_due_date_material || '',
+    fleet_invoice: entry.fleet_invoice || '',
+    ap_due_date_fleet: entry.ap_due_date_fleet || '',
   })
 
   useEffect(() => {
@@ -79,6 +83,25 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
       return
     }
 
+    // If supplier invoice is provided, require material due date
+    if (formData.supplier_invoice && !formData.ap_due_date_material) {
+      toast.error('Fecha de vencimiento (material) es requerida cuando hay remisión/factura del proveedor')
+      return
+    }
+
+    // If fleet supplier is provided with cost, require fleet invoice and due date
+    const hasFleet = !!formData.fleet_supplier_id && !!formData.fleet_cost && parseFloat(formData.fleet_cost) > 0
+    if (hasFleet) {
+      if (!formData.fleet_invoice) {
+        toast.error('Factura de flota es requerida cuando se registra costo de flota')
+        return
+      }
+      if (!formData.ap_due_date_fleet) {
+        toast.error('Fecha de vencimiento (flota) es requerida cuando se registra costo de flota')
+        return
+      }
+    }
+
     setLoading(true)
     try {
       const updatePayload = {
@@ -87,6 +110,10 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
         total_cost: parseFloat(formData.total_cost),
         ...(formData.fleet_supplier_id && { fleet_supplier_id: formData.fleet_supplier_id }),
         ...(formData.fleet_cost && { fleet_cost: parseFloat(formData.fleet_cost) }),
+        ...(formData.supplier_invoice && { supplier_invoice: formData.supplier_invoice }),
+        ...(formData.ap_due_date_material && { ap_due_date_material: formData.ap_due_date_material }),
+        ...(formData.fleet_invoice && { fleet_invoice: formData.fleet_invoice }),
+        ...(formData.ap_due_date_fleet && { ap_due_date_fleet: formData.ap_due_date_fleet }),
       }
 
       const response = await fetch('/api/inventory/entries', {
@@ -172,6 +199,28 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
             />
           </div>
         </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="supplier_invoice">Remisión/Factura del Proveedor</Label>
+            <Input
+              id="supplier_invoice"
+              type="text"
+              value={formData.supplier_invoice}
+              onChange={(e) => setFormData(prev => ({ ...prev, supplier_invoice: e.target.value }))}
+              placeholder="Ej. FAC-12345"
+            />
+          </div>
+          <div>
+            <Label htmlFor="ap_due_date_material">Fecha de Vencimiento (Material)</Label>
+            <Input
+              id="ap_due_date_material"
+              type="date"
+              value={formData.ap_due_date_material}
+              onChange={(e) => setFormData(prev => ({ ...prev, ap_due_date_material: e.target.value }))}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Fleet Pricing */}
@@ -219,6 +268,28 @@ export default function EntryPricingForm({ entry, onSuccess, onCancel }: EntryPr
                 {formatCurrency(formData.fleet_cost)}
               </div>
             )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="fleet_invoice">Factura de Flota</Label>
+            <Input
+              id="fleet_invoice"
+              type="text"
+              value={formData.fleet_invoice}
+              onChange={(e) => setFormData(prev => ({ ...prev, fleet_invoice: e.target.value }))}
+              placeholder="Ej. FL-9988"
+            />
+          </div>
+          <div>
+            <Label htmlFor="ap_due_date_fleet">Fecha de Vencimiento (Flota)</Label>
+            <Input
+              id="ap_due_date_fleet"
+              type="date"
+              value={formData.ap_due_date_fleet}
+              onChange={(e) => setFormData(prev => ({ ...prev, ap_due_date_fleet: e.target.value }))}
+            />
           </div>
         </div>
       </div>

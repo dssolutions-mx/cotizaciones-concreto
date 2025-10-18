@@ -66,6 +66,16 @@ const finanzasSubMenuItems = [
     IconComponent: LineChart,
   },
   {
+    title: "Cuentas por Pagar",
+    href: "/finanzas/cxp",
+    IconComponent: CreditCard,
+  },
+  {
+    title: "Reporte de Producción",
+    href: "/finanzas/produccion",
+    IconComponent: BarChart,
+  },
+  {
     title: "Balances de Clientes",
     href: "/finanzas/clientes",
     IconComponent: Users,
