@@ -76,27 +76,25 @@ export default function RemisionesPorCliente() {
   const [debugMode, setDebugMode] = useState(false);
   
   // Determine display name for recipe/product
+  // Match by recipe_id ONLY within the same order
   const getDisplayRecipeName = useCallback((remision: any): string => {
     // 1) Prefer explicit designation on the remision
     if (remision?.designacion_ehe) {
       return remision.designacion_ehe;
     }
     
-    // 2) Try to match order_items by recipe_id
-    const byRecipe = orderProducts.find((op: any) => op.recipe_id === remision.recipe_id);
-    if (byRecipe?.product_type) {
-      return byRecipe.product_type;
+    // 2) Direct match: find order_item with same order_id AND recipe_id
+    if (remision?.recipe_id && remision?.order_id) {
+      const matchedItem = orderProducts.find((op: any) => 
+        String(op.order_id) === String(remision.order_id) && 
+        String(op.recipe_id) === String(remision.recipe_id)
+      );
+      if (matchedItem?.product_type) {
+        return matchedItem.product_type;
+      }
     }
     
-    // 3) Fallback: try normalized match between product_type and recipe_code
-    const normalize = (s: string) => (s || '').toString().replace(/-/g, '').trim().toUpperCase();
-    const recipeCode = remision.recipe?.recipe_code || '';
-    const matchByCode = orderProducts.find((op: any) => normalize(op.product_type) === normalize(recipeCode));
-    if (matchByCode?.product_type) {
-      return matchByCode.product_type;
-    }
-    
-    // 4) Final fallback to recipe code
+    // 3) Final fallback to recipe code
     return remision.recipe?.recipe_code || 'N/A';
   }, [orderProducts]);
   
