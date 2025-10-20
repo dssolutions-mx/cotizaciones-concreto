@@ -268,10 +268,12 @@ const FormulaDisplay = ({ label, formula, result }: { label?: string; formula: s
 // SVG Granulometric Curve Chart Component
 const GranulometricCurveChart = ({ 
   mallas, 
-  limites 
+  limites,
+  tipoMaterial 
 }: { 
   mallas: MallaData[]; 
   limites?: Array<{ malla: string; limite_inferior: number; limite_superior: number }>;
+  tipoMaterial?: 'Arena' | 'Grava';
 }) => {
   const width = 240;
   const height = 180;
@@ -279,47 +281,158 @@ const GranulometricCurveChart = ({
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
 
-  // Filter mallas that are relevant for the chart
-  const mallaNames = ['3/8', '4', '8', '16', '30', '50', '100'];
-  const chartMallas = mallas.filter(m => {
-    const name = m.numero_malla.replace(/No\.\s*/g, '').replace(/"/g, '').trim();
-    return mallaNames.includes(name);
+  // **DYNAMIC APPROACH**: Use only mallas that have actual data (same as web version)
+  // Filter mallas: exclude Fondo and mallas without data
+  const mallasFiltradas = mallas.filter(m => {
+    if (m.numero_malla === 'Fondo' || m.abertura_mm <= 0) return false;
+    if (m.peso_retenido === null || m.peso_retenido === undefined) return false;
+    return true;
   });
 
-  // Create logarithmic scale for X-axis
+  // Create limits map by abertura_mm (more reliable than malla name)
+  const limitesMap = new Map<number, { inferior: number; superior: number }>();
+  if (limites && limites.length > 0) {
+    // Comprehensive mapping of all possible malla name variations to abertura_mm
+    const mallaToNumber: Record<string, number> = {
+      // Pulgadas grandes
+      '3"': 75.0, '3': 75.0, '3in': 75.0,
+      '2 1/2"': 63.0, '2 1/2': 63.0, '21/2': 63.0, '2.5': 63.0,
+      '2"': 50.0, '2': 50.0, '2in': 50.0,
+      '1 1/2"': 37.5, '1 1/2': 37.5, '11/2': 37.5, '1.5': 37.5,
+      '1"': 25.0, '1': 25.0, '1in': 25.0,
+      '3/4"': 19.0, '3/4': 19.0, '.75': 19.0, '0.75': 19.0,
+      '1/2"': 12.5, '1/2': 12.5, '.5': 12.5, '0.5': 12.5,
+      '3/8"': 9.5, '3/8': 9.5, '.375': 9.5, '0.375': 9.5,
+      // Números de malla
+      'No. 4': 4.75, 'No.4': 4.75, '4': 4.75, '#4': 4.75,
+      'No. 8': 2.36, 'No.8': 2.36, '8': 2.36, '#8': 2.36,
+      'No. 16': 1.18, 'No.16': 1.18, '16': 1.18, '#16': 1.18,
+      'No. 30': 0.60, 'No.30': 0.60, '30': 0.60, '#30': 0.60,
+      'No. 50': 0.30, 'No.50': 0.30, '50': 0.30, '#50': 0.30,
+      'No. 100': 0.15, 'No.100': 0.15, '100': 0.15, '#100': 0.15,
+      'No. 200': 0.075, 'No.200': 0.075, '200': 0.075, '#200': 0.075,
+    };
+    
+    limites.forEach(limite => {
+      // Try direct lookup first
+      let abertura = mallaToNumber[limite.malla];
+      
+      // If not found, try without quotes
+      if (!abertura) {
+        abertura = mallaToNumber[limite.malla.replace(/"/g, '')];
+      }
+      
+      // If still not found, try normalizing spaces
+      if (!abertura) {
+        const normalized = limite.malla.replace(/\s+/g, '').replace(/"/g, '');
+        abertura = mallaToNumber[normalized];
+      }
+      
+      // Only add to map if we found a valid abertura
+      if (abertura) {
+        limitesMap.set(abertura, {
+          inferior: limite.limite_inferior,
+          superior: limite.limite_superior
+        });
+      }
+    });
+  }
+
+  // Build chart data - ALWAYS include data, limits are optional
+  type ChartDataPoint = {
+    abertura: number;
+    malla: string;
+    porcentaje_pasa?: number;
+    limite_inferior?: number;
+    limite_superior?: number;
+  };
+
+  const chartData: ChartDataPoint[] = mallasFiltradas.map(malla => ({
+    abertura: malla.abertura_mm,
+    malla: malla.numero_malla,
+    porcentaje_pasa: malla.porcentaje_pasa,
+    limite_inferior: limitesMap.get(malla.abertura_mm)?.inferior,
+    limite_superior: limitesMap.get(malla.abertura_mm)?.superior
+  })).sort((a, b) => b.abertura - a.abertura); // Sort by abertura descending
+
+  // Determine if we have any limits at all
+  const hasAnyLimits = chartData.some(d => 
+    d.limite_inferior !== undefined || d.limite_superior !== undefined
+  );
+
+  // Add extension points ONLY if we have limits
+  let datosGrafica: ChartDataPoint[] = [...chartData];
+  if (hasAnyLimits && chartData.length > 0) {
+    const aberturaMaxima = chartData[0].abertura;
+    const aberturaMinima = chartData[chartData.length - 1].abertura;
+    
+    // Find max and min limits to determine extension points
+    const limitValues = chartData
+      .filter(d => d.limite_inferior !== undefined || d.limite_superior !== undefined)
+      .flatMap(d => [d.limite_inferior, d.limite_superior])
+      .filter((v): v is number => v !== undefined);
+    
+    if (limitValues.length > 0) {
+      datosGrafica.unshift({
+        abertura: aberturaMaxima * 1.5,
+        malla: '',
+        porcentaje_pasa: undefined,
+        limite_inferior: 100,
+        limite_superior: 100
+      });
+      
+      datosGrafica.push({
+        abertura: aberturaMinima * 0.5,
+        malla: '',
+        porcentaje_pasa: undefined,
+        limite_inferior: 0,
+        limite_superior: 0
+      });
+    }
+  }
+
+  // X-axis positioning (index-based, evenly spaced)
   const getXPosition = (index: number) => {
-    const step = chartWidth / (mallaNames.length - 1);
+    if (datosGrafica.length <= 1) {
+      return padding.left + chartWidth / 2; // Center single point
+    }
+    const step = chartWidth / (datosGrafica.length - 1);
     return padding.left + (index * step);
   };
 
-  // Linear scale for Y-axis (0-100%)
+  // Y-axis positioning (0-100%)
   const getYPosition = (percentage: number) => {
     return padding.top + chartHeight - (percentage / 100) * chartHeight;
   };
 
-  // Generate path for actual data
-  const generatePath = (data: { porcentaje_pasa: number }[]) => {
-    if (data.length === 0) return '';
+  // Generate path for actual data (only where porcentaje_pasa is defined)
+  const generateDataPath = () => {
+    const points: { x: number; y: number }[] = [];
     
-    let path = `M ${getXPosition(0)} ${getYPosition(data[0].porcentaje_pasa)}`;
-    for (let i = 1; i < data.length; i++) {
-      path += ` L ${getXPosition(i)} ${getYPosition(data[i].porcentaje_pasa)}`;
+    datosGrafica.forEach((dato, index) => {
+      if (dato.porcentaje_pasa !== undefined) {
+        points.push({ 
+          x: getXPosition(index), 
+          y: getYPosition(dato.porcentaje_pasa) 
+        });
+      }
+    });
+    
+    if (points.length === 0) return '';
+    let path = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      path += ` L ${points[i].x} ${points[i].y}`;
     }
     return path;
   };
 
-  // Generate path for limits
+  // Generate path for upper or lower limit
   const generateLimitPath = (isUpper: boolean) => {
-    if (!limites || limites.length === 0) return '';
-    
     const points: { x: number; y: number }[] = [];
-    mallaNames.forEach((mallaName, index) => {
-      const limite = limites.find(l => {
-        const lName = l.malla.replace(/No\.\s*/g, '').replace(/"/g, '').trim();
-        return lName === mallaName;
-      });
-      if (limite) {
-        const value = isUpper ? limite.limite_superior : limite.limite_inferior;
+    
+    datosGrafica.forEach((dato, index) => {
+      const value = isUpper ? dato.limite_superior : dato.limite_inferior;
+      if (value !== undefined && value !== null) {
         points.push({ x: getXPosition(index), y: getYPosition(value) });
       }
     });
@@ -332,7 +445,18 @@ const GranulometricCurveChart = ({
     return path;
   };
 
-  const actualDataPath = generatePath(chartMallas);
+  // Don't render chart if there's no data at all
+  if (datosGrafica.length === 0) {
+    return (
+      <Svg width={width} height={height}>
+        <Text x={width / 2} y={height / 2} style={{ fontSize: 8, fill: '#6B7280' }} textAnchor="middle">
+          Sin datos para graficar
+        </Text>
+      </Svg>
+    );
+  }
+
+  const actualDataPath = generateDataPath();
   const upperLimitPath = generateLimitPath(true);
   const lowerLimitPath = generateLimitPath(false);
 
@@ -355,7 +479,7 @@ const GranulometricCurveChart = ({
       ))}
       
       {/* Grid lines - Vertical */}
-      {mallaNames.map((_, index) => (
+      {datosGrafica.map((_, index) => (
         <Line
           key={`v-${index}`}
           x1={getXPosition(index)}
@@ -377,59 +501,79 @@ const GranulometricCurveChart = ({
           key={`y-${value}`}
           x={padding.left - 8}
           y={getYPosition(value) + 2}
-          fontSize={6}
-          fill="#374151"
+          style={{ fontSize: 6, fill: '#374151' }}
           textAnchor="end"
         >
           {value}
         </Text>
       ))}
 
-      {/* X-axis labels */}
-      {mallaNames.map((name, index) => (
-        <Text
-          key={`x-${name}`}
-          x={getXPosition(index)}
-          y={padding.top + chartHeight + 12}
-          fontSize={6}
-          fill="#374151"
-          textAnchor="middle"
-        >
-          {name}
-        </Text>
-      ))}
+      {/* X-axis labels - only for points with malla names */}
+      {datosGrafica.map((dato, index) => {
+        if (!dato.malla || dato.malla === '') return null; // Skip extension points
+        
+        // Format label for display
+        let displayName = dato.malla.replace(/No\.\s*/g, '').replace(/"/g, '');
+        
+        return (
+          <Text
+            key={`x-${index}`}
+            x={getXPosition(index)}
+            y={padding.top + chartHeight + 12}
+            style={{ fontSize: 5.5, fill: '#374151' }}
+            textAnchor="middle"
+          >
+            {displayName}
+          </Text>
+        );
+      })}
 
       {/* Axis titles */}
-      <Text x={width / 2} y={height - 8} fontSize={7} fill="#1F2937" textAnchor="middle" fontFamily="Helvetica-Bold">
+      <Text 
+        x={width / 2} 
+        y={height - 8} 
+        style={{ fontSize: 7, fill: '#1F2937', fontFamily: 'Helvetica-Bold' }} 
+        textAnchor="middle"
+      >
         Mallas
       </Text>
-      <Text x={12} y={height / 2} fontSize={7} fill="#1F2937" textAnchor="middle" fontFamily="Helvetica-Bold" transform={`rotate(-90 12 ${height / 2})`}>
+      <Text 
+        x={12} 
+        y={height / 2} 
+        style={{ fontSize: 7, fill: '#1F2937', fontFamily: 'Helvetica-Bold' }} 
+        textAnchor="middle" 
+        transform={`rotate(-90 12 ${height / 2})`}
+      >
         % Pasa
       </Text>
 
-      {/* Limit curves */}
-      {upperLimitPath && (
+      {/* Limit curves - Only render if limits exist */}
+      {upperLimitPath && upperLimitPath.length > 0 && (
         <Path d={upperLimitPath} stroke="#069E2D" strokeWidth={1.5} fill="none" />
       )}
-      {lowerLimitPath && (
+      {lowerLimitPath && lowerLimitPath.length > 0 && (
         <Path d={lowerLimitPath} stroke="#069E2D" strokeWidth={1.5} fill="none" />
       )}
 
-      {/* Actual data curve */}
-      {actualDataPath && (
+      {/* Actual data curve - ALWAYS render if we have data */}
+      {actualDataPath && actualDataPath.length > 0 && (
         <Path d={actualDataPath} stroke="#1F2937" strokeWidth={2} fill="none" />
       )}
 
-      {/* Data points */}
-      {chartMallas.map((malla, index) => (
-        <Circle
-          key={index}
-          cx={getXPosition(index)}
-          cy={getYPosition(malla.porcentaje_pasa)}
-          r={2}
-          fill="#1F2937"
-        />
-      ))}
+      {/* Data points - only where porcentaje_pasa is defined */}
+      {datosGrafica.map((dato, index) => {
+        if (dato.porcentaje_pasa === undefined) return null;
+        
+        return (
+          <Circle
+            key={index}
+            cx={getXPosition(index)}
+            cy={getYPosition(dato.porcentaje_pasa)}
+            r={2}
+            fill="#1F2937"
+          />
+        );
+      })}
     </Svg>
   );
 };
@@ -681,6 +825,7 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
                 <GranulometricCurveChart 
                   mallas={granulometria.resultados.mallas}
                   limites={estudio.limites}
+                  tipoMaterial={estudio.alta_estudio.tipo_material}
                 />
               </View>
             )}
