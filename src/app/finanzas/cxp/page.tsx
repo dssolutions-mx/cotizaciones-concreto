@@ -372,6 +372,9 @@ export default function CxpPage() {
                                       {it.entry?.entry_number && (
                                         <span className="font-mono text-sm">{it.entry.entry_number}</span>
                                       )}
+                                      {it.entry?.po_id && it.entry?.po_item && (
+                                        <span className="ml-2 text-xs text-gray-500">PO {String(it.entry.po_item.po?.id || '').slice(0,8)}</span>
+                                      )}
                                       {!isFleet && it.entry?.entry_date && (
                                         <span className="text-xs text-gray-500">
                                           {format(new Date(it.entry.entry_date + 'T00:00:00'), 'dd MMM yyyy', { locale: es })}
@@ -389,9 +392,23 @@ export default function CxpPage() {
                                           P.U.: <b>{mxn.format(Number(it.entry.unit_price))}</b>
                                         </span>
                                       )}
-                                      <span className="text-sm font-semibold">
-                                        {mxn.format(Number(it.amount))}
-                                      </span>
+                                      <div className="text-right">
+                                        <span className="text-sm font-semibold">
+                                          {mxn.format(Number(it.amount))}
+                                        </span>
+                                        {it.entry?.po_item && !isFleet && (
+                                          <div className="text-[10px] text-gray-500 mt-0.5">
+                                            Avance PO: {Number(it.entry.po_item.qty_received_kg || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} / {(() => {
+                                              let orderedKg = Number(it.entry.po_item.qty_ordered || 0)
+                                              if (it.entry.po_item.uom === 'l') {
+                                                const density = Number(it.entry.po_item.material?.density_kg_per_l || 0)
+                                                if (density) orderedKg = orderedKg * density
+                                              }
+                                              return orderedKg.toLocaleString('es-MX', { minimumFractionDigits: 2 })
+                                            })()} kg
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                 )

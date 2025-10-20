@@ -309,7 +309,7 @@ export async function POST(request: NextRequest) {
     const inventoryBefore = currentInventory?.current_stock || 0;
     const inventoryAfter = inventoryBefore + validatedData.quantity_received;
 
-    // Create material entry
+    // Create material entry (optional immediate PO linkage on create)
     const entryData = {
       entry_number: entryNumber,
       plant_id: targetPlantId,
@@ -318,6 +318,13 @@ export async function POST(request: NextRequest) {
       entry_date: entryDate,
       entry_time: new Date().toTimeString().split(' ')[0],
       quantity_received: validatedData.quantity_received,
+      po_id: validatedData.po_id || null,
+      po_item_id: validatedData.po_item_id || null,
+      received_uom: validatedData.received_uom || (validatedData.po_item_id ? 'kg' : null),
+      received_qty_entered: validatedData.received_qty_entered || (validatedData.po_item_id ? validatedData.quantity_received : null),
+      received_qty_kg: validatedData.received_uom === 'l' && validatedData.received_qty_entered
+        ? null // compute later in PUT flow
+        : (validatedData.po_item_id ? validatedData.quantity_received : null),
       supplier_invoice: validatedData.supplier_invoice || null,
       inventory_before: inventoryBefore,
       inventory_after: inventoryAfter,
@@ -428,11 +435,97 @@ export async function PUT(request: NextRequest) {
     const validatedData = UpdateMaterialEntrySchema.parse(body);
     const { id, ...updateData } = validatedData;
 
+    // Load current entry to compute deltas and plant/material context
+    const { data: currentEntry, error: loadErr } = await supabase
+      .from('material_entries')
+      .select('*')
+      .eq('id', id)
+      .single();
+    if (loadErr || !currentEntry) {
+      return NextResponse.json({ success: false, error: 'Entrada no encontrada' }, { status: 404 });
+    }
+
     // Prepare update payload
     const updatePayload: Record<string, any> = {
       ...updateData,
       updated_at: new Date().toISOString(),
     };
+
+    // Optional: Link PO item with unit conversion and caps
+    if (updateData.po_item_id) {
+      // Fetch PO item and header
+      const { data: poItem, error: poItemErr } = await supabase
+        .from('purchase_order_items')
+        .select('*, po:purchase_orders!po_id (id, plant_id, supplier_id, status), material:materials!material_id (id, density_kg_per_l)')
+        .eq('id', updateData.po_item_id)
+        .single();
+      if (poItemErr || !poItem) {
+        return NextResponse.json({ success: false, error: 'Item de PO no encontrado' }, { status: 400 });
+      }
+      if (poItem.po.plant_id !== currentEntry.plant_id) {
+        return NextResponse.json({ success: false, error: 'PO pertenece a otra planta' }, { status: 400 });
+      }
+      if (!poItem.is_service && poItem.material_id !== currentEntry.material_id) {
+        return NextResponse.json({ success: false, error: 'El material de la entrada no coincide con el del PO' }, { status: 400 });
+      }
+      // Compute ordered kg
+      let orderedKg = Number(poItem.qty_ordered) || 0;
+      if (!poItem.is_service && poItem.uom === 'l') {
+        const density = Number(poItem.material?.density_kg_per_l) || 0;
+        if (!density) {
+          return NextResponse.json({ success: false, error: 'Material sin densidad definida para conversión L→kg' }, { status: 400 });
+        }
+        orderedKg = orderedKg * density;
+      }
+      const alreadyReceivedKg = Number(poItem.qty_received_kg) || 0;
+      // Determine new received kg for this entry
+      let newReceivedKg: number;
+      if (updateData.received_uom && updateData.received_qty_entered) {
+        if (updateData.received_uom === 'kg') newReceivedKg = updateData.received_qty_entered;
+        else {
+          const density = Number(poItem.material?.density_kg_per_l) || 0;
+          if (!density) {
+            return NextResponse.json({ success: false, error: 'Material sin densidad definida para conversión L→kg' }, { status: 400 });
+          }
+          newReceivedKg = updateData.received_qty_entered * density;
+        }
+        updatePayload.received_uom = updateData.received_uom;
+        updatePayload.received_qty_entered = updateData.received_qty_entered;
+        updatePayload.received_qty_kg = newReceivedKg;
+      } else {
+        // Fallback to entry quantity_received (assumed kg)
+        newReceivedKg = Number(updateData.quantity_received ?? currentEntry.quantity_received) || 0;
+        updatePayload.received_uom = 'kg';
+        updatePayload.received_qty_entered = newReceivedKg;
+        updatePayload.received_qty_kg = newReceivedKg;
+      }
+
+      // Compute delta if previously linked
+      const previousReceivedKg = Number(currentEntry.received_qty_kg) || 0;
+      const deltaKg = Math.max(newReceivedKg - previousReceivedKg, 0);
+      const remainingKg = orderedKg - alreadyReceivedKg;
+      if (deltaKg > remainingKg + 1e-6) {
+        return NextResponse.json({ success: false, error: 'Cantidad excede el saldo disponible del PO' }, { status: 400 });
+      }
+
+      updatePayload.po_item_id = updateData.po_item_id;
+      updatePayload.po_id = poItem.po.id;
+
+      // Enforce price lock by default: set unit_price from PO item for materials
+      if (!poItem.is_service) {
+        const elevated = profile.role === 'EXECUTIVE' || profile.role === 'ADMINISTRATIVE';
+        if (!elevated || updateData.unit_price === undefined) {
+          updatePayload.unit_price = Number(poItem.unit_price);
+        }
+        // If total_cost not provided, compute from unit_price and entry qty (kg)
+        if (updatePayload.unit_price !== undefined && (updateData.total_cost === undefined)) {
+          const qtyForCost = Number(updateData.quantity_received ?? currentEntry.quantity_received) || 0;
+          updatePayload.total_cost = Number(updatePayload.unit_price) * qtyForCost;
+        }
+      }
+      // After update succeeds, we'll increment the PO item qty_received_kg by deltaKg
+      updatePayload.__po_delta_kg = deltaKg; // internal flag (will be removed before DB update if necessary)
+    }
 
     // If pricing fields are being updated, mark as reviewed
     if (
@@ -447,6 +540,7 @@ export async function PUT(request: NextRequest) {
       updatePayload.reviewed_at = new Date().toISOString();
     }
 
+    // Build the update query based on user role
     // Build the update query based on user role
     let updateQuery = supabase
       .from('material_entries')
@@ -465,10 +559,48 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Remove internal helper before DB update if present
+    if ('__po_delta_kg' in updatePayload) delete updatePayload.__po_delta_kg;
+
     const { data: result, error: updateError } = await updateQuery.select().single();
 
     if (updateError) {
       throw new Error(`Error al actualizar entrada: ${updateError.message}`);
+    }
+
+    // If linked to PO item, update the PO item received kg with delta
+    try {
+      if (updateData.po_item_id) {
+        // recompute delta based on currentEntry vs update
+        const newKg = Number(result.received_qty_kg) || Number(result.quantity_received) || 0;
+        const prevKg = Number(currentEntry.received_qty_kg) || 0;
+        const deltaKg = Math.max(newKg - prevKg, 0);
+        if (deltaKg > 0) {
+          const { data: poItem2, error: poErr2 } = await supabase
+            .from('purchase_order_items')
+            .select('qty_received_kg, qty_ordered, uom, is_service, material:materials!material_id (density_kg_per_l)')
+            .eq('id', result.po_item_id)
+            .single();
+          if (!poErr2 && poItem2) {
+            const newReceived = Number(poItem2.qty_received_kg || 0) + deltaKg;
+            // Update status based on progress
+            let newStatus = 'partial';
+            let orderedKg2 = Number(poItem2.qty_ordered) || 0;
+            if (!poItem2.is_service && poItem2.uom === 'l') {
+              const density = Number(poItem2.material?.density_kg_per_l) || 0;
+              if (density) orderedKg2 = orderedKg2 * density;
+            }
+            if (newReceived >= orderedKg2 - 1e-6) newStatus = 'fulfilled';
+            const { error: updPoItemErr } = await supabase
+              .from('purchase_order_items')
+              .update({ qty_received_kg: newReceived, status: newStatus })
+              .eq('id', result.po_item_id);
+            if (updPoItemErr) console.error('Error actualizando avance de PO:', updPoItemErr);
+          }
+        }
+      }
+    } catch (poProgressErr) {
+      console.error('Error actualizando progreso de PO (no fatal):', poProgressErr);
     }
 
     // After updating entry, optionally upsert Accounts Payable records for material and fleet

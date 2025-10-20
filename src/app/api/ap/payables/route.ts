@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
     // Base query with supplier join and optional items
     const baseSelect = include === 'items'
-      ? `*, supplier:suppliers!supplier_id (name), items:payable_items (*, entry:material_entries!entry_id (quantity_received, unit_price, entry_number, entry_date))`
+      ? `*, supplier:suppliers!supplier_id (name), items:payable_items (*, entry:material_entries!entry_id (quantity_received, unit_price, entry_number, entry_date, po_id, po_item_id, po_item:purchase_order_items!po_item_id (id, qty_ordered, qty_received_kg, uom, is_service, po:purchase_orders!po_id (id), material:materials!material_id (density_kg_per_l))))`
       : `*, supplier:suppliers!supplier_id (name)`;
     let query = supabase.from('payables').select(baseSelect);
 

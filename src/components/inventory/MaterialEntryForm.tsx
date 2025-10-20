@@ -49,6 +49,10 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   const [currentInventory, setCurrentInventory] = useState<number | null>(null)
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [existingDocuments, setExistingDocuments] = useState<any[]>([])
+  const [poItems, setPoItems] = useState<any[]>([])
+  const [selectedPoItemId, setSelectedPoItemId] = useState<string>('')
+  const [receivedUom, setReceivedUom] = useState<'kg' | 'l'>('kg')
+  const [receivedQtyEntered, setReceivedQtyEntered] = useState<number>(0)
 
   // Calculate inventory after
   const inventoryAfter = currentInventory !== null ? currentInventory + formData.quantity_received : null
@@ -100,13 +104,42 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           const inventory = data.inventory.find((inv: any) => inv.material_id === materialId)
           setCurrentInventory(inventory?.current_stock || 0)
         }
+        // Load open PO items matching plant/material/supplier (if selected)
+        const params = new URLSearchParams()
+        params.set('plant_id', plantId)
+        params.set('material_id', materialId)
+        if (formData.supplier_id) params.set('supplier_id', formData.supplier_id)
+        const resPo = await fetch(`/api/po/items/search?${params.toString()}`)
+        if (resPo.ok) {
+          const dataPo = await resPo.json()
+          setPoItems(dataPo.items || [])
+        }
       } catch (error) {
         console.error('Error fetching current inventory:', error)
       }
     } else {
       setCurrentInventory(null)
+      setPoItems([])
+      setSelectedPoItemId('')
     }
   }
+
+  // Refresh PO items when supplier changes
+  useEffect(() => {
+    const plantId = currentPlant?.id || profile?.plant_id
+    if (!plantId || !formData.material_id) return
+    ;(async () => {
+      const params = new URLSearchParams()
+      params.set('plant_id', plantId)
+      params.set('material_id', formData.material_id)
+      if (formData.supplier_id) params.set('supplier_id', formData.supplier_id)
+      const res = await fetch(`/api/po/items/search?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        setPoItems(data.items || [])
+      }
+    })()
+  }, [formData.supplier_id])
 
   // Handle file upload
   const handleFileUpload = (files: FileList) => {
@@ -195,11 +228,40 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     
     setLoading(true)
     try {
-      const requestBody = {
+      const requestBody: any = {
         ...formData,
         plant_id: plantId,
         inventory_before: currentInventory || 0
       };
+      if (selectedPoItemId) {
+        const item = poItems.find(it => it.id === selectedPoItemId)
+        if (item) {
+          // Validate against remaining kg
+          let enteredKg = formData.quantity_received
+          if (receivedUom === 'l') {
+            const density = Number(item?.material?.density_kg_per_l) || 0
+            if (!density) {
+              toast.error('Material sin densidad configurada para convertir litros a kg')
+              setLoading(false)
+              return
+            }
+            enteredKg = (receivedQtyEntered || 0) * density
+          } else if (receivedQtyEntered > 0) {
+            enteredKg = receivedQtyEntered
+          }
+          if (enteredKg > (Number(item.remainingKg) || 0) + 1e-6) {
+            toast.error('La cantidad excede el saldo disponible del PO')
+            setLoading(false)
+            return
+          }
+          // Apply PO linkage and kg quantity
+          requestBody.po_item_id = selectedPoItemId
+          requestBody.po_id = item?.po?.id
+          requestBody.received_uom = receivedUom
+          requestBody.received_qty_entered = receivedQtyEntered || formData.quantity_received
+          requestBody.quantity_received = enteredKg // store entries in kg
+        }
+      }
       
       console.log('Request body being sent:', requestBody);
       
@@ -355,6 +417,49 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                 }))}
                 required
               />
+            </div>
+          </div>
+
+          {/* PO Selector */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Orden de Compra (PO)</Label>
+              <select
+                className="border rounded px-3 py-2 text-sm w-full"
+                value={selectedPoItemId}
+                onChange={(e) => setSelectedPoItemId(e.target.value)}
+              >
+                <option value="">Sin PO</option>
+                {poItems.map((it) => (
+                  <option key={it.id} value={it.id}>
+                    {`PO ${String(it.po?.id || '').slice(0,8)} · ${it.is_service ? 'Servicio' : 'Material'} · Restante: ${(Number(it.remainingKg)||0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} kg`}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500">Solo se muestran ítems abiertos o parciales con saldo.</p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>UoM y Cantidad Ingresada</Label>
+              <div className="flex gap-2">
+                <select
+                  className="border rounded px-3 py-2 text-sm"
+                  value={receivedUom}
+                  onChange={(e) => setReceivedUom(e.target.value as 'kg' | 'l')}
+                >
+                  <option value="kg">kg</option>
+                  <option value="l">l</option>
+                </select>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Cantidad ingresada"
+                  value={receivedQtyEntered || ''}
+                  onChange={(e) => setReceivedQtyEntered(parseFloat(e.target.value) || 0)}
+                />
+              </div>
+              <p className="text-xs text-gray-500">Si usa PO, este valor se valida contra el saldo disponible.</p>
             </div>
           </div>
 

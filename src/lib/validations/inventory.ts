@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+// Common enums
+export const MaterialUomSchema = z.enum(['kg', 'l']);
+
 // Base schemas
 export const MaterialEntryInputSchema = z.object({
   material_id: z.string().uuid('ID de material debe ser un UUID válido'),
@@ -17,6 +20,11 @@ export const MaterialEntryInputSchema = z.object({
   fleet_cost: z.number().nonnegative('El costo de flota debe ser no negativo').optional(),
   fleet_invoice: z.string().max(100, 'Número de factura de flota no puede exceder 100 caracteres').optional(),
   ap_due_date_fleet: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha debe estar en formato YYYY-MM-DD').optional(),
+  // Optional Purchase Order linkage on create
+  po_id: z.string().uuid('ID de PO debe ser un UUID válido').optional(),
+  po_item_id: z.string().uuid('ID de ítem de PO debe ser un UUID válido').optional(),
+  received_uom: MaterialUomSchema.optional(),
+  received_qty_entered: z.number().positive('Cantidad ingresada debe ser positiva').optional(),
 });
 
 export const MaterialAdjustmentInputSchema = z.object({

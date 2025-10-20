@@ -10,6 +10,13 @@ export interface MaterialEntry {
   unit_price?: number;
   total_cost?: number;
   supplier_invoice?: string;
+  // Purchase Order linkage
+  po_id?: string | null;
+  po_item_id?: string | null;
+  // UoM capture for PO linkage
+  received_qty_entered?: number | null; // raw entered quantity in entered_uom
+  received_uom?: 'kg' | 'l' | null; // standard material UoM
+  received_qty_kg?: number | null; // canonical received quantity in kilograms
   // Accounts payable due dates (captured during review)
   ap_due_date_material?: string; // YYYY-MM-DD
   ap_due_date_fleet?: string; // YYYY-MM-DD
@@ -106,6 +113,11 @@ export interface MaterialEntryInput {
   notes?: string;
   entry_date?: string; // defaults to today
   plant_id?: string; // Added for plant-specific filtering
+  // Optional PO capture during creation (usually linked during review)
+  po_id?: string;
+  po_item_id?: string;
+  received_uom?: 'kg' | 'l';
+  received_qty_entered?: number;
 }
 
 export interface MaterialAdjustmentInput {

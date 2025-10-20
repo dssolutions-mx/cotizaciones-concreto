@@ -66,6 +66,11 @@ const finanzasSubMenuItems = [
     IconComponent: LineChart,
   },
   {
+    title: "Compras / PO",
+    href: "/finanzas/po",
+    IconComponent: ClipboardList,
+  },
+  {
     title: "Cuentas por Pagar",
     href: "/finanzas/cxp",
     IconComponent: CreditCard,
