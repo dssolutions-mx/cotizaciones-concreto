@@ -199,8 +199,38 @@ export default function CurvaGranulometrica({
     });
     
     // Convertir el map a array y ordenar
-    const datos = Array.from(mallasRelevantesMap.values())
+    let datos = Array.from(mallasRelevantesMap.values())
       .sort((a, b) => b.abertura - a.abertura); // Ordenar de mayor a menor abertura
+
+    // Si hay límites, agregar puntos de inicio (100%) y fin (0%) para que las líneas sean completas
+    if (limites.length > 0 && datos.length > 0) {
+      const aberturaMaxima = datos[0].abertura; // La primera (mayor abertura)
+      const aberturaMinima = datos[datos.length - 1].abertura; // La última (menor abertura)
+      
+      // Calcular un punto antes de la malla más grande (para 100%)
+      const puntoInicio = aberturaMaxima * 1.5; // 50% más grande que la mayor abertura
+      
+      // Calcular un punto después de la malla más pequeña (para 0%)
+      const puntoFin = aberturaMinima * 0.5; // 50% más pequeño que la menor abertura
+      
+      // Agregar punto inicial (100%)
+      datos.unshift({
+        abertura: puntoInicio,
+        malla: '',
+        porcentaje_pasa: undefined, // No mostrar línea de granulometría en este punto
+        limite_inferior: 100,
+        limite_superior: 100
+      });
+      
+      // Agregar punto final (0%)
+      datos.push({
+        abertura: puntoFin,
+        malla: '',
+        porcentaje_pasa: undefined, // No mostrar línea de granulometría en este punto
+        limite_inferior: 0,
+        limite_superior: 0
+      });
+    }
 
     return datos;
   };
@@ -208,7 +238,12 @@ export default function CurvaGranulometrica({
   const datosGrafica = prepararDatosGrafica();
   
   // Calcular ticks dinámicamente basados en las mallas con datos
-  const ticksDinamicos = datosGrafica.map(d => d.abertura).sort((a, b) => a - b);
+  // Ordenar de mayor a menor para que coincida con el orden visual
+  // Filtrar solo los puntos con etiquetas de malla reales (excluir puntos artificiales)
+  const ticksDinamicos = datosGrafica
+    .filter(d => d.malla && d.malla !== '') // Solo puntos con etiqueta de malla
+    .map(d => d.abertura)
+    .sort((a, b) => b - a);
 
   // Formato personalizado para el eje X
   const formatXAxis = (value: number) => {
@@ -351,8 +386,9 @@ export default function CurvaGranulometrica({
                 domain={['dataMin', 'dataMax']}
                 ticks={ticksDinamicos}
                 tickFormatter={formatXAxis}
+                reversed={true}
                 label={{ 
-                  value: 'Abertura del tamiz (mm)', 
+                  value: 'Mallas', 
                   position: 'bottom',
                   offset: 28,
                   style: { 
