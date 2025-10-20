@@ -82,6 +82,7 @@ interface EstudioSeleccionadoDetalle {
   fecha_completado?: string;
   resultados?: any;
   observaciones?: string;
+  alta_estudio_id?: string; // ID del estudio padre para obtener tipo_material
 }
 
 export default function EstudioDetallePage() {
@@ -118,7 +119,8 @@ export default function EstudioDetallePage() {
               fecha_programada,
               fecha_completado,
               resultados,
-              observaciones
+              observaciones,
+              alta_estudio_id
             )
           `)
           .eq('id', params.id)

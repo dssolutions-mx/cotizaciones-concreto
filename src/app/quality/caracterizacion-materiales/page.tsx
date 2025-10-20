@@ -93,6 +93,7 @@ interface EstudioSeleccionadoHistorico {
   fecha_completado?: string;
   resultados?: any;
   observaciones?: string;
+  alta_estudio_id?: string;
 }
 
 export default function CaracterizacionMaterialesHistoricoPage() {
@@ -147,7 +148,8 @@ export default function CaracterizacionMaterialesHistoricoPage() {
               fecha_programada,
               fecha_completado,
               resultados,
-              observaciones
+              observaciones,
+              alta_estudio_id
             )
           `)
           .order('created_at', { ascending: false });

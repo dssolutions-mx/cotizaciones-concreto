@@ -23,27 +23,34 @@ import { toast } from 'sonner';
 import { createClient } from '@/lib/supabase/client';
 
 interface DensidadResultados {
-  // Pesos de la muestra según norma
-  peso_muestra_seca_horno: number; // Ms - Peso seco al horno
-  peso_muestra_sss: number; // Msss - Saturada Superficie Seca
-  peso_muestra_sumergida: number; // Ma - Peso sumergido en agua
-  
-  // Volumen y densidades calculadas
-  volumen_desplazado: number; // Vol = Msss - Ma (método del volumen desplazado)
-  densidad_relativa_seca: number; // Dr seca = Ms / Vol
-  densidad_relativa_sss: number; // Dr SSS = Msss / Vol
-  densidad_aparente: number; // Da = Ms / (Ms - Ma)
-  absorcion: number; // Abs = [(Msss - Ms) / Ms] × 100
-  
-  // Condiciones del ensayo
+  // Campos comunes
   temperatura_agua: number;
-  metodo_ensayo: string; // Picnómetro de sifón para grava, Cono truncado y picnómetro para arena
-  
-  // Metadatos
+  metodo_ensayo: string;
   tipo_agregado?: string;
   norma_aplicada?: string;
-  
   observaciones?: string;
+  
+  // Campos para GRAVA (NMX-C-164-ONNCCE-2014) - Método picnómetro tipo sifón
+  masa_muestra_sss_grava?: number; // Mag^SSS - Masa de la muestra SSS en aire (kg)
+  masa_agua_desalojada?: number; // Ma - Masa del agua desalojada (kg) a razón de 1 dm³ por kg
+  
+  // Campos antiguos para GRAVA (mantener para compatibilidad)
+  peso_muestra_seca_horno?: number; // Ms - Peso seco al horno (DEPRECADO)
+  peso_muestra_sss?: number; // Msss - Saturada Superficie Seca (DEPRECADO)
+  peso_muestra_sumergida?: number; // Ma - Peso sumergido en agua (DEPRECADO)
+  volumen_desplazado?: number; // Vol = Msss - Ma (DEPRECADO)
+  
+  // Campos para ARENA (NMX-C-165-ONNCCE-2020) - Método picnómetro con cono truncado
+  masa_muestra_sss?: number; // S - Masa de la muestra sat. y sup. Seco (g)
+  masa_picnometro_agua?: number; // B - Masa del picnómetro con agua (g)
+  masa_picnometro_muestra_agua?: number; // C - Masa del picnómetro con la muestra y agua (g)
+  porcentaje_absorcion?: number; // %Abs - Porcentaje de absorción
+  
+  // Resultados calculados (comunes para ambos)
+  densidad_relativa_seca: number; // Mes o Dr seca
+  densidad_relativa_sss: number; // Messs o Dr SSS  
+  densidad_aparente?: number; // Da (principalmente para grava)
+  absorcion: number; // Absorción en porcentaje
 }
 
 interface DensidadFormProps {
@@ -72,34 +79,59 @@ export default function DensidadForm({
     if (initialData) {
       // Migrar datos antiguos si existen
       return {
-        peso_muestra_seca_horno: (initialData as any).peso_muestra_seca || initialData.peso_muestra_seca_horno || 0,
-        peso_muestra_sss: initialData.peso_muestra_sss || 0,
-        peso_muestra_sumergida: (initialData as any).peso_muestra_sumergida || initialData.peso_muestra_sumergida || 0,
-        volumen_desplazado: initialData.volumen_desplazado || 0,
-        densidad_relativa_seca: (initialData as any).densidad_relativa || initialData.densidad_relativa_seca || 0,
-        densidad_relativa_sss: (initialData as any).densidad_sss || initialData.densidad_relativa_sss || 0,
-        densidad_aparente: initialData.densidad_aparente || 0,
-        absorcion: initialData.absorcion || 0,
+        // Campos comunes
         temperatura_agua: initialData.temperatura_agua || 23,
         metodo_ensayo: initialData.metodo_ensayo || '',
         tipo_agregado: initialData.tipo_agregado,
         norma_aplicada: initialData.norma_aplicada,
-        observaciones: initialData.observaciones || ''
+        observaciones: initialData.observaciones || '',
+        
+        // Campos nuevos para grava
+        masa_muestra_sss_grava: initialData.masa_muestra_sss_grava || 0,
+        masa_agua_desalojada: initialData.masa_agua_desalojada || 0,
+        
+        // Campos antiguos para grava (compatibilidad)
+        peso_muestra_seca_horno: (initialData as any).peso_muestra_seca || initialData.peso_muestra_seca_horno || 0,
+        peso_muestra_sss: initialData.peso_muestra_sss || 0,
+        peso_muestra_sumergida: (initialData as any).peso_muestra_sumergida || initialData.peso_muestra_sumergida || 0,
+        volumen_desplazado: initialData.volumen_desplazado || 0,
+        densidad_aparente: initialData.densidad_aparente || 0,
+        
+        // Campos para arena
+        masa_muestra_sss: initialData.masa_muestra_sss || 0,
+        masa_picnometro_agua: initialData.masa_picnometro_agua || 0,
+        masa_picnometro_muestra_agua: initialData.masa_picnometro_muestra_agua || 0,
+        porcentaje_absorcion: initialData.porcentaje_absorcion || 0,
+        
+        // Resultados
+        densidad_relativa_seca: (initialData as any).densidad_relativa || initialData.densidad_relativa_seca || 0,
+        densidad_relativa_sss: (initialData as any).densidad_sss || initialData.densidad_relativa_sss || 0,
+        absorcion: initialData.absorcion || 0
       };
     }
     
     return {
+      temperatura_agua: 23,
+      metodo_ensayo: '',
+      observaciones: '',
+      // Grava nuevos campos
+      masa_muestra_sss_grava: 0,
+      masa_agua_desalojada: 0,
+      // Grava campos antiguos
       peso_muestra_seca_horno: 0,
       peso_muestra_sss: 0,
       peso_muestra_sumergida: 0,
       volumen_desplazado: 0,
+      densidad_aparente: 0,
+      // Arena
+      masa_muestra_sss: 0,
+      masa_picnometro_agua: 0,
+      masa_picnometro_muestra_agua: 0,
+      porcentaje_absorcion: 0,
+      // Resultados
       densidad_relativa_seca: 0,
       densidad_relativa_sss: 0,
-      densidad_aparente: 0,
-      absorcion: 0,
-      temperatura_agua: 23,
-      metodo_ensayo: '',
-      observaciones: ''
+      absorcion: 0
     };
   });
 
@@ -166,57 +198,112 @@ export default function DensidadForm({
   useEffect(() => {
     calcularResultados();
   }, [
+    // Para grava (nuevos campos)
+    formData.masa_muestra_sss_grava,
+    formData.masa_agua_desalojada,
+    // Para grava (campos antiguos - compatibilidad)
     formData.peso_muestra_seca_horno, 
     formData.peso_muestra_sss, 
-    formData.peso_muestra_sumergida
+    formData.peso_muestra_sumergida,
+    // Para arena
+    formData.masa_muestra_sss,
+    formData.masa_picnometro_agua,
+    formData.masa_picnometro_muestra_agua,
+    formData.porcentaje_absorcion,
+    tipoMaterial
   ]);
 
   const calcularResultados = () => {
-    const { peso_muestra_seca_horno, peso_muestra_sss, peso_muestra_sumergida } = formData;
+    const esArena = tipoMaterial.toLowerCase().includes('arena') || tipoMaterial.toLowerCase().includes('fino');
     
-    // Ms = Peso seco al horno
-    // Msss = Peso saturado superficialmente seco (SSS)
-    // Ma = Peso sumergido en agua
-    const Ms = peso_muestra_seca_horno;
-    const Msss = peso_muestra_sss;
-    const Ma = peso_muestra_sumergida;
-    
-    if (Ms <= 0 || Msss <= 0 || Ma <= 0) {
-      return;
+    if (esArena) {
+      // **MÉTODO PARA ARENA (NMX-C-165-ONNCCE-2020)**
+      // Según la imagen proporcionada
+      const S = formData.masa_muestra_sss || 0; // Masa de la muestra sat. y sup. Seco (g)
+      const B = formData.masa_picnometro_agua || 0; // Masa del picnómetro con agua (g)
+      const C = formData.masa_picnometro_muestra_agua || 0; // Masa del picnómetro con la muestra y agua (g)
+      const absPercent = formData.porcentaje_absorcion || 0; // % Absorción
+      
+      if (S <= 0 || B <= 0 || C <= 0) {
+        return;
+      }
+      
+      // Validación: B + S debe ser mayor que C
+      if ((B + S) <= C) {
+        return;
+      }
+      
+      // Masa específica S.S.S (g/cm³)
+      // Messs = S / (B + S - C)
+      const messs = S / (B + S - C);
+      
+      // Masa específica seca (g/cm³)
+      // Mes = Messs / (1 + (%Abs/100))
+      let mes = 0;
+      if (absPercent > 0) {
+        mes = messs / (1 + (absPercent / 100));
+      }
+      
+      setFormData(prev => ({
+        ...prev,
+        densidad_relativa_sss: Number(messs.toFixed(3)),
+        densidad_relativa_seca: Number(mes.toFixed(3)),
+        absorcion: absPercent
+      }));
+      
+    } else {
+      // **MÉTODO PARA GRAVA (NMX-C-164-ONNCCE-2014) - Método picnómetro tipo sifón**
+      const MagSSS = formData.masa_muestra_sss_grava || 0; // Masa de la muestra SSS en aire (kg)
+      const Ma = formData.masa_agua_desalojada || 0; // Masa del agua desalojada (kg)
+      
+      if (MagSSS <= 0 || Ma <= 0) {
+        // Intentar usar campos antiguos para compatibilidad
+        const Ms = formData.peso_muestra_seca_horno || 0;
+        const Msss = formData.peso_muestra_sss || 0;
+        const MaOld = formData.peso_muestra_sumergida || 0;
+        
+        if (Ms > 0 && Msss > 0 && MaOld > 0) {
+          // Usar método antiguo para compatibilidad
+          const volumenDesplazado = Msss - MaOld;
+          if (volumenDesplazado <= 0) return;
+          
+          const densidadRelativaSeca = Ms / volumenDesplazado;
+          const densidadRelativaSSS = Msss / volumenDesplazado;
+          const densidadAparente = Ms / (Ms - MaOld);
+          const absorcion = ((Msss - Ms) / Ms) * 100;
+
+          setFormData(prev => ({
+            ...prev,
+            volumen_desplazado: Number(volumenDesplazado.toFixed(2)),
+            densidad_relativa_seca: Number(densidadRelativaSeca.toFixed(3)),
+            densidad_relativa_sss: Number(densidadRelativaSSS.toFixed(3)),
+            densidad_aparente: Number(densidadAparente.toFixed(3)),
+            absorcion: Number(absorcion.toFixed(2))
+          }));
+        }
+        return;
+      }
+
+      // **NUEVA FÓRMULA SEGÚN NMX-C-164-ONNCCE-2014 (ecuación 11)**
+      // Dr SSS = Mag^SSS / Ma
+      // Donde:
+      // - Dr SSS: Densidad relativa saturada y superficialmente seca (adimensional)
+      // - Mag^SSS: Masa de la muestra SSS en aire (kg)
+      // - Ma: Masa del agua desalojada a razón de 1 dm³ por kg
+      
+      const drSSS = MagSSS / Ma;
+      
+      // Para calcular la densidad seca, necesitaríamos el % de absorción
+      // Por ahora, solo calculamos Dr SSS
+      // Si el usuario ingresa absorción manualmente, podemos calcular Dr seca
+      
+      setFormData(prev => ({
+        ...prev,
+        densidad_relativa_sss: Number(drSSS.toFixed(3)),
+        densidad_relativa_seca: 0, // Se calcularía con absorción
+        absorcion: 0 // Se debe ingresar o calcular por separado
+      }));
     }
-
-    // **MÉTODO DEL VOLUMEN DESPLAZADO**
-    // El volumen del agregado se obtiene por la diferencia entre el peso SSS y el peso sumergido
-    // Vol = Msss - Ma (en gramos = cm³, ya que 1g agua = 1cm³)
-    const volumenDesplazado = Msss - Ma;
-
-    if (volumenDesplazado <= 0) {
-      return;
-    }
-
-    // Densidad Relativa Seca = Ms / Vol
-    // Esta es la densidad del material seco dividido por el volumen total (incluyendo poros)
-    const densidadRelativaSeca = Ms / volumenDesplazado;
-
-    // Densidad Relativa SSS = Msss / Vol
-    // Esta es la densidad del material saturado (con agua en los poros) dividido por el volumen total
-    const densidadRelativaSSS = Msss / volumenDesplazado;
-
-    // Densidad Aparente = Ms / (Ms - Ma)
-    // Esta es la densidad considerando solo el volumen del material sólido (sin poros)
-    const densidadAparente = Ms / (Ms - Ma);
-
-    // Absorción = [(Msss - Ms) / Ms] × 100
-    const absorcion = ((Msss - Ms) / Ms) * 100;
-
-    setFormData(prev => ({
-      ...prev,
-      volumen_desplazado: Number(volumenDesplazado.toFixed(2)),
-      densidad_relativa_seca: Number(densidadRelativaSeca.toFixed(3)),
-      densidad_relativa_sss: Number(densidadRelativaSSS.toFixed(3)),
-      densidad_aparente: Number(densidadAparente.toFixed(3)),
-      absorcion: Number(absorcion.toFixed(2))
-    }));
   };
 
   const handleInputChange = (field: keyof DensidadResultados, value: string | number) => {
@@ -236,34 +323,53 @@ export default function DensidadForm({
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
-
-    if (formData.peso_muestra_seca_horno <= 0) {
-      newErrors.peso_muestra_seca_horno = 'El peso de la muestra seca (Ms) debe ser mayor a 0';
-    }
-
-    if (formData.peso_muestra_sss <= 0) {
-      newErrors.peso_muestra_sss = 'El peso de la muestra SSS (Msss) debe ser mayor a 0';
-    }
-
-    if (formData.peso_muestra_sumergida <= 0) {
-      newErrors.peso_muestra_sumergida = 'El peso de la muestra sumergida (Ma) debe ser mayor a 0';
-    }
-
-    if (formData.peso_muestra_sss < formData.peso_muestra_seca_horno) {
-      newErrors.peso_muestra_sss = 'El peso SSS (Msss) debe ser mayor o igual al peso seco (Ms)';
-    }
-
-    if (formData.peso_muestra_sumergida >= formData.peso_muestra_sss) {
-      newErrors.peso_muestra_sumergida = 'El peso sumergido (Ma) debe ser menor al peso SSS (Msss)';
-    }
+    const esArena = tipoMaterial.toLowerCase().includes('arena') || tipoMaterial.toLowerCase().includes('fino');
 
     if (formData.temperatura_agua < 15 || formData.temperatura_agua > 35) {
       newErrors.temperatura_agua = 'La temperatura debe estar entre 15°C y 35°C';
     }
 
-    const volumen = formData.peso_muestra_sss - formData.peso_muestra_sumergida;
-    if (volumen <= 0) {
-      newErrors.peso_muestra_sumergida = 'El volumen desplazado (Msss - Ma) debe ser mayor a 0';
+    if (esArena) {
+      // Validación para ARENA
+      if (!formData.masa_muestra_sss || formData.masa_muestra_sss <= 0) {
+        newErrors.masa_muestra_sss = 'La masa de la muestra SSS (S) debe ser mayor a 0';
+      }
+
+      if (!formData.masa_picnometro_agua || formData.masa_picnometro_agua <= 0) {
+        newErrors.masa_picnometro_agua = 'La masa del picnómetro con agua (B) debe ser mayor a 0';
+      }
+
+      if (!formData.masa_picnometro_muestra_agua || formData.masa_picnometro_muestra_agua <= 0) {
+        newErrors.masa_picnometro_muestra_agua = 'La masa del picnómetro con muestra y agua (C) debe ser mayor a 0';
+      }
+
+      if (!formData.porcentaje_absorcion || formData.porcentaje_absorcion <= 0) {
+        newErrors.porcentaje_absorcion = 'El porcentaje de absorción debe ser mayor a 0';
+      }
+
+      // Validación de la fórmula: B + S debe ser mayor que C
+      const S = formData.masa_muestra_sss || 0;
+      const B = formData.masa_picnometro_agua || 0;
+      const C = formData.masa_picnometro_muestra_agua || 0;
+      
+      if (S > 0 && B > 0 && C > 0 && (B + S) <= C) {
+        newErrors.masa_picnometro_muestra_agua = 'Error en los valores: (B + S) debe ser mayor que C';
+      }
+    } else {
+      // Validación para GRAVA (método nuevo NMX-C-164-ONNCCE-2014)
+      if (!formData.masa_muestra_sss_grava || formData.masa_muestra_sss_grava <= 0) {
+        newErrors.masa_muestra_sss_grava = 'La masa de la muestra SSS en aire (Mag^SSS) debe ser mayor a 0';
+      }
+
+      if (!formData.masa_agua_desalojada || formData.masa_agua_desalojada <= 0) {
+        newErrors.masa_agua_desalojada = 'La masa del agua desalojada (Ma) debe ser mayor a 0';
+      }
+
+      // Validación adicional: Mag^SSS debe ser mayor que Ma
+      if (formData.masa_muestra_sss_grava && formData.masa_agua_desalojada &&
+          formData.masa_muestra_sss_grava <= formData.masa_agua_desalojada) {
+        newErrors.masa_muestra_sss_grava = 'La masa de la muestra SSS debe ser mayor que el agua desalojada';
+      }
     }
 
     setErrors(newErrors);
@@ -297,9 +403,12 @@ export default function DensidadForm({
     );
   }
 
+  // Verificar qué tipo es
+  const esArena = tipoMaterial.toLowerCase().includes('arena') || tipoMaterial.toLowerCase().includes('fino');
+  
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header con indicador de tipo */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -332,107 +441,220 @@ export default function DensidadForm({
       {/* Datos de la Muestra según Norma */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Pesos de la Muestra (Según Norma)</CardTitle>
+          <CardTitle className="text-lg">
+            {esArena 
+              ? 'Datos del Ensayo para Arena (NMX-C-165-ONNCCE-2020)' 
+              : 'Pesos de la Muestra para Grava (NMX-C-164)'}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Explicación de la nomenclatura y método */}
-          <Alert className="bg-blue-50 border-blue-200">
-            <Info className="h-4 w-4 text-blue-600" />
-            <AlertDescription className="text-sm text-blue-800">
-              <strong>Nomenclatura de la Norma:</strong>
-              <ul className="mt-2 space-y-1 ml-4">
-                <li>• <strong>Ms</strong> = Masa de la muestra seca al horno (110°C ± 5°C)</li>
-                <li>• <strong>Msss</strong> = Masa de la muestra en estado saturado superficialmente seco (SSS)</li>
-                <li>• <strong>Ma</strong> = Masa de la muestra sumergida en agua</li>
-              </ul>
-              <div className="mt-3 p-2 bg-white rounded border border-blue-300">
-                <strong>Método del Volumen Desplazado:</strong>
-                <div className="mt-1 space-y-1">
-                  <div>• <strong>Volumen = Msss - Ma</strong> (agua desplazada en cm³)</div>
-                  <div>• <strong>Densidad SSS = Msss / Vol</strong></div>
-                  <div>• <strong>Densidad Seca = Ms / Vol</strong></div>
+          {esArena ? (
+            <>
+              {/* FORMULARIO PARA ARENA */}
+              <Alert className="bg-blue-50 border-blue-200">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-sm text-blue-800">
+                  <strong>Nomenclatura según NMX-C-165-ONNCCE-2020:</strong>
+                  <ul className="mt-2 space-y-1 ml-4">
+                    <li>• <strong>S</strong> = Masa de la muestra saturada y superficie seca (g)</li>
+                    <li>• <strong>B</strong> = Masa del picnómetro con agua (g)</li>
+                    <li>• <strong>C</strong> = Masa del picnómetro con la muestra y agua (g)</li>
+                    <li>• <strong>%Abs</strong> = Porcentaje de absorción</li>
+                  </ul>
+                  <div className="mt-3 p-2 bg-white rounded border border-blue-300">
+                    <strong>Fórmulas:</strong>
+                    <div className="mt-1 space-y-1 font-mono text-xs">
+                      <div>• <strong>M<sub>esss</sub> = S / (B + S - C)</strong></div>
+                      <div>• <strong>M<sub>es</sub> = M<sub>esss</sub> / (1 + (%Abs/100))</strong></div>
+                    </div>
+                  </div>
+                </AlertDescription>
+              </Alert>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="masa_muestra_sss" className="flex items-center gap-2">
+                    <span>Masa de la Muestra SSS</span>
+                    <Badge variant="outline" className="text-xs font-mono">S</Badge>
+                  </Label>
+                  <Input
+                    id="masa_muestra_sss"
+                    type="number"
+                    step="0.01"
+                    value={formData.masa_muestra_sss || ''}
+                    onChange={(e) => handleInputChange('masa_muestra_sss', e.target.value)}
+                    className={errors.masa_muestra_sss ? 'border-red-500' : ''}
+                    placeholder="678.0"
+                  />
+                  {errors.masa_muestra_sss && (
+                    <p className="text-sm text-red-600">{errors.masa_muestra_sss}</p>
+                  )}
+                  <p className="text-xs text-gray-500">Masa de la muestra sat. y sup. Seco (g)</p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="masa_picnometro_agua" className="flex items-center gap-2">
+                    <span>Masa del Picnómetro con Agua</span>
+                    <Badge variant="outline" className="text-xs font-mono">B</Badge>
+                  </Label>
+                  <Input
+                    id="masa_picnometro_agua"
+                    type="number"
+                    step="0.01"
+                    value={formData.masa_picnometro_agua || ''}
+                    onChange={(e) => handleInputChange('masa_picnometro_agua', e.target.value)}
+                    className={errors.masa_picnometro_agua ? 'border-red-500' : ''}
+                    placeholder="1550.0"
+                  />
+                  {errors.masa_picnometro_agua && (
+                    <p className="text-sm text-red-600">{errors.masa_picnometro_agua}</p>
+                  )}
+                  <p className="text-xs text-gray-500">Masa del picnómetro con agua (g)</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="masa_picnometro_muestra_agua" className="flex items-center gap-2">
+                    <span>Masa del Picnómetro con Muestra y Agua</span>
+                    <Badge variant="outline" className="text-xs font-mono">C</Badge>
+                  </Label>
+                  <Input
+                    id="masa_picnometro_muestra_agua"
+                    type="number"
+                    step="0.01"
+                    value={formData.masa_picnometro_muestra_agua || ''}
+                    onChange={(e) => handleInputChange('masa_picnometro_muestra_agua', e.target.value)}
+                    className={errors.masa_picnometro_muestra_agua ? 'border-red-500' : ''}
+                    placeholder="1972.0"
+                  />
+                  {errors.masa_picnometro_muestra_agua && (
+                    <p className="text-sm text-red-600">{errors.masa_picnometro_muestra_agua}</p>
+                  )}
+                  <p className="text-xs text-gray-500">Masa del picnómetro con la muestra y agua (g)</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="porcentaje_absorcion" className="flex items-center gap-2">
+                    <span>Porcentaje de Absorción</span>
+                    <Badge variant="outline" className="text-xs font-mono">%Abs</Badge>
+                  </Label>
+                  <Input
+                    id="porcentaje_absorcion"
+                    type="number"
+                    step="0.01"
+                    value={formData.porcentaje_absorcion || ''}
+                    onChange={(e) => handleInputChange('porcentaje_absorcion', e.target.value)}
+                    className={errors.porcentaje_absorcion ? 'border-red-500' : ''}
+                    placeholder="1.01"
+                  />
+                  {errors.porcentaje_absorcion && (
+                    <p className="text-sm text-red-600">{errors.porcentaje_absorcion}</p>
+                  )}
+                  <p className="text-xs text-gray-500">% Absorción</p>
                 </div>
               </div>
-            </AlertDescription>
-          </Alert>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="peso_seca_horno" className="flex items-center gap-2">
-                <span>Peso Seco al Horno</span>
-                <Badge variant="outline" className="text-xs font-mono">Ms</Badge>
-              </Label>
-              <Input
-                id="peso_seca_horno"
-                type="number"
-                step="0.01"
-                value={formData.peso_muestra_seca_horno || ''}
-                onChange={(e) => handleInputChange('peso_muestra_seca_horno', e.target.value)}
-                className={errors.peso_muestra_seca_horno ? 'border-red-500' : ''}
-                placeholder="gramos"
-              />
-              {errors.peso_muestra_seca_horno && (
-                <p className="text-sm text-red-600">{errors.peso_muestra_seca_horno}</p>
+              {/* Mostrar el cálculo intermedio */}
+              {formData.masa_muestra_sss && formData.masa_picnometro_agua && formData.masa_picnometro_muestra_agua && 
+               (formData.masa_picnometro_agua + formData.masa_muestra_sss - formData.masa_picnometro_muestra_agua) > 0 && (
+                <div className="mt-4 p-4 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/30">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Calculator className="h-5 w-5 text-[#069e2d]" />
+                      <span className="font-medium text-[#069e2d]">Cálculo Intermedio:</span>
+                    </div>
+                    <div className="text-sm font-mono bg-white p-3 rounded border space-y-1">
+                      <div>B + S - C = {formData.masa_picnometro_agua.toFixed(2)} + {formData.masa_muestra_sss.toFixed(2)} - {formData.masa_picnometro_muestra_agua.toFixed(2)}</div>
+                      <div className="text-[#069e2d] font-bold">
+                        = {(formData.masa_picnometro_agua + formData.masa_muestra_sss - formData.masa_picnometro_muestra_agua).toFixed(2)} g
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
-              <p className="text-xs text-gray-500">Secado a 110°C ± 5°C hasta masa constante</p>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="peso_sss" className="flex items-center gap-2">
-                <span>Peso Saturado SSS</span>
-                <Badge variant="outline" className="text-xs font-mono">Msss</Badge>
-              </Label>
-              <Input
-                id="peso_sss"
-                type="number"
-                step="0.01"
-                value={formData.peso_muestra_sss || ''}
-                onChange={(e) => handleInputChange('peso_muestra_sss', e.target.value)}
-                className={errors.peso_muestra_sss ? 'border-red-500' : ''}
-                placeholder="gramos"
-              />
-              {errors.peso_muestra_sss && (
-                <p className="text-sm text-red-600">{errors.peso_muestra_sss}</p>
-              )}
-              <p className="text-xs text-gray-500">Saturado superficialmente seco (24h de inmersión)</p>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="peso_sumergida" className="flex items-center gap-2">
-                <span>Peso Sumergido en Agua</span>
-                <Badge variant="outline" className="text-xs font-mono">Ma</Badge>
-              </Label>
-              <Input
-                id="peso_sumergida"
-                type="number"
-                step="0.01"
-                value={formData.peso_muestra_sumergida || ''}
-                onChange={(e) => handleInputChange('peso_muestra_sumergida', e.target.value)}
-                className={errors.peso_muestra_sumergida ? 'border-red-500' : ''}
-                placeholder="gramos"
-              />
-              {errors.peso_muestra_sumergida && (
-                <p className="text-sm text-red-600">{errors.peso_muestra_sumergida}</p>
-              )}
-              <p className="text-xs text-gray-500">Peso en agua a temperatura controlada (dentro del picnómetro)</p>
-            </div>
-          </div>
-          
-          {/* Mostrar el volumen desplazado calculado */}
-          <div className="mt-4 p-4 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/30">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Beaker className="h-5 w-5 text-[#069e2d]" />
-                <span className="font-medium text-[#069e2d]">Volumen Desplazado:</span>
+            </>
+          ) : (
+            <>
+              {/* FORMULARIO PARA GRAVA - NMX-C-164-ONNCCE-2014 */}
+              <Alert className="bg-blue-50 border-blue-200">
+                <Info className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-sm text-blue-800">
+                  <strong>Nomenclatura según NMX-C-164-ONNCCE-2014:</strong>
+                  <ul className="mt-2 space-y-1 ml-4">
+                    <li>• <strong>M<sub>ag</sub><sup>SSS</sup></strong> = Masa de la muestra SSS en aire (kg)</li>
+                    <li>• <strong>M<sub>a</sub></strong> = Masa del agua desalojada a razón de 1 dm³ por kg</li>
+                  </ul>
+                  <div className="mt-3 p-2 bg-white rounded border border-blue-300">
+                    <strong>Método del Picnómetro Tipo Sifón (Ecuación 11):</strong>
+                    <div className="mt-1 space-y-1 font-mono text-xs">
+                      <div>• <strong>D<sub>r</sub> SSS = M<sub>ag</sub><sup>SSS</sup> / M<sub>a</sub></strong></div>
+                    </div>
+                  </div>
+                </AlertDescription>
+              </Alert>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="masa_muestra_sss_grava" className="flex items-center gap-2">
+                    <span>Masa de la Muestra SSS en Aire</span>
+                    <Badge variant="outline" className="text-xs font-mono">M<sub>ag</sub><sup>SSS</sup></Badge>
+                  </Label>
+                  <Input
+                    id="masa_muestra_sss_grava"
+                    type="number"
+                    step="0.001"
+                    value={formData.masa_muestra_sss_grava || ''}
+                    onChange={(e) => handleInputChange('masa_muestra_sss_grava', e.target.value)}
+                    className={errors.masa_muestra_sss_grava ? 'border-red-500' : ''}
+                    placeholder="kg"
+                  />
+                  {errors.masa_muestra_sss_grava && (
+                    <p className="text-sm text-red-600">{errors.masa_muestra_sss_grava}</p>
+                  )}
+                  <p className="text-xs text-gray-500">Masa de la muestra SSS en aire, en kg</p>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="masa_agua_desalojada" className="flex items-center gap-2">
+                    <span>Masa del Agua Desalojada</span>
+                    <Badge variant="outline" className="text-xs font-mono">M<sub>a</sub></Badge>
+                  </Label>
+                  <Input
+                    id="masa_agua_desalojada"
+                    type="number"
+                    step="0.001"
+                    value={formData.masa_agua_desalojada || ''}
+                    onChange={(e) => handleInputChange('masa_agua_desalojada', e.target.value)}
+                    className={errors.masa_agua_desalojada ? 'border-red-500' : ''}
+                    placeholder="kg"
+                  />
+                  {errors.masa_agua_desalojada && (
+                    <p className="text-sm text-red-600">{errors.masa_agua_desalojada}</p>
+                  )}
+                  <p className="text-xs text-gray-500">Masa del agua desalojada a razón de 1 dm³ por kg</p>
+                </div>
               </div>
-              <Badge className="bg-[#069e2d] text-white text-lg px-3 py-1">
-                {formData.volumen_desplazado.toFixed(2)} cm³
-              </Badge>
-            </div>
-            <p className="text-xs text-gray-600 mt-2">
-              Vol = Msss - Ma = {formData.peso_muestra_sss.toFixed(2)} - {formData.peso_muestra_sumergida.toFixed(2)} = {formData.volumen_desplazado.toFixed(2)} cm³
-            </p>
-          </div>
+              
+              {/* Mostrar el cálculo de Dr SSS */}
+              {formData.masa_muestra_sss_grava && formData.masa_agua_desalojada && 
+               formData.masa_muestra_sss_grava > 0 && formData.masa_agua_desalojada > 0 && (
+                <div className="mt-4 p-4 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/30">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Calculator className="h-5 w-5 text-[#069e2d]" />
+                      <span className="font-medium text-[#069e2d]">Cálculo de Densidad Relativa SSS:</span>
+                    </div>
+                    <div className="text-sm font-mono bg-white p-3 rounded border space-y-1">
+                      <div>D<sub>r</sub> SSS = M<sub>ag</sub><sup>SSS</sup> / M<sub>a</sub></div>
+                      <div>D<sub>r</sub> SSS = {formData.masa_muestra_sss_grava.toFixed(3)} / {formData.masa_agua_desalojada.toFixed(3)}</div>
+                      <div className="text-[#069e2d] font-bold">
+                        D<sub>r</sub> SSS = {(formData.masa_muestra_sss_grava / formData.masa_agua_desalojada).toFixed(3)} (adimensional)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -487,62 +709,125 @@ export default function DensidadForm({
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Densidad Relativa SSS (Principal) */}
-            <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
-              <div className="flex items-center gap-2">
-                <Scale className="h-5 w-5 text-[#069e2d]" />
-                <span className="font-medium text-[#069e2d]">Densidad Relativa SSS:</span>
-              </div>
-              <Badge className="bg-[#069e2d] text-white text-xl px-4 py-2">
-                {formData.densidad_relativa_sss.toFixed(3)} g/cm³
-              </Badge>
-            </div>
-            
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <div className="text-sm text-gray-600 mb-1">Fórmula según {normaAplicable}:</div>
-              <div className="text-xs font-mono bg-white p-2 rounded border space-y-1">
-                <div><strong>Dr SSS = Msss / Vol</strong></div>
-                <div className="text-gray-600 mt-1">Donde:</div>
-                <div>• Dr SSS = Densidad relativa saturada superficie seca</div>
-                <div>• Msss = Peso saturado SSS (g)</div>
-                <div>• Vol = Volumen desplazado = Msss - Ma (cm³)</div>
-              </div>
-              <div className="mt-2 text-xs bg-blue-50 p-2 rounded border border-blue-200 text-blue-800">
-                <strong>Cálculo:</strong> Dr SSS = {formData.peso_muestra_sss.toFixed(2)} / {formData.volumen_desplazado.toFixed(2)} = {formData.densidad_relativa_sss.toFixed(3)} g/cm³
-              </div>
-            </div>
+            {esArena ? (
+              <>
+                {/* RESULTADOS PARA ARENA */}
+                {/* Masa específica SSS (Principal) */}
+                <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Scale className="h-5 w-5 text-[#069e2d]" />
+                    <span className="font-medium text-[#069e2d]">Masa Específica S.S.S:</span>
+                  </div>
+                  <Badge className="bg-[#069e2d] text-white text-xl px-4 py-2">
+                    {formData.densidad_relativa_sss.toFixed(3)} g/cm³
+                  </Badge>
+                </div>
+                
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <div className="text-sm text-gray-600 mb-1">Fórmula según NMX-C-165-ONNCCE-2020:</div>
+                  <div className="text-xs font-mono bg-white p-2 rounded border space-y-1">
+                    <div><strong>M<sub>esss</sub> = S / (B + S - C)</strong></div>
+                    <div className="text-gray-600 mt-1">Donde:</div>
+                    <div>• M<sub>esss</sub> = Masa específica S.S.S (g/cm³)</div>
+                    <div>• S = Masa de la muestra sat. y sup. Seco (g)</div>
+                    <div>• B = Masa del picnómetro con agua (g)</div>
+                    <div>• C = Masa del picnómetro con la muestra y agua (g)</div>
+                  </div>
+                  {formData.masa_muestra_sss && formData.masa_picnometro_agua && formData.masa_picnometro_muestra_agua && (
+                    <div className="mt-2 text-xs bg-blue-50 p-2 rounded border border-blue-200 text-blue-800">
+                      <strong>Cálculo:</strong> M<sub>esss</sub> = {formData.masa_muestra_sss.toFixed(2)} / ({formData.masa_picnometro_agua.toFixed(2)} + {formData.masa_muestra_sss.toFixed(2)} - {formData.masa_picnometro_muestra_agua.toFixed(2)}) = {formData.densidad_relativa_sss.toFixed(3)} g/cm³
+                    </div>
+                  )}
+                </div>
 
-            <Separator />
+                <Separator />
 
-            {/* Otros Valores */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-600 mb-1">Densidad Relativa Seca</div>
-                <div className="text-lg font-semibold text-gray-900">{formData.densidad_relativa_seca.toFixed(3)} g/cm³</div>
-                <div className="text-xs text-gray-500 mt-1">Ms / Vol</div>
-                <div className="text-xs text-gray-400 mt-1 italic">
-                  = {formData.peso_muestra_seca_horno.toFixed(2)} / {formData.volumen_desplazado.toFixed(2)}
+                {/* Masa específica seca */}
+                <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2">
+                    <Scale className="h-5 w-5 text-blue-600" />
+                    <span className="font-medium text-blue-800">Masa Específica (Seca):</span>
+                  </div>
+                  <Badge className="bg-blue-600 text-white text-xl px-4 py-2">
+                    {formData.densidad_relativa_seca.toFixed(3)} g/cm³
+                  </Badge>
                 </div>
-              </div>
-              
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <div className="text-xs text-gray-600 mb-1">Densidad Aparente</div>
-                <div className="text-lg font-semibold text-gray-900">{formData.densidad_aparente.toFixed(3)} g/cm³</div>
-                <div className="text-xs text-gray-500 mt-1">Ms / (Ms - Ma)</div>
-                <div className="text-xs text-gray-400 mt-1 italic">
-                  Solo volumen sólido (sin poros)
+                
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <div className="text-sm text-gray-600 mb-1">Fórmula:</div>
+                  <div className="text-xs font-mono bg-white p-2 rounded border space-y-1">
+                    <div><strong>M<sub>es</sub> = M<sub>esss</sub> / (1 + (%Abs/100))</strong></div>
+                    <div className="text-gray-600 mt-1">Donde:</div>
+                    <div>• M<sub>es</sub> = Masa específica seca (g/cm³)</div>
+                    <div>• M<sub>esss</sub> = Masa específica S.S.S (g/cm³)</div>
+                    <div>• %Abs = Porcentaje de absorción</div>
+                  </div>
+                  {formData.porcentaje_absorcion && formData.porcentaje_absorcion > 0 && (
+                    <div className="mt-2 text-xs bg-blue-50 p-2 rounded border border-blue-200 text-blue-800">
+                      <strong>Cálculo:</strong> M<sub>es</sub> = {formData.densidad_relativa_sss.toFixed(3)} / (1 + ({formData.porcentaje_absorcion.toFixed(2)}/100)) = {formData.densidad_relativa_sss.toFixed(3)} / {(1 + formData.porcentaje_absorcion/100).toFixed(4)} = {formData.densidad_relativa_seca.toFixed(3)} g/cm³
+                    </div>
+                  )}
                 </div>
-              </div>
-              
-              <div className="p-3 bg-[#069e2d]/10 rounded-lg">
-                <div className="text-xs text-[#069e2d] mb-1 flex items-center gap-1">
-                  <Droplets className="h-3 w-3" />
-                  Absorción
+
+                <Separator />
+
+                {/* Absorción */}
+                <div className="p-4 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/20">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Droplets className="h-5 w-5 text-[#069e2d]" />
+                      <span className="font-medium text-[#069e2d]">Porcentaje de Absorción:</span>
+                    </div>
+                    <Badge className="bg-[#069e2d] text-white text-xl px-4 py-2">
+                      {formData.absorcion.toFixed(2)}%
+                    </Badge>
+                  </div>
                 </div>
-                <div className="text-lg font-semibold text-[#069e2d]">{formData.absorcion.toFixed(2)}%</div>
-                <div className="text-xs text-gray-500 mt-1">[(Msss - Ms) / Ms] × 100</div>
-              </div>
-            </div>
+              </>
+            ) : (
+              <>
+                {/* RESULTADOS PARA GRAVA */}
+                {/* Densidad Relativa SSS (Principal) */}
+                <div className="flex justify-between items-center p-4 bg-[#069e2d]/10 rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <Scale className="h-5 w-5 text-[#069e2d]" />
+                    <span className="font-medium text-[#069e2d]">Densidad Relativa SSS (D<sub>r</sub> SSS):</span>
+                  </div>
+                  <Badge className="bg-[#069e2d] text-white text-xl px-4 py-2">
+                    {formData.densidad_relativa_sss.toFixed(3)}
+                  </Badge>
+                </div>
+                
+                <div className="p-3 bg-gray-50 rounded-lg">
+                  <div className="text-sm text-gray-600 mb-1">Fórmula según NMX-C-164-ONNCCE-2014 (Ecuación 11):</div>
+                  <div className="text-xs font-mono bg-white p-2 rounded border space-y-1">
+                    <div><strong>D<sub>r</sub> SSS = M<sub>ag</sub><sup>SSS</sup> / M<sub>a</sub></strong></div>
+                    <div className="text-gray-600 mt-1">Donde:</div>
+                    <div>• D<sub>r</sub> SSS = Densidad relativa saturada y superficialmente seca (adimensional)</div>
+                    <div>• M<sub>ag</sub><sup>SSS</sup> = Masa de la muestra SSS en aire (kg)</div>
+                    <div>• M<sub>a</sub> = Masa del agua desalojada a razón de 1 dm³ por kg</div>
+                  </div>
+                  {formData.masa_muestra_sss_grava && formData.masa_agua_desalojada && (
+                    <div className="mt-2 text-xs bg-blue-50 p-2 rounded border border-blue-200 text-blue-800">
+                      <strong>Cálculo:</strong> D<sub>r</sub> SSS = {formData.masa_muestra_sss_grava.toFixed(3)} / {formData.masa_agua_desalojada.toFixed(3)} = {formData.densidad_relativa_sss.toFixed(3)}
+                    </div>
+                  )}
+                </div>
+
+                <Separator />
+
+                <Alert>
+                  <Info className="h-4 w-4" />
+                  <AlertDescription className="text-sm">
+                    <strong>Nota:</strong> La densidad relativa SSS es un valor adimensional que representa la relación entre la masa de la muestra y el volumen de agua desplazada. 
+                    Este valor es fundamental para el diseño de mezclas de concreto y para determinar la calidad del agregado grueso.
+                    <div className="mt-2 text-xs text-gray-600">
+                      Para obtener otros valores como densidad seca o absorción, se requiere realizar ensayos adicionales según la norma NMX-C-164-ONNCCE-2014.
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              </>
+            )}
 
             <Separator className="my-4" />
 
