@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { z } from 'zod';
 import { 
   GetActivitiesQuerySchema,
   MaterialEntryInputSchema,
@@ -223,7 +224,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     // Validate material entry data
-    const validatedData = MaterialEntryInputSchema.parse(body);
+    const validatedData = MaterialEntryInputSchema.parse(body) as z.infer<typeof MaterialEntryInputSchema>;
     
     // Validate that plant_id is provided, or use user's assigned plant as fallback
     let targetPlantId = validatedData.plant_id;
@@ -323,13 +324,19 @@ export async function POST(request: NextRequest) {
       received_uom: validatedData.received_uom || (validatedData.po_item_id ? 'kg' : null),
       received_qty_entered: validatedData.received_qty_entered || (validatedData.po_item_id ? validatedData.quantity_received : null),
       received_qty_kg: validatedData.received_uom === 'l' && validatedData.received_qty_entered
-        ? null // compute later in PUT flow
+        ? null // liters pass-through; not converting
         : (validatedData.po_item_id ? validatedData.quantity_received : null),
       supplier_invoice: validatedData.supplier_invoice || null,
       inventory_before: inventoryBefore,
       inventory_after: inventoryAfter,
       notes: validatedData.notes || null,
-      entered_by: profile.id
+      entered_by: profile.id,
+      // Fleet PO linkage
+      fleet_po_id: validatedData.fleet_po_id || null,
+      fleet_po_item_id: validatedData.fleet_po_item_id || null,
+      fleet_qty_entered: validatedData.fleet_qty_entered || null,
+      fleet_uom: validatedData.fleet_uom || null,
+      fleet_supplier_id: validatedData.fleet_supplier_id || null
     };
 
     console.log('Inserting entry data:', entryData);
@@ -453,10 +460,10 @@ export async function PUT(request: NextRequest) {
 
     // Optional: Link PO item with unit conversion and caps
     if (updateData.po_item_id) {
-      // Fetch PO item and header
+      // Fetch PO item, header, material densities
       const { data: poItem, error: poItemErr } = await supabase
         .from('purchase_order_items')
-        .select('*, po:purchase_orders!po_id (id, plant_id, supplier_id, status), material:materials!material_id (id, density_kg_per_l)')
+        .select('*, po:purchase_orders!po_id (id, plant_id, supplier_id, status), material:materials!material_id (id, density_kg_per_l, bulk_density_kg_per_m3)')
         .eq('id', updateData.po_item_id)
         .single();
       if (poItemErr || !poItem) {
@@ -468,63 +475,122 @@ export async function PUT(request: NextRequest) {
       if (!poItem.is_service && poItem.material_id !== currentEntry.material_id) {
         return NextResponse.json({ success: false, error: 'El material de la entrada no coincide con el del PO' }, { status: 400 });
       }
-      // Compute ordered kg
-      let orderedKg = Number(poItem.qty_ordered) || 0;
-      if (!poItem.is_service && poItem.uom === 'l') {
-        const density = Number(poItem.material?.density_kg_per_l) || 0;
-        if (!density) {
-          return NextResponse.json({ success: false, error: 'Material sin densidad definida para conversión L→kg' }, { status: 400 });
-        }
-        orderedKg = orderedKg * density;
+      // Enforce supplier match when provided
+      const entrySupplier = updateData.supplier_id || currentEntry.supplier_id || null;
+      if (entrySupplier && entrySupplier !== poItem.po.supplier_id) {
+        return NextResponse.json({ success: false, error: 'El proveedor de la entrada no coincide con el proveedor del PO' }, { status: 400 });
       }
-      const alreadyReceivedKg = Number(poItem.qty_received_kg) || 0;
-      // Determine new received kg for this entry
-      let newReceivedKg: number;
-      if (updateData.received_uom && updateData.received_qty_entered) {
-        if (updateData.received_uom === 'kg') newReceivedKg = updateData.received_qty_entered;
-        else {
-          const density = Number(poItem.material?.density_kg_per_l) || 0;
-          if (!density) {
-            return NextResponse.json({ success: false, error: 'Material sin densidad definida para conversión L→kg' }, { status: 400 });
+      // If entry supplier not set, default to PO supplier for traceability
+      if (!currentEntry.supplier_id && !updateData.supplier_id) {
+        updatePayload.supplier_id = poItem.po.supplier_id;
+      }
+
+      // Resolve received quantities based on UoM
+      let newReceivedKg = 0;
+      let newReceivedNative = 0;
+      let nativeUom = poItem.uom as string | null;
+
+      // Liters pass-through: use native liters, do not convert to kg
+      if (!poItem.is_service && poItem.uom === 'l') {
+        // Prefer explicitly provided quantities; else fallback to quantity_received
+        const entered = updateData.received_qty_entered ?? updateData.quantity_received ?? currentEntry.received_qty_entered ?? currentEntry.quantity_received ?? 0;
+        newReceivedNative = Number(entered) || 0;
+        nativeUom = 'l';
+        updatePayload.received_uom = 'l';
+        updatePayload.received_qty_entered = newReceivedNative;
+        updatePayload.received_qty_kg = null; // no conversion for liters
+      }
+      // m3: resolve volumetric weight and compute kg
+      else if (!poItem.is_service && poItem.uom === 'm3') {
+        const enteredM3 = updateData.received_qty_entered ?? updateData.quantity_received ?? currentEntry.received_qty_entered ?? currentEntry.quantity_received ?? 0;
+        newReceivedNative = Number(enteredM3) || 0;
+        nativeUom = 'm3';
+        // Resolve volumetric weight
+        let volW: number | null = poItem.volumetric_weight_kg_per_m3 ?? null;
+        let volSource: string | null = volW ? 'po_item' : null;
+        if (!volW) {
+          // Try supplier agreement
+          const supplierId = poItem.po.supplier_id;
+          const { data: agreement } = await supabase
+            .from('supplier_agreements')
+            .select('volumetric_weight_kg_per_m3')
+            .eq('supplier_id', supplierId)
+            .eq('is_service', false)
+            .eq('material_id', poItem.material_id)
+            .is('effective_to', null)
+            .limit(1)
+            .single();
+          if (agreement?.volumetric_weight_kg_per_m3) {
+            volW = Number(agreement.volumetric_weight_kg_per_m3);
+            volSource = 'supplier_agreement';
           }
-          newReceivedKg = updateData.received_qty_entered * density;
         }
-        updatePayload.received_uom = updateData.received_uom;
-        updatePayload.received_qty_entered = updateData.received_qty_entered;
+        if (!volW && poItem.material?.bulk_density_kg_per_m3) {
+          volW = Number(poItem.material.bulk_density_kg_per_m3);
+          volSource = 'material_default';
+        }
+        if (!volW && updateData.volumetric_weight_kg_per_m3) {
+          volW = Number(updateData.volumetric_weight_kg_per_m3);
+          volSource = 'entry';
+        }
+        if (!volW) {
+          return NextResponse.json({ success: false, error: 'Se requiere peso volumétrico (kg/m³) para convertir m³ a kg' }, { status: 400 });
+        }
+        newReceivedKg = newReceivedNative * volW;
+        updatePayload.received_uom = 'm3';
+        updatePayload.received_qty_entered = newReceivedNative;
         updatePayload.received_qty_kg = newReceivedKg;
-      } else {
-        // Fallback to entry quantity_received (assumed kg)
-        newReceivedKg = Number(updateData.quantity_received ?? currentEntry.quantity_received) || 0;
+        updatePayload.volumetric_weight_kg_per_m3 = volW;
+        updatePayload.volumetric_weight_source = volSource;
+      }
+      // kg (default)
+      else {
+        const enteredKg = updateData.received_qty_entered ?? updateData.quantity_received ?? currentEntry.received_qty_entered ?? currentEntry.quantity_received ?? 0;
+        newReceivedNative = Number(enteredKg) || 0;
+        nativeUom = 'kg';
+        newReceivedKg = newReceivedNative;
         updatePayload.received_uom = 'kg';
-        updatePayload.received_qty_entered = newReceivedKg;
+        updatePayload.received_qty_entered = newReceivedNative;
         updatePayload.received_qty_kg = newReceivedKg;
       }
 
-      // Compute delta if previously linked
-      const previousReceivedKg = Number(currentEntry.received_qty_kg) || 0;
-      const deltaKg = Math.max(newReceivedKg - previousReceivedKg, 0);
-      const remainingKg = orderedKg - alreadyReceivedKg;
-      if (deltaKg > remainingKg + 1e-6) {
-        return NextResponse.json({ success: false, error: 'Cantidad excede el saldo disponible del PO' }, { status: 400 });
+      // Remaining validation based on native UoM
+      const alreadyReceivedNative = Number(poItem.qty_received_native || 0);
+      const orderedNative = Number(poItem.qty_ordered || 0);
+
+      // Compute previous native from current entry to find delta
+      let previousNative = 0;
+      if (currentEntry.received_uom === 'l') previousNative = Number(currentEntry.received_qty_entered || 0);
+      else if (currentEntry.received_uom === 'm3') previousNative = Number(currentEntry.received_qty_entered || 0);
+      else previousNative = Number(currentEntry.received_qty_kg || currentEntry.quantity_received || 0);
+
+      const deltaNative = Math.max(newReceivedNative - previousNative, 0);
+      if (deltaNative > (orderedNative - alreadyReceivedNative) + 1e-6) {
+        return NextResponse.json({ success: false, error: 'Cantidad excede el saldo disponible del PO (UoM nativa)' }, { status: 400 });
       }
 
       updatePayload.po_item_id = updateData.po_item_id;
       updatePayload.po_id = poItem.po.id;
 
-      // Enforce price lock by default: set unit_price from PO item for materials
+      // Enforce price lock by default for materials (services handled elsewhere)
       if (!poItem.is_service) {
         const elevated = profile.role === 'EXECUTIVE' || profile.role === 'ADMINISTRATIVE';
         if (!elevated || updateData.unit_price === undefined) {
           updatePayload.unit_price = Number(poItem.unit_price);
         }
-        // If total_cost not provided, compute from unit_price and entry qty (kg)
         if (updatePayload.unit_price !== undefined && (updateData.total_cost === undefined)) {
-          const qtyForCost = Number(updateData.quantity_received ?? currentEntry.quantity_received) || 0;
+          const qtyForCost = newReceivedNative; // cost based on native UoM price
           updatePayload.total_cost = Number(updatePayload.unit_price) * qtyForCost;
         }
       }
-      // After update succeeds, we'll increment the PO item qty_received_kg by deltaKg
-      updatePayload.__po_delta_kg = deltaKg; // internal flag (will be removed before DB update if necessary)
+
+      // After update succeeds, update PO item tallies (native and kg)
+      updatePayload.__po_delta_native = deltaNative;
+      updatePayload.__po_native_uom = nativeUom;
+      // For kg/m3 we may track kg too
+      const previousKg = Number(currentEntry.received_qty_kg || 0);
+      const deltaKg = Math.max(newReceivedKg - previousKg, 0);
+      updatePayload.__po_delta_kg = deltaKg;
     }
 
     // If pricing fields are being updated, mark as reviewed
@@ -559,8 +625,13 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    // Remove internal helper before DB update if present
-    if ('__po_delta_kg' in updatePayload) delete updatePayload.__po_delta_kg;
+    // Remove internal helpers before DB update if present (we'll use local copies below)
+    const __po_delta_native = (updatePayload as any).__po_delta_native ?? 0;
+    const __po_delta_kg = (updatePayload as any).__po_delta_kg ?? 0;
+    const __po_native_uom = (updatePayload as any).__po_native_uom ?? null;
+    delete (updatePayload as any).__po_delta_native;
+    delete (updatePayload as any).__po_delta_kg;
+    delete (updatePayload as any).__po_native_uom;
 
     const { data: result, error: updateError } = await updateQuery.select().single();
 
@@ -568,35 +639,30 @@ export async function PUT(request: NextRequest) {
       throw new Error(`Error al actualizar entrada: ${updateError.message}`);
     }
 
-    // If linked to PO item, update the PO item received kg with delta
+    // If linked to PO item, update the PO item received tallies and status
     try {
-      if (updateData.po_item_id) {
-        // recompute delta based on currentEntry vs update
-        const newKg = Number(result.received_qty_kg) || Number(result.quantity_received) || 0;
-        const prevKg = Number(currentEntry.received_qty_kg) || 0;
-        const deltaKg = Math.max(newKg - prevKg, 0);
-        if (deltaKg > 0) {
-          const { data: poItem2, error: poErr2 } = await supabase
+      if (updateData.po_item_id && (__po_delta_native > 0 || __po_delta_kg > 0)) {
+        const { data: poItem2, error: poErr2 } = await supabase
+          .from('purchase_order_items')
+          .select('qty_received_native, qty_received_kg, qty_ordered, uom, is_service')
+          .eq('id', result.po_item_id)
+          .single();
+        if (!poErr2 && poItem2) {
+          const newReceivedNative = Number(poItem2.qty_received_native || 0) + __po_delta_native;
+          const newReceivedKg = Number(poItem2.qty_received_kg || 0) + __po_delta_kg;
+          // Determine status using native comparison for materials and services
+          const orderedNative = Number(poItem2.qty_ordered || 0);
+          let newStatus = 'partial';
+          if (newReceivedNative >= orderedNative - 1e-6) newStatus = 'fulfilled';
+
+          const updateFields: Record<string, any> = { qty_received_native: newReceivedNative, status: newStatus };
+          if (__po_delta_kg > 0) updateFields.qty_received_kg = newReceivedKg;
+
+          const { error: updPoItemErr } = await supabase
             .from('purchase_order_items')
-            .select('qty_received_kg, qty_ordered, uom, is_service, material:materials!material_id (density_kg_per_l)')
-            .eq('id', result.po_item_id)
-            .single();
-          if (!poErr2 && poItem2) {
-            const newReceived = Number(poItem2.qty_received_kg || 0) + deltaKg;
-            // Update status based on progress
-            let newStatus = 'partial';
-            let orderedKg2 = Number(poItem2.qty_ordered) || 0;
-            if (!poItem2.is_service && poItem2.uom === 'l') {
-              const density = Number(poItem2.material?.density_kg_per_l) || 0;
-              if (density) orderedKg2 = orderedKg2 * density;
-            }
-            if (newReceived >= orderedKg2 - 1e-6) newStatus = 'fulfilled';
-            const { error: updPoItemErr } = await supabase
-              .from('purchase_order_items')
-              .update({ qty_received_kg: newReceived, status: newStatus })
-              .eq('id', result.po_item_id);
-            if (updPoItemErr) console.error('Error actualizando avance de PO:', updPoItemErr);
-          }
+            .update(updateFields)
+            .eq('id', result.po_item_id);
+          if (updPoItemErr) console.error('Error actualizando avance de PO:', updPoItemErr);
         }
       }
     } catch (poProgressErr) {
@@ -605,7 +671,7 @@ export async function PUT(request: NextRequest) {
 
     // After updating entry, optionally upsert Accounts Payable records for material and fleet
     try {
-      // Resolve VAT from business unit
+      // Resolve VAT precedence: supplier agreements -> business unit default
       let vatRate = 0.16;
       const { data: plantRow } = await supabase
         .from('plants')
@@ -620,6 +686,21 @@ export async function PUT(request: NextRequest) {
           .single();
         if (buRow?.iva_rate !== null && buRow?.iva_rate !== undefined) {
           vatRate = buRow.iva_rate as unknown as number;
+        }
+      }
+      // Attempt to override from supplier agreement VAT if present
+      if (result.supplier_id) {
+        const { data: agreementVat } = await supabase
+          .from('supplier_agreements')
+          .select('vat_rate')
+          .eq('supplier_id', result.supplier_id)
+          .eq('is_service', false)
+          .eq('material_id', result.material_id)
+          .is('effective_to', null)
+          .limit(1)
+          .single();
+        if (agreementVat?.vat_rate !== null && agreementVat?.vat_rate !== undefined) {
+          vatRate = Number(agreementVat.vat_rate);
         }
       }
 
@@ -645,7 +726,10 @@ export async function PUT(request: NextRequest) {
       };
 
       // Upsert material payable item
-      const amountMaterial = (result.total_cost ?? ((result.unit_price || 0) * (result.quantity_received || 0)));
+      const nativeUom = result.received_uom || null;
+      const nativeQty = result.received_qty_entered || null;
+      const volUsed = result.volumetric_weight_kg_per_m3 || null;
+      const amountMaterial = (result.total_cost ?? ((result.unit_price || 0) * (nativeQty || 0)));
       if (result.supplier_id && result.supplier_invoice && amountMaterial > 0) {
         const materialPayableId = await upsertPayable(result.supplier_id, result.plant_id, result.supplier_invoice, result.ap_due_date_material, result.id);
         const { error: itemErr } = await supabase
@@ -655,6 +739,9 @@ export async function PUT(request: NextRequest) {
             entry_id: result.id,
             amount: amountMaterial,
             cost_category: 'material',
+            native_uom: nativeUom,
+            native_qty: nativeQty,
+            volumetric_weight_used: volUsed,
           }, { onConflict: 'entry_id,cost_category' });
         if (itemErr) throw new Error(`Error al registrar partida CXP material: ${itemErr.message}`);
       }

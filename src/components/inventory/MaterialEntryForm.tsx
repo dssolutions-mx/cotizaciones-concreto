@@ -42,6 +42,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
     quantity_received: 0,
     supplier_id: '',
     supplier_invoice: '',
+    fleet_supplier_id: '',
     notes: '',
     entry_date: new Date().toISOString().split('T')[0]
   })
@@ -51,8 +52,14 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
   const [existingDocuments, setExistingDocuments] = useState<any[]>([])
   const [poItems, setPoItems] = useState<any[]>([])
   const [selectedPoItemId, setSelectedPoItemId] = useState<string>('')
-  const [receivedUom, setReceivedUom] = useState<'kg' | 'l'>('kg')
+  const [receivedUom, setReceivedUom] = useState<'kg' | 'l' | 'm3'>('kg')
   const [receivedQtyEntered, setReceivedQtyEntered] = useState<number>(0)
+  const [volumetricWeight, setVolumetricWeight] = useState<number | undefined>(undefined)
+  
+  // Fleet PO state
+  const [fleetPoItems, setFleetPoItems] = useState<any[]>([])
+  const [selectedFleetPoItemId, setSelectedFleetPoItemId] = useState<string>('')
+  const [fleetQtyEntered, setFleetQtyEntered] = useState<number>(0)
 
   // Calculate inventory after
   const inventoryAfter = currentInventory !== null ? currentInventory + formData.quantity_received : null
@@ -140,6 +147,26 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
       }
     })()
   }, [formData.supplier_id])
+  
+  // Fetch fleet PO items when fleet supplier changes
+  useEffect(() => {
+    const plantId = currentPlant?.id || profile?.plant_id
+    if (!plantId || !formData.fleet_supplier_id) {
+      setFleetPoItems([])
+      return
+    }
+    ;(async () => {
+      const params = new URLSearchParams()
+      params.set('plant_id', plantId)
+      params.set('supplier_id', formData.fleet_supplier_id)
+      params.set('is_service', 'true')
+      const res = await fetch(`/api/po/items/search?${params.toString()}`)
+      if (res.ok) {
+        const data = await res.json()
+        setFleetPoItems(data.items || [])
+      }
+    })()
+  }, [formData.fleet_supplier_id, currentPlant?.id, profile?.plant_id])
 
   // Handle file upload
   const handleFileUpload = (files: FileList) => {
@@ -263,6 +290,28 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         }
       }
       
+      // Handle fleet PO linkage
+      if (selectedFleetPoItemId) {
+        const fleetItem = fleetPoItems.find(it => it.id === selectedFleetPoItemId)
+        if (fleetItem) {
+          if (!fleetQtyEntered || fleetQtyEntered <= 0) {
+            toast.error('Ingrese cantidad del servicio de flota')
+            setLoading(false)
+            return
+          }
+          const remaining = Number(fleetItem.qty_remaining) || 0
+          if (fleetQtyEntered > remaining + 1e-6) {
+            toast.error(`La cantidad excede el saldo disponible del PO de flota (${remaining.toLocaleString('es-MX')} ${fleetItem.uom})`)
+            setLoading(false)
+            return
+          }
+          requestBody.fleet_po_id = fleetItem.po?.id
+          requestBody.fleet_po_item_id = selectedFleetPoItemId
+          requestBody.fleet_qty_entered = fleetQtyEntered
+          requestBody.fleet_uom = fleetItem.uom
+        }
+      }
+      
       console.log('Request body being sent:', requestBody);
       
       const response = await fetch('/api/inventory/entries', {
@@ -292,11 +341,15 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
           quantity_received: 0,
           supplier_id: '',
           supplier_invoice: '',
+          fleet_supplier_id: '',
           notes: '',
           entry_date: new Date().toISOString().split('T')[0]
         })
         setCurrentInventory(null)
         setPendingFiles([]) // Clear pending files after successful upload
+        setSelectedPoItemId('')
+        setSelectedFleetPoItemId('')
+        setFleetQtyEntered(0)
         
         onSuccess?.()
       } else {
@@ -403,20 +456,74 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
               </div>
             </div>
             
+            {/* Quantity Input - adapts based on PO selection */}
             <div className="space-y-2">
-              <Label htmlFor="quantity_received">Cantidad Recibida (kg) *</Label>
-              <Input
-                id="quantity_received"
-                type="number"
-                step="0.01"
-                min="0"
-                value={formData.quantity_received || ''}
-                onChange={(e) => setFormData(prev => ({ 
-                  ...prev, 
-                  quantity_received: parseFloat(e.target.value) || 0 
-                }))}
-                required
-              />
+              {selectedPoItemId ? (
+                (() => {
+                  const it = poItems.find(p => p.id === selectedPoItemId)
+                  const isM3 = it && !it.is_service && it.uom === 'm3'
+                  const isL = it && !it.is_service && it.uom === 'l'
+                  const effectiveUom: 'kg' | 'l' | 'm3' = isM3 ? 'm3' : (isL ? 'l' : 'kg')
+                  return (
+                    <>
+                      <Label>Cantidad Ingresada *</Label>
+                      <div className="flex gap-2">
+                        <select
+                          className="border rounded px-3 py-2 text-sm"
+                          value={effectiveUom}
+                          onChange={(e) => setReceivedUom(e.target.value as any)}
+                          disabled={isM3}
+                        >
+                          <option value="kg">kg</option>
+                          <option value="l">l</option>
+                          <option value="m3">m3</option>
+                        </select>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="0.00"
+                          value={receivedQtyEntered || ''}
+                          onChange={(e) => setReceivedQtyEntered(parseFloat(e.target.value) || 0)}
+                          required
+                        />
+                      </div>
+                      {isM3 && (
+                        <div className="mt-2">
+                          <Label className="text-xs text-gray-600">Peso volumétrico (kg/m³)</Label>
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={volumetricWeight || ''}
+                            onChange={(e) => setVolumetricWeight(parseFloat(e.target.value) || undefined)}
+                            placeholder="Ej. 1400"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">Si el PO o un acuerdo de proveedor define el valor, se usará automáticamente. Proporcione uno solo si no está definido.</p>
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500">Ingrese en el UoM seleccionado; se validará contra el saldo del PO.</p>
+                    </>
+                  )
+                })()
+              ) : (
+                <>
+                  <Label htmlFor="quantity_received">Cantidad Recibida (kg) *</Label>
+                  <Input
+                    id="quantity_received"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.quantity_received || ''}
+                    onChange={(e) => setFormData(prev => ({ 
+                      ...prev, 
+                      quantity_received: parseFloat(e.target.value) || 0 
+                    }))}
+                    required
+                  />
+                  <p className="text-xs text-gray-500">Cantidad en kilogramos</p>
+                </>
+              )}
             </div>
           </div>
 
@@ -439,28 +546,28 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
               <p className="text-xs text-gray-500">Solo se muestran ítems abiertos o parciales con saldo.</p>
             </div>
 
-            <div className="space-y-2">
-              <Label>UoM y Cantidad Ingresada</Label>
-              <div className="flex gap-2">
-                <select
-                  className="border rounded px-3 py-2 text-sm"
-                  value={receivedUom}
-                  onChange={(e) => setReceivedUom(e.target.value as 'kg' | 'l')}
-                >
-                  <option value="kg">kg</option>
-                  <option value="l">l</option>
-                </select>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="Cantidad ingresada"
-                  value={receivedQtyEntered || ''}
-                  onChange={(e) => setReceivedQtyEntered(parseFloat(e.target.value) || 0)}
-                />
+            {selectedPoItemId && (
+              <div className="space-y-2">
+                <Label>Información del PO</Label>
+                <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                  {(() => {
+                    const it = poItems.find(it => it.id === selectedPoItemId)
+                    const uom = it?.uom || 'kg'
+                    const remaining = it?.qty_remaining_native ?? it?.remainingKg ?? 0
+                    return (
+                      <>
+                        <p className="text-xs text-blue-700">
+                          Precio: <span className="font-semibold">${Number(it?.unit_price || 0).toFixed(2)}/{uom}</span>
+                        </p>
+                        <p className="text-xs text-blue-700 mt-1">
+                          Restante: <span className="font-semibold">{Number(remaining).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {uom}</span>
+                        </p>
+                      </>
+                    )
+                  })()}
+                </div>
               </div>
-              <p className="text-xs text-gray-500">Si usa PO, este valor se valida contra el saldo disponible.</p>
-            </div>
+            )}
           </div>
 
           {/* Inventory Calculation */}
@@ -528,7 +635,7 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="supplier_id">Proveedor</Label>
+              <Label htmlFor="supplier_id">Proveedor de Material</Label>
               <SupplierSelect
                 value={formData.supplier_id || ''}
                 onChange={(value: string) => setFormData(prev => ({ ...prev, supplier_id: value }))}
@@ -548,6 +655,65 @@ export default function MaterialEntryForm({ onSuccess }: MaterialEntryFormProps)
                   placeholder="Ej: REM-2024-001"
                 />
               </div>
+            </div>
+          </div>
+          
+          {/* Fleet Provider Section */}
+          <div className="pt-4 border-t">
+            <h3 className="text-sm font-medium text-gray-700 mb-3">Servicio de Flota / Transporte</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="fleet_supplier_id">Proveedor de Flota</Label>
+                <SupplierSelect
+                  value={formData.fleet_supplier_id || ''}
+                  onChange={(value: string) => setFormData(prev => ({ ...prev, fleet_supplier_id: value }))}
+                  plantId={currentPlant?.id || profile?.plant_id || undefined}
+                />
+                <p className="text-xs text-gray-500">Opcional: Seleccione si se usó servicio de transporte</p>
+              </div>
+              
+              {formData.fleet_supplier_id && (
+                <>
+                  <div className="space-y-2">
+                    <Label>PO de Flota</Label>
+                    <select
+                      className="border rounded px-3 py-2 text-sm w-full"
+                      value={selectedFleetPoItemId}
+                      onChange={(e) => setSelectedFleetPoItemId(e.target.value)}
+                    >
+                      <option value="">Sin PO de flota</option>
+                      {fleetPoItems.map((it) => (
+                        <option key={it.id} value={it.id}>
+                          {`PO ${String(it.po?.id || '').slice(0,8)} · ${it.service_description || 'Servicio'} · Restante: ${(Number(it.qty_remaining)||0).toLocaleString('es-MX')} ${it.uom}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {selectedFleetPoItemId && (
+                    <div className="space-y-2 md:col-span-2">
+                      <Label>Cantidad de Servicio</Label>
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Cantidad"
+                          value={fleetQtyEntered || ''}
+                          onChange={(e) => setFleetQtyEntered(parseFloat(e.target.value) || 0)}
+                          className="max-w-xs"
+                        />
+                        <span className="text-sm text-gray-600">
+                          {fleetPoItems.find(it => it.id === selectedFleetPoItemId)?.uom || ''}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Ej: 2 viajes, 5 toneladas, etc.
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </CardContent>

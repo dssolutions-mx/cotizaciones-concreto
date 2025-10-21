@@ -372,8 +372,17 @@ export default function CxpPage() {
                                       {it.entry?.entry_number && (
                                         <span className="font-mono text-sm">{it.entry.entry_number}</span>
                                       )}
-                                      {it.entry?.po_id && it.entry?.po_item && (
-                                        <span className="ml-2 text-xs text-gray-500">PO {String(it.entry.po_item.po?.id || '').slice(0,8)}</span>
+                                      {/* Material PO reference */}
+                                      {!isFleet && it.entry?.po_id && it.entry?.po_item && (
+                                        <span className="ml-2 text-xs text-gray-500 bg-green-50 px-2 py-0.5 rounded border border-green-200">
+                                          PO-M: {String(it.entry.po_item.po?.id || '').slice(0,8)}
+                                        </span>
+                                      )}
+                                      {/* Fleet PO reference */}
+                                      {isFleet && it.entry?.fleet_po_id && it.entry?.fleet_po_item && (
+                                        <span className="ml-2 text-xs text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                                          PO-F: {String(it.entry.fleet_po_item.po?.id || '').slice(0,8)}
+                                        </span>
                                       )}
                                       {!isFleet && it.entry?.entry_date && (
                                         <span className="text-xs text-gray-500">
@@ -384,8 +393,11 @@ export default function CxpPage() {
                                     <div className="text-right flex items-center gap-4">
                                       {!isFleet && it.entry?.quantity_received !== undefined && (
                                         <span className="text-xs">
-                                          Cantidad: <b>{Number(it.entry.quantity_received).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</b>
+                                          Cantidad: <b>{Number(it.entry.received_qty_entered ?? it.entry.quantity_received).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</b> {it.entry.received_uom || 'kg'}
                                         </span>
+                                      )}
+                                      {!isFleet && it.entry?.volumetric_weight_kg_per_m3 && it.entry?.received_uom === 'm3' && (
+                                        <span className="text-[10px] text-gray-500"> · {Number(it.entry.volumetric_weight_kg_per_m3).toLocaleString('es-MX')} kg/m³</span>
                                       )}
                                       {!isFleet && it.entry?.unit_price !== undefined && (
                                         <span className="text-xs">
@@ -396,16 +408,22 @@ export default function CxpPage() {
                                         <span className="text-sm font-semibold">
                                           {mxn.format(Number(it.amount))}
                                         </span>
+                                        {/* Material PO progress */}
                                         {it.entry?.po_item && !isFleet && (
                                           <div className="text-[10px] text-gray-500 mt-0.5">
-                                            Avance PO: {Number(it.entry.po_item.qty_received_kg || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} / {(() => {
-                                              let orderedKg = Number(it.entry.po_item.qty_ordered || 0)
-                                              if (it.entry.po_item.uom === 'l') {
-                                                const density = Number(it.entry.po_item.material?.density_kg_per_l || 0)
-                                                if (density) orderedKg = orderedKg * density
-                                              }
-                                              return orderedKg.toLocaleString('es-MX', { minimumFractionDigits: 2 })
-                                            })()} kg
+                                            Avance PO: {Number(it.entry.po_item.qty_received_native || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} / {Number(it.entry.po_item.qty_ordered || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} {it.entry.po_item.uom || ''}
+                                          </div>
+                                        )}
+                                        {/* Fleet PO progress */}
+                                        {it.entry?.fleet_po_item && isFleet && (
+                                          <div className="text-[10px] text-blue-700 mt-0.5">
+                                            Avance: {Number(it.entry.fleet_po_item.qty_received || 0).toLocaleString('es-MX')} / {Number(it.entry.fleet_po_item.qty_ordered || 0).toLocaleString('es-MX')} {it.entry.fleet_po_item.uom || ''}
+                                          </div>
+                                        )}
+                                        {/* Fleet quantity entered */}
+                                        {isFleet && it.entry?.fleet_qty_entered && (
+                                          <div className="text-[10px] text-gray-600 mt-0.5">
+                                            Esta entrada: {Number(it.entry.fleet_qty_entered).toLocaleString('es-MX')} {it.entry.fleet_uom || ''}
                                           </div>
                                         )}
                                       </div>
