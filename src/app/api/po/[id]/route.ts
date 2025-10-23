@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { POHeaderUpdateSchema } from '@/lib/validations/po';
 
-export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -13,7 +14,7 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   const allowed = ['EXECUTIVE', 'ADMINISTRATIVE', 'ADMIN_OPERATIONS', 'PLANT_MANAGER'];
   if (!allowed.includes(profile.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  let query = supabase.from('purchase_orders').select('*').eq('id', params.id).single();
+  let query = supabase.from('purchase_orders').select('*').eq('id', id).single();
   if (profile.role === 'PLANT_MANAGER' && profile.plant_id) query = query.eq('plant_id', profile.plant_id);
 
   const { data, error } = await query;
@@ -21,7 +22,8 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
   return NextResponse.json({ purchase_order: data });
 }
 
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -33,13 +35,13 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
   if (!allowed.includes(profile.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await request.json();
-  const payload = POHeaderUpdateSchema.parse({ ...body, id: params.id });
+  const payload = POHeaderUpdateSchema.parse({ ...body, id });
 
-  const { id, ...update } = payload as any;
+  const { id: _id, ...update } = payload as any;
   const { data, error } = await supabase
     .from('purchase_orders')
     .update(update)
-    .eq('id', params.id)
+    .eq('id', id)
     .select('*')
     .single();
 

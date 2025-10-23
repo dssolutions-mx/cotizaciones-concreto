@@ -10,13 +10,20 @@ export interface MaterialEntry {
   unit_price?: number;
   total_cost?: number;
   supplier_invoice?: string;
-  // Purchase Order linkage
+  // Purchase Order linkage (for materials)
   po_id?: string | null;
   po_item_id?: string | null;
   // UoM capture for PO linkage
   received_qty_entered?: number | null; // raw entered quantity in entered_uom
-  received_uom?: 'kg' | 'l' | null; // standard material UoM
+  received_uom?: 'kg' | 'l' | 'm3' | null; // include m3
   received_qty_kg?: number | null; // canonical received quantity in kilograms
+  volumetric_weight_kg_per_m3?: number | null; // if m3 used
+  volumetric_weight_source?: 'po_item' | 'supplier_agreement' | 'material_default' | 'entry' | null;
+  // Fleet PO linkage
+  fleet_po_id?: string | null;
+  fleet_po_item_id?: string | null;
+  fleet_qty_entered?: number | null; // quantity in fleet UoM (trips, tons, etc.)
+  fleet_uom?: 'trips' | 'tons' | 'hours' | 'loads' | 'units' | null;
   // Accounts payable due dates (captured during review)
   ap_due_date_material?: string; // YYYY-MM-DD
   ap_due_date_fleet?: string; // YYYY-MM-DD
@@ -116,8 +123,9 @@ export interface MaterialEntryInput {
   // Optional PO capture during creation (usually linked during review)
   po_id?: string;
   po_item_id?: string;
-  received_uom?: 'kg' | 'l';
+  received_uom?: 'kg' | 'l' | 'm3';
   received_qty_entered?: number;
+  volumetric_weight_kg_per_m3?: number; // if m3 and no PO/agreement/default
 }
 
 export interface MaterialAdjustmentInput {

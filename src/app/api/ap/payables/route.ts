@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
     // Base query with supplier join and optional items
     const baseSelect = include === 'items'
-      ? `*, supplier:suppliers!supplier_id (name), items:payable_items (*, entry:material_entries!entry_id (quantity_received, unit_price, entry_number, entry_date, po_id, po_item_id, po_item:purchase_order_items!po_item_id (id, qty_ordered, qty_received_kg, uom, is_service, po:purchase_orders!po_id (id), material:materials!material_id (density_kg_per_l))))`
+      ? `*, supplier:suppliers!supplier_id (name), items:payable_items (*, native_uom, native_qty, volumetric_weight_used, entry:material_entries!entry_id (quantity_received, received_uom, received_qty_entered, volumetric_weight_kg_per_m3, unit_price, entry_number, entry_date, po_id, po_item_id, po_item:purchase_order_items!po_item_id (id, qty_ordered, qty_received_native, qty_received_kg, uom, is_service, po:purchase_orders!po_id (id), material:materials!material_id (density_kg_per_l, bulk_density_kg_per_m3)), fleet_po_id, fleet_po_item_id, fleet_qty_entered, fleet_uom, fleet_po_item:purchase_order_items!fleet_po_item_id (id, qty_ordered, qty_received_native, uom, is_service, service_description, po:purchase_orders!po_id (id))))`
       : `*, supplier:suppliers!supplier_id (name)`;
     let query = supabase.from('payables').select(baseSelect);
 

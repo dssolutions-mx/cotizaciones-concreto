@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
   const plant_id = searchParams.get('plant_id') || undefined;
   const supplier_id = searchParams.get('supplier_id') || undefined;
   const material_id = searchParams.get('material_id') || undefined;
+  const is_service = searchParams.get('is_service') === 'true';
 
   // Base: open or partial items, with header join
   let query = supabase
@@ -26,22 +27,33 @@ export async function GET(request: NextRequest) {
   if (plant_id) query = query.eq('po.plant_id', plant_id as any);
   if (supplier_id) query = query.eq('po.supplier_id', supplier_id as any);
   if (material_id) query = query.eq('material_id', material_id as any);
+  if (is_service) query = query.eq('is_service', true);
   if (profile.role === 'PLANT_MANAGER' && profile.plant_id) query = query.eq('po.plant_id', profile.plant_id as any);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: 'Failed to search PO items' }, { status: 500 });
 
-  // Compute remaining kg server-side for convenience
+  // Compute remaining quantity server-side for convenience
   const items = (data || []).map((it: any) => {
-    let orderedKg = Number(it.qty_ordered) || 0;
-    if (!it.is_service && it.uom === 'l') {
-      const density = Number(it.material?.density_kg_per_l) || 0;
-      if (density) orderedKg *= density;
+    const ordered = Number(it.qty_ordered) || 0;
+    const received = Number(it.qty_received) || 0;
+    const remaining = Math.max(ordered - received, 0);
+    
+    // For materials: also compute in kg if needed for display
+    if (!it.is_service) {
+      let orderedKg = ordered;
+      if (it.uom === 'l') {
+        const density = Number(it.material?.density_kg_per_l) || 0;
+        if (density) orderedKg *= density;
+      }
+      const receivedKg = received; // already in kg for materials
+      const remainingKg = Math.max(orderedKg - receivedKg, 0);
+      return { ...it, orderedKg, receivedKg, remainingKg, qty_remaining: remaining };
     }
-    const receivedKg = Number(it.qty_received_kg) || 0;
-    const remainingKg = Math.max(orderedKg - receivedKg, 0);
-    return { ...it, orderedKg, receivedKg, remainingKg };
-  }).filter((it: any) => it.remainingKg > 0);
+    
+    // For services: use native UoM (trips, tons, etc.)
+    return { ...it, qty_remaining: remaining };
+  }).filter((it: any) => (it.qty_remaining || it.remainingKg || 0) > 0);
 
   return NextResponse.json({ items });
 }

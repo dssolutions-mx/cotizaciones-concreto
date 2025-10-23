@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
-export const MaterialUomSchema = z.enum(['kg', 'l']);
+export const MaterialUomSchema = z.enum(['kg', 'l', 'm3']);
+export const ServiceUomSchema = z.enum(['trips', 'tons', 'hours', 'loads', 'units']);
+export const POItemUomSchema = z.union([MaterialUomSchema, ServiceUomSchema]);
 
 export const PurchaseOrderStatusSchema = z.enum(['open', 'partial', 'fulfilled', 'cancelled']);
 export const PurchaseOrderItemStatusSchema = z.enum(['open', 'partial', 'fulfilled', 'cancelled']);
@@ -22,12 +24,46 @@ export const POHeaderUpdateSchema = z.object({
 export const POItemInputSchema = z.object({
   po_id: z.string().uuid('ID de PO debe ser un UUID válido'),
   is_service: z.boolean().default(false),
-  material_id: z.string().uuid('ID de material debe ser un UUID válido').optional(),
-  uom: MaterialUomSchema.optional(),
+  material_id: z.string().uuid('ID de material debe ser un UUID válido').nullable().optional(),
+  service_description: z.string().min(1, 'Descripción del servicio requerida').max(500).nullable().optional(),
+  uom: POItemUomSchema.optional(),
   qty_ordered: z.number().positive('Cantidad debe ser positiva'),
   unit_price: z.number().nonnegative('Precio debe ser no negativo'),
-  required_by: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-});
+  required_by: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  volumetric_weight_kg_per_m3: z.number().positive('Peso volumétrico debe ser positivo').optional(),
+}).refine(
+  (data) => {
+    if (data.is_service) {
+      // Service: must have description, must NOT have material_id
+      return !!data.service_description && !data.material_id;
+    } else {
+      // Material: must have material_id, must NOT have description
+      return !!data.material_id && !data.service_description;
+    }
+  },
+  {
+    message: 'Servicios requieren descripción (sin material); Materiales requieren material_id (sin descripción)',
+  }
+).refine(
+  (data) => {
+    // UoM validation: required for both types
+    if (!data.uom) return false;
+    if (data.is_service) {
+      return ServiceUomSchema.safeParse(data.uom).success;
+    } else {
+      const ok = MaterialUomSchema.safeParse(data.uom).success;
+      if (!ok) return false;
+      // If m3, volumetric weight may be provided (optional) but must be positive if present
+      if (data.uom === 'm3' && data.volumetric_weight_kg_per_m3 !== undefined) {
+        return data.volumetric_weight_kg_per_m3 > 0;
+      }
+      return true;
+    }
+  },
+  {
+    message: 'UoM inválido o peso volumétrico inválido (m3 requiere valor positivo si se envía)',
+  }
+);
 
 export const POItemUpdateSchema = z.object({
   id: z.string().uuid('ID de item debe ser un UUID válido'),
@@ -35,6 +71,7 @@ export const POItemUpdateSchema = z.object({
   unit_price: z.number().nonnegative('Precio debe ser no negativo').optional(),
   required_by: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   status: PurchaseOrderItemStatusSchema.optional(),
+  volumetric_weight_kg_per_m3: z.number().positive('Peso volumétrico debe ser positivo').optional(),
 });
 
 export type POHeaderInput = z.infer<typeof POHeaderInputSchema>;
