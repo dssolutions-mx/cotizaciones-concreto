@@ -469,6 +469,103 @@ export default function GranulometriaForm({
             </AlertDescription>
           </Alert>
 
+          {/* Requisitos de Muestra */}
+          {estudioInfo && (
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+              <div className="flex items-start gap-2">
+                <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                <div className="space-y-2 flex-1">
+                  <Label className="text-base font-semibold text-blue-900">
+                    Requisitos de Muestra para el Ensayo
+                  </Label>
+                  
+                  {estudioInfo.tipo_material === 'Arena' ? (
+                    <div className="space-y-2">
+                      <p className="text-sm text-blue-800 font-medium">
+                        Agregado Fino - La muestra se seca en horno con las siguientes cantidades:
+                      </p>
+                      <ul className="text-sm text-blue-700 space-y-1 ml-4 list-disc">
+                        <li>
+                          <strong>Agregados con ≥95% que pasa malla 2.36 mm (No. 8):</strong> 100 g
+                        </li>
+                        <li>
+                          <strong>Agregados con ≥85% que pasa malla 4.75 mm (No. 4) y retiene más del 5% en malla 2.36 mm (No. 8):</strong> 500 g
+                        </li>
+                      </ul>
+                      <p className="text-xs text-blue-600 italic mt-2">
+                        Nota: Debe tenerse especial cuidado al seleccionar el tamaño de la muestra para evitar que al terminar el cribado, 
+                        se tenga en cualquiera de las mallas un retenido cuya masa sea mayor de 0.6 g/cm² de superficie de cribado; 
+                        este valor equivale a 180 g para las cribas de 203 mm de diámetro.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-sm text-blue-800 font-medium">
+                        Agregado Grueso - Masa mínima de muestra seca según tamaño nominal:
+                      </p>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="min-w-full text-sm border border-blue-300 rounded">
+                          <thead className="bg-blue-100">
+                            <tr>
+                              <th className="border border-blue-300 px-3 py-2 text-blue-900">
+                                Tamaño nominal máximo (mm)
+                              </th>
+                              <th className="border border-blue-300 px-3 py-2 text-blue-900">
+                                Tamaño mínimo de la muestra (kg)
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="bg-white">
+                            <tr>
+                              <td className="border border-blue-300 px-3 py-2 text-center">10</td>
+                              <td className="border border-blue-300 px-3 py-2 text-center">2</td>
+                            </tr>
+                            <tr>
+                              <td className="border border-blue-300 px-3 py-2 text-center">13</td>
+                              <td className="border border-blue-300 px-3 py-2 text-center">4</td>
+                            </tr>
+                            <tr>
+                              <td className="border border-blue-300 px-3 py-2 text-center">20</td>
+                              <td className="border border-blue-300 px-3 py-2 text-center">8</td>
+                            </tr>
+                            <tr>
+                              <td className="border border-blue-300 px-3 py-2 text-center">25</td>
+                              <td className="border border-blue-300 px-3 py-2 text-center">12</td>
+                            </tr>
+                            <tr>
+                              <td className="border border-blue-300 px-3 py-2 text-center">40</td>
+                              <td className="border border-blue-300 px-3 py-2 text-center">16</td>
+                            </tr>
+                            <tr>
+                              <td className="border border-blue-300 px-3 py-2 text-center">50</td>
+                              <td className="border border-blue-300 px-3 py-2 text-center">20</td>
+                            </tr>
+                            <tr>
+                              <td className="border border-blue-300 px-3 py-2 text-center">65</td>
+                              <td className="border border-blue-300 px-3 py-2 text-center">25</td>
+                            </tr>
+                            <tr>
+                              <td className="border border-blue-300 px-3 py-2 text-center">75</td>
+                              <td className="border border-blue-300 px-3 py-2 text-center">45</td>
+                            </tr>
+                            <tr>
+                              <td className="border border-blue-300 px-3 py-2 text-center">90</td>
+                              <td className="border border-blue-300 px-3 py-2 text-center">70</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-xs text-blue-600 italic mt-2">
+                        Para cribar los agregados gruesos mayores que 40 mm de tamaño nominal es conveniente utilizar 
+                        cribas con marco circular o rectangular mayor a 40 cm.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Selector de Tamaño - Destacado */}
           {estudioInfo && tamañosDisponibles.length > 0 && (
             <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg space-y-3">
@@ -565,7 +662,7 @@ export default function GranulometriaForm({
             </div>
             
             <div className="space-y-2">
-              <Label>Pérdida por Lavado (g)</Label>
+              <Label>Peso Total de Charola (g)</Label>
               <Input
                 value={formData.perdida_lavado}
                 disabled

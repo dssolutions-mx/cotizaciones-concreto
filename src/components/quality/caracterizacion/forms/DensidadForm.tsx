@@ -438,6 +438,109 @@ export default function DensidadForm({
         </CardContent>
       </Card>
 
+      {/* Requisitos de Muestra - Diferenciado por Tipo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Beaker className="h-5 w-5 text-blue-600" />
+            {esArena ? 'Tamaño de la Muestra' : 'Tamaño Mínimo de la Muestra'}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+            <div className="flex items-start gap-2">
+              <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div className="space-y-3 flex-1">
+                {esArena ? (
+                  // PARA ARENA - Texto de método de muestreo
+                  <>
+                    <Label className="text-base font-semibold text-blue-900">
+                      Método de Muestreo para Agregado Fino
+                    </Label>
+                    <p className="text-sm text-blue-800 leading-relaxed">
+                      Tomar una muestra del agregado fino de acuerdo con el método de muestreo indicado en la{' '}
+                      <strong>NMX-C-030-ONNCCE-2004</strong> (véase 2. Referencias), y se reduce de acuerdo con lo 
+                      indicado en la <strong>NMX-C-170-1997-ONNCCE</strong> (véase 2. Referencias), a un volumen de 
+                      por lo menos el doble del volumen del picnómetro que se va a emplear en la determinación.
+                    </p>
+                    <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded">
+                      <p className="text-xs text-amber-800">
+                        <strong>Nota Importante:</strong> La muestra debe ser representativa del material total y 
+                        reducida adecuadamente para asegurar resultados precisos. El volumen mínimo debe ser el doble 
+                        del volumen del picnómetro a utilizar en el ensayo.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  // PARA GRAVA - Tabla de tamaños
+                  <>
+                    <Label className="text-base font-semibold text-blue-900">
+                      TABLA 1 - Tamaño mínimo de la muestra
+                    </Label>
+                    <p className="text-sm text-blue-800">
+                      La masa mínima de la muestra de ensayo se determina según el tamaño máximo nominal del agregado:
+                    </p>
+                    
+                    <div className="mt-3 overflow-x-auto">
+                      <table className="min-w-full text-sm border border-blue-300 rounded bg-white">
+                        <thead className="bg-blue-100">
+                          <tr>
+                            <th className="border border-blue-300 px-4 py-3 text-blue-900 text-left">
+                              Tamaño máximo nominal<br />del agregado en mm
+                            </th>
+                            <th className="border border-blue-300 px-4 py-3 text-blue-900 text-center">
+                              Masa mínima de la<br />muestra de ensayo, kg
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="border border-blue-300 px-4 py-2">Hasta de 13</td>
+                            <td className="border border-blue-300 px-4 py-2 text-center font-semibold">2</td>
+                          </tr>
+                          <tr className="bg-blue-50/50">
+                            <td className="border border-blue-300 px-4 py-2">13-20</td>
+                            <td className="border border-blue-300 px-4 py-2 text-center font-semibold">3</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-blue-300 px-4 py-2">20-25</td>
+                            <td className="border border-blue-300 px-4 py-2 text-center font-semibold">4</td>
+                          </tr>
+                          <tr className="bg-blue-50/50">
+                            <td className="border border-blue-300 px-4 py-2">25-40</td>
+                            <td className="border border-blue-300 px-4 py-2 text-center font-semibold">5</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-blue-300 px-4 py-2">40-50</td>
+                            <td className="border border-blue-300 px-4 py-2 text-center font-semibold">8</td>
+                          </tr>
+                          <tr className="bg-blue-50/50">
+                            <td className="border border-blue-300 px-4 py-2">50-64</td>
+                            <td className="border border-blue-300 px-4 py-2 text-center font-semibold">12</td>
+                          </tr>
+                          <tr>
+                            <td className="border border-blue-300 px-4 py-2">64-76</td>
+                            <td className="border border-blue-300 px-4 py-2 text-center font-semibold">18</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    
+                    <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded">
+                      <p className="text-xs text-amber-800">
+                        <strong>Nota Importante:</strong> La muestra debe ser representativa del agregado grueso y 
+                        cumplir con la masa mínima establecida según su tamaño máximo nominal. Una muestra inadecuada 
+                        puede resultar en datos no representativos del material.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Datos de la Muestra según Norma */}
       <Card>
         <CardHeader>

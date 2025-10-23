@@ -290,6 +290,76 @@ export default function PerdidaLavadoForm({
         </CardContent>
       </Card>
 
+      {/* Masa del Espécimen de Ensayo */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Package className="h-5 w-5 text-blue-600" />
+            Masa del Espécimen de Ensayo
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+            <div className="flex items-start gap-2">
+              <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div className="space-y-3 flex-1">
+                <Label className="text-base font-semibold text-blue-900">
+                  Tabla 1 - Masa del espécimen de ensayo
+                </Label>
+                <p className="text-sm text-blue-800">
+                  La masa del espécimen se determina según el tamaño máximo del agregado a ensayar:
+                </p>
+                
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-sm border border-blue-300 rounded bg-white">
+                    <thead className="bg-blue-100">
+                      <tr>
+                        <th className="border border-blue-300 px-4 py-3 text-blue-900 text-left">
+                          Tamaño Máximo del agregado
+                        </th>
+                        <th className="border border-blue-300 px-4 py-3 text-blue-900 text-center">
+                          Masa, en g
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="border border-blue-300 px-4 py-2">2.36 mm (No. 8)</td>
+                        <td className="border border-blue-300 px-4 py-2 text-center font-semibold">100</td>
+                      </tr>
+                      <tr className="bg-blue-50/50">
+                        <td className="border border-blue-300 px-4 py-2">4.75 mm (No. 4)</td>
+                        <td className="border border-blue-300 px-4 py-2 text-center font-semibold">500</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-blue-300 px-4 py-2">9.5 mm (3/8")</td>
+                        <td className="border border-blue-300 px-4 py-2 text-center font-semibold">2 000</td>
+                      </tr>
+                      <tr className="bg-blue-50/50">
+                        <td className="border border-blue-300 px-4 py-2">19.0 mm (3/4")</td>
+                        <td className="border border-blue-300 px-4 py-2 text-center font-semibold">2 500</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-blue-300 px-4 py-2">38.0 mm (1 ½") o Mayores</td>
+                        <td className="border border-blue-300 px-4 py-2 text-center font-semibold">5 000</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded">
+                  <p className="text-xs text-amber-800">
+                    <strong>Nota Importante:</strong> La muestra debe ser representativa del material a ensayar y debe estar 
+                    completamente seca antes del pesado inicial. El tamaño de la muestra es crítico para obtener resultados 
+                    precisos y reproducibles según la norma NMX-C-084-ONNCCE-2010.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Datos de la Muestra según Norma */}
       <Card>
         <CardHeader>

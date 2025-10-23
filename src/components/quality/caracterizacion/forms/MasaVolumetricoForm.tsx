@@ -213,6 +213,90 @@ export default function MasaVolumetricoForm({
         </CardContent>
       </Card>
 
+      {/* Dimensiones de Recipientes */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Package className="h-5 w-5 text-blue-600" />
+            Dimensiones de los Recipientes
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg space-y-3">
+            <div className="flex items-start gap-2">
+              <Info className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div className="space-y-3 flex-1">
+                <Label className="text-base font-semibold text-blue-900">
+                  Tabla 1 - Dimensiones de los recipientes
+                </Label>
+                <p className="text-sm text-blue-800">
+                  Los recipientes deben cumplir con las siguientes dimensiones según el tamaño máximo nominal del agregado a ensayar:
+                </p>
+                
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full text-sm border border-blue-300 rounded bg-white">
+                    <thead className="bg-blue-100">
+                      <tr>
+                        <th rowSpan={2} className="border border-blue-300 px-3 py-2 text-blue-900 align-middle">
+                          Capacidad<br />dm³ (L)
+                        </th>
+                        <th colSpan={2} className="border border-blue-300 px-3 py-2 text-blue-900">
+                          Espesor mínimo (mm)
+                        </th>
+                        <th rowSpan={2} className="border border-blue-300 px-3 py-2 text-blue-900 align-middle">
+                          Tamaño máximo nominal<br />del agregado (mm)
+                        </th>
+                      </tr>
+                      <tr>
+                        <th className="border border-blue-300 px-3 py-2 text-blue-900 bg-blue-50">
+                          Fondo
+                        </th>
+                        <th className="border border-blue-300 px-3 py-2 text-blue-900 bg-blue-50">
+                          Pared
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="border border-blue-300 px-3 py-2 text-center font-semibold">5</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center">5.0</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center">2.5</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center font-semibold">13</td>
+                      </tr>
+                      <tr className="bg-blue-50/50">
+                        <td className="border border-blue-300 px-3 py-2 text-center font-semibold">10</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center">5.0</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center">2.5</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center font-semibold">25</td>
+                      </tr>
+                      <tr>
+                        <td className="border border-blue-300 px-3 py-2 text-center font-semibold">14</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center">5.0</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center">3.0</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center font-semibold">40</td>
+                      </tr>
+                      <tr className="bg-blue-50/50">
+                        <td className="border border-blue-300 px-3 py-2 text-center font-semibold">28</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center">5.0</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center">3.0</td>
+                        <td className="border border-blue-300 px-3 py-2 text-center font-semibold">100</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                
+                <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded">
+                  <p className="text-xs text-amber-800">
+                    <strong>Nota Importante:</strong> El recipiente debe tener una capacidad mínima de tres veces el tamaño máximo nominal del agregado. 
+                    Los recipientes deben ser cilíndricos, metálicos, impermeables, con el fondo y las paredes rígidas y de espesor uniforme.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Datos de la Muestra según Norma */}
       <Card>
         <CardHeader>
