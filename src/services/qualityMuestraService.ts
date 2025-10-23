@@ -83,13 +83,13 @@ export async function fetchMuestrasPendientes(filters?: FiltrosCalidad) {
         query = query.lte('fecha_programada_ensayo', format(filters.fechaHasta, 'yyyy-MM-dd'));
       }
       if (filters.planta) {
-        query = query.filter('muestreo.planta', 'eq', filters.planta);
+        query = query.eq('plant_id', filters.planta);
       }
       if (filters.plant_id) {
-        query = query.filter('muestreo.plant_id', 'eq', filters.plant_id);
+        query = query.eq('plant_id', filters.plant_id);
       }
       if (filters.plant_ids && filters.plant_ids.length > 0) {
-        query = query.filter('muestreo.plant_id', 'in', `(${filters.plant_ids.map(id => `'${id}'`).join(',')})`);
+        query = query.in('plant_id', filters.plant_ids);
       }
       if (filters.business_unit_id) {
         // Need to join plants; not supported directly via dot syntax on m2o in filter for RPC
