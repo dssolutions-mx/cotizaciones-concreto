@@ -214,6 +214,7 @@ export interface StagingRemision {
   client_id?: string;
   construction_site_id?: string;
   recipe_id?: string;
+  master_recipe_id?: string; // NEW: Master recipe for order matching
   truck_id?: string;
   driver_id?: string;
   suggested_order_group: string;

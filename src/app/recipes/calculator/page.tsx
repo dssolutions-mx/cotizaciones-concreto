@@ -2,7 +2,6 @@
 
 import { Suspense } from 'react';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
-import { PlantProvider } from '@/contexts/PlantContext';
 import PlantSelectionGuard from '@/components/auth/PlantSelectionGuard';
 import ConcreteMixCalculator from '@/components/calculator/ConcreteMixCalculator';
 import { ArrowLeft } from 'lucide-react';
@@ -117,8 +116,6 @@ export default function CalculatorPage() {
   };
 
   return (
-    <PlantProvider>
-      <PlantSelectionGuard requirePlant={true}>{content()}</PlantSelectionGuard>
-    </PlantProvider>
+    <PlantSelectionGuard requirePlant={true}>{content()}</PlantSelectionGuard>
   );
 }

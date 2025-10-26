@@ -30,6 +30,9 @@ interface RecipeTableProps {
   onTempFCRChange: (value: string) => void;
   onSaveFCR: (code: string) => void;
   onCancelEditingFCR: () => void;
+  // ARKIK code map and change handler for inline override
+  arkikCodes?: Record<string, { longCode: string; shortCode: string }>;
+  onArkikCodeChange?: (recipeCode: string, newLongCode: string) => void;
 }
 
 export const RecipeTable: React.FC<RecipeTableProps> = ({
@@ -48,12 +51,15 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
   onStartEditingFCR,
   onTempFCRChange,
   onSaveFCR,
-  onCancelEditingFCR
+  onCancelEditingFCR,
+  arkikCodes,
+  onArkikCodeChange
 }) => {
   const allSelected = recipes.length > 0 && recipes.every(r => selectedRecipesForExport.has(r.code));
   const someSelected = recipes.some(r => selectedRecipesForExport.has(r.code));
   const [showSSS, setShowSSS] = useState(true);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [editingArkik, setEditingArkik] = useState<string | null>(null);
 
   // Get all unique additives across all recipes for consistent table columns
   const getAllUniqueAdditives = () => {
@@ -364,7 +370,34 @@ export const RecipeTable: React.FC<RecipeTableProps> = ({
                           </button>
                         </TableCell>
                         
-                        <TableCell className="font-mono text-sm">{recipe.code}</TableCell>
+                        <TableCell className="font-mono text-sm">
+                          <div className="flex items-center gap-1">
+                            {editingArkik === recipe.code ? (
+                              <input
+                                autoFocus
+                                value={arkikCodes?.[recipe.code]?.longCode || ''}
+                                onChange={(e) => onArkikCodeChange && onArkikCodeChange(recipe.code, e.target.value)}
+                                className="font-mono text-xs border rounded px-1 py-0.5 flex-1 min-w-[200px]"
+                                onBlur={() => setEditingArkik(null)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') setEditingArkik(null);
+                                  if (e.key === 'Escape') setEditingArkik(null);
+                                }}
+                              />
+                            ) : (
+                              <span
+                                className="cursor-pointer hover:text-blue-600 flex-1 truncate max-w-[240px]"
+                                title={arkikCodes?.[recipe.code]?.longCode}
+                                onClick={() => setEditingArkik(recipe.code)}
+                              >
+                                {arkikCodes?.[recipe.code]?.longCode || recipe.code}
+                              </span>
+                            )}
+                            {editingArkik !== recipe.code && (
+                              <Edit2 className="h-3 w-3 text-gray-400 hover:text-gray-600" />
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell className="text-center font-semibold">{recipe.strength}</TableCell>
                         
                         <TableCell className="text-center">

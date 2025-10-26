@@ -3,6 +3,8 @@ import { recipeService } from '@/lib/supabase/recipes';
 import { handleError } from '@/utils/errorHandler';
 import { Material } from '@/types/material';
 import { Recipe as DatabaseRecipe, MaterialQuantity } from '@/types/recipes';
+import { CalculatorSaveDecision } from '@/types/masterRecipes';
+import { parseMasterAndVariantFromRecipeCode } from '@/lib/utils/masterRecipeUtils';
 
 // Calculator-specific interfaces (matching concrete-mix-calculator.tsx)
 export interface CalculatorMaterial {
@@ -321,7 +323,7 @@ export const calculatorService = {
           plant_id: plantId,
           specification,
           materials: dryMaterials,
-          notes: `Generado por calculadora automática - ${recipe.recipeType}`
+          notes: `Generado por calculadora automática - ${recipe.recipeType === 'MR' ? 'MR' : 'FC'}`
         };
 
         // Use RPC path for idempotent create/update
@@ -455,7 +457,7 @@ export const calculatorService = {
             if (refsError) throw refsError;
           }
 
-          // Compute and persist ARKIK codes defaults on recipe
+          // Compute ARKIK codes defaults; set recipe_code canonically, avoid arkik_long_code updates
           const fcCode = String(recipe.strength).padStart(3, '0');
           const edadCode = String(recipe.age).padStart(2, '0');
           const revCode = String(recipe.slump).padStart(2, '0');
@@ -485,10 +487,12 @@ export const calculatorService = {
           const arkikLong = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSeg}-${variante}`;
           const arkikShort = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
 
+          // Canonicalize recipe_code to ARKIK long code
           await supabase
             .from('recipes')
             .update({
-              arkik_long_code: arkikLong,
+              recipe_code: arkikLong,
+              new_system_code: arkikLong,
               arkik_short_code: arkikShort,
               arkik_type_code: typeCode,
               arkik_num: numSeg,
@@ -529,3 +533,237 @@ export const calculatorService = {
     }
   }
 };
+
+// Extended save with decisions for master/variant governance
+export async function saveRecipesWithDecisions(
+  recipes: CalculatorRecipe[],
+  decisions: CalculatorSaveDecision[],
+  plantId: string,
+  userId: string,
+  selection?: CalculatorMaterialSelection,
+  arkik?: ArkikDefaults
+): Promise<void> {
+  // Build maps for lookup
+  const decisionByCode = new Map<string, CalculatorSaveDecision>();
+  decisions.forEach(d => decisionByCode.set(d.recipeCode, d));
+  
+  const recipeByCode = new Map<string, CalculatorRecipe>();
+  recipes.forEach(r => recipeByCode.set(r.code, r));
+
+  // Fetch all materials once
+  const { data: allMaterials } = await supabase.from('materials').select('*').eq('plant_id', plantId);
+  const materialMap = new Map((allMaterials || []).map(m => [m.id, m]));
+
+  for (const r of recipes) {
+    const decision = decisionByCode.get(r.code);
+    if (!decision) continue;
+
+    const finalCode = decision.finalArkikCode || r.code;
+
+    try {
+      if (decision.action === 'updateVariant') {
+        // Update existing recipe
+        if (!decision.existingRecipeId) throw new Error('Falta existingRecipeId para actualizar variante');
+        
+        const { variantSuffix } = parseMasterAndVariantFromRecipeCode(finalCode);
+        const { error: updErr } = await supabase
+          .from('recipes')
+          .update({
+            recipe_code: finalCode,
+            strength_fc: r.strength,
+            age_days: r.ageUnit === 'D' ? r.age : null,
+            age_hours: r.ageUnit === 'H' ? r.age : null,
+            placement_type: r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
+            max_aggregate_size: r.aggregateSize,
+            slump: r.slump,
+            variant_suffix: variantSuffix
+          })
+          .eq('id', decision.existingRecipeId);
+        if (updErr) throw updErr;
+
+      } else if (decision.action === 'createVariant' || decision.action === 'newMaster') {
+        // Create new recipe (for both createVariant and newMaster)
+        let masterId = decision.masterRecipeId;
+
+        if (decision.action === 'newMaster') {
+          // First create the master
+          const { data: master, error: masterErr } = await supabase
+            .from('master_recipes')
+            .insert({
+              master_code: decision.newMasterCode,
+              plant_id: plantId,
+              strength_fc: r.strength,
+              age_days: r.ageUnit === 'D' ? r.age : null,
+              age_hours: r.ageUnit === 'H' ? r.age : null,
+              placement_type: r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
+              max_aggregate_size: r.aggregateSize,
+              slump: r.slump
+            })
+            .select('id')
+            .single();
+          if (masterErr) throw masterErr;
+          masterId = master.id;
+        }
+
+        // Insert recipe
+        const { variantSuffix } = parseMasterAndVariantFromRecipeCode(finalCode);
+        const { data: newRecipe, error: recipeErr } = await supabase
+          .from('recipes')
+          .insert({
+            recipe_code: finalCode,
+            strength_fc: r.strength,
+            age_days: r.ageUnit === 'D' ? r.age : null,
+            age_hours: r.ageUnit === 'H' ? r.age : null,
+            placement_type: r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
+            max_aggregate_size: r.aggregateSize,
+            slump: r.slump,
+            application_type: r.recipeType === 'MR' ? 'pavimento' : 'standard',
+            has_waterproofing: false,
+            performance_grade: 'standard',
+            plant_id: plantId,
+            master_recipe_id: masterId,
+            variant_suffix: variantSuffix
+          })
+          .select('id')
+          .single();
+        if (recipeErr) throw recipeErr;
+
+        // Create version
+        const { data: version, error: versionErr } = await supabase
+          .from('recipe_versions')
+          .insert({
+            recipe_id: newRecipe.id,
+            version_number: 1,
+            effective_date: new Date().toISOString(),
+            is_current: true,
+            notes: `Generado por calculadora automática - ${r.recipeType === 'MR' ? 'MR' : 'FC'}`
+          })
+          .select('id')
+          .single();
+        if (versionErr) throw versionErr;
+
+        // Insert materials - resolve from calculator recipe data
+        const materialQuantities: any[] = [];
+        
+        // Cement
+        if (r.materialsDry.cement > 0) {
+          const cementMat = allMaterials?.find(m => m.category === 'CEMENTO');
+          if (cementMat) {
+            materialQuantities.push({
+              recipe_version_id: version.id,
+              material_id: cementMat.id,
+              material_type: 'CEMENTO',
+              quantity: r.materialsDry.cement,
+              unit: 'kg/m³'
+            });
+          }
+        }
+
+        // Water
+        if (r.materialsDry.water > 0) {
+          const waterMat = allMaterials?.find(m => m.category === 'AGUA');
+          if (waterMat) {
+            materialQuantities.push({
+              recipe_version_id: version.id,
+              material_id: waterMat.id,
+              material_type: 'AGUA',
+              quantity: r.materialsDry.water,
+              unit: 'L/m³'
+            });
+          }
+        }
+
+        // Aggregates and additives from selection
+        if (selection) {
+          // Sands
+          if (selection.sandIds) {
+            Object.entries(selection.sandIds).forEach(([idx, matId]) => {
+              const key = `sand${idx}`;
+              if (r.materialsDry[key] > 0 && matId) {
+                materialQuantities.push({
+                  recipe_version_id: version.id,
+                  material_id: matId,
+                  material_type: 'AGREGADO_FINO',
+                  quantity: r.materialsDry[key],
+                  unit: 'kg/m³'
+                });
+              }
+            });
+          }
+
+          // Gravels
+          if (selection.gravelIds) {
+            Object.entries(selection.gravelIds).forEach(([idx, matId]) => {
+              const key = `gravel${idx}`;
+              if (r.materialsDry[key] > 0 && matId) {
+                materialQuantities.push({
+                  recipe_version_id: version.id,
+                  material_id: matId,
+                  material_type: 'AGREGADO_GRUESO',
+                  quantity: r.materialsDry[key],
+                  unit: 'kg/m³'
+                });
+              }
+            });
+          }
+
+          // Additives
+          if (selection.additiveIds) {
+            Object.entries(selection.additiveIds).forEach(([idx, matId]) => {
+              const key = `additive${idx}`;
+              if (r.materialsDry[key] > 0 && matId) {
+                materialQuantities.push({
+                  recipe_version_id: version.id,
+                  material_id: matId,
+                  material_type: 'ADITIVO',
+                  quantity: r.materialsDry[key],
+                  unit: 'kg/m³'
+                });
+              }
+            });
+          }
+        }
+
+        if (materialQuantities.length > 0) {
+          const { error: mqErr } = await supabase.from('material_quantities').insert(materialQuantities);
+          if (mqErr) throw mqErr;
+        }
+
+        // Insert SSS reference materials
+        const ssMaterialRows: any[] = [];
+        if (r.materialsSSS.cement > 0) {
+          const cementMat = allMaterials?.find(m => m.category === 'CEMENTO');
+          if (cementMat) {
+            ssMaterialRows.push({
+              recipe_version_id: version.id,
+              material_id: cementMat.id,
+              material_type: 'CEMENTO',
+              sss_value: r.materialsSSS.cement,
+              unit: 'kg/m³'
+            });
+          }
+        }
+        if (r.materialsSSS.water > 0) {
+          const waterMat = allMaterials?.find(m => m.category === 'AGUA');
+          if (waterMat) {
+            ssMaterialRows.push({
+              recipe_version_id: version.id,
+              material_id: waterMat.id,
+              material_type: 'AGUA',
+              sss_value: r.materialsSSS.water,
+              unit: 'L/m³'
+            });
+          }
+        }
+
+        if (ssMaterialRows.length > 0) {
+          const { error: sssErr } = await supabase.from('recipe_reference_materials').insert(ssMaterialRows);
+          if (sssErr) throw sssErr;
+        }
+      }
+    } catch (err: any) {
+      console.error(`Error al guardar receta ${finalCode}:`, err);
+      throw new Error(`Error al guardar receta ${finalCode}: ${err.message}`);
+    }
+  }
+}

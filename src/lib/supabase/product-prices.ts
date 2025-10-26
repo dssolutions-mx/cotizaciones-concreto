@@ -14,7 +14,7 @@ interface ProductPriceData {
   max_aggregate_size: number;
   slump: number;
   base_price: number;
-  recipe_id: string;
+  recipe_id: string | null; // Allow null for master-recipe based quotes
   client_id: string;
   construction_site: string;
   quote_id: string;
@@ -38,9 +38,11 @@ interface QuoteDetail {
   id: string;
   final_price: number;
   recipe_id?: string | null;
+  master_recipe_id?: string | null; // Added master_recipe_id
   product_id?: string | null;
   pump_service?: boolean;
   recipes?: Recipe;
+  master_recipes?: Recipe; // Added master_recipes
   product_prices?: {
     id: string;
     code: string;
@@ -114,7 +116,7 @@ export const productPriceService = {
   },
 
   async handleQuoteApproval(quoteId: string) {
-    // Get quote details with all necessary information including plant_id
+    // Get quote details with all necessary information including plant_id AND master_recipe_id
     const { data: quoteData, error: quoteError } = await supabase
       .from('quotes')
       .select(`
@@ -127,11 +129,22 @@ export const productPriceService = {
           id,
           final_price,
           recipe_id,
+          master_recipe_id,
           product_id,
           pump_service,
           recipes (
             id,
             recipe_code,
+            strength_fc,
+            age_days,
+            placement_type,
+            max_aggregate_size,
+            slump,
+            plant_id
+          ),
+          master_recipes (
+            id,
+            master_code,
             strength_fc,
             age_days,
             placement_type,
@@ -198,6 +211,30 @@ export const productPriceService = {
             };
           }
           
+          // Handle master-recipe-based quote details (NEW: master pricing flow)
+          if (detail.master_recipe_id && detail.master_recipes) {
+            const masterData = Array.isArray(detail.master_recipes) 
+              ? detail.master_recipes[0] 
+              : detail.master_recipes;
+
+            console.log('Master recipe data:', {
+              detail_id: detail.id,
+              master_code: masterData.master_code,
+              strength_fc: masterData.strength_fc,
+              plant_id: masterData.plant_id
+            });
+
+            return {
+              id: detail.id,
+              final_price: detail.final_price,
+              recipe_id: detail.recipe_id, // Can be null for master-based quotes
+              master_recipe_id: detail.master_recipe_id,
+              product_id: detail.product_id,
+              pump_service: detail.pump_service,
+              recipes: masterData // Treat master recipe same as recipe for price creation
+            };
+          }
+          
           // Handle product-based quote details (standalone pumping services)
           if (detail.product_id && detail.product_prices) {
             const productData = Array.isArray(detail.product_prices) 
@@ -232,19 +269,28 @@ export const productPriceService = {
       const pricePromises = quote.quote_details.map(async (detail: QuoteDetail) => {
         try {
           // Handle recipe-based quote details (concrete products)
-          if (detail.recipe_id && detail.recipes) {
+          if ((detail.recipe_id || detail.master_recipe_id) && detail.recipes) {
             // First deactivate existing prices for this client-recipe-construction_site combination
-            await productPriceService.deactivateExistingPrices(
-              quote.client_id, 
-              detail.recipe_id, 
-              quote.construction_site,
-              detail.recipes.plant_id || quote.plant_id // Pass recipe plant_id or fallback to quote plant_id
-            );
+            // For both recipe and master-recipe based quotes
+            const recipeIdToDeactivate = detail.recipe_id; // Use recipe_id if available, handles both cases
+            
+            if (recipeIdToDeactivate) {
+              await productPriceService.deactivateExistingPrices(
+                quote.client_id, 
+                recipeIdToDeactivate, 
+                quote.construction_site,
+                detail.recipes.plant_id || quote.plant_id
+              );
+            }
 
             // Create new price record with plant_id
+            const codePrefix = detail.recipe_id 
+              ? detail.recipes.recipe_code 
+              : detail.recipes.master_code || 'MASTER';
+               
             const priceData: ProductPriceData = {
-              code: `${quote.quote_number}-${detail.recipes.recipe_code}`,
-              description: `Precio específico para cliente - ${detail.recipes.recipe_code} - ${quote.construction_site}`,
+              code: `${quote.quote_number}-${codePrefix}`,
+              description: `Precio específico para cliente - ${codePrefix} - ${quote.construction_site}`,
               fc_mr_value: detail.recipes.strength_fc,
               type: determineProductType(),
               age_days: detail.recipes.age_days,
@@ -252,13 +298,13 @@ export const productPriceService = {
               max_aggregate_size: detail.recipes.max_aggregate_size,
               slump: detail.recipes.slump,
               base_price: detail.final_price,
-              recipe_id: detail.recipe_id,
+              recipe_id: detail.recipe_id || null, // Set to null for master-recipe quotes, not empty string
               client_id: quote.client_id,
               construction_site: quote.construction_site,
-              quote_id: quote.id,
+              quote_id: quote.id, // Link to quote for traceability
               effective_date: now,
               approval_date: now,
-              plant_id: detail.recipes.plant_id || quote.plant_id // Use recipe plant_id or fallback to quote plant_id
+              plant_id: detail.recipes.plant_id || quote.plant_id
             };
 
             await productPriceService.createNewPrice(priceData);

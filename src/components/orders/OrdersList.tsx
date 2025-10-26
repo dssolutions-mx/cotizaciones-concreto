@@ -555,7 +555,15 @@ export default function OrdersList({
               has_empty_truck_charge,
               empty_truck_volume,
               unit_price,
-              pump_price
+              pump_price,
+              master_recipe_id,
+              recipe_id,
+              master_recipes:master_recipe_id(
+                master_code
+              ),
+              recipes:recipe_id(
+                recipe_code
+              )
             )
           `)
           .eq('plant_id', currentPlant.id);

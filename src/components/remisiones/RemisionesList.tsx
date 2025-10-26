@@ -137,29 +137,14 @@ export const formatRemisionesForAccounting = (
     );
   };
   
-  // Determine display code: prefer designacion_ehe > related order item name > recipe code
-  // Match by recipe_id ONLY within the same order
-  const getDisplayProductCodeForRemision = (
-    remision: any,
-    orderProducts: any[] = []
-  ): string => {
-    // 1) Explicit designation on the remision
+  // Determine display code: use remision's recipe_id and recipe data
+  const getDisplayProductCodeForRemision = (remision: any): string => {
+    // 1) Explicit designation on the remision takes priority
     if (remision?.designacion_ehe) {
       return remision.designacion_ehe.replace(/-/g, '');
     }
 
-    // 2) Direct match: find order_item with same order_id AND recipe_id
-    if (remision?.recipe_id && remision?.order_id) {
-      const matchedItem = orderProducts.find((op: any) => 
-        String(op.order_id) === String(remision.order_id) && 
-        String(op.recipe_id) === String(remision.recipe_id)
-      );
-      if (matchedItem?.product_type) {
-        return matchedItem.product_type.replace(/-/g, '');
-      }
-    }
-
-    // 3) Fallback to recipe code from remision
+    // 2) Use recipe code from remision
     const recipeCode = remision?.recipe?.recipe_code || '';
     return (recipeCode || 'PRODUCTO').replace(/-/g, '');
   };
@@ -205,7 +190,7 @@ export const formatRemisionesForAccounting = (
     const effectiveRecipeId = remision.recipe_id;
 
     // Determine display using direct recipe_id match
-    const displayProductCode = getDisplayProductCodeForRemision(remision, orderProducts);
+    const displayProductCode = getDisplayProductCodeForRemision(remision);
 
     // Get price for this product using original product code AND recipe_id only (display is visual-only)
     let productPrice = findProductPrice(originalProductCode, remision.order_id, effectiveRecipeId);

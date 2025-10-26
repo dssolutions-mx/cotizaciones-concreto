@@ -23,7 +23,7 @@ interface DebugPricing {
   client_id: string;
   construction_site: string;
   price: number;
-  source: 'client' | 'client_site' | 'plant' | 'quotes';
+  source: 'client' | 'client_site' | 'plant' | 'quotes' | 'master';
   quote_id?: string; // Optional: only present for quotes source
   quote_detail_id?: string; // CRITICAL: Required for order creation
   business_name: string;
@@ -121,8 +121,8 @@ export class DebugArkikValidator {
     
     rows.forEach(row => {
       // Recipe codes
-      if (row.product_description?.trim()) productCodes.add(this.normalizeString(row.product_description.trim()));
-      if (row.recipe_code?.trim()) productCodes.add(this.normalizeString(row.recipe_code.trim()));
+      if (row.product_description?.trim()) productCodes.add(row.product_description.trim());
+      if (row.recipe_code?.trim()) productCodes.add(row.recipe_code.trim());
       
       // Material codes - only add materials with non-zero values
       Object.keys(row.materials_teorico || {}).forEach(code => {
@@ -150,20 +150,31 @@ export class DebugArkikValidator {
       console.log(`[DebugArkikValidator] Found ${productCodes.size} product codes, ${materialCodes.size} material codes (filtered from zero values), ${clientNames.size} client names`);
     }
 
-    // Execute all queries in parallel
+    // OPTIMIZATION: Filter recipes to only those matching product codes from rows
+    // This prevents loading thousands of unnecessary recipes
+    const productCodeArray = Array.from(productCodes);
+    const materialsDataPromise = this.loadAllMaterials(Array.from(materialCodes));
+    const recipesDataPromise = productCodeArray.length > 0 
+      ? this.loadRecipesByCodesMultiIndex(productCodeArray)
+      : Promise.resolve([]);
+    
     const [
       recipesData,
-      materialsData,
-      productPricesData
+      materialsData
     ] = await Promise.all([
-      this.loadAllRecipes(),
-      this.loadAllMaterials(Array.from(materialCodes)),
-      this.loadAllProductPrices()
+      recipesDataPromise,
+      materialsDataPromise
     ]);
+
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] Loaded ${recipesData.length} recipes (filtered by ${productCodeArray.length} product codes)`);
+    }
 
     // Build recipe lookup maps first using standardized normalization
     const recipes = new Map<string, any>();
+    const recipeIds = new Set<string>();
     recipesData.forEach(recipe => {
+      recipeIds.add(recipe.id);
       // Index by all possible codes for fast lookup using standardized normalization
       if (recipe.arkik_long_code) {
         recipes.set(normalizeRecipeCode(recipe.arkik_long_code), recipe);
@@ -176,13 +187,30 @@ export class DebugArkikValidator {
       }
     });
 
+    // OPTIMIZATION: Extract master recipe IDs for more accurate quote filtering
+    const masterRecipeIds = new Set<string>();
+    recipesData.forEach(recipe => {
+      if (recipe.master_recipe_id) {
+        masterRecipeIds.add(recipe.master_recipe_id);
+      }
+    });
+
+    // OPTIMIZATION: Filter product prices to only those for recipes we found
+    const productPricesDataPromise = recipeIds.size > 0
+      ? this.loadProductPricesByRecipeIds(Array.from(recipeIds))
+      : Promise.resolve([]);
+
     // Load quotes and construction sites in parallel
-    const [quotesData, constructionSitesData] = await Promise.all([
-      this.loadAllQuotes(),
+    const [productPricesData, quotesData, constructionSitesData] = await Promise.all([
+      productPricesDataPromise,
+      recipeIds.size > 0 ? this.loadQuotesForRecipesAndMasters(Array.from(recipeIds), Array.from(masterRecipeIds)) : Promise.resolve([]),
       this.loadConstructionSitesForClients(Array.from(clientNames))
     ]);
 
-
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] Loaded ${productPricesData.length} product prices (filtered by ${recipeIds.size} recipe IDs)`);
+      console.log(`[DebugArkikValidator] Loaded ${quotesData.length} quotes (filtered by ${recipeIds.size} recipes + ${masterRecipeIds.size} masters)`);
+    }
 
     // Build materials lookup
     const materials = new Map<string, any>();
@@ -194,7 +222,16 @@ export class DebugArkikValidator {
     const pricingByRecipe = new Map<string, DebugPricing[]>();
     
     // Add product prices (PRIORITY: These are the most current and accurate)
+    // Master-first: if master_recipe_id is set, index under all variants of that master
+    const masterToPrices = new Map<string, any[]>();
     productPricesData.forEach(price => {
+      if (price.master_recipe_id) {
+        if (!masterToPrices.has(price.master_recipe_id)) {
+          masterToPrices.set(price.master_recipe_id, []);
+        }
+        masterToPrices.get(price.master_recipe_id)!.push(price);
+      }
+      // Also index by recipe_id for variant fallback
       if (!pricingByRecipe.has(price.recipe_id)) {
         pricingByRecipe.set(price.recipe_id, []);
       }
@@ -214,6 +251,32 @@ export class DebugArkikValidator {
         client_code: price.clients?.client_code || ''
       });
     });
+    
+    // Propagate master-level prices to all variants (dual-mode pricing)
+    recipesData.forEach(recipe => {
+      if (recipe.master_recipe_id && masterToPrices.has(recipe.master_recipe_id)) {
+        const masterPrices = masterToPrices.get(recipe.master_recipe_id)!;
+        if (!pricingByRecipe.has(recipe.id)) {
+          pricingByRecipe.set(recipe.id, []);
+        }
+        masterPrices.forEach(mp => {
+          pricingByRecipe.get(recipe.id)!.push({
+            recipe_id: recipe.id,
+            client_id: mp.client_id,
+            construction_site: mp.construction_site || '',
+            price: Number(mp.base_price),
+            source: 'master' as const, // Mark as master pricing
+            quote_id: mp.quote_id,
+            quote_detail_id: undefined,
+            business_name: mp.clients?.business_name || '',
+            client_code: mp.clients?.client_code || ''
+          });
+        });
+        if (isDevelopment) {
+          console.log(`[DebugArkikValidator] ✅ Propagated ${masterPrices.length} master prices to variant ${recipe.recipe_code}`);
+        }
+      }
+    });
 
     // Add quotes data (FALLBACK: Only for recipes not covered by product_prices)
     if (isDevelopment) console.log(`[DebugArkikValidator] Processing ${quotesData.length} quotes...`);
@@ -222,7 +285,7 @@ export class DebugArkikValidator {
       
       if (quote.quote_details && quote.quote_details.length > 0) {
         quote.quote_details.forEach((detail: any) => {
-          if (isDevelopment) console.log(`[DebugArkikValidator]   Detail: recipe_id=${detail.recipe_id}, price=${detail.final_price}`);
+          if (isDevelopment) console.log(`[DebugArkikValidator]   Detail: recipe_id=${detail.recipe_id}, master_recipe_id=${detail.master_recipe_id}, price=${detail.final_price}`);
           
           // Check if this combination already exists in product_prices
           const existingProductPrice = productPricesData.some(price => 
@@ -237,27 +300,84 @@ export class DebugArkikValidator {
             return; // Skip this quote detail as it's already represented in product_prices
           }
           
-          if (!pricingByRecipe.has(detail.recipe_id)) {
+          // Master-first: if quote_detail has master_recipe_id, index under master
+          if (detail.master_recipe_id) {
+            if (!masterToPrices.has(detail.master_recipe_id)) {
+              masterToPrices.set(detail.master_recipe_id, []);
+            }
+            masterToPrices.get(detail.master_recipe_id)!.push({
+              ...detail,
+              client_id: quote.client_id,
+              construction_site: quote.construction_site,
+              clients: quote.clients,
+              quote_id: quote.id
+            });
+            if (isDevelopment) console.log(`[DebugArkikValidator]   ✅ Added master-based quote (master: ${detail.master_recipe_id})`);
+          }
+          
+          // Variant-based quotes: index by recipe_id
+          if (detail.recipe_id && !pricingByRecipe.has(detail.recipe_id)) {
             pricingByRecipe.set(detail.recipe_id, []);
           }
           
-          const pricingEntry = {
-            recipe_id: detail.recipe_id,
-            client_id: quote.client_id,
-            construction_site: quote.construction_site || '',
-            price: Number(detail.final_price),
-            source: 'quotes' as const,
-            quote_id: quote.id,
-            quote_detail_id: detail.id, // CRITICAL: Required for order creation
-            business_name: quote.clients?.business_name || '',
-            client_code: quote.clients?.client_code || ''
-          };
-          
-          pricingByRecipe.get(detail.recipe_id)!.push(pricingEntry);
-          if (isDevelopment) console.log(`[DebugArkikValidator]   ✅ Added fallback quote pricing`);
+          if (detail.recipe_id) {
+            const pricingEntry = {
+              recipe_id: detail.recipe_id,
+              client_id: quote.client_id,
+              construction_site: quote.construction_site || '',
+              price: Number(detail.final_price),
+              source: 'quotes' as const,
+              quote_id: quote.id,
+              quote_detail_id: detail.id, // CRITICAL: Required for order creation
+              business_name: quote.clients?.business_name || '',
+              client_code: quote.clients?.client_code || ''
+            };
+            
+            pricingByRecipe.get(detail.recipe_id)!.push(pricingEntry);
+            if (isDevelopment) console.log(`[DebugArkikValidator]   ✅ Added variant-based quote pricing`);
+          }
         });
       } else if (isDevelopment) {
         console.log(`[DebugArkikValidator]   ⚠️ Quote ${quote.id} has no quote_details`);
+      }
+    });
+    
+    // Propagate master-level quote prices to all variants (dual-mode pricing)
+    recipesData.forEach(recipe => {
+      if (recipe.master_recipe_id && masterToPrices.has(recipe.master_recipe_id)) {
+        const masterQuotes = masterToPrices.get(recipe.master_recipe_id)!;
+        if (!pricingByRecipe.has(recipe.id)) {
+          pricingByRecipe.set(recipe.id, []);
+        }
+        if (isDevelopment && masterQuotes.length > 0) {
+          console.log(`[DebugArkikValidator] 🔍 Propagating ${masterQuotes.length} master quotes to variant ${recipe.recipe_code}:`, masterQuotes.map(mq => ({ 
+            id: mq.id, 
+            quote_id: mq.quote_id,
+            master_recipe_id: mq.master_recipe_id,
+            client_id: mq.client_id
+          })));
+        }
+        masterQuotes.forEach((mq: any) => {
+          // EXPLICIT: Use mq.id which contains detail.id (the quote_detail_id)
+          const quoteDetailId = mq.id || mq.detail_id;
+          if (!quoteDetailId) {
+            console.warn(`[DebugArkikValidator] ⚠️ Master quote missing detail ID:`, mq);
+          }
+          pricingByRecipe.get(recipe.id)!.push({
+            recipe_id: recipe.id, // Use variant recipe_id
+            client_id: mq.client_id,
+            construction_site: mq.construction_site || '',
+            price: Number(mq.final_price),
+            source: 'master' as const, // Mark as master pricing
+            quote_id: mq.quote_id,
+            quote_detail_id: quoteDetailId, // CRITICAL: quote_detail_id for order creation
+            business_name: mq.clients?.business_name || '',
+            client_code: mq.clients?.client_code || ''
+          });
+        });
+        if (isDevelopment) {
+          console.log(`[DebugArkikValidator] ✅ Propagated ${masterQuotes.length} master quote prices to variant ${recipe.recipe_code}`);
+        }
       }
     });
 
@@ -279,7 +399,7 @@ export class DebugArkikValidator {
   private async loadAllRecipes(): Promise<any[]> {
     const { data: recipes, error } = await supabase
       .from('recipes')
-      .select('id, recipe_code, arkik_long_code, arkik_short_code, has_waterproofing')
+      .select('id, recipe_code, arkik_long_code, arkik_short_code, master_recipe_id')
       .eq('plant_id', this.plantId);
 
     if (error) {
@@ -312,7 +432,7 @@ export class DebugArkikValidator {
     const { data: prices, error } = await supabase
       .from('product_prices')
       .select(`
-        recipe_id, client_id, construction_site, base_price, quote_id,
+        recipe_id, master_recipe_id, client_id, construction_site, base_price, quote_id,
         clients:client_id(business_name, client_code)
       `)
       .eq('plant_id', this.plantId)
@@ -332,7 +452,7 @@ export class DebugArkikValidator {
       .select(`
         id, client_id, construction_site, status,
         clients:client_id(business_name, client_code),
-        quote_details(id, recipe_id, final_price)
+        quote_details(id, recipe_id, master_recipe_id, final_price)
       `)
       .eq('plant_id', this.plantId)
       .eq('status', 'APPROVED');
@@ -346,25 +466,274 @@ export class DebugArkikValidator {
     return (quotes || []).filter(quote => quote.quote_details && quote.quote_details.length > 0);
   }
 
-  private async loadQuotesForRecipes(recipeIds: string[]): Promise<any[]> {
-    if (recipeIds.length === 0) return [];
+  /**
+   * OPTIMIZED: Load recipes filtered by product codes from incoming rows
+   * Also expands to include master recipes and all their variants if any match
+   * 
+   * FALLBACK: If no recipes found with code filter, falls back to loading recipes with pricing/quotes
+   */
+  private async loadRecipesByCodesMultiIndex(productCodes: string[]): Promise<any[]> {
+    if (productCodes.length === 0) return [];
 
-    // First get all quote_details for the specific recipes
-    const { data: quoteDetails, error: detailsError } = await supabase
-      .from('quote_details')
-      .select('id, quote_id, recipe_id, final_price')
-      .in('recipe_id', recipeIds);
+    const isDevelopment = process.env.NODE_ENV === 'development';
 
-    if (detailsError || !quoteDetails) {
-      console.error('[DebugArkikValidator] Error loading quote details:', detailsError);
+    // Step 1: Try to find recipes matching these codes
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] 🔍 Attempting to load ${productCodes.length} product codes:`, productCodes.slice(0, 5));
+    }
+
+    const { data: matchedRecipes, error: matchError } = await supabase
+      .from('recipes')
+      .select('id, recipe_code, arkik_long_code, arkik_short_code, master_recipe_id')
+      .eq('plant_id', this.plantId)
+      .or(
+        productCodes
+          .map(code => `arkik_long_code.eq.${code},recipe_code.eq.${code},arkik_short_code.eq.${code}`)
+          .join(',')
+      );
+
+    if (matchError) {
+      console.error('[DebugArkikValidator] Error loading recipes by codes (will try fallback):', matchError);
+    }
+
+    const recipes = matchedRecipes || [];
+    
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] 🔍 Filtered query returned ${recipes.length} recipes`);
+    }
+
+    // FALLBACK: If no recipes found, load all recipes that have pricing or quotes
+    // This ensures we don't miss recipes due to code format mismatches
+    if (recipes.length === 0) {
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] ⚠️ No recipes found with code filter, using fallback strategy...`);
+      }
+
+      // Get all recipe IDs that have product_prices
+      const { data: recipesWithPrices, error: pricesError } = await supabase
+        .from('product_prices')
+        .select('recipe_id')
+        .eq('plant_id', this.plantId)
+        .eq('is_active', true);
+
+      if (!pricesError && recipesWithPrices && recipesWithPrices.length > 0) {
+        // CRITICAL: Filter out null values to prevent Supabase 400 error
+        const recipeIds = Array.from(new Set(
+          recipesWithPrices
+            .map(p => p.recipe_id)
+            .filter((id): id is string => id !== null && id !== undefined && id !== '')
+        ));
+        
+        if (recipeIds.length === 0) {
+          if (isDevelopment) {
+            console.log(`[DebugArkikValidator] ⚠️ No valid recipe IDs found (all were null), trying final fallback...`);
+          }
+        } else {
+          if (isDevelopment) {
+            console.log(`[DebugArkikValidator] 📦 Found ${recipeIds.length} recipes with pricing, loading them...`);
+          }
+
+          // Load all recipes with pricing
+          const { data: fallbackRecipes, error: fallbackError } = await supabase
+            .from('recipes')
+            .select('id, recipe_code, arkik_long_code, arkik_short_code, master_recipe_id')
+            .eq('plant_id', this.plantId)
+            .in('id', recipeIds);
+
+          if (!fallbackError && fallbackRecipes && fallbackRecipes.length > 0) {
+            if (isDevelopment) {
+              console.log(`[DebugArkikValidator] ✅ Fallback loaded ${fallbackRecipes.length} recipes with pricing`);
+            }
+
+            // CRITICAL: Expand to include all variants of masters (same as Tier 1)
+            // This ensures recipes without direct pricing but with master recipes are included
+            const masterRecipeIds = new Set(
+              fallbackRecipes
+                .map(r => r.master_recipe_id)
+                .filter((id): id is string => id !== null && id !== undefined && id !== '')
+            );
+
+            if (masterRecipeIds.size > 0) {
+              if (isDevelopment) {
+                console.log(`[DebugArkikValidator] 📦 Expanding Tier 2 with ${masterRecipeIds.size} master recipes and variants...`);
+              }
+
+              // Load master + all variants
+              const { data: masterAndVariants, error: masterError } = await supabase
+                .from('recipes')
+                .select('id, recipe_code, arkik_long_code, arkik_short_code, master_recipe_id')
+                .eq('plant_id', this.plantId)
+                .or(
+                  Array.from(masterRecipeIds)
+                    .map(masterId => `id.eq.${masterId},master_recipe_id.eq.${masterId}`)
+                    .join(',')
+                );
+
+              if (!masterError && masterAndVariants) {
+                // Merge, avoiding duplicates
+                const existingIds = new Set(fallbackRecipes.map(r => r.id));
+                const newRecipes = masterAndVariants.filter(r => !existingIds.has(r.id));
+                const expandedRecipes = [...fallbackRecipes, ...newRecipes];
+
+                if (isDevelopment) {
+                  console.log(`[DebugArkikValidator] ✅ Tier 2 expanded to ${expandedRecipes.length} recipes (added ${newRecipes.length} master/variant recipes)`);
+                }
+                return expandedRecipes;
+              } else if (masterError) {
+                console.error('[DebugArkikValidator] Error loading master recipes in Tier 2 expansion:', masterError);
+              }
+            }
+
+            return fallbackRecipes;
+          }
+        }
+      }
+
+      // If no pricing found, try loading all recipes (final fallback)
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] 📦 No recipes with pricing found, loading all recipes as final fallback...`);
+      }
+
+      const { data: allRecipes, error: allError } = await supabase
+        .from('recipes')
+        .select('id, recipe_code, arkik_long_code, arkik_short_code, master_recipe_id')
+        .eq('plant_id', this.plantId);
+
+      if (!allError && allRecipes) {
+        if (isDevelopment) {
+          console.log(`[DebugArkikValidator] ✅ Final fallback loaded ${allRecipes.length} recipes`);
+        }
+        return allRecipes;
+      }
+
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] ❌ All fallback strategies failed`);
+      }
       return [];
     }
 
-    // Get the quote IDs from the details
+    const recipeIds = new Set(recipes.map(r => r.id));
+    const masterRecipeIds = new Set(recipes.map(r => r.master_recipe_id).filter(Boolean) as string[]);
+
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] 🔍 Found ${recipes.length} recipes from product codes`, {
+        found_recipe_ids: Array.from(recipeIds),
+        master_recipe_ids: Array.from(masterRecipeIds)
+      });
+    }
+
+    // Step 2: If we found recipes with master_recipe_id, load the master + ALL its variants
+    // This ensures we don't miss recipes when master exists
+    let allRecipes = [...recipes];
+
+    if (masterRecipeIds.size > 0) {
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] 📦 Loading ${masterRecipeIds.size} master recipes and their variants...`);
+      }
+
+      const { data: masterAndVariants, error: masterError } = await supabase
+        .from('recipes')
+        .select('id, recipe_code, arkik_long_code, arkik_short_code, master_recipe_id')
+        .eq('plant_id', this.plantId)
+        .or(
+          Array.from(masterRecipeIds)
+            .map(masterId => `id.eq.${masterId},master_recipe_id.eq.${masterId}`)
+            .join(',')
+        );
+
+      if (!masterError && masterAndVariants) {
+        // Add only new recipes (avoid duplicates)
+        const existingIds = new Set(allRecipes.map(r => r.id));
+        const newRecipes = masterAndVariants.filter(r => !existingIds.has(r.id));
+        allRecipes = [...allRecipes, ...newRecipes];
+
+        if (isDevelopment) {
+          console.log(`[DebugArkikValidator] ✅ Expanded to ${allRecipes.length} recipes (added ${newRecipes.length} master/variant recipes)`);
+        }
+      } else if (masterError) {
+        console.error('[DebugArkikValidator] Error loading master recipes:', masterError);
+      }
+    }
+
+    return allRecipes;
+  }
+
+  /**
+   * OPTIMIZED: Load product prices filtered by specific recipe IDs only
+   * Much more efficient than loading all prices for the plant
+   */
+  private async loadProductPricesByRecipeIds(recipeIds: string[]): Promise<any[]> {
+    if (recipeIds.length === 0) return [];
+
+    const { data: prices, error } = await supabase
+      .from('product_prices')
+      .select(`
+        recipe_id, master_recipe_id, client_id, construction_site, base_price, quote_id,
+        clients:client_id(business_name, client_code)
+      `)
+      .eq('plant_id', this.plantId)
+      .eq('is_active', true)
+      .in('recipe_id', recipeIds);
+
+    if (error) {
+      console.error('[DebugArkikValidator] Error loading product prices by recipe IDs:', error);
+      return [];
+    }
+
+    return prices || [];
+  }
+
+  /**
+   * OPTIMIZED: Load quotes for recipes with support for both variants AND masters
+   * Filters quote_details by BOTH recipe_id (variants) and master_recipe_id (masters)
+   * Much more efficient than loading all quotes for the plant
+   */
+  private async loadQuotesForRecipesAndMasters(recipeIds: string[], masterRecipeIds?: string[]): Promise<any[]> {
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    const allMasterIds = masterRecipeIds || [];
+
+    // If no recipes or masters, return empty
+    if (recipeIds.length === 0 && allMasterIds.length === 0) return [];
+
+    // Build OR filter for quote_details: match either recipe_id OR master_recipe_id
+    const orConditions: string[] = [];
+    
+    recipeIds.forEach(id => {
+      orConditions.push(`recipe_id.eq.${id}`);
+    });
+    
+    allMasterIds.forEach(id => {
+      orConditions.push(`master_recipe_id.eq.${id}`);
+    });
+
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] 🔍 Loading quotes for ${recipeIds.length} recipes + ${allMasterIds.length} masters (${orConditions.length} conditions)`);
+    }
+
+    // Step 1: Get quote_details matching recipes or masters
+    const { data: quoteDetails, error: detailsError } = await supabase
+      .from('quote_details')
+      .select('id, quote_id, recipe_id, master_recipe_id, final_price')
+      .or(orConditions.join(','));
+
+    if (detailsError || !quoteDetails || quoteDetails.length === 0) {
+      if (detailsError) {
+        console.error('[DebugArkikValidator] Error loading quote details:', detailsError);
+      } else if (isDevelopment) {
+        console.log('[DebugArkikValidator] No quote details found for recipes/masters');
+      }
+      return [];
+    }
+
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] ✅ Found ${quoteDetails.length} quote details`);
+    }
+
+    // Step 2: Extract unique quote IDs
     const quoteIds = Array.from(new Set(quoteDetails.map(detail => detail.quote_id)));
     if (quoteIds.length === 0) return [];
 
-    // Now load the full quotes with client info
+    // Step 3: Load full quotes with client info
     const { data: quotes, error: quotesError } = await supabase
       .from('quotes')
       .select(`
@@ -380,7 +749,11 @@ export class DebugArkikValidator {
       return [];
     }
 
-    // Combine quotes with their details
+    if (isDevelopment) {
+      console.log(`[DebugArkikValidator] ✅ Loaded ${quotes.length} approved quotes`);
+    }
+
+    // Step 4: Combine quotes with their details
     return quotes.map(quote => ({
       ...quote,
       quote_details: quoteDetails.filter(detail => detail.quote_id === quote.id)
@@ -647,6 +1020,7 @@ export class DebugArkikValidator {
       bestMatch.pricing.quote_detail_id = this.resolveQuoteDetailId(
         bestMatch.pricing.quote_id,
         bestMatch.pricing.recipe_id,
+        recipe.master_recipe_id, // CRITICAL: Pass master_recipe_id for master-based quote matching
         batchData.quotesData
       );
       console.log('[DebugArkikValidator] Resolved quote_detail_id:', bestMatch.pricing.quote_detail_id);
@@ -661,10 +1035,17 @@ export class DebugArkikValidator {
       bestMatch.pricing.quote_detail_id
     );
     console.log('[DebugArkikValidator] Resolved construction site ID:', resolvedConstructionSiteId);
+    console.log('[DebugArkikValidator] 🔍 Recipe object before creating validated row:', {
+      id: recipe.id,
+      recipe_code: recipe.recipe_code,
+      master_recipe_id: recipe.master_recipe_id,
+      has_master: !!recipe.master_recipe_id
+    });
 
     const validatedRow: StagingRemision = {
       ...row,
       recipe_id: recipe.id,
+      master_recipe_id: recipe.master_recipe_id || undefined, // NEW: Store master for order matching
       client_id: bestMatch.pricing.client_id,
       unit_price: bestMatch.pricing.price,
       price_source: bestMatch.pricing.source as any,
@@ -687,6 +1068,7 @@ export class DebugArkikValidator {
     console.log(`[DebugArkikValidator]   - Status logic: errors.length > 0 ? 'warning' : 'valid'`);
 
     console.log('[DebugArkikValidator] === FINAL VALIDATED ROW ===');
+    console.log('[DebugArkikValidator] 🎯 master_recipe_id in validated row:', validatedRow.master_recipe_id);
     console.log('[DebugArkikValidator] Final validated row for remision', row.remision_number, ':', {
       client_id: validatedRow.client_id,
       construction_site_id: validatedRow.construction_site_id,
@@ -1023,14 +1405,22 @@ export class DebugArkikValidator {
     }
   }
 
-  private resolveQuoteDetailId(quoteId: string, recipeId: string, quotesData: any[]): string | undefined {
+  private resolveQuoteDetailId(quoteId: string, recipeId: string, masterRecipeId: string | undefined, quotesData: any[]): string | undefined {
     // Find the quote that matches the quote_id
     const quote = quotesData.find(q => q.id === quoteId);
     if (!quote || !quote.quote_details) {
       return undefined;
     }
 
-    // Find the quote_detail that matches the recipe_id
+    // CRITICAL: For master recipes, search by master_recipe_id first, then fallback to recipe_id
+    if (masterRecipeId) {
+      const masterDetail = quote.quote_details.find((detail: any) => detail.master_recipe_id === masterRecipeId);
+      if (masterDetail) {
+        return masterDetail.id;
+      }
+    }
+
+    // Fallback: Find the quote_detail that matches the recipe_id (for variant-level quotes)
     const quoteDetail = quote.quote_details.find((detail: any) => detail.recipe_id === recipeId);
     return quoteDetail?.id;
   }
@@ -1089,8 +1479,8 @@ export class DebugArkikValidator {
     // STEP 2: Validate Materials
     await this.validateMaterials(row, errors);
 
-    // STEP 3: Load Unified Pricing
-    const pricingOptions = await this.loadUnifiedPricing(recipe.id);
+    // STEP 3: Load Unified Pricing (master-first, variant fallback)
+    const pricingOptions = await this.loadUnifiedPricing(recipe.id, recipe.master_recipe_id);
     if (pricingOptions.length === 0) {
       errors.push({
         row_number: row.row_number,
@@ -1152,6 +1542,7 @@ export class DebugArkikValidator {
     const validatedRow: StagingRemision = {
       ...row,
       recipe_id: recipe.id,
+      master_recipe_id: recipe.master_recipe_id || undefined, // NEW: Store master for order matching
       client_id: bestMatch.pricing.client_id,
       unit_price: bestMatch.pricing.price,
       price_source: bestMatch.pricing.source as any,
@@ -1220,7 +1611,7 @@ export class DebugArkikValidator {
     // Query recipes for this plant
     const { data: recipes, error } = await supabase
       .from('recipes')
-      .select('id, recipe_code, arkik_long_code, arkik_short_code')
+      .select('id, recipe_code, arkik_long_code, arkik_short_code, master_recipe_id')
       .eq('plant_id', this.plantId);
 
     if (error) {
@@ -1268,19 +1659,41 @@ export class DebugArkikValidator {
     return null;
   }
 
-  private async loadUnifiedPricing(recipeId: string): Promise<DebugPricing[]> {
+  private async loadUnifiedPricing(recipeId: string, masterRecipeId?: string | null): Promise<DebugPricing[]> {
     const unifiedPricing: DebugPricing[] = [];
 
-    // Load product_prices
-    const { data: prices, error: pricesError } = await supabase
+    // CRITICAL: For master-variant architecture, prices are stored on master_recipe_id, not recipe_id
+    // If this variant has a master, we look up prices by master_recipe_id
+    const isDevelopment = process.env.NODE_ENV === 'development';
+    
+    if (masterRecipeId && isDevelopment) {
+      console.log(`[DebugArkikValidator] Recipe ${recipeId} has master ${masterRecipeId} - will look up master prices`);
+    }
+
+    // Load product_prices - lookup by master_recipe_id if available, otherwise by recipe_id (legacy)
+    let priceQuery = supabase
       .from('product_prices')
       .select(`
-        recipe_id, client_id, construction_site, base_price,
+        recipe_id, master_recipe_id, client_id, construction_site, base_price, quote_id,
         clients:client_id(business_name, client_code)
       `)
       .eq('plant_id', this.plantId)
-      .eq('is_active', true)
-      .eq('recipe_id', recipeId);
+      .eq('is_active', true);
+    
+    // Use master-based pricing if available, otherwise fall back to variant pricing
+    if (masterRecipeId) {
+      priceQuery = priceQuery.eq('master_recipe_id', masterRecipeId);
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] Querying prices by master_recipe_id: ${masterRecipeId}`);
+      }
+    } else {
+      priceQuery = priceQuery.eq('recipe_id', recipeId);
+      if (isDevelopment) {
+        console.log(`[DebugArkikValidator] Querying prices by recipe_id (legacy): ${recipeId}`);
+      }
+    }
+    
+    const { data: prices, error: pricesError } = await priceQuery;
 
     if (!pricesError) {
       // Process prices sequentially to find quote_ids
@@ -1306,46 +1719,60 @@ export class DebugArkikValidator {
             }
           }
           
+          // Determine source: 'master' if we queried by master_recipe_id, otherwise use scope
+          const priceSource = masterRecipeId ? 'master' : (scope as any);
+          
           unifiedPricing.push({
-            recipe_id: (price as any).recipeid,
+            recipe_id: recipeId, // Always use the variant recipe_id for consistency
             client_id: price.client_id,
             construction_site: price.construction_site || '',
             price: Number(price.base_price),
-            source: scope as any,
+            source: priceSource,
             quote_id: quoteId, // Include quote_id if found
             business_name: price.clients.business_name,
             client_code: price.clients.client_code
           });
+          
+          if (isDevelopment && masterRecipeId) {
+            console.log(`[DebugArkikValidator] ✅ Added master price: ${price.clients.business_name} | Site: ${price.construction_site || 'N/A'} | Price: $${price.base_price}`);
+          }
         }
       }
     }
 
-    // Load quotes
-    const { data: allQuotes, error: allQuotesError } = await supabase
-      .from('quote_details')
-      .select('recipe_id, final_price')
-      .eq('recipe_id', recipeId);
-    
-    // Get quotes for this recipe by filtering on client and construction site first
-    // This is more efficient than complex joins
+    // Load quotes - CRITICAL: Query by master_recipe_id if available, otherwise by recipe_id
+    // Master-based quotes have master_recipe_id set and recipe_id = NULL
     let { data: quotes, error: quotesError } = await supabase
       .from('quotes')
       .select(`
         id, client_id, construction_site, status,
         clients:client_id(business_name, client_code),
-        quote_details(recipe_id, final_price)
+        quote_details(id, recipe_id, master_recipe_id, final_price)
       `)
       .eq('plant_id', this.plantId)
       .eq('status', 'APPROVED');
 
     if (quotes && quotes.length > 0) {
-      // Filter quotes that have this recipe in their details
+      // Filter quotes that match either by master_recipe_id OR recipe_id
       const matchingQuotes = quotes.filter(quote => 
-        quote.quote_details.some((detail: any) => detail.recipe_id === recipeId)
+        quote.quote_details.some((detail: any) => {
+          // Match by master if this recipe has a master
+          if (masterRecipeId && detail.master_recipe_id === masterRecipeId) {
+            return true;
+          }
+          // Fall back to variant matching
+          if (detail.recipe_id === recipeId) {
+            return true;
+          }
+          return false;
+        })
       );
       
       if (matchingQuotes.length > 0) {
         quotes = matchingQuotes;
+        if (isDevelopment) {
+          console.log(`[DebugArkikValidator] Found ${matchingQuotes.length} quotes matching ${masterRecipeId ? 'master' : 'recipe'}`);
+        }
       } else {
         quotes = [];
       }
@@ -1354,19 +1781,36 @@ export class DebugArkikValidator {
     if (!quotesError) {
       (quotes || []).forEach(quote => {
         if (quote.clients && quote.quote_details && quote.quote_details.length > 0) {
-          // Get the price from the first quote_detail (should be only one due to inner join)
-          const quoteDetail = quote.quote_details[0];
-          const pricingEntry = {
-            recipe_id: quoteDetail.recipe_id,
-            client_id: quote.client_id,
-            construction_site: quote.construction_site || '',
-            price: Number(quoteDetail.final_price),
-            source: 'quotes' as const,
-            quote_id: quote.id, // This is the actual quote_id
-            business_name: quote.clients.business_name,
-            client_code: quote.clients.client_code
-          };
-          unifiedPricing.push(pricingEntry);
+          // Find matching quote detail (either by master or recipe)
+          const matchingDetail = quote.quote_details.find((detail: any) => {
+            if (masterRecipeId && detail.master_recipe_id === masterRecipeId) {
+              return true;
+            }
+            if (detail.recipe_id === recipeId) {
+              return true;
+            }
+            return false;
+          });
+          
+          if (matchingDetail) {
+            const source: 'master' | 'quotes' = (masterRecipeId && matchingDetail.master_recipe_id) ? 'master' : 'quotes';
+            const pricingEntry = {
+              recipe_id: recipeId, // Always use variant recipe_id for consistency
+              client_id: quote.client_id,
+              construction_site: quote.construction_site || '',
+              price: Number(matchingDetail.final_price),
+              source,
+              quote_id: quote.id,
+              quote_detail_id: matchingDetail.id, // CRITICAL for order creation
+              business_name: quote.clients.business_name,
+              client_code: quote.clients.client_code
+            };
+            unifiedPricing.push(pricingEntry);
+            
+            if (isDevelopment && masterRecipeId && matchingDetail.master_recipe_id) {
+              console.log(`[DebugArkikValidator] ✅ Found master-based quote: ${quote.clients.business_name} | ${quote.construction_site} | $${matchingDetail.final_price} | Detail ID: ${matchingDetail.id}`);
+            }
+          }
         }
       });
     }
@@ -1467,18 +1911,8 @@ export class DebugArkikValidator {
         
         if (hasActiveProductPrice) {
           freshnessBonus = 2.0; // High bonus for quotes with active product_prices (most recent)
-          if (isDevelopment) {
-            console.log(`[DebugArkikValidator]   Freshness bonus applied: +${freshnessBonus} (has active product_price)`);
-          }
         } else {
           freshnessBonus = -1.0; // Penalty for quotes without active product_prices (obsolete)
-          if (isDevelopment) {
-            console.log(`[DebugArkikValidator]   Freshness penalty applied: ${freshnessBonus} (obsolete quote)`);
-          }
-        }
-        
-        if (isDevelopment) {
-          console.log(`[DebugArkikValidator]   Quote bonus applied: +${quoteBonus} for quote ${pricing.quote_id}`);
         }
       }
       
@@ -1494,17 +1928,29 @@ export class DebugArkikValidator {
       };
     });
 
-    // Sort by score and return best
-    scoredOptions.sort((a, b) => b.totalScore - a.totalScore);
+    // Sort by score, and if tied, prefer 'master' source (has quote_detail_id)
+    scoredOptions.sort((a, b) => {
+      // Primary: sort by score
+      if (b.totalScore !== a.totalScore) {
+        return b.totalScore - a.totalScore;
+      }
+      // Tie-breaker: prefer 'master' source (guaranteed quote_detail_id)
+      if (a.pricing.source === 'master' && b.pricing.source !== 'master') return -1;
+      if (b.pricing.source === 'master' && a.pricing.source !== 'master') return 1;
+      // Second tie-breaker: prefer 'quotes' over 'client_site'
+      if (a.pricing.source === 'quotes' && b.pricing.source === 'client_site') return -1;
+      if (b.pricing.source === 'quotes' && a.pricing.source === 'client_site') return 1;
+      return 0;
+    });
     
     if (isDevelopment) {
-      console.log(`[DebugArkikValidator]   Final scoring results:`);
+      console.log(`[DebugArkikValidator]   Final scoring results (master-preferred):`);
       scoredOptions.forEach((option, index) => {
-        console.log(`[DebugArkikValidator]     ${index + 1}. ${option.pricing.source} - Score: ${option.totalScore.toFixed(2)} - Quote ID: ${option.pricing.quote_id || 'N/A'} - ${option.reasoning}`);
+        console.log(`[DebugArkikValidator]     ${index + 1}. ${option.pricing.source} - Score: ${option.totalScore.toFixed(2)} - Quote Detail ID: ${option.pricing.quote_detail_id || 'N/A'} - ${option.reasoning}`);
       });
       
       const bestMatch = scoredOptions[0];
-      console.log(`[DebugArkikValidator]   🎯 Selected: ${bestMatch.pricing.source} with score ${bestMatch.totalScore.toFixed(2)} - Quote ID: ${bestMatch.pricing.quote_id || 'N/A'}`);
+      console.log(`[DebugArkikValidator]   🎯 Selected: ${bestMatch.pricing.source} with score ${bestMatch.totalScore.toFixed(2)} - Quote Detail ID: ${bestMatch.pricing.quote_detail_id || 'N/A'}`);
     }
     
     const bestMatch = scoredOptions[0];
@@ -1675,35 +2121,20 @@ export class DebugArkikValidator {
     // Combined scoring with weights
     const combinedScore = (exactScore * 0.6) + (fuzzyScore * 0.3) + (partialScore * 0.1);
     
-    const isDevelopment = process.env.NODE_ENV === 'development';
-    if (isDevelopment) {
-      console.log(`[DebugArkikValidator] 🧮 FUZZY MATCHING DEBUG:`);
-      console.log(`[DebugArkikValidator]   Normalized: "${input}" vs "${business}"`);
-      console.log(`[DebugArkikValidator]   Cleaned: "${inputCleaned}" vs "${businessCleaned}"`);
-      console.log(`[DebugArkikValidator]   Words: [${inputWords.join(', ')}] vs [${businessWords.join(', ')}]`);
-      console.log(`[DebugArkikValidator]   Matches: exact=${exactMatches}, fuzzy=${fuzzyMatches}, partial=${partialMatches}`);
-      console.log(`[DebugArkikValidator]   Scores: exact=${exactScore.toFixed(2)}, fuzzy=${fuzzyScore.toFixed(2)}, partial=${partialScore.toFixed(2)}, combined=${combinedScore.toFixed(2)}`);
-    }
-    
     // Apply thresholds
     if (exactScore >= 0.7 && exactMatches >= 2) {
-      if (isDevelopment) console.log(`[DebugArkikValidator]   🎯 HIGH CONFIDENCE: 0.80`);
       return 0.80;
     }
     if (exactScore >= 0.5 && exactMatches >= 2) {
-      if (isDevelopment) console.log(`[DebugArkikValidator]   ✅ GOOD CONFIDENCE: 0.75`);
       return 0.75;
     }
     if (combinedScore >= 0.6 && (exactMatches >= 1 || fuzzyMatches >= 2)) {
-      if (isDevelopment) console.log(`[DebugArkikValidator]   ⚡ ACCEPTABLE: 0.70`);
       return 0.70;
     }
     if (combinedScore >= 0.4 && exactMatches >= 1) {
-      if (isDevelopment) console.log(`[DebugArkikValidator]   ⚠️  LOW BUT ACCEPTABLE: 0.65`);
       return 0.65;
     }
     
-    if (isDevelopment) console.log(`[DebugArkikValidator]   ❌ NO MATCH: 0.00`);
     return 0;
   }
 

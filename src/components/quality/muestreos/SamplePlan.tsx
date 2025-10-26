@@ -305,7 +305,7 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                   </div>
                 )}
 
-                <div className={cn('', (s.tipo_muestra === 'CILINDRO' || s.tipo_muestra === 'CUBO') ? 'md:col-span-2' : 'md:col-span-4')}>
+                <div className={cn('', (s.tipo_muestra === 'CILINDRO' || s.tipo_muestra === 'CUBO') ? 'md:col-span-2' : 'md:col-span-2')}>
                   <FormLabel className="text-xs">Fecha programada de ensayo</FormLabel>
                   <Input
                     type="date"
@@ -340,7 +340,14 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                   />
                 </div>
 
-                <div className="md:col-span-2">
+                <div className="md:col-span-2 flex items-end">
+                  <Button type="button" variant="outline" size="icon" onClick={() => setPlannedSamples((prev) => prev.filter((p) => p.id !== s.id))}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Second row for time and test date summary */}
+                <div className="md:col-span-6">
                   <FormLabel className="text-xs">Hora de Ensayo (local)</FormLabel>
                   <Input
                     type="time"
@@ -375,12 +382,6 @@ export default function SamplePlan<T extends FieldValues>(props: SamplePlanProps
                       <span className="ml-2 text-blue-600 font-medium">(tiempo manual)</span>
                     )}
                   </div>
-                </div>
-
-                <div className="md:col-span-1 flex justify-end">
-                  <Button type="button" variant="outline" size="icon" onClick={() => setPlannedSamples((prev) => prev.filter((p) => p.id !== s.id))}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
                 </div>
               </div>
             );

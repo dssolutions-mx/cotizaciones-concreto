@@ -444,9 +444,11 @@ Fin del reporte
       // Make a deep copy to ensure state updates properly
       const processedData = result.validated.map(r => ({ ...r }));
       setProcessedRemisiones(processedData);
-      
+
       console.log('[ArkikProcessor] Processed data sample:', processedData.slice(0, 3).map(r => ({
         remision_number: r.remision_number,
+        master_recipe_id: r.master_recipe_id, // ADD: Debug master recipe
+        quote_detail_id: r.quote_detail_id, // ADD: Debug quote detail
         is_excluded_from_import: r.is_excluded_from_import,
         status_processing_action: r.status_processing_action
       })));
@@ -593,6 +595,8 @@ Fin del reporte
           client_id: remision.client_id,
           construction_site_id: remision.construction_site_id,
           recipe_id: remision.recipe_id,
+          master_recipe_id: remision.master_recipe_id, // ADD: Debug master recipe
+          quote_detail_id: remision.quote_detail_id, // ADD: Debug quote detail
           unit_price: remision.unit_price,
           validation_status: remision.validation_status,
           obra_name: remision.obra_name,
@@ -1596,7 +1600,16 @@ Fin del reporte
       // Then validate using the debug validator
       const validator = new DebugArkikValidator(currentPlant.id);
       const { validated, errors } = await validator.validateBatch(stagingRows);
-      
+
+      // DEBUG: Check if master_recipe_id is present in validation results
+      console.log('[ArkikProcessor] Validation results sample:', validated.slice(0, 3).map(r => ({
+        remision_number: r.remision_number,
+        master_recipe_id: r.master_recipe_id, // ADD: Debug master recipe
+        quote_detail_id: r.quote_detail_id, // ADD: Debug quote detail
+        recipe_id: r.recipe_id,
+        validation_status: r.validation_status
+      })));
+
       const processingTime = Date.now() - startTime;
       const successRate = validated.length > 0 ? (validated.filter(r => r.validation_status === 'valid').length / validated.length) * 100 : 0;
 

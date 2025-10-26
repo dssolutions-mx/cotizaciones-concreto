@@ -42,13 +42,13 @@ export default function MeasurementsFields({ form }: Props) {
               <TooltipContent>Ingresa los pesos y el factor del recipiente; calculamos la masa unitaria automáticamente.</TooltipContent>
             </Tooltip>
           </FormLabel>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
             <FormField
               control={form.control}
               name="peso_recipiente_vacio"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs leading-tight min-h-[40px] flex items-end">Recipiente vacío (kg)</FormLabel>
+                  <FormLabel className="text-xs leading-tight">Recipiente vacío (kg)</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -68,7 +68,7 @@ export default function MeasurementsFields({ form }: Props) {
               name="peso_recipiente_lleno"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs leading-tight min-h-[40px] flex items-end">Recipiente lleno (kg)</FormLabel>
+                  <FormLabel className="text-xs leading-tight">Recipiente lleno (kg)</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -88,7 +88,7 @@ export default function MeasurementsFields({ form }: Props) {
               name="factor_recipiente"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel className="text-xs leading-tight min-h-[40px] flex items-end">Factor recipiente</FormLabel>
+                  <FormLabel className="text-xs leading-tight">Factor recipiente</FormLabel>
                   <FormControl>
                     <Input
                       type="number"

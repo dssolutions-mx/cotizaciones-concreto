@@ -55,6 +55,21 @@ export class ArkikOrderMatcher {
   }
 
   /**
+   * Extract YYYY-MM-DD string from date input without timezone conversion
+   */
+  private extractYmdString(dateInput: string | Date): string {
+    if (typeof dateInput === 'string') {
+      // If it's already in YYYY-MM-DD format, return as-is
+      const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})/.exec(dateInput);
+      if (m) return m[0];
+    }
+    if (dateInput instanceof Date) {
+      return this.formatYmd(dateInput);
+    }
+    return '';
+  }
+
+  /**
    * Format a Date as YYYY-MM-DD using local components (no TZ conversion)
    */
   private formatYmd(date: Date): string {
@@ -87,12 +102,22 @@ export class ArkikOrderMatcher {
         client_id: criteria.client_id,
         client_name: criteria.client_name,
         construction_site_name: criteria.construction_site_name,
-        delivery_date: this.formatYmd(criteria.delivery_date_start)
+        delivery_date_range: {
+          start: this.formatYmd(criteria.delivery_date_start),
+          end: this.formatYmd(criteria.delivery_date_end)
+        }
       });
       
       const existingOrders = await this.queryExistingOrders(criteria);
       
-      console.log(`[ArkikOrderMatcher] Found ${existingOrders.length} candidate orders for matching`);
+      console.log(`[ArkikOrderMatcher] Found ${existingOrders.length} candidate orders for matching`, {
+        client_id: criteria.client_id,
+        construction_site_id: criteria.construction_site_id,
+        dateRange: {
+          start: this.formatYmd(criteria.delivery_date_start),
+          end: this.formatYmd(criteria.delivery_date_end)
+        }
+      });
 
       if (existingOrders.length > 0) {
         // Find the best matching order
@@ -155,7 +180,10 @@ export class ArkikOrderMatcher {
   private buildMatchCriteria(remisiones: StagingRemision[]): OrderMatchCriteria {
     const firstRemision = remisiones[0];
     
-    // Define date range (allow ±1 day flexibility)
+    // Extract YYYY-MM-DD string directly to avoid timezone issues
+    const remisionYmdString = this.extractYmdString(firstRemision.fecha as any);
+    
+    // For date range search (±1 day), we still need Date objects
     const baseDate = this.parseLocalDate(firstRemision.fecha as any);
     const startDate = new Date(baseDate);
     startDate.setDate(startDate.getDate() - 1);
@@ -185,21 +213,45 @@ export class ArkikOrderMatcher {
     let query = supabase
       .from('orders')
       .select(`
-        *,
+        id,
+        order_number,
+        client_id,
+        construction_site,
+        construction_site_id,
+        delivery_date,
+        delivery_time,
+        order_status,
+        credit_status,
+        total_amount,
         order_items (
-          *,
-          quote_details:quote_detail_id (* )
-        ),
-        clients!inner (
           id,
-          business_name,
-          client_code
+          recipe_id,
+          master_recipe_id,
+          volume,
+          unit_price,
+          quote_detail_id,
+          quote_details:quote_detail_id (
+            id,
+            recipe_id,
+            master_recipe_id
+          )
         )
       `)
       .gte('delivery_date', startYmd)
       .lte('delivery_date', endYmd)
       .in('order_status', ['created', 'validated', 'scheduled']) // Only orders that can be updated
-      .eq('credit_status', 'approved'); // Only approved orders
+      .eq('plant_id', this.plantId); // Scope to current plant to ensure visibility
+    
+    // Apply client filter if provided
+    if (criteria.client_id) {
+      query = query.eq('client_id', criteria.client_id);
+    }
+    // Apply site filter if provided
+    if (criteria.construction_site_id) {
+      query = query.eq('construction_site_id', criteria.construction_site_id);
+    }
+    
+    query = query.limit(50);
 
     // Apply client filter if we have a specific client_id
     if (criteria.client_id) {
@@ -225,7 +277,15 @@ export class ArkikOrderMatcher {
       return [];
     }
 
-    return data || [];
+    const orders = data || [];
+    console.log('[ArkikOrderMatcher] Retrieved orders:', orders.map((o: any) => ({
+      id: o.id,
+      order_number: o.order_number,
+      delivery_date: o.delivery_date,
+      order_items_length: Array.isArray(o.order_items) ? o.order_items.length : 0
+    })));
+
+    return orders;
   }
 
   /**
@@ -236,7 +296,8 @@ export class ArkikOrderMatcher {
     candidateOrders: Order[]
   ): ExistingOrderMatch | null {
     const firstRemision = remisiones[0];
-    const remisionYmd = this.formatYmd(this.parseLocalDate(firstRemision.fecha as any));
+    // Use direct string extraction to avoid timezone conversion issues
+    const remisionYmd = this.extractYmdString(firstRemision.fecha as any);
 
     // Evaluate all candidates and mark if same-day
     // Filter out orders that do not strictly match recipes for ALL remisiones with recipe_id
@@ -247,7 +308,8 @@ export class ArkikOrderMatcher {
 
     const evaluated = strictlyCompatible.map(order => {
       const match = this.evaluateOrderMatch(remisiones, order);
-      const orderYmd = this.formatYmd(this.parseLocalDate((order as any).delivery_date));
+      // Use direct string extraction for order date too
+      const orderYmd = this.extractYmdString((order as any).delivery_date);
       const isSameDay = orderYmd === remisionYmd;
       return { match, isSameDay };
     });
@@ -350,12 +412,13 @@ export class ArkikOrderMatcher {
     }
 
     // Date proximity (string-based equality preferred, no TZ conversion)
-    const orderYmd = this.formatYmd(this.parseLocalDate((order as any).delivery_date));
-    const remisionYmd = this.formatYmd(this.parseLocalDate(firstRemision.fecha as any));
+    const orderYmd = this.extractYmdString((order as any).delivery_date);
+    const remisionYmd = this.extractYmdString(firstRemision.fecha as any);
     if (orderYmd === remisionYmd) {
       score += 3; // Strongly prefer exact same day
       matchReasons.push('Fecha exacta');
     } else {
+      // Only calculate day difference if strings don't match exactly
       const orderDate = this.parseLocalDate((order as any).delivery_date);
       const remisionDate = this.parseLocalDate(firstRemision.fecha as any);
       const daysDiff = Math.abs((orderDate.getTime() - remisionDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -603,6 +666,7 @@ export class ArkikOrderMatcher {
           unidad: remision.placas || undefined, // Map placas from Excel to unidad field (same as dedicated mode)
           tipo_remision: 'CONCRETO',
           recipe_id: remision.recipe_id!,
+          master_recipe_id: remision.master_recipe_id,
           plant_id: this.plantId
         };
       });

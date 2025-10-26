@@ -85,6 +85,7 @@ import { Copy, CalculatorIcon, Beaker, FileText } from 'lucide-react';
 import QualityOverview from './QualityOverview';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { masterRecipeService } from '@/lib/services/masterRecipeService';
 
 // Define una interfaz para editar la orden
 interface EditableOrderData {
@@ -176,18 +177,48 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     finishRender();
   }, [orderId, order, profile, loading, isEditing, hasRemisiones]);
 
-  // Calculate allowed recipe IDs - optimized to prevent unnecessary re-renders
-  const allowedRecipeIds = useMemo(() => {
-    if (!order?.products) return [];
-    // Extract only recipe IDs to create a stable dependency
-    const ids = order.products
-      .map(p => p.recipe_id) // Access recipe_id directly
-      .filter((id): id is string => !!id);
-    return Array.from(new Set(ids)); 
-  }, [
-    // Use a more specific dependency to avoid re-renders on unrelated order changes
-    order?.products?.map(p => p.recipe_id).join(',') || ''
-  ]);
+  // Calculate allowed recipe IDs including variants under master items
+  const [allowedRecipeIds, setAllowedRecipeIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const loadAllowed = async () => {
+      if (!order?.products || order.products.length === 0) {
+        setAllowedRecipeIds([]);
+        return;
+      }
+
+      const recipeIds = new Set<string>();
+
+      // Direct recipe_id items
+      for (const p of order.products as any[]) {
+        if (p.recipe_id) recipeIds.add(p.recipe_id);
+      }
+
+      // Expand master items to all variant recipe IDs
+      const masterIds = Array.from(
+        new Set(
+          (order.products as any[])
+            .map(p => (p as any).master_recipe_id)
+            .filter(Boolean)
+        )
+      ) as string[];
+
+      for (const masterId of masterIds) {
+        try {
+          const { variants } = await masterRecipeService.getMasterRecipeWithVariants(masterId);
+          for (const v of variants) {
+            if (v?.id) recipeIds.add(v.id);
+          }
+        } catch (e) {
+          console.error('Error loading variants for master', masterId, e);
+        }
+      }
+
+      setAllowedRecipeIds(Array.from(recipeIds));
+    };
+
+    loadAllowed();
+  }, [order?.products]);
   
   // Check if user is a credit validator or manager
   const isCreditValidator = profile?.role === 'CREDIT_VALIDATOR' as UserRole;
@@ -496,12 +527,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         return;
       }
       
-      console.log(`Fetching active price for Client: ${order.client_id}, Site: ${order.construction_site}`);
+      const plantId = order.plant_id;
+      console.log(`Fetching active prices for Client: ${order.client_id}, Site: ${order.construction_site}, Plant: ${plantId}`);
       
-      // 1. Find the active product price for this client and site
+      // 1. Find the active product prices (master-first with recipe fallback)
       const { data: activePrices, error: activePriceError } = await supabase
         .from('product_prices')
-        .select('quote_id, id, is_active, updated_at, recipe_id')
+        .select('quote_id, id, is_active, updated_at, master_recipe_id, recipe_id')
         .eq('client_id', order.client_id)
         .eq('construction_site', order.construction_site)
         .eq('is_active', true)
@@ -521,7 +553,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         return;
       }
       
-      // Double-check that all prices are actually active
       const trulyActivePrices = activePrices.filter(price => price.is_active === true);
       console.log(`Found ${trulyActivePrices.length} truly active prices out of ${activePrices.length} returned prices`);
       
@@ -531,20 +562,63 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         return;
       }
       
-      // Get unique quote IDs from truly active prices
+      // Build active quote-master combinations from both master-level and recipe-mapped prices
+      const activeQuoteMasterCombos = new Set<string>();
+      
+      // Direct master prices
+      trulyActivePrices
+        .filter((price: any) => price.quote_id && price.master_recipe_id)
+        .forEach((price: any) => {
+          activeQuoteMasterCombos.add(`${price.quote_id}:${price.master_recipe_id}`);
+        });
+      
+      // Recipe-level prices mapped to masters
+      const recipeIdsNeedingMaster = Array.from(
+        new Set(
+          trulyActivePrices
+            .filter((price: any) => price.recipe_id && !price.master_recipe_id)
+            .map((price: any) => price.recipe_id)
+        )
+      );
+      
+      let recipeIdToMasterId: Record<string, string> = {};
+      if (recipeIdsNeedingMaster.length > 0) {
+        const { data: recipeRows, error: recipeErr } = await supabase
+          .from('recipes')
+          .select('id, master_recipe_id')
+          .in('id', recipeIdsNeedingMaster);
+        if (!recipeErr && recipeRows) {
+          for (const r of recipeRows as any[]) {
+            if (r.master_recipe_id) {
+              recipeIdToMasterId[r.id] = r.master_recipe_id;
+            }
+          }
+        }
+      }
+      
+      trulyActivePrices
+        .filter((price: any) => price.quote_id && price.recipe_id && recipeIdToMasterId[price.recipe_id])
+        .forEach((price: any) => {
+          const masterId = recipeIdToMasterId[price.recipe_id];
+          activeQuoteMasterCombos.add(`${price.quote_id}:${masterId}`);
+        });
+      
+      // Build recipe fallback pairs for recipes without master
+      const activeQuoteRecipeFallbackCombos = new Set<string>();
+      trulyActivePrices
+        .filter((price: any) => price.quote_id && price.recipe_id && !recipeIdToMasterId[price.recipe_id] && !price.master_recipe_id)
+        .forEach((price: any) => {
+          activeQuoteRecipeFallbackCombos.add(`${price.quote_id}:${price.recipe_id}`);
+        });
+      
+      console.log('Active quote-master combinations:', Array.from(activeQuoteMasterCombos));
+      console.log('Active quote-recipe FALLBACK combinations:', Array.from(activeQuoteRecipeFallbackCombos));
+      
+      // Get unique quote IDs
       const uniqueQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
       console.log('Unique quote IDs from active prices:', uniqueQuoteIds);
       
-      // Create a set of active quote-recipe combinations
-      // This ensures we only display recipes that are active for a specific quote
-      const activeQuoteRecipeCombos = new Set(
-        trulyActivePrices
-          .filter(price => price.quote_id && price.recipe_id)
-          .map(price => `${price.quote_id}:${price.recipe_id}`)
-      );
-      console.log('Active quote-recipe combinations:', Array.from(activeQuoteRecipeCombos));
-      
-      // 2. Fetch all quotes linked to active prices
+      // 2. Fetch all quotes with master and recipe joins (plant-scoped)
       const { data: quotesData, error: quotesError } = await supabase
         .from('quotes')
         .select(`
@@ -556,20 +630,42 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             final_price,
             pump_service,
             pump_price,
+            master_recipe_id,
             recipe_id,
-            recipes:recipe_id(
+            master_recipes:master_recipe_id(
               id,
+              plant_id,
+              master_code,
+              strength_fc,
+              slump,
+              age_days,
+              placement_type,
+              max_aggregate_size
+            ),
+            recipes:recipe_id(
+              plant_id,
               recipe_code,
               strength_fc,
               placement_type,
               max_aggregate_size,
               age_days,
-              slump
+              slump,
+              master_recipe_id,
+              master_recipes:master_recipe_id(
+                id,
+                plant_id,
+                master_code,
+                strength_fc,
+                slump,
+                age_days,
+                placement_type,
+                max_aggregate_size
+              )
             )
           )
         `)
         .in('id', uniqueQuoteIds)
-        .eq('status', 'APPROVED'); // Ensure the linked quotes are still approved
+        .eq('status', 'APPROVED');
       
       if (quotesError) {
         console.error("Error fetching the linked quotes:", quotesError);
@@ -585,49 +681,122 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       console.log('Successfully fetched linked quotes:', quotesData);
       
-      // 3. Extract valid recipes from the quotes
+      // 3. Extract valid recipes/masters from the quotes
       const validRecipes: any[] = [];
       const priceMap: Record<string, number> = {};
       const rToQDMap: Record<string, { quote_id: string, quote_detail_id: string, unit_price: number }> = {};
+      const seenIds = new Set<string>(); // Track IDs to avoid duplicates
       
       quotesData.forEach(quoteData => {
-        // Filter quote details to only include those with active quote-recipe combinations
-        const activeDetails = quoteData.quote_details.filter((detail: any) => 
-          // Check if this specific quote-recipe combination is in our active set
-          activeQuoteRecipeCombos.has(`${quoteData.id}:${detail.recipe_id}`)
-        );
+        const activeDetails = quoteData.quote_details.filter((detail: any) => {
+          // Master-based: check plant and active pair
+          if (detail.master_recipe_id && detail.master_recipes) {
+            return detail.master_recipes.plant_id === plantId && activeQuoteMasterCombos.has(`${quoteData.id}:${detail.master_recipe_id}`);
+          }
+          // Recipe-mapped to master: check plant and active pair
+          if (detail.recipe_id && detail.recipes && detail.recipes.master_recipe_id) {
+            return detail.recipes.master_recipes && 
+                   detail.recipes.master_recipes.plant_id === plantId && 
+                   activeQuoteMasterCombos.has(`${quoteData.id}:${detail.recipes.master_recipe_id}`);
+          }
+          // Recipe fallback: check plant and fallback pair
+          if (detail.recipe_id && detail.recipes && !detail.recipes.master_recipe_id) {
+            return detail.recipes.plant_id === plantId && activeQuoteRecipeFallbackCombos.has(`${quoteData.id}:${detail.recipe_id}`);
+          }
+          return false;
+        });
         
         console.log(`Quote ${quoteData.quote_number}: filtered ${quoteData.quote_details.length} details to ${activeDetails.length} active details`);
         
-        // Extract recipe information from the active details
         activeDetails.forEach((detail: any) => {
-          // Skip if recipe is missing
-          if (!detail.recipes) return;
-          
-          const recipeData = detail.recipes;
-          
-          // Add recipe to our list if it has all the data we need
-          if (recipeData.id && recipeData.recipe_code) {
-            validRecipes.push({
-              id: recipeData.id,
-              recipe_code: recipeData.recipe_code,
-              strength_fc: recipeData.strength_fc || 0,
-              placement_type: recipeData.placement_type || '',
-              max_aggregate_size: recipeData.max_aggregate_size || 0,
-              age_days: recipeData.age_days || 0,
-              slump: recipeData.slump || 0,
-              unit_price: detail.final_price || 0,  // Set price from the quote detail
-            });
+          // Master-based or recipe-mapped-to-master
+          if ((detail.master_recipe_id && detail.master_recipes) || (detail.recipes && detail.recipes.master_recipes)) {
+            const masterData = detail.master_recipes || detail.recipes?.master_recipes;
+            if (masterData && masterData.master_code && masterData.id) {
+              // Skip if we've already added this master ID
+              if (seenIds.has(masterData.id)) {
+                console.log(`Skipping duplicate master ID: ${masterData.id}`);
+                return;
+              }
+              seenIds.add(masterData.id);
+              validRecipes.push({
+                id: masterData.id,
+                recipe_code: masterData.master_code,
+                strength_fc: masterData.strength_fc || 0,
+                placement_type: masterData.placement_type || '',
+                max_aggregate_size: masterData.max_aggregate_size || 0,
+                age_days: masterData.age_days || 0,
+                slump: masterData.slump || 0,
+                unit_price: detail.final_price || 0,
+              });
+              priceMap[masterData.id] = detail.final_price || 0;
+              rToQDMap[masterData.id] = { 
+                quote_id: quoteData.id, 
+                quote_detail_id: detail.id, 
+                unit_price: detail.final_price || 0 
+              };
+            }
+          }
+          // Recipe fallback (no master)
+          else if (detail.recipe_id && detail.recipes) {
+            const recipeData = detail.recipes;
             
-            // Also store the price in our map
-            priceMap[recipeData.id] = detail.final_price || 0;
-            // Map recipe to quote linkage
-            rToQDMap[recipeData.id] = { quote_id: quoteData.id, quote_detail_id: detail.id, unit_price: detail.final_price || 0 };
+            // Check if this recipe has a master - if so, add the master instead
+            if (recipeData.master_recipe_id && recipeData.master_recipes) {
+              const masterData = recipeData.master_recipes;
+              if (masterData && masterData.master_code && masterData.id) {
+                // Skip if we've already added this master ID
+                if (seenIds.has(masterData.id)) {
+                  console.log(`Skipping duplicate master ID (from recipe fallback): ${masterData.id}`);
+                  return;
+                }
+                seenIds.add(masterData.id);
+                validRecipes.push({
+                  id: masterData.id,
+                  recipe_code: masterData.master_code,
+                  strength_fc: masterData.strength_fc || 0,
+                  placement_type: masterData.placement_type || '',
+                  max_aggregate_size: masterData.max_aggregate_size || 0,
+                  age_days: masterData.age_days || 0,
+                  slump: masterData.slump || 0,
+                  unit_price: detail.final_price || 0,
+                });
+                priceMap[masterData.id] = detail.final_price || 0;
+                rToQDMap[masterData.id] = { 
+                  quote_id: quoteData.id, 
+                  quote_detail_id: detail.id, 
+                  unit_price: detail.final_price || 0 
+                };
+              }
+            } else if (recipeData.id && recipeData.recipe_code) {
+              // Only add the standalone recipe if it has no master
+              if (seenIds.has(recipeData.id)) {
+                console.log(`Skipping duplicate recipe ID: ${recipeData.id}`);
+                return;
+              }
+              seenIds.add(recipeData.id);
+              validRecipes.push({
+                id: recipeData.id,
+                recipe_code: recipeData.recipe_code,
+                strength_fc: recipeData.strength_fc || 0,
+                placement_type: recipeData.placement_type || '',
+                max_aggregate_size: recipeData.max_aggregate_size || 0,
+                age_days: recipeData.age_days || 0,
+                slump: recipeData.slump || 0,
+                unit_price: detail.final_price || 0,
+              });
+              priceMap[recipeData.id] = detail.final_price || 0;
+              rToQDMap[recipeData.id] = { 
+                quote_id: quoteData.id, 
+                quote_detail_id: detail.id, 
+                unit_price: detail.final_price || 0 
+              };
+            }
           }
         });
       });
       
-      console.log(`Loaded ${validRecipes.length} recipes specific to this client and site`);
+      console.log(`Loaded ${validRecipes.length} recipes/masters specific to this client and site`);
       
       setAvailableRecipes(validRecipes);
       setRecipePrices(priceMap);
@@ -766,7 +935,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
     try {
       setIsSaving(true);
       
-      // Actualizar la información general de la orden
+      // Datos de cabecera de la orden
       const orderUpdate: any = {
         delivery_date: editedOrder.delivery_date,
         delivery_time: editedOrder.delivery_time,
@@ -776,18 +945,6 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         delivery_longitude: editedOrder.delivery_longitude ?? (order as any).delivery_longitude ?? null,
         delivery_google_maps_url: editedOrder.delivery_google_maps_url ?? (order as any).delivery_google_maps_url ?? null
       };
-      // If a product changed to a recipe tied to a different quote, update order.quote_id
-      if (editedOrder.products && editedOrder.products.length > 0) {
-        const withLink = editedOrder.products.find(p => p.recipe_id && recipeToQuoteDetailMap[p.recipe_id]);
-        if (withLink) {
-          const linkage = recipeToQuoteDetailMap[withLink.recipe_id as string];
-          if (linkage?.quote_id && linkage.quote_id !== (order as any).quote_id) {
-            orderUpdate.quote_id = linkage.quote_id;
-          }
-        }
-      }
-      
-      await orderService.updateOrder(orderId, orderUpdate);
       
       // Manejar el servicio de bombeo global
       if (pumpPrice !== null) {
@@ -844,60 +1001,14 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         }
       }
       
-      // Actualizar los productos si han cambiado, no hay remisiones y el estatus es 'created'
-      if (editedOrder.products && 
-          editedOrder.products.length > 0 && 
-          !hasRemisiones) {
-        console.log('No remisiones found, attempting to update items...');
-        const updates = editedOrder.products.map(product => {
-          const originalProduct = order.products.find(p => p.id === product.id);
-          
-          // Solo actualizar si los valores han cambiado
-          if (originalProduct && 
-              (originalProduct.volume !== product.volume || 
-               originalProduct.pump_volume !== product.pump_volume ||
-               originalProduct.recipe_id !== product.recipe_id)) {
-               
-             console.log(`Updating item ${product.id} - Volume: ${product.volume}, Pump Volume: ${product.pump_volume}, Recipe: ${product.recipe_id}`);
-             
-             // Find the recipe details if recipe has changed
-             let productType = originalProduct.product_type;
-             let unitPrice = originalProduct.unit_price;
-             
-             if (originalProduct.recipe_id !== product.recipe_id && product.recipe_id) {
-               const selectedRecipe = availableRecipes.find(r => r.id === product.recipe_id);
-               if (selectedRecipe) {
-                 productType = selectedRecipe.recipe_code;
-                 // Obtener el precio actualizado para la nueva receta
-                 unitPrice = selectedRecipe.unit_price || originalProduct.unit_price;
-               }
-             }
-             
-             // Calcular el nuevo precio total basado en el volumen y el precio unitario
-             const newTotalPrice = unitPrice * product.volume;
-             
-            return orderService.updateOrderItem(product.id, {
-              volume: product.volume,
-              pump_volume: product.pump_volume,
-              // Si cambió el tipo de receta, actualizar el recipe_id y product_type
-              ...(originalProduct.recipe_id !== product.recipe_id && product.recipe_id ? {
-                product_type: productType,
-                unit_price: unitPrice,
-                total_price: newTotalPrice,
-                recipe_id: product.recipe_id, // Agregar recipe_id directamente en el item
-                quote_detail_id: (recipeToQuoteDetailMap[product.recipe_id] || {}).quote_detail_id || null
-              } : {
-                // Si solo cambió el volumen, actualizar solo el precio total
-                total_price: unitPrice * product.volume
-              })
-            });
-          }
-          return Promise.resolve();
-        });
-        
-        await Promise.all(updates);
-      } else {
-          console.log(`Skipping item update. Has remisiones: ${hasRemisiones}`);
+      // Normalizar a recetas maestras y actualizar items (solo si no hay remisiones)
+      if (editedOrder.products && editedOrder.products.length > 0 && !hasRemisiones) {
+        await orderService.updateOrderNormalized(
+          orderId,
+          orderUpdate,
+          editedOrder.products.map(p => ({ id: p.id, volume: p.volume, pump_volume: p.pump_volume, recipe_id: p.recipe_id })),
+          { normalizeToMasters: true, mergePerMaster: true, strictMasterOnly: true }
+        );
       }
       
       // Reload order details after saving

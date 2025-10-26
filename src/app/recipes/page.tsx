@@ -10,6 +10,7 @@ import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import RoleIndicator from '@/components/ui/RoleIndicator';
 import { Plus, Search, Calculator } from 'lucide-react';
 import { AddRecipeModal } from '@/components/recipes/AddRecipeModal';
+import { AddRecipeModalV2 } from '@/components/recipes/AddRecipeModalV2';
 import { RecipeSearchResult } from '@/types/recipes';
 import { buttonVariants } from '@/components/ui/button';
 import PlantRestrictedAccess from '@/components/quality/PlantRestrictedAccess';
@@ -92,8 +93,8 @@ export default function RecipesPage() {
         </div>
       </div>
       
-      {/* Add Recipe Modal */}
-      <AddRecipeModal 
+      {/* Add Recipe Modal V2 - New improved version */}
+      <AddRecipeModalV2 
         isOpen={isModalOpen} 
         onClose={() => setIsModalOpen(false)} 
         onSuccess={handleRecipeAdded}

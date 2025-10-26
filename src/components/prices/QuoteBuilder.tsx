@@ -3,6 +3,9 @@ import { useState, useEffect } from 'react';
 import { clientService } from '@/lib/supabase/clients';
 import { recipeService } from '@/lib/supabase/recipes';
 import { priceService } from '@/lib/supabase/prices';
+import { masterRecipeService } from '@/lib/services/masterRecipeService';
+import type { MasterRecipe } from '@/types/masterRecipes';
+import { features } from '@/config/featureFlags';
 import { calculateBasePrice } from '@/lib/utils/priceCalculator';
 import { createQuote, QuotesService } from '@/services/quotes';
 import { supabase } from '@/lib/supabase';
@@ -64,6 +67,8 @@ interface QuoteProduct {
   profitMargin: number;
   finalPrice: number;
   // Pump service is now handled at the quote level, not per product
+  master_recipe_id?: string; // When selecting by master
+  master_code?: string; // Display name for master-first mode
 }
 
 interface PumpServiceProduct {
@@ -101,6 +106,7 @@ export default function QuoteBuilder() {
     autoRefresh: true
   });
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [masters, setMasters] = useState<MasterRecipe[]>([]);
   const [quoteProducts, setQuoteProducts] = useState<QuoteProduct[]>([]);
   const [plantValidationError, setPlantValidationError] = useState<string | null>(null);
   const [clientHistory, setClientHistory] = useState<any[]>([]);
@@ -116,6 +122,149 @@ export default function QuoteBuilder() {
   const [includesVAT, setIncludesVAT] = useState<boolean>(false);
   const [recipeSearch, setRecipeSearch] = useState<string>('');
   const [clientSearch, setClientSearch] = useState<string>('');
+  // Load master recipes when feature flag is enabled
+  useEffect(() => {
+    const loadMasters = async () => {
+      try {
+        if (features.masterPricingEnabled && currentPlant?.id) {
+          const data = await masterRecipeService.getMasterRecipes(currentPlant.id);
+          setMasters(data);
+        } else {
+          setMasters([]);
+        }
+      } catch (e) {
+        console.error('Error loading master recipes:', e);
+      }
+    };
+    loadMasters();
+  }, [currentPlant?.id]);
+
+  const resolveMasterPrice = async (masterId: string): Promise<number | null> => {
+    try {
+      // 1) Exact scope: by client and site
+      const { data: exact } = await supabase
+        .from('product_prices')
+        .select('base_price, effective_date')
+        .eq('is_active', true)
+        .eq('master_recipe_id', masterId)
+        .eq('client_id', selectedClient || null)
+        .eq('construction_site', constructionSite || null)
+        .order('effective_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (exact?.base_price != null) return exact.base_price as number;
+
+      // 2) Client-only scope
+      const { data: clientScoped } = await supabase
+        .from('product_prices')
+        .select('base_price, effective_date')
+        .eq('is_active', true)
+        .eq('master_recipe_id', masterId)
+        .eq('client_id', selectedClient || null)
+        .is('construction_site', null)
+        .order('effective_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (clientScoped?.base_price != null) return clientScoped.base_price as number;
+
+      // 3) Global (no client/site)
+      const { data: global } = await supabase
+        .from('product_prices')
+        .select('base_price, effective_date')
+        .eq('is_active', true)
+        .eq('master_recipe_id', masterId)
+        .is('client_id', null)
+        .is('construction_site', null)
+        .order('effective_date', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (global?.base_price != null) return global.base_price as number;
+
+      return null;
+    } catch (e) {
+      console.warn('Error resolving master price:', e);
+      return null;
+    }
+  };
+
+  const addMasterToQuote = async (masterId: string) => {
+    const master = masters.find(m => m.id === masterId);
+    if (!master) {
+      console.error('Master not found');
+      return;
+    }
+
+    try {
+      // Validate plant compatibility
+      if (quoteProducts.length > 0 && master.plant_id) {
+        const existingPlantId = quoteProducts[0].recipe.plant_id;
+        if (existingPlantId && existingPlantId !== master.plant_id) {
+          setPlantValidationError('Todas las recetas en una cotización deben pertenecer a la misma planta');
+          return;
+        }
+      }
+
+      setPlantValidationError(null);
+
+      // Prevent duplicate by master
+      const existsByMaster = quoteProducts.some(p => p.master_recipe_id === masterId);
+      if (existsByMaster) {
+        alert('Este maestro ya está en la cotización');
+        return;
+      }
+
+      // Fetch variants for this master
+      const { data: variants, error: variantsError } = await supabase
+        .from('recipes')
+        .select('id, recipe_code, plant_id')
+        .eq('master_recipe_id', masterId)
+        .order('recipe_code', { ascending: true });
+      if (variantsError) throw variantsError;
+
+      const chosenVariant = variants?.[0];
+      if (!chosenVariant) {
+        alert('Este maestro no tiene variantes vinculadas. Víncule variantes antes de cotizar.');
+        return;
+      }
+
+      // Try to resolve a master price; fallback to cost-based calculation using chosen variant
+      let basePrice: number | null = null;
+      if (features.masterPricingEnabled) {
+        basePrice = await resolveMasterPrice(masterId);
+      }
+
+      if (basePrice == null) {
+        const { data: recipeDetails } = await recipeService.getRecipeById(chosenVariant.id);
+        const materials = recipeDetails?.recipe_versions[0]?.materials || [];
+        basePrice = await calculateBasePrice(chosenVariant.id, materials);
+      }
+
+      const finalPrice = Math.ceil((basePrice * 1.04) / 5) * 5;
+
+      const newProduct: QuoteProduct = {
+        recipe: {
+          id: chosenVariant.id,
+          recipe_code: (variants?.find(v => v.id === chosenVariant.id) as any)?.recipe_code || '',
+          strength_fc: master.strength_fc,
+          placement_type: master.placement_type,
+          slump: master.slump,
+          max_aggregate_size: master.max_aggregate_size,
+          plant_id: master.plant_id,
+        },
+        basePrice: basePrice,
+        volume: 1,
+        profitMargin: 0.04,
+        finalPrice: finalPrice,
+        master_recipe_id: masterId,
+        master_code: master.master_code,
+      };
+
+      setQuoteProducts([...quoteProducts, newProduct]);
+    } catch (error) {
+      console.error('Error adding master product:', error);
+      alert('No se pudo agregar el maestro. Verifique los datos.');
+    }
+  };
   
   // New state variables for client and site creation
   const [showCreateClientDialog, setShowCreateClientDialog] = useState(false);
@@ -496,7 +645,8 @@ export default function QuoteBuilder() {
 
           return {
             quote_id: createdQuote.id,
-            recipe_id: product.recipe.id,
+            recipe_id: product.master_recipe_id ? null : product.recipe.id,
+            master_recipe_id: product.master_recipe_id || null,
             volume: product.volume,
             base_price: product.basePrice,
             profit_margin: product.profitMargin * 100, // Convertir a porcentaje para almacenamiento
@@ -714,13 +864,15 @@ export default function QuoteBuilder() {
       {/* Left Panel: Product Catalog */}
       <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden flex flex-col">
         <div className="p-6 border-b border-gray-100">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Catálogo de Productos</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-4">
+            {features.masterPricingEnabled ? 'Catálogo de Maestros' : 'Catálogo de Productos'}
+          </h2>
           <div className="relative">
             <input
               type="text"
               value={recipeSearch}
               onChange={(e) => setRecipeSearch(e.target.value)}
-              placeholder="Buscar recetas por código, resistencia, edad..."
+              placeholder={features.masterPricingEnabled ? 'Buscar maestros por código, resistencia...' : 'Buscar recetas por código, resistencia, edad...'}
               className="w-full p-2.5 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
             />
             <svg 
@@ -750,7 +902,125 @@ export default function QuoteBuilder() {
         </div>
         <div className="flex-1 overflow-hidden p-6 @container">
           <div className="h-full overflow-y-auto pr-2 pb-2 max-h-[50vh] md:max-h-[calc(70vh-110px)]">
-            {Object.keys(groupedRecipes).length === 0 ? (
+            {features.masterPricingEnabled ? (
+              // Masters mode
+              (() => {
+                const filteredMasters = masters.filter(m => {
+                  if (!recipeSearch.trim()) return true;
+                  const s = recipeSearch.toLowerCase();
+                  return (
+                    (m.master_code || '').toLowerCase().includes(s) ||
+                    String(m.strength_fc ?? '').includes(s) ||
+                    String(m.slump ?? '').includes(s) ||
+                    (m.placement_type || '').toLowerCase().includes(s)
+                  );
+                });
+
+                const groupedMasters = filteredMasters.reduce((acc: Record<number, Record<number, MasterRecipe[]>>, m) => {
+                  const strength = Number(m.strength_fc || 0);
+                  const slump = Number(m.slump || 0);
+                  if (!acc[strength]) acc[strength] = {};
+                  if (!acc[strength][slump]) acc[strength][slump] = [];
+                  acc[strength][slump].push(m);
+                  return acc;
+                }, {} as Record<number, Record<number, MasterRecipe[]>>);
+
+                if (Object.keys(groupedMasters).length === 0) {
+                  return (
+                    <div className="p-8 text-center text-gray-500">
+                      {recipeSearch ? (
+                        <div>
+                          <p className="mb-2">No se encontraron maestros con "{recipeSearch}"</p>
+                          <button onClick={() => setRecipeSearch('')} className="text-blue-500 hover:underline">Limpiar búsqueda</button>
+                        </div>
+                      ) : (
+                        <p>No hay maestros disponibles</p>
+                      )}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div>
+                    {Object.entries(groupedMasters)
+                      .sort(([a], [b]) => Number(b) - Number(a))
+                      .map(([strengthStr, slumpGroups]) => {
+                        const strength = Number(strengthStr);
+                        const isStrengthExpanded = expandedStrengths.includes(strength);
+                        return (
+                          <div key={strength} className="border rounded-lg overflow-hidden shadow-sm mb-4">
+                            <button
+                              onClick={() => toggleStrength(strength)}
+                              className="w-full p-3 bg-gray-100 hover:bg-gray-200 flex justify-between items-center transition-colors"
+                              aria-expanded={isStrengthExpanded}
+                            >
+                              <h4 className="font-medium text-gray-700">f'c: {strength} kg/cm²</h4>
+                              <svg className={`w-4 h-4 transform transition-transform text-gray-500 ${isStrengthExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </button>
+                            {isStrengthExpanded && (
+                              <div className="p-3 space-y-4 animate-in fade-in slide-in-from-top-3 duration-200">
+                                {Object.entries(slumpGroups)
+                                  .sort(([a], [b]) => Number(b) - Number(a))
+                                  .map(([slumpStr, mastersAtSlump]) => (
+                                    <div key={slumpStr} className="space-y-3">
+                                      <h5 className="font-medium text-gray-600">Revenimiento: {slumpStr} cm</h5>
+                                      <div className="grid grid-cols-1 @md:grid-cols-2 @lg:grid-cols-3 gap-4">
+                                        {mastersAtSlump.map(m => (
+                                          <div key={m.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
+                                            <h3 className="font-semibold text-gray-800">{m.master_code}</h3>
+                                            <div className="text-sm space-y-2 mt-2 text-gray-600">
+                                              <p className="flex items-center gap-1">
+                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714a2.25 2.25 0 0 0 .659 1.591L19.5 14.5" />
+                                                </svg>
+                                                <span>Tamaño máx.: {m.max_aggregate_size} mm</span>
+                                              </p>
+                                              <p className="flex items-center gap-1">
+                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                                </svg>
+                                                <span>Edad: {m.age_days ? `${m.age_days} días` : m.age_hours ? `${m.age_hours} horas` : 'N/A'}</span>
+                                              </p>
+                                              <p className="flex items-center gap-1">
+                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12v-8.25M12 12.75h.008v.008H12v-.008Z" />
+                                                </svg>
+                                                <span>Revenimiento: {m.slump} cm</span>
+                                              </p>
+                                              <p className="flex items-center gap-1">
+                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 0 0-10.026 0 1.106 1.106 0 0 0-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
+                                                </svg>
+                                                <span>Colocación: {m.placement_type === 'D' ? 'Directa' : 'Bombeado'}</span>
+                                              </p>
+                                            </div>
+                                            <button
+                                              onClick={() => addMasterToQuote(m.id)}
+                                              className="mt-4 w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors focus:ring-2 focus:ring-green-500 focus:ring-offset-2 flex items-center justify-center gap-1"
+                                              disabled={isLoading}
+                                            >
+                                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                              </svg>
+                                              Agregar a Cotización
+                                            </button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                );
+              })()
+            ) : (
+            Object.keys(groupedRecipes).length === 0 ? (
               <div className="p-8 text-center text-gray-500">
                 {recipeSearch ? (
                   <div>
@@ -908,7 +1178,7 @@ export default function QuoteBuilder() {
                     </div>
                   );
                 })
-            )}
+            ))}
           </div>
         </div>
       </div>
@@ -1374,7 +1644,11 @@ export default function QuoteBuilder() {
             {quoteProducts.map((product, index) => (
               <div key={index} className="grid grid-cols-1 md:grid-cols-6 gap-4 py-5 @container">
                 <div className="md:col-span-1">
-                  <p className="font-semibold text-gray-800 mb-1">{product.recipe.recipe_code}</p>
+                  <p className="font-semibold text-gray-800 mb-1">
+                    {features.masterPricingEnabled && product.master_code 
+                      ? product.master_code 
+                      : product.recipe.recipe_code}
+                  </p>
                   <p className="text-xs text-gray-500">{product.recipe.placement_type === 'D' ? 'Colocación directa' : 'Bombeado'}</p>
                 </div>
                 <div className="@md:col-span-5 grid grid-cols-1 @md:grid-cols-2 @lg:grid-cols-5 gap-4">

@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import QuotePDF from './QuotePDF';
 import { useRouter } from 'next/navigation';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { features } from '@/config/featureFlags';
 
 interface ApprovedQuotesTabProps {
   onDataSaved?: () => void;
@@ -92,6 +93,7 @@ interface ApprovedQuoteDetailWithMargin {
   pump_price: number | null;
   includes_vat: boolean;
   recipe_id?: string;
+  master_code?: string | null;
   recipe: {
     recipe_code: string;
     strength_fc: number;
@@ -136,6 +138,7 @@ export interface ApprovedQuote {
       age_days: number;
       notes?: string;
     } | null;
+    master_code?: string | null;
   }>;
 }
 
@@ -150,6 +153,9 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingQuoteDetails, setEditingQuoteDetails] = useState<ApprovedQuoteDetailWithMargin[]>([]);
+  const [filterDateFrom, setFilterDateFrom] = useState('');
+  const [filterDateTo, setFilterDateTo] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
   const quotesPerPage = 10;
   const router = useRouter();
 
@@ -189,6 +195,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
             pump_price,
             includes_vat,
             recipe_id,
+            master_recipe_id,
             recipes (
               recipe_code, 
               strength_fc, 
@@ -196,10 +203,13 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
               max_aggregate_size,
               slump,
               age_days,
-              recipe_versions!inner(
+              recipe_versions(
                 notes,
                 is_current
               )
+            ),
+            master_recipes (
+              master_code
             )
           )
         `, { count: 'exact' })
@@ -233,6 +243,11 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         const quoteDetailsData = quoteDetailsInput.filter(Boolean).map((detail: any) => {
           const recipeData = Array.isArray(detail.recipes) ? detail.recipes[0] : detail.recipes;
           const currentVersion = recipeData?.recipe_versions?.find((version: { is_current?: boolean }) => version.is_current);
+          const masterData = Array.isArray(detail.master_recipes) ? detail.master_recipes[0] : detail.master_recipes;
+          
+          // Provide fallback data when both recipe and master are missing
+          const fallbackCode = masterData?.master_code || recipeData?.recipe_code || 'N/A';
+          
           return {
             id: detail.id,
             volume: detail.volume,
@@ -249,7 +264,16 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
               slump: recipeData.slump,
               age_days: recipeData.age_days,
               notes: currentVersion?.notes
-            } : null
+            } : {
+              recipe_code: fallbackCode,
+              strength_fc: 0,
+              placement_type: 'N/A',
+              max_aggregate_size: 0,
+              slump: 0,
+              age_days: 0,
+              notes: 'Datos no disponibles'
+            },
+            master_code: masterData?.master_code || null
           };
         });
 
@@ -272,7 +296,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
           construction_site: quote.construction_site,
           created_at: quote.created_at,
           validity_date: quote.validity_date,
-          approval_date: quote.approval_date,
+          approval_date: quote.approval_date || quote.created_at || new Date().toISOString(),
           approved_by: quote.approved_by,
           client: clientData ? {
             id: clientData.id,
@@ -346,7 +370,8 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       pump_service: detail.pump_service,
       pump_price: detail.pump_price,
       includes_vat: detail.includes_vat,
-      recipe: detail.recipe
+      recipe: detail.recipe,
+      master_code: detail.master_code || null
     })) as ApprovedQuoteDetailWithMargin[];
     
     setSelectedQuote(quote);
@@ -604,21 +629,123 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       sum + (detail.final_price * detail.volume), 0);
   };
 
+  // Filter quotes based on date range - memoized for performance
+  const filteredQuotes = useMemo(() => {
+    return quotes.filter(quote => {
+      // Apply date filters if set
+      if (filterDateFrom) {
+        const quoteDate = new Date(quote.approval_date);
+        const fromDate = new Date(filterDateFrom);
+        if (quoteDate < fromDate) return false;
+      }
+
+      if (filterDateTo) {
+        const quoteDate = new Date(quote.approval_date);
+        const toDate = new Date(filterDateTo);
+        toDate.setHours(23, 59, 59, 999);
+        if (quoteDate > toDate) return false;
+      }
+
+      return true;
+    });
+  }, [quotes, filterDateFrom, filterDateTo]);
+
   return (
     <div className="p-4">
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
         </div>
-      ) : quotes.length === 0 ? (
+      ) : filteredQuotes.length === 0 ? (
         <div className="flex justify-center items-center h-64">
-          <p>No hay cotizaciones aprobadas</p>
+          <p>{filterDateFrom || filterDateTo ? 'No se encontraron cotizaciones con los filtros aplicados' : 'No hay cotizaciones aprobadas'}</p>
         </div>
       ) : (
         <>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left text-gray-500">
-              <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+          {/* Date Range Filter Only */}
+          <div className="mb-6 space-y-4">
+            <div className="flex flex-col gap-3">
+              {/* Filter Toggle Button */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={`inline-flex items-center justify-center px-4 py-2 border rounded-lg shadow-sm text-sm font-medium transition-all ${
+                    showFilters
+                      ? 'bg-blue-50 border-blue-300 text-blue-700'
+                      : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <svg className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                  </svg>
+                  Filtro por Fecha
+                  {(filterDateFrom || filterDateTo) && (
+                    <span className="ml-2 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-blue-600 rounded-full">1</span>
+                  )}
+                </button>
+
+                {(filterDateFrom || filterDateTo) && (
+                  <button
+                    onClick={() => {
+                      setFilterDateFrom('');
+                      setFilterDateTo('');
+                      setPage(1);
+                    }}
+                    className="inline-flex items-center px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                  >
+                    <svg className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Limpiar Fecha
+                  </button>
+                )}
+              </div>
+
+              {/* Date Range Filter */}
+              {showFilters && (
+                <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Fecha Aprobación Desde</label>
+                      <input
+                        type="date"
+                        value={filterDateFrom}
+                        onChange={(e) => {
+                          setFilterDateFrom(e.target.value);
+                          setPage(1);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Fecha Aprobación Hasta</label>
+                      <input
+                        type="date"
+                        value={filterDateTo}
+                        onChange={(e) => {
+                          setFilterDateTo(e.target.value);
+                          setPage(1);
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Results Counter */}
+              {(filterDateFrom || filterDateTo) && (
+                <div className="text-sm text-gray-600 bg-blue-50 px-4 py-3 rounded-lg border border-blue-200 font-medium">
+                  Se encontraron <span className="font-bold text-blue-700">{filteredQuotes.length}</span> cotizaciones
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-sm">
+            <table className="w-full text-sm text-left text-gray-600">
+              <thead className="text-xs font-semibold text-gray-700 uppercase bg-gradient-to-r from-gray-100 to-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-4 py-3">Número de Cotización</th>
                   <th className="px-4 py-3">Cliente</th>
@@ -630,9 +757,9 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                   <th className="px-4 py-3">Acciones</th>
                 </tr>
               </thead>
-              <tbody>
-                {quotes.map((quote) => (
-                  <tr key={quote.id} className="border-b hover:bg-gray-50">
+              <tbody className="divide-y divide-gray-200">
+                {filteredQuotes.map((quote) => (
+                  <tr key={quote.id} className="hover:bg-blue-50 transition-colors">
                     <td className="px-4 py-3">{quote.quote_number}</td>
                     <td className="px-4 py-3">
                       {quote.client?.business_name} ({quote.client?.client_code})
@@ -647,43 +774,53 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
                     <td className="px-4 py-3">
                       {new Date(quote.approval_date).toLocaleDateString()}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-right font-semibold">
                       ${quote.total_amount.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex justify-center space-x-2">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-2">
                         <button 
                           onClick={() => openQuoteDetails(quote)}
-                          className="text-blue-500 hover:text-blue-700 mr-2"
+                          className="px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded text-sm font-medium transition-colors"
+                          title="Ver detalles"
                         >
-                          Ver Detalles
+                          Detalles
                         </button>
                         <button
                           onClick={() => createOrder(quote)}
-                          className="text-green-500 hover:text-green-700"
+                          className="px-3 py-1.5 bg-green-50 text-green-600 hover:bg-green-100 rounded text-sm font-medium transition-colors"
+                          title="Crear orden"
                         >
-                          Crear Orden
+                          Orden
                         </button>
-                        <div className="flex flex-col items-center">
+                        <div className="flex items-center gap-2">
                           <PDFDownloadLink
                             key={`pdf-${quote.id}-${vatToggles[quote.id] || false}`}
                             document={<QuotePDF quote={quote} showVAT={vatToggles[quote.id] || false} />}
                             fileName={`cotizacion-${quote.quote_number}.pdf`}
-                            className="text-green-500 hover:text-green-700 mb-1"
+                            className="px-3 py-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded text-sm font-medium transition-colors inline-flex items-center gap-1"
+                            title="Descargar PDF"
                           >
-                            {({ blob, url, loading, error }) =>
-                              loading ? 'Generando PDF...' : 'Descargar PDF'
-                            }
+                            {({ blob, url, loading, error }) => (
+                              <>
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                </svg>
+                                {loading ? 'Generando...' : 'PDF'}
+                              </>
+                            )}
                           </PDFDownloadLink>
-                          <div className="flex items-center text-xs">
+                          <div className="flex items-center gap-2 border-l border-gray-200 pl-2">
                             <input
                               type="checkbox"
                               id={`showVAT-${quote.id}`}
                               checked={vatToggles[quote.id] || false}
                               onChange={() => toggleVAT(quote.id)}
-                              className="mr-1 h-3 w-3"
+                              className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
                             />
-                            <label htmlFor={`showVAT-${quote.id}`}>Incluir IVA</label>
+                            <label htmlFor={`showVAT-${quote.id}`} className="text-xs font-medium text-gray-700 cursor-pointer">
+                              IVA
+                            </label>
                           </div>
                         </div>
                       </div>
@@ -724,247 +861,207 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
           <div className="bg-white rounded-lg shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-y-auto">
             <div className="p-6">
-              <div className="flex justify-between items-start gap-3 mb-4">
-                <div className="flex flex-col gap-1">
-                  <h2 className="text-2xl font-bold">
-                    Detalles de Cotización
-                    {isEditing && <span className="ml-2 text-sm text-orange-500 font-normal">(Editando)</span>}
-                  </h2>
-                  <div className="flex flex-wrap items-center gap-2 text-sm text-gray-600">
-                    <span className="inline-flex items-center gap-2">
-                      <span className="font-medium">Creada por:</span>
-                      <span className="inline-flex items-center gap-2">
-                        <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-100 text-gray-700 text-xs">
-                          {selectedQuote?.creator_initials || 'NA'}
-                        </span>
-                        <span className="sr-only">{selectedQuote?.creator_initials || 'NA'}</span>
-                      </span>
-                    </span>
-                    <span className="hidden sm:inline text-gray-300">•</span>
-                    <span>
-                      <span className="font-medium">Aprobado por:</span> {selectedQuote?.approver_name}
-                    </span>
-                  </div>
-                </div>
-                <button 
-                  onClick={closeQuoteDetails}
-                  className="text-gray-600 hover:text-gray-900"
-                  aria-label="Cerrar"
-                >
-                  ✕
-                </button>
-              </div>
-
-              {/* Client & Meta Information */}
-              <div className="grid grid-cols-1 @md:grid-cols-2 gap-6 mb-6 bg-gray-50 p-4 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-500 text-sm mb-1">Cliente</p>
-                  <p className="font-semibold text-gray-900">{selectedQuote.client?.business_name || 'Sin cliente'}</p>
-                  <p className="text-gray-700">{selectedQuote.client?.client_code || 'Sin código de cliente'}</p>
-                </div>
-                <div>
-                  <p className="font-medium text-gray-500 text-sm mb-1">Sitio de Construcción</p>
-                  <p className="font-semibold text-gray-900">{selectedQuote.construction_site}</p>
-                </div>
-                <div className="@md:col-span-2 grid grid-cols-1 @sm:grid-cols-2 gap-4">
-                  <div className="flex items-center gap-3">
-                    <div className="inline-flex items-center justify-center h-8 w-8 rounded-full bg-gray-100 text-gray-700 text-sm">
-                      {selectedQuote?.creator_initials || 'NA'}
-                    </div>
-                    <div>
-                      <p className="font-medium text-gray-500 text-xs">Creada por</p>
-                      <p className="text-gray-900 text-sm">{selectedQuote?.creator_initials || 'Sin información'}</p>
-                    </div>
-                  </div>
+              {/* Modal Header with Quote Info */}
+              <div className="mb-6 pb-4 border-b border-gray-200">
+                <div className="flex items-center justify-between mb-4">
                   <div>
-                    <p className="font-medium text-gray-500 text-xs">Fecha de aprobación</p>
-                    <p className="text-gray-900 text-sm">{new Date(selectedQuote?.approval_date || '').toLocaleString()}</p>
+                    <h2 className="text-2xl font-bold text-gray-900">Cotización #{selectedQuote.quote_number}</h2>
+                    <p className="text-sm text-gray-600 mt-1">Cliente: {selectedQuote.client?.business_name || 'Sin cliente'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-600">Aprobada el {new Date(selectedQuote.approval_date).toLocaleDateString('es-MX')}</p>
+                    <p className="text-xs text-gray-500">Por: {selectedQuote.approver_name || 'Sistema'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="inline-block px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">APROBADA</span>
+                </div>
+              </div>
+
+              {/* Quote Details - Modern Card Style */}
+              <div className="space-y-4 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-xs text-gray-600 uppercase tracking-wide font-semibold mb-1">Sitio de Construcción</p>
+                    <p className="text-lg font-medium text-gray-900">{selectedQuote.construction_site || 'N/A'}</p>
+                  </div>
+                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <p className="text-xs text-gray-600 uppercase tracking-wide font-semibold mb-1">Vigencia</p>
+                    <p className="text-lg font-medium text-gray-900">{new Date(selectedQuote.validity_date).toLocaleDateString('es-MX')}</p>
                   </div>
                 </div>
               </div>
 
-              {/* Approval Information */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div>
-                  <p className="font-semibold">Fecha de Aprobación</p>
-                  <p>{new Date(selectedQuote.approval_date).toLocaleString()}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Aprobado por</p>
-                  <p>{selectedQuote.approver_name}</p>
+              {/* Items Table with Master/Variant Indicators */}
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Detalles de la Cotización</h3>
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-gradient-to-r from-gray-100 to-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-3 font-semibold text-gray-700">Producto</th>
+                        <th className="px-4 py-3 font-semibold text-gray-700">Tipo</th>
+                        <th className="px-4 py-3 font-semibold text-gray-700">Resistencia</th>
+                        <th className="px-4 py-3 font-semibold text-gray-700">Volumen</th>
+                        <th className="px-4 py-3 font-semibold text-gray-700">Precio Base</th>
+                        <th className="px-4 py-3 font-semibold text-gray-700">Margen</th>
+                        <th className="px-4 py-3 font-semibold text-gray-700">Precio Final</th>
+                        <th className="px-4 py-3 font-semibold text-gray-700 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editingQuoteDetails.map((detail, index) => {
+                        const isFromMaster = features.masterPricingEnabled && (detail as any).master_code;
+                        return (
+                          <tr key={detail.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <div className="flex-1">
+                                  <p className="font-medium text-gray-900">
+                                    {isFromMaster
+                                      ? (detail as any).master_code
+                                      : detail.recipe?.recipe_code || 'Sin código'}
+                                  </p>
+                                </div>
+                                <span className={`inline-block px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
+                                  isFromMaster 
+                                    ? 'bg-blue-100 text-blue-800' 
+                                    : 'bg-gray-200 text-gray-700'
+                                }`}>
+                                  {isFromMaster ? 'MAESTRO' : 'VARIANTE'}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-700">{detail.recipe?.placement_type || 'Sin tipo'}</td>
+                            <td className="px-4 py-3 text-gray-700">{detail.recipe?.strength_fc || 'N/A'} kg/cm²</td>
+                            <td className="px-4 py-3 text-gray-700 font-medium">{detail.volume} m³</td>
+                            <td className="px-4 py-3 text-gray-700">${detail.base_price.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                            <td className="px-4 py-3">
+                              {isEditing ? (
+                                <input 
+                                  type="number" 
+                                  value={Math.round(detail.profit_margin * 1000) / 10}
+                                  onChange={(e) => {
+                                    const rawValue = e.target.value;
+                                    if (rawValue === '') {
+                                      updateQuoteDetailMargin(index, 0);
+                                      return;
+                                    }
+                                    const value = parseFloat(rawValue);
+                                    if (!isNaN(value)) {
+                                      updateQuoteDetailMargin(index, value);
+                                    }
+                                  }}
+                                  onBlur={(e) => {
+                                    const rawValue = e.target.value;
+                                    if (rawValue === '') {
+                                      updateQuoteDetailMargin(index, 4);
+                                      return;
+                                    }
+                                    const value = parseFloat(rawValue);
+                                    if (!isNaN(value)) {
+                                      const clampedValue = Math.max(4, value);
+                                      updateQuoteDetailMargin(index, clampedValue);
+                                    }
+                                  }}
+                                  step="0.1"
+                                  min="4"
+                                  className="w-20 p-1.5 border border-gray-300 rounded text-right focus:ring-2 focus:ring-blue-500"
+                                  placeholder="4.0"
+                                />
+                              ) : (
+                                `${(Math.round(detail.profit_margin * 1000) / 10).toFixed(1)}%`
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-gray-700 font-medium">${detail.final_price.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-gray-900">${(detail.final_price * detail.volume).toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 
-              {/* Edit mode controls */}
-              {!isEditing ? (
-                <div className="mb-4">
-                  <button
-                    onClick={startEditing}
-                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  >
-                    Modificar Detalles
-                  </button>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Haga clic para editar los precios y márgenes de utilidad
-                  </p>
-                </div>
-              ) : (
-                <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
-                  <p className="text-sm text-yellow-700 mb-2">
-                    <span className="font-semibold">Modo edición activo.</span> Se está modificando una cotización aprobada.
-                    Al guardar, se creará una nueva cotización pendiente con los cambios realizados.
-                  </p>
-                  <button
-                    onClick={cancelEditing}
-                    className="text-sm text-gray-600 underline"
-                  >
-                    Cancelar edición
-                  </button>
+              {/* Pump Service Section */}
+              {editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service && (
+                <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <h3 className="font-semibold mb-3 text-gray-800 flex items-center gap-2">
+                    <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0118 0Z" />
+                    </svg>
+                    Servicio de Bombeo
+                  </h3>
+                  <div className="bg-white p-3 rounded border border-blue-100">
+                    <div className="flex justify-between items-center">
+                      <span className="text-gray-700">Precio del Servicio:</span>
+                      <span className="font-bold text-blue-600">${(editingQuoteDetails[0].pump_price || 0).toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})} MXN</span>
+                    </div>
+                  </div>
                 </div>
               )}
 
-              {/* Pump Service Information */}
-              <div className="mb-6 p-4 border rounded bg-gray-50">
-                <div className="flex items-center mb-2">
-                  <input
-                    type="checkbox"
-                    id="pumpService"
-                    checked={editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service}
-                    onChange={(e) => updateQuotePumpService(e.target.checked, 
-                      editingQuoteDetails.length > 0 ? editingQuoteDetails[0].pump_price : null)}
-                    className="mr-2 h-4 w-4"
-                    disabled={!isEditing}
-                  />
-                  <label htmlFor="pumpService" className="font-medium">
-                    Incluir Servicio de Bombeo para toda la cotización
-                  </label>
-                </div>
-                
-                {editingQuoteDetails.length > 0 && editingQuoteDetails[0].pump_service && (
-                  <div className="mt-2 flex items-center">
-                    <label className="mr-2">Precio del Servicio:</label>
-                    <input
-                      type="number"
-                      value={editingQuoteDetails[0].pump_price || ''}
-                      onChange={(e) => {
-                        const price = e.target.value === '' ? 0 : parseFloat(e.target.value);
-                        updateQuotePumpService(true, price);
-                      }}
-                      placeholder="0.00"
-                      min="0"
-                      step="1"
-                      className="w-32 p-1 border rounded"
-                      disabled={!isEditing}
-                    />
-                    <span className="ml-2">MXN</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Quote Details Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left text-gray-500">
-                  <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3">Código de Receta</th>
-                      <th className="px-4 py-3">Tipo de Colocación</th>
-                      <th className="px-4 py-3">Resistencia</th>
-                      <th className="px-4 py-3">Volumen</th>
-                      <th className="px-4 py-3">Precio Base</th>
-                      <th className="px-4 py-3">Margen %</th>
-                      <th className="px-4 py-3">Precio Final</th>
-                      <th className="px-4 py-3">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {editingQuoteDetails.map((detail, index) => (
-                      <tr key={detail.id} className="border-b hover:bg-gray-100">
-                        <td className="px-4 py-3">{detail.recipe?.recipe_code || 'Sin código'}</td>
-                        <td className="px-4 py-3">{detail.recipe?.placement_type || 'Sin tipo'}</td>
-                        <td className="px-4 py-3">{detail.recipe?.strength_fc || 'N/A'} kg/cm²</td>
-                        <td className="px-4 py-3">{detail.volume} m³</td>
-                        <td className="px-4 py-3">${detail.base_price.toFixed(2)}</td>
-                        <td className="px-4 py-3">
-                          {isEditing ? (
-                            <input 
-                              type="number" 
-                              value={Math.round(detail.profit_margin * 1000) / 10}
-                              onChange={(e) => {
-                                const rawValue = e.target.value;
-                                if (rawValue === '') {
-                                  updateQuoteDetailMargin(index, 0);
-                                  return;
-                                }
-                                const value = parseFloat(rawValue);
-                                if (!isNaN(value)) {
-                                  updateQuoteDetailMargin(index, value);
-                                }
-                              }}
-                              onBlur={(e) => {
-                                const rawValue = e.target.value;
-                                if (rawValue === '') {
-                                  // Set to minimum if left empty
-                                  updateQuoteDetailMargin(index, 4);
-                                  return;
-                                }
-                                const value = parseFloat(rawValue);
-                                if (!isNaN(value)) {
-                                  const clampedValue = Math.max(4, value);
-                                  updateQuoteDetailMargin(index, clampedValue);
-                                }
-                              }}
-                              step="0.1"
-                              min="4"
-                              className="w-20 p-1 border rounded text-right"
-                              placeholder="4.0"
-                            />
-                          ) : (
-                            `${(Math.round(detail.profit_margin * 1000) / 10).toFixed(1)}%`
-                          )}
-                        </td>
-                        <td className="px-4 py-3">${detail.final_price.toFixed(2)}</td>
-                        <td className="px-4 py-3">${(detail.final_price * detail.volume).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Total and PDF Download */}
-              <div className="mt-6 flex justify-between items-center">
-                <div>
-                  <p className="font-semibold text-lg">
-                    Total: ${calculateTotal().toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+              {/* Edit mode notification */}
+              {isEditing && (
+                <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <p className="text-sm text-yellow-800">
+                    <span className="font-semibold">Modo edición activado.</span> Se está modificando una cotización aprobada. Al guardar, se creará una nueva cotización pendiente.
                   </p>
                 </div>
-                <div className="flex items-center">
-                  {!isEditing && (
-                    <>
-                      <div className="flex items-center mr-4">
-                        <input
-                          type="checkbox"
-                          id={`modal-showVAT-${selectedQuote.id}`}
-                          checked={vatToggles[selectedQuote.id] || false}
-                          onChange={() => toggleVAT(selectedQuote.id)}
-                          className="mr-2"
-                          disabled={isEditing}
-                        />
-                        <label htmlFor={`modal-showVAT-${selectedQuote.id}`}>Incluir IVA en PDF</label>
-                      </div>
-                      <PDFDownloadLink
-                        key={`modal-pdf-${selectedQuote.id}-${vatToggles[selectedQuote.id] || false}`}
-                        document={<QuotePDF quote={selectedQuote} showVAT={vatToggles[selectedQuote.id] || false} />}
-                        fileName={`cotizacion-${selectedQuote.quote_number}.pdf`}
-                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-                      >
-                        {({ blob, url, loading, error }) =>
-                          loading ? 'Generando PDF...' : 'Descargar PDF'
-                        }
-                      </PDFDownloadLink>
-                    </>
+              )}
+
+              {/* Total Summary Card */}
+              <div className="mb-6 p-6 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border border-green-200">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-sm text-gray-600 uppercase tracking-wide font-semibold mb-1">Total de Cotización</p>
+                    <p className="text-3xl font-bold text-green-700">
+                      ${calculateTotal().toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    </p>
+                  </div>
+                  {editingQuoteDetails.some(d => d.pump_service) && (
+                    <div className="text-right">
+                      <p className="text-xs text-gray-600 mb-1">Incluye Servicio de Bombeo</p>
+                      <svg className="h-6 w-6 text-blue-500 ml-auto" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
                   )}
                 </div>
               </div>
+
+              {/* PDF Download Section */}
+              {!isEditing && (
+                <div className="mb-6 flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      id={`modal-showVAT-${selectedQuote.id}`}
+                      checked={vatToggles[selectedQuote.id] || false}
+                      onChange={() => toggleVAT(selectedQuote.id)}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                    <label htmlFor={`modal-showVAT-${selectedQuote.id}`} className="text-sm font-medium text-gray-700 cursor-pointer">
+                      Incluir IVA (16%) en el documento PDF
+                    </label>
+                  </div>
+                  <PDFDownloadLink
+                    key={`modal-pdf-${selectedQuote.id}-${vatToggles[selectedQuote.id] || false}`}
+                    document={<QuotePDF quote={selectedQuote} showVAT={vatToggles[selectedQuote.id] || false} />}
+                    fileName={`cotizacion-${selectedQuote.quote_number}.pdf`}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors flex items-center gap-2"
+                  >
+                    {({ blob, url, loading, error }) => (
+                      <>
+                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33A3 3 0 0116.5 19.5H6.75Z" />
+                        </svg>
+                        {loading ? 'Generando...' : 'Descargar PDF'}
+                      </>
+                    )}
+                  </PDFDownloadLink>
+                </div>
+              )}
 
               {/* Modal Actions */}
               <div className="flex justify-end space-x-2 mt-6">

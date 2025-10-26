@@ -3,7 +3,7 @@
 import React from "react";
 import { CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Truck, User, Package, Droplets, Clock } from "lucide-react";
+import { Truck, User, Package, Droplets, Clock, Building2 } from "lucide-react";
 import { adjustDateForTimezone } from "./dateUtils";
 import { formatDate } from "@/lib/utils";
 
@@ -31,6 +31,14 @@ export default function RemisionInfoCard({ remision, onChange }: Props) {
             <div>
               <p className="text-sm font-medium">Unidad</p>
               <p className="text-sm">{remision.unidad || 'N/A'}</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-gray-500" />
+            <div>
+              <p className="text-sm font-medium">Planta</p>
+              <p className="text-sm">{remision.planta || remision.plants?.code || remision.plants?.name || 'N/A'}</p>
             </div>
           </div>
 

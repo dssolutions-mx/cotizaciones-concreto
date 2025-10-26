@@ -10,15 +10,18 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DesignParams, RecipeParams, Materials, DesignType, WaterQuantities } from '@/types/calculator';
 import { AGGREGATE_SIZES, AIR_CONTENTS } from '@/lib/calculator/constants';
 import { getCementRangeCompletionStatus } from '@/lib/calculator/calculations';
+import { CONCRETE_TYPES, ConcreteTypeCode } from '@/config/concreteTypes';
 
 interface DesignParametersProps {
   designType: DesignType;
   designParams: DesignParams;
   recipeParams: RecipeParams;
   materials: Materials;
+  concreteType: ConcreteTypeCode;
   onDesignTypeChange: (type: DesignType) => void;
   onDesignParamsChange: (params: Partial<DesignParams>) => void;
   onRecipeParamsChange: (params: Partial<RecipeParams>) => void;
+  onConcreteTypeChange: (type: ConcreteTypeCode) => void;
   onCombinationChange: (index: number, value: string, type: string) => void;
   onWaterDefinitionChange: (index: number, field: string, value: any) => void;
   onAdditiveSystemConfigChange: (field: string, value: any) => void;
@@ -32,9 +35,11 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
   designParams,
   recipeParams,
   materials,
+  concreteType,
   onDesignTypeChange,
   onDesignParamsChange,
   onRecipeParamsChange,
+  onConcreteTypeChange,
   onCombinationChange,
   onWaterDefinitionChange,
   onAdditiveSystemConfigChange,
@@ -224,6 +229,33 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
             <SelectContent>
               <SelectItem value="FC">FC - Resistencia a Compresión</SelectItem>
               <SelectItem value="MR">MR - Módulo de Ruptura</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
+
+      {/* Concrete Type Selection */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Droplets className="h-5 w-5 text-blue-600" />
+            Tipo de Concreto
+          </CardTitle>
+          <div className="text-sm text-gray-600 mt-1">
+            ⚡ <strong>NUEVA FUNCIONALIDAD:</strong> Selecciona el tipo de concreto para generar recetas específicas.
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Select value={concreteType} onValueChange={(value) => onConcreteTypeChange(value as ConcreteTypeCode)}>
+            <SelectTrigger className="h-10">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(CONCRETE_TYPES).map(([code, { label, description }]) => (
+                <SelectItem key={code} value={code}>
+                  {code}: {label} - {description}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </CardContent>

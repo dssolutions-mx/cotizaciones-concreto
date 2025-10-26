@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { recipeService } from '@/lib/supabase/recipes';
 import { Recipe } from '@/types/recipes';
 import { RecipeDetailsModal } from './RecipeDetailsModal';
+import ReassignMasterModal from './ReassignMasterModal';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import { usePlantAwareRecipes } from '@/hooks/usePlantAwareRecipes';
 
@@ -20,10 +21,14 @@ type RecipeWithVersions = Recipe & {
   loaded_to_k2?: boolean;
   arkik_long_code?: string;
   arkik_short_code?: string;
+  master_recipe_id?: string;
+  variant_suffix?: string;
+  master_recipes?: { master_code: string; id: string };
 };
 
 export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+  const [reassignOpenFor, setReassignOpenFor] = useState<any | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
   
   // State to manage expanded/collapsed groups
@@ -36,8 +41,15 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
     autoRefresh: true
   });
 
-  // Cast recipes to the expected type with recipe_versions
-  const recipes = rawRecipes as RecipeWithVersions[];
+  // Enrich recipes with master data if not already present
+  const recipes = useMemo(() => {
+    return rawRecipes.map(r => ({
+      ...r,
+      master_recipe_id: (r as any).master_recipe_id,
+      variant_suffix: (r as any).variant_suffix,
+      master_recipes: (r as any).master_recipes
+    })) as RecipeWithVersions[];
+  }, [rawRecipes]);
 
   const toggleSelected = (code: string) => {
     setSelectedCodes(prev => {
@@ -235,11 +247,25 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
                                     <div className="flex justify-between items-center p-3 border-b border-gray-100 bg-gray-50">
                                       <div className="flex items-center gap-2">
                                         <Checkbox checked={selectedCodes.has(recipe.recipe_code)} onCheckedChange={() => toggleSelected(recipe.recipe_code)} />
-                                        <h3 className="text-lg font-semibold text-gray-800">{recipe.recipe_code}</h3>
+                                        <div>
+                                          <h3 className="text-lg font-semibold text-gray-800">{recipe.recipe_code}</h3>
+                                          {(recipe as any).variant_suffix && (
+                                            <div className="text-xs text-gray-600">Variante: {(recipe as any).variant_suffix}</div>
+                                          )}
+                                        </div>
                                       </div>
-                                      <span className="text-sm text-gray-500">
-                                        {recipe.recipe_versions[0]?.notes || 'N/A'}
-                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        {(recipe as any).master_recipe_id ? (
+                                          <span className="text-xs px-2 py-1 bg-blue-100 text-blue-800 rounded font-medium">
+                                            Maestro: {(recipe as any).master_recipes?.master_code || 'Asignado'}
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded">Independiente</span>
+                                        )}
+                                        <span className="text-sm text-gray-500">
+                                          {recipe.recipe_versions[0]?.notes || 'N/A'}
+                                        </span>
+                                      </div>
                                     </div>
                                     
                                     <div className="p-4">
@@ -268,8 +294,8 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
                                               <div className="font-mono break-all">{recipe.recipe_code}</div>
                                             </div>
                                             <div className="p-2 bg-gray-50 rounded border">
-                                              <div className="text-gray-600">ARKIK Largo</div>
-                                              <div className="font-mono break-all">{(recipe as any).arkik_long_code || '-'}</div>
+                                              <div className="text-gray-600">Código ARKIK</div>
+                                              <div className="font-mono break-all">{recipe.recipe_code || (recipe as any).arkik_long_code || '-'}</div>
                                             </div>
                                             <div className="p-2 bg-gray-50 rounded border">
                                               <div className="text-gray-600">ARKIK Corto</div>
@@ -279,13 +305,25 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
                                         </div>
                                       </div>
                                       
-                                      <div className="flex justify-end border-t border-gray-100 pt-3">
+                                      <div className="flex justify-between items-center border-t border-gray-100 pt-3">
                                         <button 
                                           onClick={() => recipe.id && handleViewDetails(recipe.id)}
                                           className="bg-blue-500 text-white px-4 py-1.5 rounded hover:bg-blue-600 text-sm font-medium"
                                         >
                                           Ver Detalles
                                         </button>
+                                        <Button size="sm" variant="outline" onClick={() => setReassignOpenFor({
+                                          id: recipe.id,
+                                          plant_id: (recipe as any).plant_id,
+                                          recipe_code: recipe.recipe_code,
+                                          master_recipe_id: (recipe as any).master_recipe_id,
+                                          strength_fc: recipe.strength_fc,
+                                          age_days: (recipe as any).age_days ?? null,
+                                          age_hours: (recipe as any).age_hours ?? null,
+                                          placement_type: recipe.placement_type,
+                                          max_aggregate_size: recipe.max_aggregate_size,
+                                          slump: recipe.slump
+                                        })}>Reasignar maestro</Button>
                                       </div>
                                     </div>
                                   </div>
@@ -310,6 +348,17 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
           isOpen={!!selectedRecipeId} 
           onClose={handleCloseModal} 
           hasEditPermission={hasEditPermission} 
+        />
+      )}
+
+      {reassignOpenFor && (
+        <ReassignMasterModal
+          isOpen={!!reassignOpenFor}
+          onClose={() => setReassignOpenFor(null)}
+          recipe={reassignOpenFor}
+          onChanged={() => {
+            // refresh list via hook autoRefresh or force reload
+          }}
         />
       )}
     </div>

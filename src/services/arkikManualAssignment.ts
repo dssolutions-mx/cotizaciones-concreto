@@ -169,6 +169,7 @@ export class ArkikManualAssignmentService {
           order_items (
             id,
             recipe_id,
+            master_recipe_id,
             volume,
             unit_price,
             quote_detail_id,
@@ -176,7 +177,7 @@ export class ArkikManualAssignmentService {
               id,
               recipe_id
             ),
-            recipes!inner (
+            recipes (
               id,
               recipe_code,
               arkik_long_code
@@ -192,6 +193,18 @@ export class ArkikManualAssignmentService {
       if (error) {
         console.error('[ManualAssignment] Error fetching orders (same client):', error);
       }
+
+      // DEBUG: Log what was fetched
+      console.log('[ManualAssignment] Fetched orders (same client):', {
+        count: orders?.length || 0,
+        orders: orders?.map(o => ({
+          id: o.id,
+          order_number: o.order_number,
+          delivery_date: o.delivery_date,
+          order_items_count: o.order_items?.length || 0,
+          order_items: o.order_items
+        }))
+      });
 
       // If no orders found for same client on same day, try broader search (±3 days), then plant-wide
       if (!orders || orders.length === 0) {
@@ -217,6 +230,7 @@ export class ArkikManualAssignmentService {
             order_items (
               id,
               recipe_id,
+              master_recipe_id,
               volume,
               unit_price,
               quote_detail_id,
@@ -224,11 +238,11 @@ export class ArkikManualAssignmentService {
                 id,
                 recipe_id
               ),
-              recipes!inner (
-                id,
-                recipe_code,
-                arkik_long_code
-              )
+            recipes (
+              id,
+              recipe_code,
+              arkik_long_code
+            )
             )
           `)
           .gte('delivery_date', this.formatYmd(range3Start))
@@ -268,6 +282,7 @@ export class ArkikManualAssignmentService {
             order_items (
               id,
               recipe_id,
+              master_recipe_id,
               volume,
               unit_price,
               quote_detail_id,
@@ -275,11 +290,11 @@ export class ArkikManualAssignmentService {
                 id,
                 recipe_id
               ),
-              recipes!inner (
-                id,
-                recipe_code,
-                arkik_long_code
-              )
+            recipes (
+              id,
+              recipe_code,
+              arkik_long_code
+            )
             )
           `)
           .gte('delivery_date', this.formatYmd(range14Start))
@@ -303,7 +318,23 @@ export class ArkikManualAssignmentService {
       // Evaluate compatibility for each order
       const compatibleOrders: CompatibleOrder[] = [];
 
+      console.log('[ManualAssignment] Evaluating compatibility for orders:', orders.map(o => ({
+        id: o.id,
+        order_number: o.order_number,
+        has_order_items: !!o.order_items,
+        order_items_length: o.order_items?.length || 0,
+        order_items: o.order_items
+      })));
+
       for (const order of orders) {
+        console.log('[ManualAssignment] Evaluating order:', {
+          id: order.id,
+          order_number: order.order_number,
+          order_items_raw: order.order_items,
+          order_items_type: typeof order.order_items,
+          order_items_is_array: Array.isArray(order.order_items)
+        });
+
         const compatibility = this.evaluateOrderCompatibility(remision, order as any);
         if (compatibility.score > 0) { // Accept any positive compatibility
           compatibleOrders.push({
@@ -323,10 +354,12 @@ export class ArkikManualAssignmentService {
             order_items: (order.order_items as any[]).map(item => ({
               id: item.id,
               recipe_id: item.recipe_id,
+              master_recipe_id: item.master_recipe_id,
               recipe_name: item.recipes?.arkik_long_code || item.recipes?.recipe_code || 'Unknown Recipe',
               volume: item.volume,
               unit_price: item.unit_price,
-              quote_detail_id: item.quote_detail_id
+              quote_detail_id: item.quote_detail_id,
+              quote_details: item.quote_details || null // ADD: Ensure quote_details is included
             }))
           });
         }
@@ -556,6 +589,21 @@ export class ArkikManualAssignmentService {
 
     // Recipe/Product compatibility
     const orderItems = order.order_items || [];
+    console.log(`[ManualAssignment] 🔍 Recipe compatibility check:`, {
+      remision: {
+        recipe_id: remision.recipe_id,
+        master_recipe_id: remision.master_recipe_id,
+        quote_detail_id: remision.quote_detail_id
+      },
+      orderItems: orderItems.map((item: any) => ({
+        id: item.id,
+        recipe_id: item.recipe_id,
+        master_recipe_id: item.master_recipe_id,
+        quote_detail_id: item.quote_detail_id,
+        quote_details: item.quote_details
+      }))
+    });
+
     const strictRecipeOk = hasStrictRecipeMatch(orderItems as any, remision);
     if (!strictRecipeOk) {
       // Block manual assignment if strict match fails

@@ -316,10 +316,10 @@ export default function ScheduleOrderForm({
           console.log('Detected problematic client ID - applying special handling');
         }
         
-        // 1. Find the active product prices for this client and site (recipe-based only)
+        // 1. Find the active master-level product prices for this client and site (master-first)
         const { data: activePrices, error: activePriceError } = await supabase
           .from('product_prices')
-          .select('quote_id, id, is_active, updated_at, recipe_id')
+          .select('quote_id, id, is_active, updated_at, master_recipe_id, recipe_id')
           .eq('client_id', selectedClientId)
           .eq('construction_site', selectedConstructionSite.name)
           .eq('is_active', true)
@@ -331,10 +331,10 @@ export default function ScheduleOrderForm({
         }
         
         // Debug log for active prices
-        console.log('Active prices fetched:', activePrices);
+        console.log('Active master-level prices fetched:', activePrices);
         
         if (!activePrices || activePrices.length === 0) {
-          console.log('No active recipe-based prices; proceeding to check standalone pumping quotes.');
+          console.log('No active master-level prices; proceeding to check standalone pumping quotes.');
         }
         
         // Double-check that all prices are actually active
@@ -390,9 +390,9 @@ export default function ScheduleOrderForm({
         console.log('Standalone pumping quote IDs:', Array.from(standalonePumpingQuoteIds));
         
         // Get unique quote IDs from both active prices and standalone pumping quotes
-        const recipeBasedQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
+        const recipeBasedQuoteIds = Array.from(new Set(trulyActivePrices.filter((p: any) => p.quote_id).map(price => price.quote_id)));
         const standalonePumpingQuoteIdsArray = Array.from(standalonePumpingQuoteIds);
-        const uniqueQuoteIds = Array.from(new Set([...recipeBasedQuoteIds, ...standalonePumpingQuoteIdsArray]));
+        const uniqueQuoteIds = Array.from(new Set([...recipeBasedQuoteIds, ...standalonePumpingQuoteIdsArray])).filter(Boolean);
         console.log('Unique quote IDs from active prices:', recipeBasedQuoteIds);
         console.log('Standalone pumping quote IDs:', standalonePumpingQuoteIdsArray);
         console.log('All unique quote IDs:', uniqueQuoteIds);
@@ -407,12 +407,66 @@ export default function ScheduleOrderForm({
         
         // Create a set of active quote-recipe combinations
         // This ensures we only display recipes that are active for a specific quote
-        const activeQuoteRecipeCombos = new Set(
-          trulyActivePrices
-            .filter(price => price.quote_id && price.recipe_id)
-            .map(price => `${price.quote_id}:${price.recipe_id}`)
+        // Build active quote-master combinations from both master-level prices and
+        // recipe-level prices that map to a master via recipes.master_recipe_id
+        const activeQuoteMasterCombos = new Set<string>();
+
+        // 1) Direct master-level prices
+        trulyActivePrices
+          .filter((price: any) => price.quote_id && price.master_recipe_id)
+          .forEach((price: any) => {
+            console.log('Adding direct master combo:', `${price.quote_id}:${price.master_recipe_id}`);
+            activeQuoteMasterCombos.add(`${price.quote_id}:${price.master_recipe_id}`);
+          });
+
+        // 2) Recipe-level prices → map to masters
+        const recipeIdsNeedingMaster = Array.from(
+          new Set(
+            trulyActivePrices
+              .filter((price: any) => price.recipe_id && !price.master_recipe_id)
+              .map((price: any) => price.recipe_id)
+          )
         );
-        console.log('Active quote-recipe combinations:', Array.from(activeQuoteRecipeCombos));
+
+        let recipeIdToMasterId: Record<string, string> = {};
+        if (recipeIdsNeedingMaster.length > 0) {
+          console.log('Recipe IDs needing master mapping:', recipeIdsNeedingMaster);
+          const { data: recipeRows, error: recipeErr } = await supabase
+            .from('recipes')
+            .select('id, master_recipe_id')
+            .in('id', recipeIdsNeedingMaster);
+          if (recipeErr) {
+            console.error('Error fetching recipes for master mapping:', recipeErr);
+          } else if (recipeRows) {
+            for (const r of recipeRows as any[]) {
+              if (r.master_recipe_id) {
+                recipeIdToMasterId[r.id] = r.master_recipe_id;
+                console.log('Recipe to master mapping:', `${r.id} -> ${r.master_recipe_id}`);
+              }
+            }
+          }
+        }
+
+        // Add combos for recipe-based prices that have a master mapping
+        trulyActivePrices
+          .filter((price: any) => price.quote_id && price.recipe_id && recipeIdToMasterId[price.recipe_id])
+          .forEach((price: any) => {
+            const masterId = recipeIdToMasterId[price.recipe_id];
+            console.log('Adding recipe-mapped master combo:', `${price.quote_id}:${masterId}`);
+            activeQuoteMasterCombos.add(`${price.quote_id}:${masterId}`);
+          });
+
+        // Build fallback quote-recipe combinations for recipes WITHOUT master linkage
+        const activeQuoteRecipeFallbackCombos = new Set<string>();
+        trulyActivePrices
+          .filter((price: any) => price.quote_id && price.recipe_id && !recipeIdToMasterId[price.recipe_id] && !price.master_recipe_id)
+          .forEach((price: any) => {
+            console.log('Adding recipe fallback combo:', `${price.quote_id}:${price.recipe_id}`);
+            activeQuoteRecipeFallbackCombos.add(`${price.quote_id}:${price.recipe_id}`);
+          });
+
+        console.log('Active quote-master combinations:', Array.from(activeQuoteMasterCombos));
+        console.log('Active quote-recipe FALLBACK combinations:', Array.from(activeQuoteRecipeFallbackCombos));
         
         // 2. Fetch all quotes linked to active prices
         const { data: quotesData, error: quotesError } = await supabase
@@ -426,16 +480,37 @@ export default function ScheduleOrderForm({
               final_price,
               pump_service,
               pump_price,
+              master_recipe_id,
               recipe_id,
               product_id,
+              master_recipes:master_recipe_id(
+                plant_id,
+                master_code,
+                strength_fc,
+                slump,
+                age_days,
+                placement_type,
+                max_aggregate_size
+              ),
               recipes:recipe_id(
+                plant_id,
                 recipe_code,
                 strength_fc,
                 placement_type,
                 max_aggregate_size,
                 age_days,
                 slump,
-                has_waterproofing
+                has_waterproofing,
+                master_recipe_id,
+                master_recipes:master_recipe_id(
+                  plant_id,
+                  master_code,
+                  strength_fc,
+                  slump,
+                  age_days,
+                  placement_type,
+                  max_aggregate_size
+                )
               ),
               product_prices:product_id(
                 id,
@@ -465,13 +540,24 @@ export default function ScheduleOrderForm({
         
         // 3. Format the quotes for the form, filtering out quote details that don't have active prices
         const formattedQuotes: Quote[] = quotesData.map(quoteData => {
-          // Filter quote details to include both active recipe-based and standalone pumping service combinations
+          // Filter quote details to include both active master-based and standalone pumping service combinations
           const activeDetails = quoteData.quote_details.filter((detail: any) => {
-            // Check if this specific quote-recipe combination is in our active set
-            const hasActiveRecipe = detail.recipe_id && activeQuoteRecipeCombos.has(`${quoteData.id}:${detail.recipe_id}`);
+            // Check if this specific quote-master combination is in our active set
+            let hasActiveMaster = false;
+            if (detail.master_recipe_id) {
+              // Check active combos first, then fall back to allowing any master_recipe_id from approved quotes
+              // (this handles cases where the master price exists in the quote but not explicitly in active_prices)
+              hasActiveMaster = activeQuoteMasterCombos.has(`${quoteData.id}:${detail.master_recipe_id}`) || !!detail.master_recipes;
+            } else if (detail.recipe_id && detail.recipes && detail.recipes.master_recipe_id) {
+              hasActiveMaster = activeQuoteMasterCombos.has(`${quoteData.id}:${detail.recipes.master_recipe_id}`);
+            }
+            // Check recipe-level fallback (no master linkage anywhere)
+            const hasActiveRecipeFallback = detail.recipe_id && activeQuoteRecipeFallbackCombos.has(`${quoteData.id}:${detail.recipe_id}`);
+            // Plant guards: only enforce plant scoping for recipe fallback items (master items are validated by active combos)
+            const recipePlantOk = detail.recipes && detail.recipes.plant_id === currentPlant?.id;
             // Check if this is a standalone pumping service quote
             const isStandalonePumping = standalonePumpingQuoteIds.has(quoteData.id) && detail.product_id && !detail.recipe_id && detail.pump_service;
-            return hasActiveRecipe || isStandalonePumping;
+            return hasActiveMaster || (hasActiveRecipeFallback && recipePlantOk) || isStandalonePumping;
           });
           
           console.log(`Quote ${quoteData.quote_number}: filtered ${quoteData.quote_details.length} details to ${activeDetails.length} active details`);
@@ -481,8 +567,39 @@ export default function ScheduleOrderForm({
             quoteNumber: quoteData.quote_number,
             totalAmount: 0, // Will be calculated below
             products: activeDetails.map((detail: any) => {
-              // Handle recipe-based quote details (concrete products)
-              if (detail.recipe_id && detail.recipes) {
+              // Handle master-based or recipe→master-mapped quote details (concrete products)
+              if ((detail.master_recipe_id && detail.master_recipes) || (detail.recipes && detail.recipes.master_recipes)) {
+                const masterData = (detail.master_recipes || (detail.recipes ? detail.recipes.master_recipes : null)) as {
+                  master_code?: string;
+                  strength_fc?: number;
+                  placement_type?: string;
+                  max_aggregate_size?: number;
+                  age_days?: number;
+                  slump?: number;
+                  has_waterproofing?: boolean;
+                } | null;
+                return {
+                  id: masterData?.master_code || 'Unknown',
+                  quoteDetailId: detail.id,
+                  // Reuse recipeCode field to display master_code across UI
+                  recipeCode: masterData?.master_code || 'Unknown',
+                  strength: masterData?.strength_fc || 0,
+                  placementType: masterData?.placement_type || '',
+                  maxAggregateSize: masterData?.max_aggregate_size || 0,
+                  volume: detail.volume,
+                  unitPrice: detail.final_price,
+                  pumpService: detail.pump_service,
+                  pumpPrice: detail.pump_price,
+                  scheduledVolume: 0, // Initialize scheduled volume
+                  pumpVolume: 0,      // Initialize pump volume
+                  ageDays: masterData?.age_days || 0,
+                  slump: masterData?.slump || 0,
+                  hasWaterproofing: masterData?.has_waterproofing ?? undefined
+                };
+              }
+
+              // Handle recipe-level FALLBACK details (no master linkage)
+              if (detail.recipe_id && detail.recipes && activeQuoteRecipeFallbackCombos.has(`${quoteData.id}:${detail.recipe_id}`)) {
                 const recipeData = detail.recipes as {
                   recipe_code?: string;
                   strength_fc?: number;
@@ -495,6 +612,7 @@ export default function ScheduleOrderForm({
                 return {
                   id: recipeData?.recipe_code || 'Unknown',
                   quoteDetailId: detail.id,
+                  // Reuse recipeCode field for display; behaves like a master in UI
                   recipeCode: recipeData?.recipe_code || 'Unknown',
                   strength: recipeData?.strength_fc || 0,
                   placementType: recipeData?.placement_type || '',
@@ -503,8 +621,8 @@ export default function ScheduleOrderForm({
                   unitPrice: detail.final_price,
                   pumpService: detail.pump_service,
                   pumpPrice: detail.pump_price,
-                  scheduledVolume: 0, // Initialize scheduled volume
-                  pumpVolume: 0,      // Initialize pump volume
+                  scheduledVolume: 0,
+                  pumpVolume: 0,
                   ageDays: recipeData?.age_days || 0,
                   slump: recipeData?.slump || 0,
                   hasWaterproofing: recipeData?.has_waterproofing ?? undefined
@@ -581,9 +699,23 @@ export default function ScheduleOrderForm({
           quoteDetailId: p.quoteDetailId 
         })));
         
-        const concreteProducts = allProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0);
-        const standalonePumpingProducts = allProducts.filter(p => p.placementType === 'BOMBEO' && p.pumpService);
-        const concreteWithPumpService = allProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0 && p.pumpService);
+        // Deduplicate: keep only first occurrence by recipeCode (master display code)
+        // This prevents showing both master and variant recipes with identical specs
+        const codeDedupeMap = new Map<string, any>();
+        allProducts.forEach(product => {
+          // Use recipeCode (which is the master_code or recipe_code) as dedup key
+          if (!codeDedupeMap.has(product.recipeCode)) {
+            codeDedupeMap.set(product.recipeCode, product);
+          } else {
+            console.log(`Skipping duplicate recipe code: ${product.recipeCode}`);
+          }
+        });
+        const deduplicatedProducts = Array.from(codeDedupeMap.values());
+        console.log(`Deduplicated products by code: ${allProducts.length} → ${deduplicatedProducts.length}`);
+        
+        const concreteProducts = deduplicatedProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0);
+        const standalonePumpingProducts = deduplicatedProducts.filter(p => p.placementType === 'BOMBEO' && p.pumpService);
+        const concreteWithPumpService = deduplicatedProducts.filter(p => p.placementType !== 'BOMBEO' && p.strength > 0 && p.pumpService);
         
         console.log('Standalone pumping products filtered:', standalonePumpingProducts);
         
@@ -591,7 +723,7 @@ export default function ScheduleOrderForm({
         const pumpingProducts = [...standalonePumpingProducts, ...concreteWithPumpService];
         
         // Remove pumping services from the main product list - they should never appear as individual products
-        const filteredProducts = allProducts.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
+        const filteredProducts = deduplicatedProducts.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
         
         setHasConcreteProducts(concreteProducts.length > 0);
         setHasStandalonePumping(pumpingProducts.length > 0);
@@ -835,6 +967,15 @@ export default function ScheduleOrderForm({
         quoteId: quote.id
       }))
     );
+    
+    // Deduplicate by recipeCode - keep first occurrence (which is the master)
+    const codeDedupeMap = new Map<string, any>();
+    allProducts.forEach(product => {
+      if (!codeDedupeMap.has(product.recipeCode)) {
+        codeDedupeMap.set(product.recipeCode, product);
+      }
+    });
+    allProducts = Array.from(codeDedupeMap.values());
     
     // Always exclude pumping services from the product list - they are handled separately as global services
     allProducts = allProducts.filter(p => !(p.placementType === 'BOMBEO' && p.pumpService));
@@ -1788,7 +1929,7 @@ export default function ScheduleOrderForm({
                     <ol className="mt-1 list-decimal pl-5 text-xs text-yellow-800 space-y-0.5">
                       <li>Toca el enlace para abrirlo en el navegador del teléfono.</li>
                       <li>En la barra de direcciones, copia la URL completa (debe iniciar con www.google.com/maps...)</li>
-                      <li>Pégala aquí y presiona “Usar”.</li>
+                      <li>Pégala aquí y presiona "Usar".</li>
                     </ol>
                   </div>
                 </div>

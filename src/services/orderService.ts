@@ -171,7 +171,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
       if (validationError) throw validationError;
     }
     
-    // If order_items are provided, insert them
+    // If orderData.order_items are provided, insert them
     if (orderData.order_items && orderData.order_items.length > 0) {
       // Fetch the quote details to get product information
       const { data: quoteDetails, error: quoteDetailsError } = await supabase
@@ -183,8 +183,12 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           pump_price,
           product_id,
           recipe_id,
+          master_recipe_id,
           recipes:recipe_id (
             recipe_code
+          ),
+          master_recipes:master_recipe_id (
+            master_code
           )
         `)
         .in('id', orderData.order_items.map(item => item.quote_detail_id));
@@ -201,20 +205,26 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           pumpService: quoteDetail?.pump_service,
           productId: quoteDetail?.product_id,
           recipeId: quoteDetail?.recipe_id,
-          recipes: quoteDetail?.recipes
+          masterRecipeId: quoteDetail?.master_recipe_id,
+          recipes: quoteDetail?.recipes,
+          masterRecipes: quoteDetail?.master_recipes
         });
 
         // Determine product type based on quote detail type
+        // PRIORITY: Master-first, then recipe, then pumping-only, then unknown
         let productType = 'Unknown';
-        if (quoteDetail?.pump_service && quoteDetail?.product_id) {
+        if (quoteDetail?.master_recipe_id && quoteDetail?.master_recipes) {
+          // Master-based concrete product
+          productType = quoteDetail.master_recipes.master_code || 'Unknown';
+          console.log('Identified as master-based concrete product:', productType);
+        } else if (quoteDetail?.recipe_id && quoteDetail?.recipes) {
+          // Recipe-based concrete product (fallback when no master)
+          productType = quoteDetail.recipes.recipe_code || 'Unknown';
+          console.log('Identified as recipe-based concrete product:', productType);
+        } else if (quoteDetail?.pump_service && quoteDetail?.product_id) {
           // This is a standalone pumping service
           productType = 'SERVICIO DE BOMBEO';
           console.log('Identified as standalone pumping service');
-        } else if (quoteDetail?.recipes) {
-          // This is a concrete product
-          productType = typeof quoteDetail.recipes === 'object' ?
-            (quoteDetail.recipes as any).recipe_code : 'Unknown';
-          console.log('Identified as concrete product:', productType);
         } else {
           console.log('Could not determine product type, using Unknown');
         }
@@ -224,6 +234,7 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
           order_id: order.id,
           quote_detail_id: item.quote_detail_id,
           recipe_id: quoteDetail?.recipe_id || null,
+          master_recipe_id: quoteDetail?.master_recipe_id || null,
           product_type: productType,
           volume: item.volume,
           unit_price: quoteDetail?.final_price || 0,
@@ -657,6 +668,275 @@ export async function updateOrderItem(id: string, itemData: {
     console.error('Error in updateOrderItem:', error);
     throw error;
   }
+}
+
+// Normalize and update order items to master-level, merging per master and binding pricing as-of order.created_at
+export async function updateOrderNormalized(
+  orderId: string,
+  orderUpdate: {
+    delivery_date?: string;
+    delivery_time?: string;
+    requires_invoice?: boolean;
+    special_requirements?: string | null;
+    delivery_latitude?: number | null;
+    delivery_longitude?: number | null;
+    delivery_google_maps_url?: string | null;
+    quote_id?: string | null;
+  },
+  editedProducts: Array<{
+    id: string;
+    volume: number;
+    pump_volume?: number | null;
+    recipe_id?: string | null;
+  }>,
+  opts?: { normalizeToMasters?: boolean; mergePerMaster?: boolean; strictMasterOnly?: boolean }
+) {
+  const { normalizeToMasters = true, mergePerMaster = true, strictMasterOnly = true } = opts || {};
+  if (!normalizeToMasters) {
+    // Fallback to legacy behavior: update order header only
+    return updateOrder(orderId, orderUpdate);
+  }
+
+  // Load minimal order context
+  const { data: orderRow, error: orderErr } = await supabase
+    .from('orders')
+    .select('id, client_id, construction_site, plant_id, created_at')
+    .eq('id', orderId)
+    .single();
+  if (orderErr) throw orderErr;
+
+  const clientId = orderRow.client_id as string;
+  const site = orderRow.construction_site as string;
+  const plantId = orderRow.plant_id as string | null;
+  const createdAt = orderRow.created_at as string;
+  if (!plantId) throw new Error('La orden no tiene planta asignada.');
+
+  // Fetch current order items to get master_recipe_id context
+  const { data: currentItems, error: itemsErr } = await supabase
+    .from('order_items')
+    .select('id, recipe_id, master_recipe_id, product_type')
+    .eq('order_id', orderId);
+  if (itemsErr) throw itemsErr;
+
+  // Map current items for quick lookup by ID
+  const currentItemMap: Record<string, any> = {};
+  for (const item of (currentItems || []) as any[]) {
+    currentItemMap[item.id] = item;
+  }
+
+  // Map edited recipe_ids to masters (only those that changed recipe_id)
+  const recipeIds = Array.from(new Set(
+    (editedProducts || [])
+      .map(p => p.recipe_id)
+      .filter((id): id is string => !!id)
+  ));
+
+  // Fetch recipes to get master mapping and master codes
+  const { data: recipeRows, error: recipesErr } = await supabase
+    .from('recipes')
+    .select(`id, master_recipe_id, master_recipes:master_recipe_id(id, master_code)`) 
+    .in('id', recipeIds.length > 0 ? recipeIds : ['00000000-0000-0000-0000-000000000000']);
+  if (recipesErr) throw recipesErr;
+  const recipeIdToMaster: Record<string, { masterId: string | null; masterCode: string | null }> = {};
+  for (const r of (recipeRows || []) as any[]) {
+    recipeIdToMaster[r.id] = {
+      masterId: r.master_recipe_id || null,
+      masterCode: r.master_recipes?.master_code || null
+    };
+  }
+
+  // Build master groups, intelligently handling both new variant selections and existing master items
+  type MasterAgg = { masterId: string; masterCode: string | null; volume: number; pumpVolume: number };
+  const masterIdToAgg: Record<string, MasterAgg> = {};
+  const missingMasters: string[] = [];
+  const specialServiceItems: typeof editedProducts = []; // Preserve special items
+
+  for (const p of editedProducts) {
+    const currentItem = currentItemMap[p.id];
+    if (!currentItem) {
+      console.warn(`Current item ${p.id} not found in order; skipping`);
+      continue;
+    }
+
+    // Preserve special service items as-is without processing for master recipes
+    if (currentItem.product_type === 'VACÍO DE OLLA' || 
+        currentItem.product_type === 'SERVICIO DE BOMBEO' ||
+        currentItem.product_type === 'EMPTY_TRUCK_CHARGE') {
+      console.log(`Preserving special service item ${p.id} (${currentItem.product_type})`);
+      specialServiceItems.push(p);
+      continue;
+    }
+
+    // Determine target master_recipe_id
+    let masterId: string | null = null;
+    let masterCode: string | null = null;
+
+    // Log for debugging
+    console.log(`Processing edited product ${p.id}:`, {
+      pRecipeId: p.recipe_id,
+      currentMasterId: currentItem.master_recipe_id,
+      currentRecipeId: currentItem.recipe_id,
+      currentProductType: currentItem.product_type
+    });
+
+    // Priority 1: If a new recipe_id was selected, resolve its master
+    if (p.recipe_id) {
+      // Check if the selected ID is a MASTER recipe first
+      const { data: masterRow, error: masterErr } = await supabase
+        .from('master_recipes')
+        .select('id, master_code')
+        .eq('id', p.recipe_id)
+        .single();
+      
+      if (!masterErr && masterRow) {
+        // It's a master recipe ID
+        masterId = masterRow.id;
+        masterCode = masterRow.master_code;
+        console.log(`Selected ID is a master recipe, using directly:`, { masterId, masterCode });
+      } else {
+        // Otherwise, treat it as a variant recipe and look it up in the map
+        const map = recipeIdToMaster[p.recipe_id];
+        masterId = map?.masterId || null;
+        masterCode = map?.masterCode || null;
+        console.log(`Selected new recipe ${p.recipe_id}, resolved master:`, { masterId, masterCode });
+      }
+    }
+    // Priority 2: Fall back to the current item's master_recipe_id (for items already at master level)
+    else if (currentItem.master_recipe_id) {
+      masterId = currentItem.master_recipe_id;
+      // Try to fetch the master_code if not already in map
+      if (!masterCode) {
+        const { data: masterRow, error: masterErr } = await supabase
+          .from('master_recipes')
+          .select('master_code')
+          .eq('id', masterId)
+          .single();
+        if (!masterErr && masterRow) {
+          masterCode = masterRow.master_code;
+        }
+      }
+      console.log(`Using existing master from current item:`, { masterId, masterCode });
+    }
+    // Priority 3: Fall back to current recipe_id if it exists
+    else if (currentItem.recipe_id) {
+      const map = recipeIdToMaster[currentItem.recipe_id];
+      masterId = map?.masterId || null;
+      masterCode = map?.masterCode || null;
+      console.log(`Using current recipe ${currentItem.recipe_id}, resolved master:`, { masterId, masterCode });
+    }
+
+    if (!masterId) {
+      if (strictMasterOnly) {
+        const failureInfo = `${p.recipe_id || currentItem.recipe_id || '(sin receta)'} [current: master=${currentItem.master_recipe_id}, recipe=${currentItem.recipe_id}]`;
+        console.error(`Item ${p.id} has no master:`, failureInfo);
+        missingMasters.push(failureInfo);
+        continue;
+      } else {
+        // Skip items with no master if not strict
+        continue;
+      }
+    }
+
+    if (!masterIdToAgg[masterId]) {
+      masterIdToAgg[masterId] = { masterId, masterCode, volume: 0, pumpVolume: 0 };
+    }
+    masterIdToAgg[masterId].volume += Number(p.volume || 0);
+    masterIdToAgg[masterId].pumpVolume += Number(p.pump_volume || 0);
+  }
+
+  if (strictMasterOnly && missingMasters.length > 0) {
+    throw new Error(
+      `Los siguientes productos no tienen receta maestra asociada y no se pueden guardar: ${missingMasters.join(', ')}`
+    );
+  }
+
+  const groups = Object.values(masterIdToAgg);
+  if (mergePerMaster) {
+    // Already aggregated by key
+  }
+
+  // Resolve pricing per master as of created_at
+  const { resolveMasterPriceForAsOf } = await import('@/lib/services/productPriceResolver');
+  const resolvedPerMaster: Record<string, { quoteId: string; quoteDetailId: string; unitPrice: number; priceSource: 'as_of'|'current' }> = {};
+  for (const g of groups) {
+    const resolved = await resolveMasterPriceForAsOf({
+      clientId,
+      constructionSite: site,
+      plantId,
+      createdAt,
+      masterRecipeId: g.masterId,
+    });
+    resolvedPerMaster[g.masterId] = resolved;
+  }
+
+  // Choose an order-level quote_id to set (prefer the latest resolved by priceSource order)
+  const chosen = groups.map(g => ({ masterId: g.masterId, ...resolvedPerMaster[g.masterId] }))
+    .sort((a, b) => (a.priceSource === 'as_of' && b.priceSource === 'current') ? -1 : 0)[0];
+  const newQuoteId = chosen?.quoteId || null;
+
+  // Update order header (and set quote_id if provided by resolver)
+  const orderHeaderUpdate = { ...orderUpdate } as any;
+  if (newQuoteId) orderHeaderUpdate.quote_id = newQuoteId;
+  await updateOrder(orderId, orderHeaderUpdate);
+
+  // Delete only the edited concrete items (by id), excluding special service items
+  const itemIdsToReplace = editedProducts
+    .filter(p => {
+      const item = currentItemMap[p.id];
+      return item && 
+             item.product_type !== 'VACÍO DE OLLA' && 
+             item.product_type !== 'SERVICIO DE BOMBEO' &&
+             item.product_type !== 'EMPTY_TRUCK_CHARGE';
+    })
+    .map(p => p.id)
+    .filter(Boolean);
+  
+  if (itemIdsToReplace.length > 0) {
+    const { error: delErr } = await supabase
+      .from('order_items')
+      .delete()
+      .in('id', itemIdsToReplace);
+    if (delErr) throw delErr;
+  }
+
+  // Insert one item per master
+  const insertRows = groups.map(g => {
+    const link = resolvedPerMaster[g.masterId];
+    return {
+      order_id: orderId,
+      quote_detail_id: link.quoteDetailId,
+      recipe_id: null,
+      master_recipe_id: g.masterId,
+      product_type: g.masterCode || 'CONCRETO',
+      volume: g.volume,
+      unit_price: link.unitPrice,
+      total_price: link.unitPrice * g.volume,
+      has_pump_service: false,
+      pump_price: null,
+      pump_volume: null,
+    } as any;
+  });
+
+  if (insertRows.length > 0) {
+    const { error: insErr } = await supabase
+      .from('order_items')
+      .insert(insertRows);
+    if (insErr) throw insErr;
+  }
+
+  // Update any modified special service items (preserve them with updated volumes)
+  for (const serviceItem of specialServiceItems) {
+    if (serviceItem.volume !== currentItemMap[serviceItem.id]?.volume) {
+      const { error: updateErr } = await supabase
+        .from('order_items')
+        .update({ volume: serviceItem.volume, total_price: serviceItem.volume * (currentItemMap[serviceItem.id]?.unit_price || 0) })
+        .eq('id', serviceItem.id);
+      if (updateErr) console.warn(`Error updating service item ${serviceItem.id}:`, updateErr);
+    }
+  }
+
+  // Return minimal success response
+  return { success: true };
 }
 
 export async function rejectCreditByValidator(id: string, rejectionReason: string) {
@@ -1238,6 +1518,7 @@ const orderService = {
   updateOrderStatus,
   updateOrder,
   updateOrderItem,
+  updateOrderNormalized,
   rejectCreditByValidator,
   getOrdersForManagerValidation,
   getRejectedOrders,

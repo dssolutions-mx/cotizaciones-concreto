@@ -11,6 +11,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { CheckIcon, Cross2Icon } from '@radix-ui/react-icons';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { features } from '@/config/featureFlags';
 
 interface PendingApprovalTabProps {
   onDataSaved?: () => void;
@@ -54,6 +55,10 @@ interface SupabaseQuoteDetail {
     slump: number;
     age_days: number;
   };
+  master_recipe_id: string;
+  master_recipes: {
+    master_code: string;
+  }[];
 }
 
 interface PendingQuote {
@@ -83,6 +88,7 @@ interface PendingQuote {
       slump: number;
       age_days: number;
     } | null;
+    master_code: string | null;
   }>;
 }
 
@@ -148,6 +154,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
             pump_price,
             includes_vat,
             recipe_id,
+            master_recipe_id,
             recipes (
               recipe_code,
               strength_fc,
@@ -155,6 +162,9 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
               max_aggregate_size,
               slump,
               age_days
+            ),
+            master_recipes (
+              master_code
             )
           )
         `)
@@ -211,6 +221,13 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
               ? detail.recipes[0] 
               : detail.recipes;
               
+            const masterData = Array.isArray(detail.master_recipes)
+              ? detail.master_recipes[0]
+              : detail.master_recipes;
+              
+            // Provide fallback data when both recipe and master are missing
+            const fallbackCode = masterData?.master_code || recipeData?.recipe_code || 'N/A';
+              
             return {
               id: detail.id,
               volume: detail.volume,
@@ -226,7 +243,15 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                 max_aggregate_size: recipeData.max_aggregate_size,
                 slump: recipeData.slump,
                 age_days: recipeData.age_days
-              } : null
+              } : {
+                recipe_code: fallbackCode,
+                strength_fc: 0,
+                placement_type: 'N/A',
+                max_aggregate_size: 0,
+                slump: 0,
+                age_days: 0
+              },
+              master_code: masterData?.master_code || null
             };
           })
         };
@@ -630,7 +655,9 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                             <div className="mt-2 flex flex-wrap gap-2">
                               {quote.quote_details.slice(0, 3).map((detail) => (
                                 <span key={detail.id} className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
-                                  {detail.recipe?.recipe_code || 'Sin código'} - {detail.volume}m³
+                                  {(features.masterPricingEnabled && detail.master_code)
+                                    ? detail.master_code
+                                    : detail.recipe?.recipe_code || 'Sin código'} - {detail.volume}m³
                                 </span>
                               ))}
                               {quote.quote_details.length > 3 && (
@@ -919,71 +946,91 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                       {/* Desktop/Table view */}
                       <div className="hidden md:block overflow-x-auto">
                         <table className="w-full text-sm text-left text-gray-600">
-                          <thead className="text-xs uppercase bg-gray-50 text-gray-700">
+                          <thead className="text-xs uppercase bg-gradient-to-r from-gray-100 to-gray-50 text-gray-700 border-b border-gray-200">
                             <tr>
-                              <th className="px-4 py-3 font-medium">Código de Receta</th>
-                              <th className="px-4 py-3 font-medium">Tipo de Colocación</th>
-                              <th className="px-4 py-3 font-medium">Resistencia</th>
-                              <th className="px-4 py-3 font-medium">Volumen</th>
-                              <th className="px-4 py-3 font-medium">Precio Base</th>
-                              <th className="px-4 py-3 font-medium">Margen (%)</th>
-                              <th className="px-4 py-3 font-medium">Precio Final</th>
-                              <th className="px-4 py-3 font-medium">Total</th>
+                              <th className="px-4 py-3 font-semibold">Producto</th>
+                              <th className="px-4 py-3 font-semibold">Tipo de Colocación</th>
+                              <th className="px-4 py-3 font-semibold">Resistencia</th>
+                              <th className="px-4 py-3 font-semibold">Volumen</th>
+                              <th className="px-4 py-3 font-semibold">Precio Base</th>
+                              <th className="px-4 py-3 font-semibold">Margen (%)</th>
+                              <th className="px-4 py-3 font-semibold">Precio Final</th>
+                              <th className="px-4 py-3 font-semibold">Total</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-200">
-                            {editingQuoteDetails.map((detail, index) => (
-                              <tr key={detail.id} className="hover:bg-gray-50">
-                                <td className="px-4 py-3">{detail.recipe?.recipe_code || 'Sin código'}</td>
-                                <td className="px-4 py-3">{detail.recipe?.placement_type || 'Sin tipo'}</td>
-                                <td className="px-4 py-3">{detail.recipe?.strength_fc || 'N/A'} fc</td>
-                                <td className="px-4 py-3">{detail.volume} m³</td>
-                                <td className="px-4 py-3">
-                                  <input 
-                                    type="number" 
-                                    value={detail.base_price.toFixed(2)}
-                                    onChange={(e) => {
-                                      if (e.target.value === '') {
-                                        updateQuoteDetailBasePrice(index, 0);
-                                        return;
-                                      }
-                                      const value = parseFloat(e.target.value);
-                                      if (!isNaN(value)) updateQuoteDetailBasePrice(index, value);
-                                    }}
-                                    placeholder="0.00"
-                                    step="0.01"
-                                    className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                                  />
-                                </td>
-                                <td className="px-4 py-3">
-                                  <input 
-                                    type="number" 
-                                    value={Math.round(detail.profit_margin * 10000) / 100}
-                                    onChange={(e) => {
-                                      if (e.target.value === '') {
-                                        updateQuoteDetailMargin(index, 0);
-                                        return;
-                                      }
-                                      const value = parseFloat(e.target.value);
-                                      if (!isNaN(value)) updateQuoteDetailMargin(index, value);
-                                    }}
-                                    onBlur={(e) => {
-                                      if (e.target.value === '') {
-                                        updateQuoteDetailMargin(index, 4);
-                                        return;
-                                      }
-                                      const value = parseFloat(e.target.value);
-                                      updateQuoteDetailMargin(index, Math.max(4, value));
-                                    }}
-                                    placeholder="4%"
-                                    step="0.01"
-                                    className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                                  />
-                                </td>
-                                <td className="px-4 py-3 font-medium">${detail.final_price.toFixed(2)}</td>
-                                <td className="px-4 py-3 font-medium">${(detail.final_price * detail.volume).toFixed(2)}</td>
-                              </tr>
-                            ))}
+                            {editingQuoteDetails.map((detail, index) => {
+                              const isFromMaster = features.masterPricingEnabled && detail.master_code;
+                              return (
+                                <tr key={detail.id} className="hover:bg-blue-50 transition-colors">
+                                  <td className="px-4 py-3">
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex-1">
+                                        <p className="font-medium text-gray-900">
+                                          {isFromMaster
+                                            ? detail.master_code
+                                            : detail.recipe?.recipe_code || 'Sin código'}
+                                        </p>
+                                      </div>
+                                      <span className={`inline-block px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
+                                        isFromMaster 
+                                          ? 'bg-blue-100 text-blue-800' 
+                                          : 'bg-gray-200 text-gray-700'
+                                      }`}>
+                                        {isFromMaster ? 'MAESTRO' : 'VARIANTE'}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-3">{detail.recipe?.placement_type || 'Sin tipo'}</td>
+                                  <td className="px-4 py-3">{detail.recipe?.strength_fc || 'N/A'} kg/cm²</td>
+                                  <td className="px-4 py-3 font-medium">{detail.volume} m³</td>
+                                  <td className="px-4 py-3">
+                                    <input 
+                                      type="number" 
+                                      value={detail.base_price.toFixed(2)}
+                                      onChange={(e) => {
+                                        if (e.target.value === '') {
+                                          updateQuoteDetailBasePrice(index, 0);
+                                          return;
+                                        }
+                                        const value = parseFloat(e.target.value);
+                                        if (!isNaN(value)) updateQuoteDetailBasePrice(index, value);
+                                      }}
+                                      placeholder="0.00"
+                                      step="0.01"
+                                      className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <input 
+                                      type="number" 
+                                      value={Math.round(detail.profit_margin * 10000) / 100}
+                                      onChange={(e) => {
+                                        if (e.target.value === '') {
+                                          updateQuoteDetailMargin(index, 0);
+                                          return;
+                                        }
+                                        const value = parseFloat(e.target.value);
+                                        if (!isNaN(value)) updateQuoteDetailMargin(index, value);
+                                      }}
+                                      onBlur={(e) => {
+                                        if (e.target.value === '') {
+                                          updateQuoteDetailMargin(index, 4);
+                                          return;
+                                        }
+                                        const value = parseFloat(e.target.value);
+                                        updateQuoteDetailMargin(index, Math.max(4, value));
+                                      }}
+                                      placeholder="4%"
+                                      step="0.01"
+                                      className="w-24 p-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                                    />
+                                  </td>
+                                  <td className="px-4 py-3 font-medium">${detail.final_price.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                                  <td className="px-4 py-3 font-medium">${(detail.final_price * detail.volume).toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -995,7 +1042,11 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                             <div className="flex items-center justify-between">
                               <div>
                                 <p className="text-sm text-gray-500">Código</p>
-                                <p className="font-medium text-gray-900">{detail.recipe?.recipe_code || 'Sin código'}</p>
+                                <p className="font-medium text-gray-900">
+                                  {(features.masterPricingEnabled && detail.master_code)
+                                    ? detail.master_code
+                                    : detail.recipe?.recipe_code || 'Sin código'}
+                                </p>
                               </div>
                               <span className={`text-xs px-2 py-0.5 rounded-full ${detail.includes_vat ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-gray-50 text-gray-700 border border-gray-200'}`}>
                                 {detail.includes_vat ? 'IVA incluido' : 'Sin IVA'}

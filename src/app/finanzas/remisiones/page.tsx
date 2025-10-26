@@ -76,27 +76,16 @@ export default function RemisionesPorCliente() {
   const [debugMode, setDebugMode] = useState(false);
   
   // Determine display name for recipe/product
-  // Match by recipe_id ONLY within the same order
+  // Use remision's recipe_id and recipe data directly
   const getDisplayRecipeName = useCallback((remision: any): string => {
     // 1) Prefer explicit designation on the remision
     if (remision?.designacion_ehe) {
       return remision.designacion_ehe;
     }
     
-    // 2) Direct match: find order_item with same order_id AND recipe_id
-    if (remision?.recipe_id && remision?.order_id) {
-      const matchedItem = orderProducts.find((op: any) => 
-        String(op.order_id) === String(remision.order_id) && 
-        String(op.recipe_id) === String(remision.recipe_id)
-      );
-      if (matchedItem?.product_type) {
-        return matchedItem.product_type;
-      }
-    }
-    
-    // 3) Final fallback to recipe code
+    // 2) Use recipe code from remision
     return remision.recipe?.recipe_code || 'N/A';
-  }, [orderProducts]);
+  }, []);
   
   // Load clients based on date range
   const loadClientsWithRemisiones = useCallback(async () => {

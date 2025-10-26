@@ -67,7 +67,12 @@ import { MaterialSelection } from './MaterialSelection';
 import { DesignParameters } from './DesignParameters';
 import { RecipeTable } from './RecipeTable';
 import { MaterialConfiguration } from './MaterialConfiguration';
-import { calculatorService, CalculatorMaterials, CalculatorRecipe } from '@/lib/services/calculatorService';
+import { calculatorService, CalculatorMaterials, CalculatorRecipe, saveRecipesWithDecisions } from '@/lib/services/calculatorService';
+import type { CalculatorSaveDecision } from '@/types/masterRecipes';
+import { computeArkikCodes } from '@/lib/utils/masterRecipeUtils';
+import { CONCRETE_TYPES, ConcreteTypeCode, getDefaultConcreteTypeForDesignType } from '@/config/concreteTypes';
+
+type ConcreteTypePerRecipe = Record<string, ConcreteTypeCode>;
 
 const ConcreteMixCalculator = () => {
   const { profile } = useAuthBridge();
@@ -80,6 +85,10 @@ const ConcreteMixCalculator = () => {
   
   // Design type
   const [designType, setDesignType] = useState<DesignType>('FC');
+  // Concrete type selector (prefix for ARKIK code)
+  const [concreteType, setConcreteType] = useState<ConcreteTypeCode>(getDefaultConcreteTypeForDesignType('FC'));
+  // Per-recipe concrete type overrides
+  const [concreteTypePerRecipe, setConcreteTypePerRecipe] = useState<ConcreteTypePerRecipe>({});
   
   // Material selection state
   const [availableMaterials, setAvailableMaterials] = useState<{
@@ -157,6 +166,8 @@ const ConcreteMixCalculator = () => {
   
   // Export selection
   const [selectedRecipesForExport, setSelectedRecipesForExport] = useState<Set<string>>(new Set());
+  // ARKIK codes map and overrides per calculated recipe code
+  const [arkikCodes, setArkikCodes] = useState<Record<string, { longCode: string; shortCode: string }>>({});
   
   // UI state
   const [showDetails, setShowDetails] = useState(false);
@@ -164,18 +175,39 @@ const ConcreteMixCalculator = () => {
   const [tempFCR, setTempFCR] = useState<string>('');
   const [activeTab, setActiveTab] = useState('materials');
 
-  // Save-to-system Arkik defaults modal
+  // Save-to-system confirmation modal
   const [saveOpen, setSaveOpen] = useState(false);
-  const [arkikDefaults, setArkikDefaults] = useState({
-    type_code: 'B',
-    num: '2',
-    variante: '000',
-    volumen_concreto: '1000',
-    contenido_aire: '1.5',
-    factor_g: ''
+  // ARKIK export parameters (for export tool, not recipe generation)
+  const [arkikExportParams, setArkikExportParams] = useState({
+    volumen: '1000',
+    aire: '1.5',
+    factorG: ''
   });
   const [saving, setSaving] = useState(false);
-  const [previewShowSSS, setPreviewShowSSS] = useState(true);
+  // Success modal after saving
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [successRecipeCodes, setSuccessRecipeCodes] = useState<string[]>([]);
+  // Batch preflight for variant governance
+  const [conflictsOpen, setConflictsOpen] = useState(false);
+  const [conflicts, setConflicts] = useState<Array<{
+    code: string;
+    strength: number;
+    age: number;
+    ageUnit: 'D' | 'H';
+    slump: number;
+    placement: string;
+    aggregateSize: number;
+    intendedCode: string;
+    sameSpecCandidates: Array<{ id: string; recipe_code: string; master_recipe_id?: string | null; master_code?: string | null }>;
+    codeCollision: boolean;
+    // decision UI
+    decision: 'updateVariant' | 'createVariant' | 'newMaster';
+    selectedExistingId?: string;
+    masterMode?: 'existing' | 'new';
+    selectedMasterId?: string;
+    newMasterCode?: string;
+    overrideCode: string;
+  }>>([]);
 
   // Load available materials from database
   const loadAvailableMaterials = async () => {
@@ -795,6 +827,39 @@ const ConcreteMixCalculator = () => {
     });
     
     setGeneratedRecipes(recipes);
+    // Compute ARKIK codes map for each recipe for display/override
+    const codes: Record<string, { longCode: string; shortCode: string }> = {};
+    const detectNames = selectedMaterials.additives
+      .map(id => availableMaterials.additives.find(a => a.id === id.toString())?.material_name || '')
+      .filter(Boolean) as string[];
+    recipes.forEach(r => {
+      // Get per-recipe concrete type or use default
+      const recipeConcreteType = concreteTypePerRecipe[r.code] || concreteType;
+      // Check if any PCE additive has non-zero quantity in THIS RECIPE
+      const hasNonZeroPCE = r.calculatedAdditives.some(additive => {
+        const hasPCE = additive.name.toUpperCase().includes('PCE');
+        const hasQuantity = additive.totalCC > 0;
+        return hasPCE && hasQuantity;
+      });
+      const { longCode, shortCode } = computeArkikCodes({
+        strength: r.strength,
+        age: r.age,
+        ageUnit: r.ageUnit,
+        slump: r.slump,
+        aggregateSize: r.aggregateSize,
+        placement: r.placement,
+        recipeType: designType,
+        // Use defaults that match the new logic
+        typeCode: 'B', // Default concrete type code
+        num: '2', // Default number
+        variante: '000', // Default variant, will be overridden by PCE detection
+        detectPCEFromAdditiveNames: detectNames,
+        concreteTypeCode: recipeConcreteType,
+        hasNonZeroPCEQuantity: hasNonZeroPCE
+      });
+      codes[r.code] = { longCode, shortCode };
+    });
+    setArkikCodes(codes);
     console.log(`Generated ${recipes.length} recipes using ${enabledCombinations.length} water combinations`);
   };
 
@@ -957,77 +1022,181 @@ const ConcreteMixCalculator = () => {
   const handleConfirmSave = async () => {
     const selected = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
     if (selected.length === 0 || !currentPlant?.id || !profile?.id) return;
-    if (!['000', 'PCE'].includes(arkikDefaults.variante.toUpperCase())) {
-      alert('Variante inválida. Use 000 o PCE.');
-      return;
-    }
-
-    // Function to compute ARKIK codes (extracted from preview section)
-    const computeArkikCodes = (r: Recipe) => {
-      const fcCode = String(r.strength).padStart(3, '0');
-      const edadCode = String(r.age).padStart(2, '0'); // keep numeric part
-      const revCode = String(r.slump).padStart(2, '0');
-      const tmaFactor = r.aggregateSize >= 40 ? '4' : '2';
-      const coloc = r.placement; // 'D' or 'B'
-      const prefix = designType === 'MR' ? 'P' : '5';
-      const typeCode = arkikDefaults.type_code || 'B';
-      const numSeg = arkikDefaults.num || '2';
-
-      // Detect variante based on additives
-      let variante = arkikDefaults.variante.toUpperCase();
-      try {
-        const selectedAdditiveNames = selectedMaterials.additives
-          .map(id => availableMaterials.additives.find(a => a.id === id.toString())?.material_name?.toUpperCase() || '')
-          .filter(Boolean);
-        const anyPCE = selectedAdditiveNames.some(n => n.includes('PCE'));
-        variante = anyPCE ? 'PCE' : (arkikDefaults.variante || '000').toUpperCase();
-      } catch {
-        variante = (arkikDefaults.variante || '000').toUpperCase();
-      }
-
-      const longCode = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSeg}-${variante}`;
-      const shortCode = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
-      return { longCode, shortCode };
-    };
 
     try {
       setSaving(true);
-      const payload = selected.map(r => {
-        const { longCode } = computeArkikCodes(r);
-        return {
-          ...r,
-          recipeType: designType,
-          recipe_code: longCode // Add ARKIK long code to recipe_code field
-        };
-      });
-      const selectionMap = {
-        cementId: selectedMaterials.cement
-          ? String(availableMaterials.cements.find(c => c.id === String(selectedMaterials.cement))?.id || selectedMaterials.cement)
-          : undefined,
-        sandIds: selectedMaterials.sands.map(id => String(id)),
-        gravelIds: selectedMaterials.gravels.map(id => String(id)),
-        additiveIds: selectedMaterials.additives.map(id => String(id))
-      };
-      await calculatorService.saveRecipesToDatabase(
-        payload as unknown as CalculatorRecipe[],
-        currentPlant.id,
-        profile.id,
-        selectionMap,
-        {
-          typeCode: arkikDefaults.type_code,
-          num: arkikDefaults.num,
-          variante: arkikDefaults.variante.toUpperCase(),
-          volumenConcreto: parseFloat(arkikDefaults.volumen_concreto) || 1000,
-          contenidoAire: parseFloat(arkikDefaults.contenido_aire) || 1.5,
-          factorG: arkikDefaults.factor_g === '' ? null : (parseFloat(arkikDefaults.factor_g) || null)
+      const provisional = selected.map(r => {
+        // Use the current arkikCodes state which includes any user inline edits
+        const currentCode = arkikCodes?.[r.code]?.longCode;
+        if (!currentCode) {
+          throw new Error(`No ARKIK code found for recipe ${r.code}`);
         }
-      );
-      alert('Recetas guardadas en el sistema');
-      setSaveOpen(false);
+        return { r, intendedCode: currentCode };
+      });
+
+      // Preflight detect conflicts (same-spec with master and code collisions)
+      const conflictRows: Array<any> = [];
+      for (const { r, intendedCode } of provisional) {
+        // Fetch same-spec recipes with their master information
+        const { data: sameSpecs, error: sameSpecError } = await supabase
+          .from('recipes')
+          .select('id, recipe_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump, master_recipe_id, master_recipes:master_recipe_id(id, master_code)')
+          .eq('plant_id', currentPlant.id)
+          .eq('strength_fc', r.strength)
+          .eq('placement_type', r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO')
+          .eq('max_aggregate_size', r.aggregateSize)
+          .eq('slump', r.slump);
+        
+        if (sameSpecError) {
+          console.error('Error fetching same-spec recipes:', sameSpecError);
+        }
+
+        // Process same-spec recipes - filter by age
+        const sameSpecFiltered = (sameSpecs || []).filter((row: any) => {
+          if (r.ageUnit === 'D') return (row.age_days === r.age) && (!row.age_hours || row.age_hours === 0);
+          return (row.age_hours === r.age) && (!row.age_days || row.age_days === 0);
+        });
+
+        // Also fetch master recipes directly with same core specs
+        const { data: sameMasters, error: sameMastersError } = await supabase
+          .from('master_recipes')
+          .select('id, master_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump')
+          .eq('plant_id', currentPlant.id)
+          .eq('strength_fc', r.strength)
+          .eq('placement_type', r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO')
+          .eq('max_aggregate_size', r.aggregateSize)
+          .eq('slump', r.slump);
+
+        if (sameMastersError) {
+          console.error('Error fetching same-spec masters:', sameMastersError);
+        }
+
+        console.log(`[Preflight Recipe: ${r.code}]`, {
+          searchParams: {
+            strength_fc: r.strength,
+            placement_type: r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
+            max_aggregate_size: r.aggregateSize,
+            slump: r.slump,
+            age: `${r.age}${r.ageUnit}`
+          },
+          foundMasters: sameMasters?.length || 0,
+          foundRecipes: sameSpecs?.length || 0
+        });
+
+        // Filter masters by age
+        const sameSpecMastersFiltered = (sameMasters || []).filter((master: any) => {
+          if (r.ageUnit === 'D') return (master.age_days === r.age) && (!master.age_hours || master.age_hours === 0);
+          return (master.age_hours === r.age) && (!master.age_days || master.age_days === 0);
+        });
+
+        console.log(`[Preflight Recipe: ${r.code}] After age filter:`, {
+          mastersBeforeFilter: sameMasters?.length || 0,
+          mastersAfterFilter: sameSpecMastersFiltered.length,
+          masters: sameSpecMastersFiltered.map(m => ({ id: m.id, code: m.master_code, age_days: m.age_days, age_hours: m.age_hours }))
+        });
+
+        // Combine recipe candidates with master data and master-only candidates
+        const sameSpecWithMasters = sameSpecFiltered.map((row: any) => ({
+          id: row.id,
+          recipe_code: row.recipe_code,
+          master_recipe_id: row.master_recipe_id,
+          master_code: row.master_recipes?.master_code || null,
+          type: 'recipe'
+        }));
+
+        // Add master candidates that don't yet have variants
+        const masterIdsFromRecipes = new Set(sameSpecFiltered.map(r => r.master_recipe_id).filter(Boolean));
+        const mastersWithoutVariants = sameSpecMastersFiltered
+          .filter(m => !masterIdsFromRecipes.has(m.id))
+          .map(m => ({
+            id: m.id,
+            recipe_code: null,
+            master_recipe_id: m.id,
+            master_code: m.master_code,
+            type: 'master'
+          }));
+
+        const allCandidates = [...sameSpecWithMasters, ...mastersWithoutVariants];
+
+        console.log(`[Preflight Recipe: ${r.code}] Final candidates:`, {
+          recipeVariants: sameSpecWithMasters.length,
+          standaloneMAsters: mastersWithoutVariants.length,
+          total: allCandidates.length,
+          candidates: allCandidates.map(c => ({
+            type: c.type,
+            masterCode: c.master_code,
+            masterId: c.master_recipe_id,
+            recipeCode: c.recipe_code
+          }))
+        });
+
+        // Check for code collision
+        const { data: codeExists, error: codeError } = await supabase
+          .from('recipes')
+          .select('id')
+          .eq('plant_id', currentPlant.id)
+          .eq('recipe_code', intendedCode)
+          .limit(1)
+          .maybeSingle?.() as any;
+
+        if (codeError && codeError.code !== 'PGRST116') {
+          console.error('Error checking code collision:', codeError);
+        }
+
+        // Suggest decision defaults
+        let decision: 'updateVariant' | 'createVariant' | 'newMaster' = 'newMaster';
+        let selectedExistingId: string | undefined = undefined;
+        let masterMode: 'existing' | 'new' = 'new';
+        let selectedMasterId: string | undefined = undefined;
+        let newMasterCode: string | undefined = undefined;
+        
+        if (codeExists) {
+          // Code collision - update existing recipe
+          decision = 'updateVariant';
+          selectedExistingId = codeExists.id;
+        } else if (allCandidates.length > 0) {
+          // Same spec found - either variant or master
+          const anyWithMaster = allCandidates.find(s => s.master_recipe_id);
+          if (anyWithMaster) {
+            decision = 'createVariant';
+            masterMode = 'existing';
+            selectedMasterId = anyWithMaster.master_recipe_id;
+          } else {
+            // Should not happen if allCandidates has proper masters
+            decision = 'newMaster';
+            newMasterCode = intendedCode.split('-').slice(0, -2).join('-');
+          }
+        }
+
+        // ALWAYS add to conflictRows for user confirmation (even if no conflicts detected)
+        conflictRows.push({
+          code: r.code,
+          strength: r.strength,
+          age: r.age,
+          ageUnit: r.ageUnit,
+          slump: r.slump,
+          placement: r.placement,
+          aggregateSize: r.aggregateSize,
+          intendedCode,
+          sameSpecCandidates: allCandidates || [],
+          codeCollision: Boolean(codeExists),
+          decision,
+          selectedExistingId,
+          masterMode,
+          selectedMasterId,
+          newMasterCode,
+          overrideCode: intendedCode
+        });
+      }
+
+      // Always show conflicts dialog for user to confirm decisions
+      setConflicts(conflictRows);
+      setConflictsOpen(true);
+      setSaving(false);
+      return;
     } catch (e) {
       console.error(e);
-      alert('Error guardando recetas');
-    } finally {
+      alert('Error detectando conflictos: ' + (e instanceof Error ? e.message : String(e)));
       setSaving(false);
     }
   };
@@ -1205,7 +1374,61 @@ const ConcreteMixCalculator = () => {
     if (materials.sands.length > 0 && materials.gravels.length > 0) {
       generateRecipes();
     }
-  }, [designParams, recipeParams, designType, materials]);
+  }, [designParams, recipeParams, designType, materials, concreteType]);
+
+  // Regenerate ARKIK codes when concreteType changes
+  useEffect(() => {
+    if (generatedRecipes.length > 0) {
+      const codes: Record<string, { longCode: string; shortCode: string }> = {};
+      const detectNames = selectedMaterials.additives
+        .map(id => availableMaterials.additives.find(a => a.id === id.toString())?.material_name || '')
+        .filter(Boolean) as string[];
+      generatedRecipes.forEach(r => {
+        const recipeConcreteType = concreteTypePerRecipe[r.code] || concreteType;
+        // Check if any PCE additive has non-zero quantity in THIS RECIPE
+        const hasNonZeroPCE = r.calculatedAdditives.some(additive => {
+          const hasPCE = additive.name.toUpperCase().includes('PCE');
+          const hasQuantity = additive.totalCC > 0;
+          return hasPCE && hasQuantity;
+        });
+        const { longCode, shortCode } = computeArkikCodes({
+          strength: r.strength,
+          age: r.age,
+          ageUnit: r.ageUnit,
+          slump: r.slump,
+          aggregateSize: r.aggregateSize,
+          placement: r.placement,
+          recipeType: designType,
+          // Use defaults that match the new logic
+          typeCode: 'B', // Default concrete type code
+          num: '2', // Default number
+          variante: '000', // Default variant, will be overridden by PCE detection
+          detectPCEFromAdditiveNames: detectNames,
+          concreteTypeCode: recipeConcreteType,
+          hasNonZeroPCEQuantity: hasNonZeroPCE
+        });
+        codes[r.code] = { longCode, shortCode };
+      });
+      setArkikCodes(codes);
+    }
+  }, [concreteType, concreteTypePerRecipe, generatedRecipes, designType, materials.additives, selectedMaterials.additives, availableMaterials.additives]);
+
+  // Handle design type change - update default concrete type
+  const handleDesignTypeChange = (newType: DesignType) => {
+    setDesignType(newType);
+    const defaultType = getDefaultConcreteTypeForDesignType(newType);
+    setConcreteType(defaultType);
+    // Clear per-recipe overrides when design type changes
+    setConcreteTypePerRecipe({});
+  };
+
+  // Handle per-recipe concrete type override
+  const handleConcreteTypePerRecipe = (recipeCode: string, typeCode: ConcreteTypeCode) => {
+    setConcreteTypePerRecipe(prev => ({
+      ...prev,
+      [recipeCode]: typeCode
+    }));
+  };
 
   if (plantLoading) {
     return (
@@ -1320,9 +1543,14 @@ const ConcreteMixCalculator = () => {
               designParams={designParams}
               recipeParams={recipeParams}
               materials={materials}
-              onDesignTypeChange={setDesignType}
+              concreteType={concreteType}
+              onDesignTypeChange={handleDesignTypeChange}
               onDesignParamsChange={(params) => setDesignParams(prev => ({ ...prev, ...params }))}
               onRecipeParamsChange={(params) => setRecipeParams(prev => ({ ...prev, ...params }))}
+              onConcreteTypeChange={(type) => {
+                setConcreteType(type);
+                // useEffect will automatically regenerate codes when concreteType changes
+              }}
               onCombinationChange={handleCombinationChange}
               onWaterDefinitionChange={handleWaterDefinitionChange}
               onAdditiveSystemConfigChange={handleAdditiveSystemConfigChange}
@@ -1333,43 +1561,56 @@ const ConcreteMixCalculator = () => {
           </TabsContent>
 
           <TabsContent value="recipes" className="mt-6">
-            <RecipeTable
-              recipes={generatedRecipes}
-              materials={materials}
-              fcrOverrides={fcrOverrides}
-              selectedRecipesForExport={selectedRecipesForExport}
-              showDetails={showDetails}
-              editingFCR={editingFCR}
-              tempFCR={tempFCR}
-              onToggleDetails={() => setShowDetails(!showDetails)}
-              onSaveSelected={handleSaveSelectedToSystem}
-              onExportArkik={() => alert('Exporta las recetas desde la sección Recetas, después de guardarlas en el sistema.')}
-              onToggleRecipeSelection={(code) => {
-                setSelectedRecipesForExport(prev => {
-                  const newSet = new Set(prev);
-                  if (newSet.has(code)) {
-                    newSet.delete(code);
+            <div className="space-y-4">
+              {/* Recipe Table */}
+              <RecipeTable
+                recipes={generatedRecipes}
+                materials={materials}
+                fcrOverrides={fcrOverrides}
+                selectedRecipesForExport={selectedRecipesForExport}
+                showDetails={showDetails}
+                editingFCR={editingFCR}
+                tempFCR={tempFCR}
+                onToggleDetails={() => setShowDetails(!showDetails)}
+                onSaveSelected={handleSaveSelectedToSystem}
+                onExportArkik={() => alert('Exporta las recetas desde la sección Recetas, después de guardarlas en el sistema.')}
+                onToggleRecipeSelection={(code) => {
+                  setSelectedRecipesForExport(prev => {
+                    const newSet = new Set(prev);
+                    if (newSet.has(code)) {
+                      newSet.delete(code);
+                    } else {
+                      newSet.add(code);
+                    }
+                    return newSet;
+                  });
+                }}
+                onToggleAllRecipes={() => {
+                  if (selectedRecipesForExport.size === generatedRecipes.length) {
+                    setSelectedRecipesForExport(new Set());
                   } else {
-                    newSet.add(code);
+                    setSelectedRecipesForExport(new Set(generatedRecipes.map(r => r.code)));
                   }
-                  return newSet;
-                });
+                }}
+                onStartEditingFCR={handleStartEditingFCR}
+                onTempFCRChange={setTempFCR}
+                onSaveFCR={handleSaveFCR}
+                onCancelEditingFCR={() => {
+                  setEditingFCR(null);
+                  setTempFCR('');
+                }}
+              arkikCodes={arkikCodes}
+              onArkikCodeChange={(recipeCode, newLong) => {
+                setArkikCodes(prev => ({
+                  ...prev,
+                  [recipeCode]: {
+                    longCode: newLong,
+                    shortCode: prev[recipeCode]?.shortCode || ''
+                  }
+                }));
               }}
-              onToggleAllRecipes={() => {
-                if (selectedRecipesForExport.size === generatedRecipes.length) {
-                  setSelectedRecipesForExport(new Set());
-                } else {
-                  setSelectedRecipesForExport(new Set(generatedRecipes.map(r => r.code)));
-                }
-              }}
-              onStartEditingFCR={handleStartEditingFCR}
-              onTempFCRChange={setTempFCR}
-              onSaveFCR={handleSaveFCR}
-              onCancelEditingFCR={() => {
-                setEditingFCR(null);
-                setTempFCR('');
-              }}
-            />
+              />
+            </div>
           </TabsContent>
 
           <TabsContent value="configuration" className="mt-6">
@@ -1382,151 +1623,69 @@ const ConcreteMixCalculator = () => {
           </TabsContent>
         </Tabs>
 
-        {/* Guardar en sistema - Parámetros ARKIK */}
+        {/* Save Confirmation Dialog - Preview & Confirm */}
         <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
-          <DialogContent>
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle>Parámetros ARKIK para guardar</DialogTitle>
+              <DialogTitle>Confirmar recetas para guardar</DialogTitle>
+              <p className="text-sm text-gray-600 mt-2">
+                Revisa los códigos ARKIK generados. Puedes editarlos directamente en la tabla si es necesario. 
+                Los parámetros ARKIK se usarán para la exportación.
+              </p>
             </DialogHeader>
-            <div className="grid grid-cols-2 gap-3">
+
+            {/* ARKIK Export Parameters */}
+            <div className="grid grid-cols-3 gap-3 p-3 bg-blue-50 rounded border border-blue-200">
               <div>
-                <Label>Tipo (type_code)</Label>
-                <Input value={arkikDefaults.type_code} onChange={e => setArkikDefaults({ ...arkikDefaults, type_code: e.target.value })} />
+                <Label className="text-xs text-gray-700">Volumen (L/m³)</Label>
+                <Input 
+                  value={arkikExportParams.volumen} 
+                  onChange={(e) => setArkikExportParams({ ...arkikExportParams, volumen: e.target.value })}
+                  className="h-8 text-xs font-mono"
+                  placeholder="1000"
+                />
               </div>
               <div>
-                <Label>Número (num)</Label>
-                <Input value={arkikDefaults.num} onChange={e => setArkikDefaults({ ...arkikDefaults, num: e.target.value })} />
+                <Label className="text-xs text-gray-700">% Aire</Label>
+                <Input 
+                  value={arkikExportParams.aire} 
+                  onChange={(e) => setArkikExportParams({ ...arkikExportParams, aire: e.target.value })}
+                  className="h-8 text-xs font-mono"
+                  placeholder="1.5"
+                />
               </div>
               <div>
-                <Label>Variante (000 o PCE)</Label>
-                <Input value={arkikDefaults.variante} onChange={e => setArkikDefaults({ ...arkikDefaults, variante: e.target.value })} />
-              </div>
-              <div>
-                <Label>Volumen de concreto (L/m³)</Label>
-                <Input value={arkikDefaults.volumen_concreto} onChange={e => setArkikDefaults({ ...arkikDefaults, volumen_concreto: e.target.value })} />
-              </div>
-              <div>
-                <Label>% contenido de aire</Label>
-                <Input value={arkikDefaults.contenido_aire} onChange={e => setArkikDefaults({ ...arkikDefaults, contenido_aire: e.target.value })} />
-              </div>
-              <div>
-                <Label>Factor G (opcional)</Label>
-                <Input value={arkikDefaults.factor_g} onChange={e => setArkikDefaults({ ...arkikDefaults, factor_g: e.target.value })} placeholder="" />
+                <Label className="text-xs text-gray-700">Factor G (opt)</Label>
+                <Input 
+                  value={arkikExportParams.factorG} 
+                  onChange={(e) => setArkikExportParams({ ...arkikExportParams, factorG: e.target.value })}
+                  className="h-8 text-xs font-mono"
+                  placeholder=""
+                />
               </div>
             </div>
 
-            {/* Design summary for consistency with calculator */}
-            <div className="mt-4 p-3 bg-gray-50 rounded border">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <span className="text-gray-600">Tipo de diseño:</span>{' '}
-                  <span className="font-medium">{designType}</span>
-                </div>
-                <div>
-                  <span className="text-gray-600">Edad de diseño:</span>{' '}
-                  <span className="font-medium">{(recipeParams as any).ageUnit === 'H' ? ((recipeParams as any).ageHours || '—') + 'H' : designParams.age + 'D'}</span>
-                </div>
-                <div>
-                  <span className="text-gray-600">Tamaño máx. agregado:</span>{' '}
-                  <span className="font-medium">{recipeParams.aggregateSize} mm</span>
-                </div>
-                <div>
-                  <span className="text-gray-600">Combinaciones habilitadas:</span>{' '}
-                  <span className="font-medium">
-                    {recipeParams.waterDefinitions.filter(d => d.enabled).map(d => `${d.slump}cm${d.placement}`).join(', ') || '—'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Preview of codes and materials to aid verification */}
+            {/* Preview of selected recipes */}
             {(() => {
               const selectedForPreview = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
-              if (selectedForPreview.length === 0) return null;
-
-              const detectVariante = () => {
-                // If any selected additive name contains PCE, suggest PCE
-                try {
-                  const selectedAdditiveNames = selectedMaterials.additives
-                    .map(id => availableMaterials.additives.find(a => a.id === id.toString())?.material_name?.toUpperCase() || '')
-                    .filter(Boolean);
-                  const anyPCE = selectedAdditiveNames.some(n => n.includes('PCE'));
-                  return anyPCE ? 'PCE' : (arkikDefaults.variante || '000').toUpperCase();
-                } catch {
-                  return (arkikDefaults.variante || '000').toUpperCase();
-                }
-              };
-
-              const variante = detectVariante();
-
-              const computeArkikCodesPreview = (r: Recipe) => {
-                const fcCode = String(r.strength).padStart(3, '0');
-                const edadCode = String(r.age).padStart(2, '0'); // keep numeric part
-                const revCode = String(r.slump).padStart(2, '0');
-                const tmaFactor = r.aggregateSize >= 40 ? '4' : '2';
-                const coloc = r.placement; // 'D' or 'B'
-                const prefix = designType === 'MR' ? 'P' : '5';
-                const typeCode = arkikDefaults.type_code || 'B';
-                const numSeg = arkikDefaults.num || '2';
-                const longCode = `${prefix}-${fcCode}-${tmaFactor}-${typeCode}-${edadCode}-${revCode}-${coloc}-${numSeg}-${variante}`;
-                const shortCode = `${fcCode}${edadCode}${tmaFactor}${revCode}${coloc}`;
-                return { longCode, shortCode };
-              };
-
-              const formatMaterialName = (key: string): string => {
-                if (key === 'cement') return materials.cement.name;
-                if (key === 'water') return 'AGUA';
-                if (key.startsWith('sand')) {
-                  const idx = parseInt(key.replace('sand', ''));
-                  return materials.sands[idx]?.name || key;
-                }
-                if (key.startsWith('gravel')) {
-                  const idx = parseInt(key.replace('gravel', ''));
-                  return materials.gravels[idx]?.name || key;
-                }
-                if (key.startsWith('additive')) {
-                  const idx = parseInt(key.replace('additive', ''));
-                  return materials.additives[idx]?.name || key;
-                }
-                return key;
-              };
+              if (selectedForPreview.length === 0) {
+                return <div className="text-sm text-gray-500">No hay recetas seleccionadas</div>;
+              }
 
               return (
-                <div className="mt-4 max-h-96 overflow-auto rounded border">
-                  <div className="flex items-center justify-between p-2 bg-gray-50 border-b">
-                    <div className="text-sm text-gray-700">Vista previa de recetas seleccionadas</div>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setPreviewShowSSS(!previewShowSSS)}>
-                        {previewShowSSS ? 'Mostrar Seco' : 'Mostrar SSS'}
-                      </Button>
-                    </div>
-                  </div>
+                <div className="max-h-64 overflow-auto rounded border space-y-2">
                   {selectedForPreview.map((r) => {
-                    const { longCode, shortCode } = computeArkikCodesPreview(r);
-                    const materialsToShow = previewShowSSS ? r.materialsSSS : r.materialsDry;
-                    const materialEntries = Object.entries(materialsToShow).filter(([_, v]) => typeof v === 'number');
+                    // Use the current arkikCodes state which includes any user inline edits
+                    const { longCode, shortCode } = arkikCodes?.[r.code] || { longCode: r.code, shortCode: '' };
                     return (
-                      <div key={r.code} className="p-3 border-b last:border-b-0 bg-gray-50">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="font-mono font-semibold">{r.code}</div>
-                            <div className="text-xs text-gray-600">F'c/MR: {r.strength} | Rev: {r.slump}cm | Coloc: {r.placement} | Edad: {r.age}{r.ageUnit}</div>
-                            <div className="text-xs text-gray-600">F'cr: {r.fcr} | A/C: {r.acRatio.toFixed(2)} | Masa Unitaria (SSS/Seco): {r.unitMass.sss}/{r.unitMass.dry} kg/m³</div>
-                          </div>
-                          <div className="text-right text-xs">
-                            <div><span className="text-gray-600">ARKIK Long:</span> <span className="font-mono font-semibold">{longCode}</span></div>
-                            <div><span className="text-gray-600">ARKIK Short:</span> <span className="font-mono font-semibold">{shortCode}</span></div>
-                          </div>
-                        </div>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                          {materialEntries.map(([k, v]) => (
-                            <div key={k} className="flex justify-between bg-white rounded p-2 border">
-                              <span className="text-gray-600">{formatMaterialName(k)}</span>
-                              <span className="font-mono">
-                                {v} {k === 'water' || k.startsWith('additive') ? 'L' : 'kg'}
-                              </span>
+                      <div key={r.code} className="p-3 border rounded bg-gray-50">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="font-mono font-semibold text-sm">{longCode}</div>
+                            <div className="text-xs text-gray-600 mt-1">
+                              F'c: {r.strength} | Rev: {r.slump}cm | Edad: {r.age}{r.ageUnit} | TMA: {r.aggregateSize}mm
                             </div>
-                          ))}
+                          </div>
                         </div>
                       </div>
                     );
@@ -1534,9 +1693,312 @@ const ConcreteMixCalculator = () => {
                 </div>
               );
             })()}
+
             <DialogFooter>
               <Button variant="outline" onClick={() => setSaveOpen(false)}>Cancelar</Button>
-              <Button onClick={handleConfirmSave} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
+              <Button onClick={handleConfirmSave} disabled={saving}>
+                {saving ? 'Procesando...' : 'Siguiente'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Conflicts Resolution Dialog */}
+        <Dialog open={conflictsOpen} onOpenChange={setConflictsOpen}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Confirmar recetas: Decisión de variante maestro</DialogTitle>
+              <p className="text-sm text-gray-600 mt-2">
+                Para cada receta, selecciona si deseas actualizar una variante existente, crear una nueva variante bajo un maestro, o crear un nuevo maestro con su primera variante.
+              </p>
+            </DialogHeader>
+            <div className="max-h-[60vh] overflow-auto space-y-3">
+              {conflicts.map((c, idx) => (
+                <div key={c.code} className="p-3 border rounded">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-sm text-gray-600">Receta</div>
+                      <div className="font-mono text-sm font-semibold">{c.intendedCode}</div>
+                      <div className="text-xs text-gray-600 mt-1">F'c: {c.strength} | Rev: {c.slump}cm | Coloc: {c.placement} | Edad: {c.age}{c.ageUnit}</div>
+                    </div>
+                    {c.codeCollision && (
+                      <div className="text-xs text-red-600 font-semibold">⚠ Colisión de código</div>
+                    )}
+                  </div>
+
+                  {c.sameSpecCandidates.length > 0 && (
+                    <div className="mt-3">
+                      <div className="text-xs text-gray-600 mb-1">Variantes existentes (mismas especificaciones)</div>
+                      <div className="rounded border bg-gray-50 max-h-24 overflow-auto">
+                        <ul className="text-xs p-2 space-y-1">
+                          {c.sameSpecCandidates.map(s => (
+                            <li key={s.id} className="font-mono">{s.recipe_code}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <Label className="text-xs">Acción</Label>
+                      <select
+                        className="w-full border rounded px-2 py-1 text-sm"
+                        value={c.decision}
+                        onChange={(e) => setConflicts(prev => prev.map((x,i) => i===idx?{...x, decision: e.target.value as any}:x))}
+                      >
+                        <option value="updateVariant">Actualizar variante existente</option>
+                        <option value="createVariant">Crear nueva variante</option>
+                        <option value="newMaster">Crear nuevo maestro + 1ª variante</option>
+                      </select>
+                    </div>
+                    {c.decision === 'updateVariant' && (
+                      <div>
+                        <Label className="text-xs">Variante existente</Label>
+                        <select className="w-full border rounded px-2 py-1 text-sm" value={c.selectedExistingId || ''} onChange={(e) => setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedExistingId:e.target.value}:x))}>
+                          <option value="">Selecciona…</option>
+                          {c.sameSpecCandidates.map(s => (
+                            <option key={s.id} value={s.id}>{s.recipe_code}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    {c.decision === 'createVariant' && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label className="text-xs">Modo de maestro</Label>
+                          <select className="w-full border rounded px-2 py-1 text-sm" value={c.masterMode || 'existing'} onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, masterMode: e.target.value as any}:x))}>
+                            <option value="existing">Maestro existente</option>
+                            <option value="new">Nuevo maestro</option>
+                          </select>
+                        </div>
+                        {(!c.masterMode || c.masterMode === 'existing') ? (
+                          <div>
+                            <Label className="text-xs">Maestro</Label>
+                            <select className="w-full border rounded px-2 py-1 text-sm" value={c.selectedMasterId || ''} onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedMasterId: e.target.value}:x))}>
+                              <option value="">Selecciona…</option>
+                              {/* Get unique masters by master_recipe_id */}
+                              {(() => {
+                                const seenMasterIds = new Set<string>();
+                                const uniqueMasters: any[] = [];
+                                
+                                for (const candidate of c.sameSpecCandidates) {
+                                  if (candidate.master_recipe_id && !seenMasterIds.has(candidate.master_recipe_id)) {
+                                    seenMasterIds.add(candidate.master_recipe_id);
+                                    uniqueMasters.push(candidate);
+                                  }
+                                }
+                                
+                                console.log(`[Conflict Row ${idx}] Total candidates: ${c.sameSpecCandidates.length}, Unique masters: ${uniqueMasters.length}`);
+                                
+                                return uniqueMasters.map((s) => (
+                                  <option key={s.master_recipe_id} value={s.master_recipe_id}>{s.master_code}</option>
+                                ));
+                              })()}
+                            </select>
+                          </div>
+                        ) : (
+                          <div>
+                            <Label className="text-xs">Código maestro</Label>
+                            <Input value={c.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-')} onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, newMasterCode: e.target.value}:x))} className="font-mono" />
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {c.decision === 'newMaster' && (
+                      <div>
+                        <Label className="text-xs">Código maestro</Label>
+                        <Input value={c.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-')} onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, newMasterCode: e.target.value}:x))} className="font-mono" />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-3">
+                    <Label className="text-xs">Código ARKIK</Label>
+                    <Input 
+                      value={c.overrideCode} 
+                      onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, overrideCode:e.target.value}:x))} 
+                      className="font-mono text-sm w-full"
+                      title={c.overrideCode}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setConflictsOpen(false)}>Cancelar</Button>
+              <Button onClick={async () => {
+                try {
+                  setSaving(true);
+                  const selected = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
+                  const intents = selected.map(r => {
+                    // Use the current arkikCodes state which includes any user inline edits
+                    const currentCode = arkikCodes?.[r.code]?.longCode;
+                    if (!currentCode) {
+                      throw new Error(`No ARKIK code found for recipe ${r.code}`);
+                    }
+                    return { r, intendedCode: currentCode };
+                  });
+                  const payload = intents.map(({ r, intendedCode }) => {
+                    const conf = conflicts.find(c => c.code === r.code);
+                    const finalCode = conf ? (conf.overrideCode || intendedCode) : intendedCode;
+                    return { ...r, recipeType: designType, recipe_code: finalCode };
+                  });
+                  // Validate decisions completeness
+                  for (const c of conflicts) {
+                    if (c.decision === 'updateVariant' && !c.selectedExistingId) {
+                      throw new Error('Selecciona una variante existente para actualizar.');
+                    }
+                    if (c.decision === 'createVariant' && ((!c.masterMode || c.masterMode === 'existing') && !c.selectedMasterId)) {
+                      throw new Error('Selecciona un maestro existente o cambia a Nuevo maestro.');
+                    }
+                    if ((c.decision === 'createVariant' && c.masterMode === 'new') || c.decision === 'newMaster') {
+                      const code = c.newMasterCode || c.intendedCode.split('-').slice(0, -2).join('-');
+                      if (!code || code.split('-').length < 6) {
+                        throw new Error('Código maestro inválido.');
+                      }
+                    }
+                    // Check if createVariant code already exists
+                    if (c.decision === 'createVariant') {
+                      const finalArkikCode = c.overrideCode || c.intendedCode;
+                      if (c.sameSpecCandidates.some(s => s.recipe_code === finalArkikCode)) {
+                        throw new Error(
+                          `El código ARKIK "${finalArkikCode}" ya existe. ` +
+                          `Para crear una nueva variante, cambia el código ARKIK (última sección) en el campo "Código ARKIK".`
+                        );
+                      }
+                    }
+                  }
+                  const decisions: CalculatorSaveDecision[] = payload.map((r) => {
+                    const conf = conflicts.find(c => c.code === r.code)!;
+                    if (conf.decision === 'updateVariant' && conf.selectedExistingId) {
+                      return { recipeCode: r.code, finalArkikCode: conf.overrideCode || r.recipe_code, action: 'updateVariant', existingRecipeId: conf.selectedExistingId };
+                    }
+                    if (conf.decision === 'createVariant') {
+                      if ((!conf.masterMode || conf.masterMode === 'existing') && conf.selectedMasterId) {
+                        return { recipeCode: r.code, finalArkikCode: conf.overrideCode || r.recipe_code, action: 'createVariant', masterRecipeId: conf.selectedMasterId };
+                      }
+                      return { recipeCode: r.code, finalArkikCode: conf.overrideCode || r.recipe_code, action: 'newMaster', newMasterCode: conf.newMasterCode || conf.intendedCode.split('-').slice(0, -2).join('-') };
+                    }
+                    // newMaster
+                    return { recipeCode: r.code, finalArkikCode: conf.overrideCode || r.recipe_code, action: 'newMaster', newMasterCode: conf.newMasterCode || conf.intendedCode.split('-').slice(0, -2).join('-') };
+                  });
+                  const selectionMap = {
+                    cementId: selectedMaterials.cement ? String(availableMaterials.cements.find(c => c.id === String(selectedMaterials.cement))?.id || selectedMaterials.cement) : undefined,
+                    sandIds: selectedMaterials.sands.map(id => String(id)),
+                    gravelIds: selectedMaterials.gravels.map(id => String(id)),
+                    additiveIds: selectedMaterials.additives.map(id => String(id))
+                  };
+                  await saveRecipesWithDecisions(
+                    payload as unknown as CalculatorRecipe[],
+                    decisions,
+                    currentPlant.id,
+                    profile.id,
+                    selectionMap,
+                    {
+                      typeCode: 'B',
+                      num: '2',
+                      variante: (arkikExportParams.aire && parseFloat(arkikExportParams.aire) > 0) ? 'PCE' : '000',
+                      volumenConcreto: parseFloat(arkikExportParams.volumen) || 1000,
+                      contenidoAire: parseFloat(arkikExportParams.aire) || 1.5,
+                      factorG: arkikExportParams.factorG ? parseFloat(arkikExportParams.factorG) : null
+                    }
+                  );
+                  
+                  // Extract ARKIK codes from decisions for success modal
+                  const createdCodes = decisions.map(d => d.finalArkikCode);
+                  setSuccessRecipeCodes(createdCodes);
+                  setSuccessOpen(true);
+                  setConflictsOpen(false);
+                  setSaveOpen(false);
+                } catch (e) {
+                  console.error(e);
+                  alert('Error resolviendo y guardando recetas');
+                } finally {
+                  setSaving(false);
+                }
+              }}>{saving ? 'Guardando...' : 'Confirmar'}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Success Modal - Shows created recipes and export option */}
+        <Dialog open={successOpen} onOpenChange={setSuccessOpen}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                  <div className="text-green-600 font-bold">✓</div>
+                </div>
+                Recetas Guardadas Exitosamente
+              </DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-6">
+              {/* Summary */}
+              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-800">
+                  Se han creado <span className="font-bold">{successRecipeCodes.length}</span> receta(s) en el sistema.
+                </p>
+              </div>
+
+              {/* List of created recipes */}
+              <div>
+                <label className="text-sm font-semibold mb-3 block">Recetas Creadas</label>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {successRecipeCodes.map((code, idx) => (
+                    <div key={idx} className="p-3 border rounded-lg bg-gray-50 font-mono text-sm">
+                      {code}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Export to ARKIK section */}
+              <div className="border-t pt-4">
+                <label className="text-sm font-semibold mb-3 block">Exportar a ARKIK</label>
+                <p className="text-sm text-gray-600 mb-4">
+                  Las recetas están listas para ser exportadas a Excel en formato ARKIK.
+                </p>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setSuccessOpen(false)}
+              >
+                Cerrar
+              </Button>
+              <Button
+                onClick={async () => {
+                  try {
+                    const codesParam = successRecipeCodes.join(',');
+                    const params = new URLSearchParams({ recipe_codes: codesParam });
+                    const res = await fetch(`/api/recipes/export/arkik?${params.toString()}`);
+                    if (!res.ok) {
+                      alert('Error al exportar ARKIK');
+                      return;
+                    }
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `arkik_export_${new Date().toISOString().split('T')[0]}.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                    setSuccessOpen(false);
+                  } catch (e) {
+                    console.error('Export error:', e);
+                    alert('Error al exportar recetas');
+                  }
+                }}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                Exportar a ARKIK
+              </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

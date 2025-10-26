@@ -320,7 +320,7 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
     setRecipeQuery(query);
     if (!plantId || !query || query.length < 2) { setRecipeResults([]); return; }
     try {
-      // Search by both recipe_code and arkik_long_code, restrict to recipes with active prices in this plant
+      // Search by recipe_code (canonical ARKIK), with fallback to arkik_long_code for transition
       const { data } = await supabase
         .from('recipes')
         .select('id, recipe_code, arkik_long_code, product_prices!inner(id)')
@@ -331,8 +331,7 @@ export default function ValidationTable({ rows, onRowsChange, plantId }: Props) 
         .limit(50);
       const unique = Array.from(new Map((data || []).map((r: any) => [r.id, { 
         id: r.id, 
-        recipe_code: r.recipe_code,
-        arkik_long_code: r.arkik_long_code 
+        recipe_code: r.recipe_code || r.arkik_long_code
       }])).values());
       setRecipeResults(unique);
       console.log('[Arkik][ValidationTable] recipe results', { plantId, query, count: unique.length });

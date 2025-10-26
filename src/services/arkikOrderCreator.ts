@@ -293,9 +293,9 @@ export async function createOrdersFromSuggestions(
           affectedBalances.add(`${firstRemision.client_id}||GENERAL`);
           
           // Add site-specific balance key if site exists
-          if (constructionSiteId || constructionSiteName) {
-            const siteKey = constructionSiteId || constructionSiteName || '';
-            affectedBalances.add(`${firstRemision.client_id}|${siteKey}|SITE`);
+          // CRITICAL: Always use constructionSiteName (not ID) because update_client_balance RPC expects site NAME
+          if (constructionSiteName) {
+            affectedBalances.add(`${firstRemision.client_id}|${constructionSiteName}|SITE`);
           }
         } else {
           const suggestion = batch[index];
@@ -712,12 +712,15 @@ async function createSingleOrder(
       volume: number; 
       unit_price: number;
       quote_detail_id?: string;
+      master_recipe_id?: string; // ADD: Master recipe for order matching
     }>();
     
     // Group by recipe and sum volumes
     suggestion.remisiones.forEach(remision => {
       if (remision.recipe_id && remision.recipe_code) {
-        const key = remision.recipe_id;
+        // PRIMARY: Group by master_recipe_id if available, FALLBACK: Use recipe_id
+        // This ensures all variants of the same master recipe go into one order item
+        const key = remision.master_recipe_id || remision.recipe_id;
         if (uniqueRecipes.has(key)) {
           const existing = uniqueRecipes.get(key)!;
           existing.volume += remision.volumen_fabricado;
@@ -725,13 +728,18 @@ async function createSingleOrder(
           if (!existing.quote_detail_id && remision.quote_detail_id) {
             existing.quote_detail_id = remision.quote_detail_id;
           }
+          // Keep master_recipe_id from first remision of this recipe
+          if (!existing.master_recipe_id && remision.master_recipe_id) {
+            existing.master_recipe_id = remision.master_recipe_id;
+          }
         } else {
           uniqueRecipes.set(key, {
-            recipe_id: remision.recipe_id,
+            recipe_id: remision.recipe_id, // Store the variant recipe_id for FK constraint
             recipe_code: remision.recipe_code,
             volume: remision.volumen_fabricado,
             unit_price: remision.unit_price || 0,
-            quote_detail_id: remision.quote_detail_id
+            quote_detail_id: remision.quote_detail_id,
+            master_recipe_id: remision.master_recipe_id // ADD: Preserve master from remision
           });
         }
       }
@@ -739,48 +747,57 @@ async function createSingleOrder(
 
     console.log('[ArkikOrderCreator] Creating', uniqueRecipes.size, 'order items for unique recipes');
 
-    // Fetch actual recipe codes from database to ensure consistency
-    const recipeIds = Array.from(uniqueRecipes.keys());
-    const { data: actualRecipes, error: recipesError } = await supabase
-      .from('recipes')
-      .select('id, recipe_code')
-      .in('id', recipeIds);
-
-    if (recipesError) {
-      console.warn('[ArkikOrderCreator] Warning: Could not fetch recipe codes from database:', recipesError);
-    }
-
-    // Create recipe code mapping for database consistency
-    const recipeCodeMap = new Map<string, string>();
-    if (actualRecipes) {
-      actualRecipes.forEach(recipe => {
-        recipeCodeMap.set(recipe.id, recipe.recipe_code);
-      });
+    // Fetch master recipe codes for all unique masters in this group
+    const masterRecipeIds = Array.from(uniqueRecipes.values())
+      .filter(r => r.master_recipe_id)
+      .map(r => r.master_recipe_id!);
+    
+    const masterRecipeCodeMap = new Map<string, string>();
+    if (masterRecipeIds.length > 0) {
+      const { data: masterRecipes, error: masterError } = await supabase
+        .from('master_recipes')
+        .select('id, master_code')
+        .in('id', masterRecipeIds);
+      
+      if (masterError) {
+        console.warn('[ArkikOrderCreator] Warning: Could not fetch master recipe codes:', masterError);
+      } else if (masterRecipes) {
+        masterRecipes.forEach(mr => {
+          masterRecipeCodeMap.set(mr.id, mr.master_code);
+        });
+      }
     }
 
     // Batch create order items
     const orderItemsData: OrderItemData[] = [];
     uniqueRecipes.forEach((recipeData, recipeId) => {
-      // Use database recipe_code if available, otherwise fall back to parsed code
-      const actualRecipeCode = recipeCodeMap.get(recipeId) || recipeData.recipe_code;
+      // For master-level order items, use the master recipe code
+      let productType = recipeData.recipe_code;
+      if (recipeData.master_recipe_id) {
+        // Use master recipe code if available
+        productType = masterRecipeCodeMap.get(recipeData.master_recipe_id) || recipeData.recipe_code;
+      }
       
       console.log('[ArkikOrderCreator] Order item recipe code:', {
-        recipe_id: recipeId,
+        recipe_id: recipeData.recipe_id,
+        key_in_map: recipeId,
         parsed_code: recipeData.recipe_code,
-        database_code: recipeCodeMap.get(recipeId),
-        using_code: actualRecipeCode,
+        master_recipe_id: recipeData.master_recipe_id,
+        master_code: masterRecipeCodeMap.get(recipeData.master_recipe_id || ''),
+        using_code: productType,
         quote_detail_id: recipeData.quote_detail_id
       });
 
       orderItemsData.push({
         order_id: createdOrder.id,
         quote_detail_id: recipeData.quote_detail_id, // CRITICAL: Include quote_detail_id for proper linking
-        product_type: actualRecipeCode, // Use actual recipe code from database
+        product_type: productType, // Use master recipe code if master exists, otherwise variant code
         volume: recipeData.volume,
         unit_price: recipeData.unit_price,
         total_price: recipeData.volume * recipeData.unit_price,
         has_pump_service: false,
-        recipe_id: recipeData.recipe_id,
+        recipe_id: recipeData.master_recipe_id ? null : recipeData.recipe_id, // NULL for master items, recipe_id for variants-only
+        master_recipe_id: recipeData.master_recipe_id, // ADD: Master recipe for order matching and pricing
         concrete_volume_delivered: recipeData.volume
       });
     });
@@ -824,13 +841,14 @@ async function createSingleOrder(
             remision_number: fullRemisionData.remision_number,
             fecha: formatLocalDate(fullRemisionData.fecha),
             hora_carga: horaCarga,
-          volumen_fabricado: fullRemisionData.volumen_fabricado,
-          conductor: fullRemisionData.conductor || undefined,
-          unidad: fullRemisionData.placas || undefined, // Map placas from Excel to unidad field
-          tipo_remision: 'CONCRETO',
-          recipe_id: fullRemisionData.recipe_id!,
-          plant_id: plantId
-        });
+            volumen_fabricado: fullRemisionData.volumen_fabricado,
+            conductor: fullRemisionData.conductor || undefined,
+            unidad: fullRemisionData.placas || undefined, // Map placas from Excel to unidad field
+            tipo_remision: 'CONCRETO',
+            recipe_id: fullRemisionData.recipe_id!,
+            master_recipe_id: fullRemisionData.master_recipe_id, // ADD: Master recipe for pricing
+            plant_id: plantId
+          });
       }
     });
 
@@ -927,6 +945,17 @@ async function createSingleOrder(
       has_site_id: !!constructionSiteId,
       has_site_name: !!constructionSiteName
     });
+
+    try {
+      // CRITICAL FIX: Recalculate order amounts and delivered volumes from remisiones FIRST
+      console.log('[ArkikOrderCreator] Recalculating order amounts and delivered volumes for order:', createdOrder.id);
+      const { recalculateOrderAmount } = await import('./orderService');
+      await recalculateOrderAmount(createdOrder.id);
+      console.log('[ArkikOrderCreator] Order amounts and volumes recalculated successfully');
+    } catch (amountError) {
+      console.error('[ArkikOrderCreator] Error recalculating order amounts:', amountError);
+      result.errors.push(`Error recalculando montos de la orden: ${amountError instanceof Error ? amountError.message : 'Error desconocido'}`);
+    }
 
     try {
       // Strategy: Use enhanced balance calculation with UUID support for maximum reliability
@@ -1107,22 +1136,41 @@ async function createSingleOrderWithoutBalanceUpdate(
     }, 0);
 
     // Create order items for all unique recipes in this group
-    const uniqueRecipes = new Map<string, { recipe_id: string; recipe_code: string; volume: number; unit_price: number; quote_detail_id: string | null }>();
+    const uniqueRecipes = new 
+      Map<string, {
+      recipe_id: string;
+      recipe_code: string;
+      volume: number;
+      unit_price: number;
+      quote_detail_id?: string;
+      master_recipe_id?: string; // ADD: Master recipe for order matching
+    }>();
     
     // Group by recipe and sum volumes
     suggestion.remisiones.forEach(remision => {
       if (remision.recipe_id && remision.recipe_code) {
-        const key = remision.recipe_id;
+        // PRIMARY: Group by master_recipe_id if available, FALLBACK: Use recipe_id
+        // This ensures all variants of the same master recipe go into one order item
+        const key = remision.master_recipe_id || remision.recipe_id;
         if (uniqueRecipes.has(key)) {
           const existing = uniqueRecipes.get(key)!;
           existing.volume += remision.volumen_fabricado;
+          // Use the first quote_detail_id found for this recipe
+          if (!existing.quote_detail_id && remision.quote_detail_id) {
+            existing.quote_detail_id = remision.quote_detail_id;
+          }
+          // Keep master_recipe_id from first remision of this recipe
+          if (!existing.master_recipe_id && remision.master_recipe_id) {
+            existing.master_recipe_id = remision.master_recipe_id;
+          }
         } else {
           uniqueRecipes.set(key, {
-            recipe_id: remision.recipe_id,
+            recipe_id: remision.recipe_id, // Store the variant recipe_id for FK constraint
             recipe_code: remision.recipe_code,
             volume: remision.volumen_fabricado,
             unit_price: remision.unit_price || 0,
-            quote_detail_id: remision.quote_detail_id || null
+            quote_detail_id: remision.quote_detail_id,
+            master_recipe_id: remision.master_recipe_id // ADD: Preserve master from remision
           });
         }
       }
@@ -1199,43 +1247,51 @@ async function createSingleOrderWithoutBalanceUpdate(
 
     result.ordersCreated = 1;
 
-    // Fetch actual recipe codes from database to ensure consistency
-    const recipeIds = Array.from(uniqueRecipes.keys());
-    const { data: actualRecipes, error: recipesError } = await supabase
-      .from('recipes')
-      .select('id, recipe_code')
-      .in('id', recipeIds);
-
-    if (recipesError) {
-      console.warn('[ArkikOrderCreator] Warning: Could not fetch recipe codes from database:', recipesError);
-    }
-
-    // Create recipe code mapping for database consistency
-    const recipeCodeMap = new Map<string, string>();
-    if (actualRecipes) {
-      actualRecipes.forEach(recipe => {
-        recipeCodeMap.set(recipe.id, recipe.recipe_code);
-      });
+    // Fetch master recipe codes for all unique masters in this group
+    const masterRecipeIds = Array.from(uniqueRecipes.values())
+      .filter(r => r.master_recipe_id)
+      .map(r => r.master_recipe_id!);
+    
+    const masterRecipeCodeMap = new Map<string, string>();
+    if (masterRecipeIds.length > 0) {
+      const { data: masterRecipes, error: masterError } = await supabase
+        .from('master_recipes')
+        .select('id, master_code')
+        .in('id', masterRecipeIds);
+      
+      if (masterError) {
+        console.warn('[ArkikOrderCreator] Warning: Could not fetch master recipe codes:', masterError);
+      } else if (masterRecipes) {
+        masterRecipes.forEach(mr => {
+          masterRecipeCodeMap.set(mr.id, mr.master_code);
+        });
+      }
     }
 
     // Create order items
     const orderItems = Array.from(uniqueRecipes.values()).map(recipe => {
-      // Use database recipe_code if available, otherwise fall back to parsed code
-      const actualRecipeCode = recipeCodeMap.get(recipe.recipe_id) || recipe.recipe_code;
+      // For master-level order items, use the master recipe code
+      let productType = recipe.recipe_code;
+      if (recipe.master_recipe_id) {
+        // Use master recipe code if available
+        productType = masterRecipeCodeMap.get(recipe.master_recipe_id) || recipe.recipe_code;
+      }
       
       console.log('[ArkikOrderCreator] Order item recipe code:', {
         recipe_id: recipe.recipe_id,
         parsed_code: recipe.recipe_code,
-        database_code: recipeCodeMap.get(recipe.recipe_id),
-        using_code: actualRecipeCode,
+        master_recipe_id: recipe.master_recipe_id,
+        master_code: masterRecipeCodeMap.get(recipe.master_recipe_id || ''),
+        using_code: productType,
         quote_detail_id: recipe.quote_detail_id
       });
 
       return {
         order_id: order.id,
         quote_detail_id: recipe.quote_detail_id,
-        recipe_id: recipe.recipe_id,
-        product_type: actualRecipeCode, // Use actual recipe code from database
+        recipe_id: recipe.master_recipe_id ? null : recipe.recipe_id, // NULL for master items, recipe_id for variants-only
+        master_recipe_id: recipe.master_recipe_id, // ADD: Master recipe for order matching and pricing
+        product_type: productType, // Use master recipe code if master exists, otherwise variant code
         volume: recipe.volume,
         unit_price: recipe.unit_price,
         total_price: recipe.volume * recipe.unit_price,
@@ -1285,6 +1341,7 @@ async function createSingleOrderWithoutBalanceUpdate(
             unidad: fullRemisionData.placas || undefined, // Map placas from Excel to unidad field
             tipo_remision: 'CONCRETO',
             recipe_id: fullRemisionData.recipe_id!,
+            master_recipe_id: fullRemisionData.master_recipe_id, // ADD: Master recipe for pricing
             plant_id: plantId
           });
         }
@@ -1389,6 +1446,17 @@ async function createSingleOrderWithoutBalanceUpdate(
       has_site_name: !!constructionSiteName
     });
 
+    // CRITICAL: Recalculate order amounts and delivered volumes after remisiones are created
+    try {
+      console.log('[ArkikOrderCreator] Recalculating order amounts and delivered volumes for order:', order.id);
+      const { recalculateOrderAmount } = await import('./orderService');
+      await recalculateOrderAmount(order.id);
+      console.log('[ArkikOrderCreator] Order amounts and volumes recalculated successfully');
+    } catch (amountError) {
+      console.error('[ArkikOrderCreator] Error recalculating order amounts:', amountError);
+      result.errors.push(`Error recalculando montos de la orden: ${amountError instanceof Error ? amountError.message : 'Error desconocido'}`);
+    }
+
     // NOTE: Balance calculation is deferred to batch processing to prevent race conditions
 
     return result;
@@ -1412,13 +1480,12 @@ async function recalculateAffectedBalances(affectedBalances: Set<string>): Promi
       const [clientId, siteKey, balanceType] = balanceKey.split('|');
       
       if (balanceType === 'GENERAL') {
-        // General balance calculation
+        // General balance calculation - same as the manual button
         console.log('[ArkikOrderCreator] Recalculating general balance for client:', clientId);
         
-        const { error } = await supabase.rpc('update_client_balance_atomic', {
+        const { error } = await supabase.rpc('update_client_balance', {
           p_client_id: clientId,
-          p_site_name: null,
-          p_site_id: null
+          p_site_name: null
         });
 
         if (error) {
@@ -1429,27 +1496,13 @@ async function recalculateAffectedBalances(affectedBalances: Set<string>): Promi
           console.log('[ArkikOrderCreator] ✅ General balance updated for client:', clientId);
         }
       } else if (balanceType === 'SITE') {
-        // Site-specific balance calculation with automatic construction site lookup
-        const isUuid = siteKey.length === 36 && siteKey.includes('-'); // Basic UUID check
-        let finalSiteId = isUuid ? siteKey : null;
-        let finalSiteName = isUuid ? null : siteKey;
+        // Site-specific balance calculation - use construction site NAME, not ID
+        console.log('[ArkikOrderCreator] Recalculating site balance for client:', clientId, 'site:', siteKey);
         
-        // ENHANCEMENT: If we have a site name but no UUID, try to look it up
-        if (!isUuid && siteKey) {
-          const lookedUpSiteId = await lookupConstructionSiteId(clientId, siteKey);
-          if (lookedUpSiteId) {
-            finalSiteId = lookedUpSiteId;
-            finalSiteName = null; // Prefer UUID over name
-            console.log('[ArkikOrderCreator] Auto-resolved site name to UUID:', siteKey, '→', lookedUpSiteId);
-          }
-        }
-        
-        console.log('[ArkikOrderCreator] Recalculating site balance for client:', clientId, 'site:', siteKey, 'finalUUID:', finalSiteId);
-        
-        const { error } = await supabase.rpc('update_client_balance_atomic', {
+        // Pass the site name (which is stored in siteKey)
+        const { error } = await supabase.rpc('update_client_balance', {
           p_client_id: clientId,
-          p_site_name: finalSiteName,
-          p_site_id: finalSiteId
+          p_site_name: siteKey  // Pass the site name directly
         });
 
         if (error) {
