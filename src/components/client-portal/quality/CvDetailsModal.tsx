@@ -188,7 +188,7 @@ export default function CvDetailsModal({ overallCv, cvByRecipe, clientName, isDe
               <p className="text-footnote text-gray-700 mt-1 font-medium">Bueno</p>
             </div>
             <div className="rounded-xl border border-rose-200 bg-rose-50/50 px-4 py-3">
-              <p className="text-callout font-bold text-rose-700">>20%</p>
+              <p className="text-callout font-bold text-rose-700">&gt;20%</p>
               <p className="text-footnote text-gray-700 mt-1 font-medium">Revisar</p>
             </div>
           </div>

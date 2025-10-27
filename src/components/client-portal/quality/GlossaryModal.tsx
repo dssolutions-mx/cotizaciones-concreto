@@ -44,7 +44,7 @@ export default function GlossaryModal({ open, onOpenChange }: GlossaryModalProps
             </div>
             <p className="text-body text-label-secondary">
               Mide la variabilidad relativa de la resistencia. Mientras menor, mejor.
-              Referencias típicas: ≤10% excelente, 10–15% muy bueno, >15% revisar variabilidad.
+              Referencias típicas: ≤10% excelente, 10–15% muy bueno, &gt;15% revisar variabilidad.
             </p>
           </div>
         </div>

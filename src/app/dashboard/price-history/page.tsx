@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 import { PriceHistoryTable } from '@/components/PriceHistoryTable';
 import { PriceHistoryChart } from '@/components/PriceHistoryChart';
 import {

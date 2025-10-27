@@ -415,7 +415,7 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
                   <div className="w-4 h-4 bg-red-500 rounded"></div>
                   <div>
                     <p className="text-sm font-medium text-gray-900">Crítica</p>
-                    <p className="text-xs text-gray-500">Variación > 10%</p>
+                    <p className="text-xs text-gray-500">Variación &gt; 10%</p>
                   </div>
                 </div>
               </div>

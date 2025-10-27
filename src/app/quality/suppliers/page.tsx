@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 import { recipeService } from '@/lib/supabase/recipes';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

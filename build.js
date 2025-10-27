@@ -63,9 +63,9 @@ const preBuildManifests = () => {
 preBuildManifests();
 
 // Run the Next.js build with linting disabled
-console.log('Running Next.js build with linting disabled...');
+console.log('Running Next.js production build...');
 try {
-  execSync('npx next build --no-lint', {
+  execSync('npx next build', {
     stdio: 'inherit',
     env: {
       ...process.env, // Pass through all environment variables
