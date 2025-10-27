@@ -173,21 +173,67 @@ export async function POST(request: Request) {
 
     // Create order_item if quote_detail_id provided
     if (created?.id && quote_detail_id && volume) {
+      // Fetch the quote_detail to get master_recipe info and product_type
+      const { data: quoteDetail, error: quoteDetailError } = await supabase
+        .from('quote_details')
+        .select(`
+          id,
+          final_price,
+          master_recipe_id,
+          recipe_id,
+          pump_service,
+          master_recipes:master_recipe_id (
+            id,
+            master_code
+          ),
+          recipes:recipe_id (
+            recipe_code
+          )
+        `)
+        .eq('id', quote_detail_id)
+        .single();
+
+      if (quoteDetailError || !quoteDetail) {
+        console.error('Error fetching quote detail for order item:', quoteDetailError);
+        return NextResponse.json({ 
+          error: 'No se pudo obtener información del producto',
+          details: quoteDetailError 
+        }, { status: 500 });
+      }
+
+      // Determine product_type (required NOT NULL field)
+      let productType = 'CONCRETO'; // Default fallback
+      if (quoteDetail.master_recipe_id && quoteDetail.master_recipes) {
+        productType = quoteDetail.master_recipes.master_code || 'CONCRETO';
+      } else if (quoteDetail.recipe_id && quoteDetail.recipes) {
+        productType = quoteDetail.recipes.recipe_code || 'CONCRETO';
+      } else if (quoteDetail.pump_service) {
+        productType = 'SERVICIO DE BOMBEO';
+      }
+
       const { error: itemError } = await supabase
         .from('order_items')
         .insert({
           order_id: created.id,
           quote_detail_id,
+          recipe_id: quoteDetail.recipe_id || null,
+          master_recipe_id: quoteDetail.master_recipe_id || null,
+          product_type: productType,
           volume: Number(volume),
           unit_price: Number(unit_price || 0),
           total_price: totalAmount,
-          has_pump_service: false,
-          has_empty_truck_charge: false
+          has_pump_service: quoteDetail.pump_service || false,
+          pump_price: quoteDetail.pump_service ? Number(unit_price || 0) : null,
+          has_empty_truck_charge: false,
+          pump_volume: null
         });
 
       if (itemError) {
         console.error('Error creating order item:', itemError);
-        // Non-fatal; order already created
+        return NextResponse.json({ 
+          error: 'Error al crear el ítem del pedido',
+          details: itemError 
+        }, { status: 500 });
       }
     }
 
