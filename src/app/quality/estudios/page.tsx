@@ -26,6 +26,7 @@ import Link from 'next/link';
 import MaterialCertificateManager from '@/components/quality/MaterialCertificateManager';
 import PlantCertificateManager from '@/components/quality/PlantCertificateManager';
 import PlantDossierManager from '@/components/quality/PlantDossierManager';
+import PlantVerificationManager from '@/components/quality/PlantVerificationManager';
 
 interface Plant {
   id: string;
@@ -382,7 +383,7 @@ export default function EstudiosPage() {
         {/* Certificados de Planta - visible solo con planta seleccionada */}
         {selectedPlant !== 'all' && (
           <div className="bg-white rounded-2xl shadow-md border border-gray-200 p-5 mb-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
                 <div className="mb-3">
                   <h2 className="text-lg font-bold text-gray-900">Certificados de Planta</h2>
@@ -399,6 +400,16 @@ export default function EstudiosPage() {
                   <p className="text-sm text-gray-600">PDF principal del dossier (aparece en la raíz del ZIP)</p>
                 </div>
                 <PlantDossierManager
+                  plantId={selectedPlant}
+                  plantCode={plants.find(p => p.id === selectedPlant)?.code}
+                />
+              </div>
+              <div>
+                <div className="mb-3">
+                  <h2 className="text-lg font-bold text-gray-900">Verificaciones de Planta</h2>
+                  <p className="text-sm text-gray-600">Documentos de verificación de calidad de planta</p>
+                </div>
+                <PlantVerificationManager
                   plantId={selectedPlant}
                   plantCode={plants.find(p => p.id === selectedPlant)?.code}
                 />

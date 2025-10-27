@@ -165,6 +165,39 @@ export async function GET(request: Request) {
           console.warn('[Dossier] Error preparing plant certificate entry:', e);
         }
       }
+
+      // Also include plant verifications in separate folder verificaciones/{plant_code}/...
+      const { data: plantVerifications, error: plantVerificationsError } = await supabase
+        .from('plant_verifications')
+        .select('id, plant_id, file_path, original_name, file_name, created_at')
+        .in('plant_id', plantIds)
+        .order('created_at', { ascending: false})
+        .limit(10); // Limit plant verifications to avoid timeout
+      if (plantVerificationsError) {
+        console.warn('[Dossier] Plant verifications query error:', plantVerificationsError);
+      }
+
+      for (const verification of plantVerifications || []) {
+        try {
+          const { data: signed, error: signedError } = await supabase
+            .storage
+            .from('material-certificates')
+            .createSignedUrl(verification.file_path, 600);
+          if (signedError || !signed?.signedUrl) {
+            console.warn('[Dossier] Failed to sign plant verification URL for', verification.file_path, signedError);
+            continue;
+          }
+          const plantCode = codeByPlantId.get(verification.plant_id) || verification.plant_id;
+          const folder = `verificaciones/${plantCode}`;
+          const base = (verification.original_name || verification.file_name || verification.file_path.split('/').pop() || 'verificacion.pdf')
+            .toString()
+            .replace(/[\n\r]/g, '')
+            .slice(0, 128);
+          entries.push({ url: signed.signedUrl, name: `${folder}/${base}` });
+        } catch (e) {
+          console.warn('[Dossier] Error preparing plant verification entry:', e);
+        }
+      }
     }
 
     if (entries.length === 0) {
