@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 import MaterialCertificateViewer from './MaterialCertificateViewer';
+import PlantCertificateViewer from './PlantCertificateViewer';
+import PlantVerificationViewer from './PlantVerificationViewer';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useState, useEffect } from 'react';
@@ -63,6 +65,8 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
   const [selectedPlant, setSelectedPlant] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<string>('agregados');
   const [selectedMaterial, setSelectedMaterial] = useState<{ id: string; name: string; category: string } | null>(null);
+  const [selectedPlantForCertificates, setSelectedPlantForCertificates] = useState<{ id: string; name: string } | null>(null);
+  const [selectedPlantForVerifications, setSelectedPlantForVerifications] = useState<{ id: string; name: string } | null>(null);
   const [showComingSoon, setShowComingSoon] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, status: '' });
@@ -289,7 +293,7 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
       >
-        <div className="flex items-start justify-between gap-6 mb-3">
+        <div className="flex items-start justify-between gap-4 mb-3">
           <div className="flex-1">
             <h1 className="text-large-title font-bold text-label-primary mb-3">
               Dossier de Calidad
@@ -299,8 +303,46 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
             </p>
           </div>
           
-          {/* Download Dossier Button */}
-          <motion.button
+          {/* Action Buttons */}
+          <div className="flex gap-3 shrink-0">
+            {/* Plant Certificates Button */}
+            {selectedPlant !== 'all' && (
+              <motion.button
+                onClick={() => {
+                  const plant = plants.find(p => p.id === selectedPlant);
+                  if (plant) {
+                    setSelectedPlantForCertificates({ id: plant.id, name: `${plant.code} - ${plant.name}` });
+                  }
+                }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="flex items-center gap-2.5 px-6 py-3.5 glass-interactive border-2 border-white/30 hover:border-white/50 text-label-primary rounded-2xl transition-all duration-300 font-semibold text-callout shadow-sm hover:shadow-md"
+              >
+                <Building className="w-5 h-5" />
+                <span className="hidden md:inline">Certificados de Planta</span>
+              </motion.button>
+            )}
+
+            {/* Plant Verifications Button */}
+            {selectedPlant !== 'all' && (
+              <motion.button
+                onClick={() => {
+                  const plant = plants.find(p => p.id === selectedPlant);
+                  if (plant) {
+                    setSelectedPlantForVerifications({ id: plant.id, name: `${plant.code} - ${plant.name}` });
+                  }
+                }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="flex items-center gap-2.5 px-6 py-3.5 glass-interactive border-2 border-white/30 hover:border-white/50 text-label-primary rounded-2xl transition-all duration-300 font-semibold text-callout shadow-sm hover:shadow-md"
+              >
+                <FileText className="w-5 h-5" />
+                <span className="hidden md:inline">Verificaciones</span>
+              </motion.button>
+            )}
+
+            {/* Download Dossier Button */}
+            <motion.button
             onClick={async () => {
               try {
                 setDownloading(true);
@@ -406,6 +448,7 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
               </>
             )}
           </motion.button>
+          </div>
         </div>
       </motion.div>
 
@@ -745,13 +788,31 @@ export function QualitySiteChecks({ data, summary }: QualitySiteChecksProps) {
           )}
       </motion.div>
 
-      {/* Modal de Certificados */}
+      {/* Modal de Certificados de Material */}
       {selectedMaterial && (
         <MaterialCertificateViewer
           materialId={selectedMaterial.id}
           materialName={selectedMaterial.name}
           materialCategory={selectedMaterial.category}
           onClose={() => setSelectedMaterial(null)}
+        />
+      )}
+
+      {/* Modal de Certificados de Planta */}
+      {selectedPlantForCertificates && (
+        <PlantCertificateViewer
+          plantId={selectedPlantForCertificates.id}
+          plantName={selectedPlantForCertificates.name}
+          onClose={() => setSelectedPlantForCertificates(null)}
+        />
+      )}
+
+      {/* Modal de Verificaciones de Planta */}
+      {selectedPlantForVerifications && (
+        <PlantVerificationViewer
+          plantId={selectedPlantForVerifications.id}
+          plantName={selectedPlantForVerifications.name}
+          onClose={() => setSelectedPlantForVerifications(null)}
         />
       )}
 
