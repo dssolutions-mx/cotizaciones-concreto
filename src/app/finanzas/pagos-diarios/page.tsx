@@ -9,8 +9,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FinancialDashboardSkeleton } from '@/components/finanzas/FinancialDashboardSkeleton';
 import { CreditCard, Calculator, Ban, Wallet, CalendarIcon } from 'lucide-react';
 
-// Enable ISR with 5-minute revalidation interval
-export const revalidate = 300; // 5 minutes in seconds
+// This route reads cookies/session on the server – force dynamic rendering to avoid static prerender errors
+export const dynamic = 'force-dynamic';
 
 export default async function DailyPaymentsReportPage({
   searchParams,
@@ -153,6 +153,7 @@ async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDa
     uniqueClients: new Set<string>(),
   };
   
+  let hadError = false;
   try {
     // Create a service client for data fetching
     const serviceClient = createServiceClient();
@@ -215,6 +216,7 @@ async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDa
     console.log("Final payment metrics:", metricsData);
   } catch (error) {
     console.error("Error fetching payment metrics:", error);
+    hadError = true;
   }
 
   // Determine the period description
@@ -225,6 +227,11 @@ async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDa
   return (
     <section>
       <h2 className="text-2xl font-semibold mb-4">Resumen de Pagos {periodDescription}</h2>
+      {hadError && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-800">
+          No se pudieron cargar las métricas de pagos. Mostrando valores vacíos.
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Total Payments */}
         <KPICard
