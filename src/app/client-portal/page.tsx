@@ -245,7 +245,7 @@ export default function ClientPortalDashboard() {
               <QuickAction
                 icon={<Calendar className="w-6 h-6" />}
                 label="Programar"
-                onClick={() => router.push('/client-portal/orders')}
+                onClick={() => router.push('/client-portal/orders/schedule')}
                 color="orange"
               />
             </div>

@@ -25,6 +25,11 @@ interface QualityChartProps {
   height?: number;
   showLegend?: boolean;
   showGrid?: boolean;
+  // Optional axis customizations from callers
+  xTickFormatter?: (value: any) => string;
+  yTickFormatter?: (value: any) => string;
+  yIsPercent?: boolean;
+  xDataKey?: string;
 }
 
 export function QualityChart({ 
@@ -32,7 +37,11 @@ export function QualityChart({
   data, 
   height = 400,
   showLegend = true,
-  showGrid = true 
+  showGrid = true,
+  xTickFormatter,
+  yTickFormatter,
+  yIsPercent,
+  xDataKey
 }: QualityChartProps) {
   // Custom tooltip with iOS 26 styling
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -119,25 +128,35 @@ export function QualityChart({
   if (type === 'muestreos-timeline') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 18, left: 16 }}>
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
           <XAxis 
-            dataKey="date" 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            dataKey={xDataKey ?? 'date'}
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            minTickGap={10}
+            interval="preserveStartEnd"
+            stroke="#5B7C99"
+            tickFormatter={xTickFormatter}
           />
           <YAxis 
             yAxisId="left"
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
-            label={{ value: 'Rendimiento (%)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.6)' }}
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            allowDecimals={false}
+            stroke="#5B7C99"
+            width={36}
+            tickFormatter={yTickFormatter}
           />
           <YAxis 
             yAxisId="right" 
             orientation="right"
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
-            label={{ value: 'Cumplimiento (%)', angle: 90, position: 'insideRight', fill: 'rgba(255,255,255,0.6)' }}
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            allowDecimals={false}
+            stroke="#5B7C99"
+            width={36}
+            tickFormatter={yTickFormatter}
           />
           <Tooltip content={<CustomTooltip />} />
           {showLegend && <Legend wrapperStyle={{ paddingTop: '20px' }} />}
@@ -180,17 +199,24 @@ export function QualityChart({
   if (type === 'compliance-distribution') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+        <BarChart data={data} margin={{ top: 8, right: 16, bottom: 18, left: 16 }}>
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
           <XAxis 
-            dataKey="range" 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            dataKey={xDataKey ?? 'range'} 
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            minTickGap={10}
+            interval="preserveStartEnd"
+            stroke="#5B7C99"
+            tickFormatter={xTickFormatter}
           />
           <YAxis 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
-            label={{ value: 'Cantidad', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.6)' }}
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            allowDecimals={false}
+            stroke="#5B7C99"
+            width={42}
+            tickFormatter={yTickFormatter}
           />
           <Tooltip content={<CustomTooltip />} />
           {showLegend && <Legend />}
@@ -209,17 +235,24 @@ export function QualityChart({
   if (type === 'resistance-trend') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+        <AreaChart data={data} margin={{ top: 8, right: 16, bottom: 18, left: 16 }}>
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
           <XAxis 
-            dataKey="date" 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            dataKey={xDataKey ?? 'date'} 
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            minTickGap={10}
+            interval="preserveStartEnd"
+            stroke="#5B7C99"
+            tickFormatter={xTickFormatter}
           />
           <YAxis 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
-            label={{ value: 'Resistencia (kg/cm²)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.6)' }}
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            allowDecimals={false}
+            stroke="#5B7C99"
+            width={42}
+            tickFormatter={yTickFormatter}
           />
           <Tooltip content={<CustomTooltip />} />
           {showLegend && <Legend />}
@@ -248,24 +281,31 @@ export function QualityChart({
   if (type === 'resistance-performance') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+        <BarChart data={data} margin={{ top: 8, right: 16, bottom: 18, left: 16 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
           
           <XAxis 
-            dataKey="date" 
-            tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.4)' }}
-            stroke="rgba(255,255,255,0.1)"
-            axisLine={false}
-            tickLine={false}
+            dataKey={xDataKey ?? 'date'} 
+            tick={{ fontSize: 11, fill: '#1F2937' }}
+            stroke="#5B7C99"
+            axisLine={true}
+            tickLine={true}
+            tickMargin={8}
+            minTickGap={10}
+            interval="preserveStartEnd"
+            tickFormatter={xTickFormatter}
           />
           
           <YAxis 
             domain={[90, 105]}
-            tick={{ fontSize: 11, fill: 'rgba(255,255,255,0.4)' }}
-            stroke="rgba(255,255,255,0.1)"
-            axisLine={false}
-            tickLine={false}
-            width={35}
+            tick={{ fontSize: 11, fill: '#1F2937' }}
+            stroke="#5B7C99"
+            axisLine={true}
+            tickLine={true}
+            width={36}
+            tickMargin={8}
+            allowDecimals={false}
+            tickFormatter={yTickFormatter}
           />
           
           <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.05)' }} />
@@ -306,18 +346,29 @@ export function QualityChart({
   if (type === 'volumetric-trend') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <AreaChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+        <AreaChart data={data} margin={{ top: 8, right: 16, bottom: 18, left: 16 }}>
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
           <XAxis 
-            dataKey="date" 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            dataKey={xDataKey ?? 'date'} 
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            minTickGap={10}
+            interval="preserveStartEnd"
+            stroke="#5B7C99"
+            tickFormatter={xTickFormatter}
+            tickLine={true}
+            axisLine={true}
           />
           <YAxis 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            allowDecimals={false}
+            stroke="#5B7C99"
             domain={[88, 110]}
-            label={{ value: 'Rendimiento Volumétrico (%)', angle: -90, position: 'insideLeft', fill: 'rgba(255,255,255,0.6)' }}
+            width={36}
+            tickFormatter={yTickFormatter}
+            tickLine={true}
+            axisLine={true}
           />
           <Tooltip content={<CustomTooltip />} />
           {showLegend && <Legend />}
@@ -360,16 +411,28 @@ export function QualityChart({
   if (type === 'line') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 18, left: 16 }}>
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
           <XAxis 
-            dataKey="name" 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            dataKey={xDataKey ?? 'name'} 
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            minTickGap={10}
+            interval="preserveStartEnd"
+            stroke="#5B7C99"
+            tickFormatter={xTickFormatter}
+            tickLine={true}
+            axisLine={true}
           />
           <YAxis 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            allowDecimals={false}
+            stroke="#5B7C99"
+            width={42}
+            tickFormatter={yTickFormatter}
+            tickLine={true}
+            axisLine={true}
           />
           <Tooltip content={<CustomTooltip />} />
           {showLegend && <Legend />}
@@ -389,16 +452,28 @@ export function QualityChart({
   if (type === 'bar') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <BarChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+        <BarChart data={data} margin={{ top: 8, right: 16, bottom: 18, left: 16 }}>
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
           <XAxis 
-            dataKey="name" 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            dataKey={xDataKey ?? 'name'} 
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            minTickGap={10}
+            interval="preserveStartEnd"
+            stroke="#5B7C99"
+            tickFormatter={xTickFormatter}
+            tickLine={true}
+            axisLine={true}
           />
           <YAxis 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            allowDecimals={false}
+            stroke="#5B7C99"
+            width={42}
+            tickFormatter={yTickFormatter}
+            tickLine={true}
+            axisLine={true}
           />
           <Tooltip content={<CustomTooltip />} />
           {showLegend && <Legend />}
@@ -412,19 +487,29 @@ export function QualityChart({
   if (type === 'scatter') {
     return (
       <ResponsiveContainer width="100%" height={height}>
-        <ScatterChart margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+        <ScatterChart margin={{ top: 8, right: 16, bottom: 18, left: 16 }}>
           {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />}
           <XAxis 
-            dataKey="x" 
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
-            name="X"
+            dataKey={xDataKey ?? 'x'} 
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            minTickGap={10}
+            interval="preserveStartEnd"
+            stroke="#5B7C99"
+            tickFormatter={xTickFormatter}
+            tickLine={true}
+            axisLine={true}
           />
           <YAxis 
             dataKey="y"
-            tick={{ fontSize: 12, fill: 'rgba(255,255,255,0.6)' }}
-            stroke="rgba(255,255,255,0.3)"
-            name="Y"
+            tick={{ fontSize: 12, fill: '#1F2937' }}
+            tickMargin={8}
+            allowDecimals={false}
+            stroke="#5B7C99"
+            width={42}
+            tickFormatter={yTickFormatter}
+            tickLine={true}
+            axisLine={true}
           />
           <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
           {showLegend && <Legend />}

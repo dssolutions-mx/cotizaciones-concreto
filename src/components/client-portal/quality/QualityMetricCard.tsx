@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { ReactNode } from 'react';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface QualityMetricCardProps {
   title: string;
@@ -13,6 +14,7 @@ interface QualityMetricCardProps {
   trendValue?: number;
   color?: 'primary' | 'success' | 'warning' | 'danger' | 'info';
   delay?: number;
+  tooltip?: string;
 }
 
 export function QualityMetricCard({
@@ -23,7 +25,8 @@ export function QualityMetricCard({
   trend,
   trendValue,
   color = 'primary',
-  delay = 0
+  delay = 0,
+  tooltip
 }: QualityMetricCardProps) {
   const colorConfig = {
     primary: {
@@ -68,7 +71,7 @@ export function QualityMetricCard({
     }
   };
 
-  return (
+  const CardBody = (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
@@ -131,6 +134,21 @@ export function QualityMetricCard({
       </div>
     </motion.div>
   );
+
+  if (tooltip) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {CardBody}
+        </TooltipTrigger>
+        <TooltipContent sideOffset={6} className="max-w-xs glass-thick border border-white/20 text-left">
+          {tooltip}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  return CardBody;
 }
 
 export default QualityMetricCard;
