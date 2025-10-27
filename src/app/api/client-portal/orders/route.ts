@@ -67,3 +67,133 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+export async function POST(request: Request) {
+  try {
+    const supabase = createServerSupabaseClientFromRequest(request);
+
+    // Auth
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Resolve client by portal user
+    const { data: client, error: clientError } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('portal_user_id', user.id)
+      .single();
+
+    if (clientError || !client) {
+      return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+    }
+
+    const body = await request.json();
+    const {
+      construction_site,
+      construction_site_id,
+      delivery_date,
+      delivery_time,
+      requires_invoice,
+      special_requirements,
+      elemento,
+      plant_id,
+      quote_id,
+      quote_detail_id,
+      volume,
+      unit_price
+    } = body || {};
+
+    // Minimal validation
+    if (!delivery_date) {
+      return NextResponse.json({ error: 'delivery_date is required (YYYY-MM-DD)' }, { status: 400 });
+    }
+    if (!elemento || typeof elemento !== 'string' || elemento.trim().length === 0) {
+      return NextResponse.json({ error: 'elemento es requerido' }, { status: 400 });
+    }
+    if (!construction_site && !construction_site_id) {
+      return NextResponse.json({ error: 'construction_site o construction_site_id es requerido' }, { status: 400 });
+    }
+
+    // Reject past dates (YYYY-MM-DD)
+    if (delivery_date && typeof delivery_date === 'string') {
+      const today = new Date();
+      const todayStr = today.toISOString().slice(0,10);
+      if (delivery_date < todayStr) {
+        return NextResponse.json({ error: 'La fecha no puede ser en el pasado' }, { status: 400 });
+      }
+    }
+
+    // Generate order number
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0,10).replace(/-/g, '');
+    const randomPart = Math.floor(1000 + Math.random() * 9000);
+    const orderNumber = `ORD-${dateStr}-${randomPart}`;
+
+    // Insert order - rely on RLS for client access, but set client_id explicitly
+    const totalAmount = (volume && unit_price) ? Number(volume) * Number(unit_price) : 0;
+
+    // Validate construction_site_id is a valid UUID (if provided)
+    // If it's not a UUID, it's likely a fallback site name, so set it to null
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validSiteId = construction_site_id && uuidRegex.test(construction_site_id) ? construction_site_id : null;
+
+    const insertPayload: Record<string, any> = {
+      client_id: client.id,
+      construction_site: construction_site ?? null,
+      construction_site_id: validSiteId,
+      order_number: orderNumber,
+      delivery_date,
+      delivery_time: delivery_time ?? null,
+      requires_invoice: Boolean(requires_invoice),
+      special_requirements: special_requirements ?? null,
+      total_amount: totalAmount,
+      order_status: 'created',
+      credit_status: 'pending',
+      elemento,
+      plant_id: plant_id ?? null,
+      quote_id: quote_id ?? null,
+      // Default hidden site verification to green
+      site_access_rating: 'green',
+      // Set created_by to the portal user's ID
+      created_by: user.id
+    };
+
+    const { data: created, error: insertError } = await supabase
+      .from('orders')
+      .insert(insertPayload)
+      .select('id')
+      .single();
+
+    if (insertError) {
+      console.error('Error creating client-portal order:', insertError);
+      return NextResponse.json({ error: 'Failed to create order' }, { status: 500 });
+    }
+
+    // Create order_item if quote_detail_id provided
+    if (created?.id && quote_detail_id && volume) {
+      const { error: itemError } = await supabase
+        .from('order_items')
+        .insert({
+          order_id: created.id,
+          quote_detail_id,
+          volume: Number(volume),
+          unit_price: Number(unit_price || 0),
+          total_price: totalAmount,
+          has_pump_service: false,
+          has_empty_truck_charge: false
+        });
+
+      if (itemError) {
+        console.error('Error creating order item:', itemError);
+        // Non-fatal; order already created
+      }
+    }
+
+    return NextResponse.json({ id: created?.id }, { status: 201 });
+  } catch (error) {
+    console.error('Orders API POST error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

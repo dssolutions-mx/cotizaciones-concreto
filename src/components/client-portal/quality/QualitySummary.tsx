@@ -3,6 +3,12 @@
 import { motion } from 'framer-motion';
 import QualityMetricCard from './QualityMetricCard';
 import QualityChart from './QualityChart';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import CvDetailsModal from '@/components/client-portal/quality/CvDetailsModal';
 import { Target, Award, TrendingUp, Activity, AlertTriangle, XCircle } from 'lucide-react';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 import { processVolumetricTrend, processResistanceTrend } from '@/lib/qualityHelpers';
@@ -57,6 +63,7 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
           trend={summary.averages.rendimientoVolumetrico >= 100 ? 'up' : summary.averages.rendimientoVolumetrico >= 98 ? 'neutral' : 'down'}
           color="primary"
           delay={0}
+          tooltip="Qué tan cerca está el volumen producido del teórico. 98–102% es típico."
         />
         
         <QualityMetricCard
@@ -78,100 +85,42 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
           delay={0.2}
         />
         
-        {/* Expanded CV Card with per-recipe breakdown */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3, duration: 0.3, ease: 'easeOut' }}
-          whileHover={{ y: -4, transition: { duration: 0.2 } }}
-          className="
-            glass-thick 
-            rounded-3xl 
-            p-6
-            border
-            border-systemPurple/20
-            bg-gradient-to-br from-systemPurple/20 to-systemPurple/5
-            transition-all duration-200
-            hover:shadow-lg
-            relative
-            overflow-hidden
-          "
-        >
-          {/* Subtle gradient overlay */}
-          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/5 to-transparent rounded-full blur-2xl" />
-          
-          <div className="relative">
-            {/* Header with icon */}
-            <div className="flex items-start justify-between mb-4">
-              <div className="p-3 rounded-2xl glass-thin text-systemPurple">
-                <Activity className="w-6 h-6" />
-              </div>
-              {tempOverallCV > 0 && (
-                <div className="flex items-center gap-1">
-                  {tempOverallCV <= 15 ? (
-                    <TrendingUp className="w-4 h-4 text-systemGreen" />
-                  ) : tempOverallCV <= 20 ? (
-                    <Activity className="w-4 h-4 text-label-tertiary" />
-                  ) : (
-                    <TrendingUp className="w-4 h-4 text-systemRed" />
-                  )}
-                </div>
-              )}
+        {/* CV KPI: compact card + modal for details */}
+        <Dialog>
+          <DialogTrigger asChild>
+            <div>
+              <QualityMetricCard
+                title="Coeficiente de Variación"
+                value={`${tempOverallCV.toFixed(2)}%${isInmobicarpio ? ' ' : ''}`}
+                subtitle={`Consistencia de calidad${isInmobicarpio ? ' (Promedio Ponderado)' : ''}`}
+                icon={<Activity className="w-6 h-6" />}
+                trend={tempOverallCV <= 15 ? 'up' : tempOverallCV <= 20 ? 'neutral' : 'down'}
+                color="info"
+                delay={0.3}
+                tooltip="Mide la variabilidad relativa de la resistencia. Menor es mejor. ≤10% excelente, 10–15% muy bueno."
+              />
             </div>
-
-            {/* Value */}
-            <div className="mb-2">
-              <h3 className="text-title-1 font-bold text-label-primary mb-1">
-                {tempOverallCV.toFixed(2)}%
-                {isInmobicarpio && (
-                  <span className="text-caption text-systemBlue ml-2">Demo</span>
-                )}
-              </h3>
-              <p className="text-callout font-medium text-label-secondary">
+          </DialogTrigger>
+          <DialogContent className="w-[95vw] max-w-7xl max-h-[90vh] glass-thick rounded-3xl border border-white/20 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl overflow-hidden flex flex-col p-0">
+            <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-systemPurple/20 to-transparent rounded-full blur-3xl -z-10" />
+            <div className="px-6 pt-6 pb-4">
+              <DialogTitle className="text-title-3 font-semibold text-label-primary">
                 Coeficiente de Variación
-              </p>
+              </DialogTitle>
+              <DialogDescription className="text-footnote text-label-tertiary mt-2">
+                Análisis detallado de uniformidad por receta. Valores menores indican mayor consistencia de calidad.
+              </DialogDescription>
             </div>
-
-            {/* Subtitle */}
-            <p className="text-footnote text-label-tertiary mb-3">
-              Consistencia de calidad {isInmobicarpio && '(Promedio Ponderado)'}
-            </p>
-
-            {/* Per-recipe breakdown */}
-            {tempCvByRecipe && tempCvByRecipe.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-fill-tertiary">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-caption font-semibold text-label-secondary">
-                    Por Receta:
-                  </p>
-                  {isInmobicarpio && (
-                    <span className="text-caption text-systemBlue">
-                      Ejemplo
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar">
-                  {tempCvByRecipe.map((recipe, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between text-caption"
-                    >
-                      <span className="text-label-secondary">
-                        FC{recipe.strengthFc.toFixed(0)} - {recipe.ageDays} días
-                      </span>
-                      <span className={`font-bold ${getCVColor(recipe.coefficientVariation)}`}>
-                        {recipe.coefficientVariation.toFixed(2)}%
-                        <span className="text-label-tertiary font-normal ml-1">
-                          (n={recipe.muestreoCount})
-                        </span>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </motion.div>
+            <div className="px-6 pb-6 overflow-y-auto flex-1">
+              <CvDetailsModal
+                overallCv={Number(tempOverallCV.toFixed(2))}
+                cvByRecipe={tempCvByRecipe}
+                clientName={summary.clientInfo.business_name}
+                isDemo={isInmobicarpio}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Charts Row */}
@@ -192,6 +141,16 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
               data={volumetricData}
               height={300}
               showLegend={false}
+              xDataKey="date"
+              xTickFormatter={(v: any) => {
+                // v is a string like "2025-09-24" from processVolumetricTrend
+                if (typeof v !== 'string' || !v) return '';
+                const [year, month, day] = v.split('-');
+                const d = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                return isNaN(d.getTime()) ? '' : format(d, 'dd MMM', { locale: es });
+              }}
+              yTickFormatter={(v: any) => `${v}%`}
+              yIsPercent
             />
           ) : (
             <div className="flex items-center justify-center h-64 text-label-tertiary">
@@ -240,6 +199,16 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
               data={resistanceData}
               height={300}
               showLegend={false}
+              xDataKey="date"
+              xTickFormatter={(v: any) => {
+                // v is a string like "2025-09-24" from processResistanceTrend
+                if (typeof v !== 'string' || !v) return '';
+                const [year, month, day] = v.split('-');
+                const d = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                return isNaN(d.getTime()) ? '' : format(d, 'dd MMM', { locale: es });
+              }}
+              yTickFormatter={(v: any) => `${v}%`}
+              yIsPercent
             />
           ) : (
             <div className="flex items-center justify-center h-64 text-label-tertiary">

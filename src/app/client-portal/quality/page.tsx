@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Beaker, Filter, Calendar } from 'lucide-react';
+import { Beaker, Filter, Calendar, Info } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import QualityTabs from '@/components/client-portal/quality/QualityTabs';
+import GlossaryModal from '@/components/client-portal/quality/GlossaryModal';
 import DateRangeFilter from '@/components/client-portal/DateRangeFilter';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
@@ -18,6 +19,7 @@ export default function QualityPage() {
   const [loadingProgress, setLoadingProgress] = useState(0);
   const [loadingStage, setLoadingStage] = useState('Inicializando...');
   const [showFilters, setShowFilters] = useState(false);
+  const [showGlossary, setShowGlossary] = useState(false);
   const [dateRange, setDateRange] = useState({
     from: startOfDay(subDays(new Date(), 365)), // Default to last 12 months
     to: endOfDay(new Date())
@@ -143,13 +145,23 @@ export default function QualityPage() {
             </p>
           </div>
           
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl glass-thin hover:glass-interactive text-callout text-label-secondary hover:text-label-primary transition-all"
-          >
-            <Filter className="w-4 h-4" />
-            Filtros
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl glass-thin hover:glass-interactive text-callout text-label-secondary hover:text-label-primary transition-all"
+            >
+              <Filter className="w-4 h-4" />
+              Filtros
+            </button>
+            <button
+              onClick={() => setShowGlossary(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl glass-thin hover:glass-interactive text-callout text-label-secondary hover:text-label-primary transition-all"
+              aria-label="Glosario"
+            >
+              <Info className="w-4 h-4" />
+              Ayuda
+            </button>
+          </div>
         </motion.div>
 
         {/* Date Range Filter Modal */}
@@ -166,6 +178,9 @@ export default function QualityPage() {
             />
           )}
         </AnimatePresence>
+
+        {/* Glossary Modal */}
+        <GlossaryModal open={showGlossary} onOpenChange={setShowGlossary} />
 
         {/* Quality Tabs - Main Content */}
         <motion.div
