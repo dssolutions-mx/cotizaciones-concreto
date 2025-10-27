@@ -24,9 +24,6 @@ export default function QualityPage() {
     from: startOfDay(subDays(new Date(), 90)), // Default to last 3 months
     to: endOfDay(new Date())
   });
-  const [limit] = useState(500);
-  const [offset, setOffset] = useState(0);
-  const [loadingMore, setLoadingMore] = useState(false);
 
   // Helper to format date without timezone conversion
   const formatDateForAPI = (date: Date): string => {
@@ -59,11 +56,11 @@ export default function QualityPage() {
         { progress: 95, stage: 'Finalizando...' }
       ];
 
+      const fromDate = formatDateForAPI(rangeToUse.from);
+      const toDate = formatDateForAPI(rangeToUse.to);
       const params = new URLSearchParams({
-        from: formatDateForAPI(rangeToUse.from),
-        to: formatDateForAPI(rangeToUse.to),
-        limit: String(limit),
-        offset: '0'
+        from: fromDate,
+        to: toDate
       });
 
       // Start progress simulation
@@ -76,23 +73,60 @@ export default function QualityPage() {
         }
       }, 300);
 
+      // Fetch summary first
       const response = await fetch(`/api/client-portal/quality?${params}`);
       const result = await response.json();
-
-      clearInterval(progressInterval);
-      setLoadingProgress(100);
-      setLoadingStage('Completado');
 
       if (!response.ok) {
         throw new Error(result.error || 'Failed to fetch quality data');
       }
 
+      let allRemisiones = result.data?.remisiones || [];
+      const summary = result.summary;
+
+      // If there are more remisiones than returned, fetch them in slices
+      if (allRemisiones.length < summary.totals.remisiones) {
+        setLoadingStage('Obteniendo datos completos...');
+        let offset = allRemisiones.length;
+        const batchSize = 1000;
+
+        while (offset < summary.totals.remisiones) {
+          const sliceParams = new URLSearchParams({
+            from: fromDate,
+            to: toDate,
+            limit: String(batchSize),
+            offset: String(offset)
+          });
+
+          const sliceResponse = await fetch(`/api/client-portal/quality?${sliceParams}`);
+          const sliceResult = await sliceResponse.json();
+
+          if (!sliceResponse.ok || !sliceResult.data?.remisiones) {
+            break;
+          }
+
+          const newRemisiones = sliceResult.data.remisiones;
+          if (newRemisiones.length === 0) break;
+
+          allRemisiones = [...allRemisiones, ...newRemisiones];
+          offset += newRemisiones.length;
+        }
+      }
+
+      clearInterval(progressInterval);
+      setLoadingProgress(100);
+      setLoadingStage('Completado');
+
       // Small delay to show 100% completion
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      setData(result.data);
-      setSummary(result.summary);
-      setOffset(result.data?.remisiones?.length || 0);
+      const completeData = {
+        ...result.data,
+        remisiones: allRemisiones
+      };
+ 
+      setData(completeData);
+      setSummary(summary);
     } catch (error) {
       console.error('Error fetching quality data:', error);
       setData(null);
@@ -100,36 +134,6 @@ export default function QualityPage() {
     } finally {
       setLoading(false);
       setLoadingProgress(0);
-    }
-  };
-
-  const loadMore = async () => {
-    if (!summary) return;
-    try {
-      setLoadingMore(true);
-      const params = new URLSearchParams({
-        from: summary.period.from,
-        to: summary.period.to,
-        limit: String(limit),
-        offset: String(offset)
-      });
-      const response = await fetch(`/api/client-portal/quality?${params}`);
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to load more');
-      }
-      setData(prev => {
-        if (!prev) return result.data;
-        return {
-          ...prev,
-          remisiones: [...prev.remisiones, ...(result.data?.remisiones || [])]
-        };
-      });
-      setOffset(prev => prev + (result.data?.remisiones?.length || 0));
-    } catch (e) {
-      console.error('Error loading more quality data:', e);
-    } finally {
-      setLoadingMore(false);
     }
   };
 
@@ -208,7 +212,6 @@ export default function QualityPage() {
               onApply={(newRange) => {
                 setDateRange(newRange);
                 setShowFilters(false);
-                setOffset(0);
                 fetchQualityData(newRange);
               }}
               onCancel={() => setShowFilters(false)}
@@ -229,17 +232,7 @@ export default function QualityPage() {
         </motion.div>
 
         {/* Load More - fetch additional remisiones slices */}
-        {data && summary && (data.remisiones.length < summary.totals.remisiones) && (
-          <div className="flex items-center justify-center mt-6">
-            <button
-              onClick={loadMore}
-              disabled={loadingMore}
-              className={`px-5 py-2.5 rounded-2xl glass-interactive border-2 border-white/30 hover:border-white/50 text-callout font-semibold transition-all ${loadingMore ? 'opacity-60 cursor-not-allowed' : ''}`}
-            >
-              {loadingMore ? 'Cargando más…' : `Cargar más datos (${data.remisiones.length} / ${summary.totals.remisiones})`}
-            </button>
-          </div>
-        )}
+        {/* Removed Load More button as pagination is now display-only */}
       </Container>
     </div>
   );

@@ -17,6 +17,7 @@ import {
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import ComplianceBadge from './ComplianceBadge';
+import { adjustEnsayoResistencia, recomputeEnsayoCompliance } from '@/lib/qualityHelpers';
 import type { ClientQualityRemisionData } from '@/types/clientQuality';
 
 interface ProcessedMuestreo {
@@ -53,13 +54,25 @@ interface MuestreoCardProps {
 export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
   const hasTests = muestreo.muestras.some(m => m.ensayos.length > 0);
   const allEnsayos = muestreo.muestras.flatMap(m => m.ensayos);
+
+  // Compute adjusted ensayo values (resistance and compliance) using recipe Fc
+  const recipeFc = muestreo.recipeFc || 0;
+  const adjustedEnsayos = allEnsayos.map(e => {
+    const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+    const compAdj = recomputeEnsayoCompliance(resAdj, recipeFc);
+    return {
+      ...e,
+      resistenciaCalculadaAjustada: resAdj,
+      porcentajeCumplimientoAjustado: compAdj
+    };
+  });
   
-  const avgCompliance = hasTests && allEnsayos.length > 0
-    ? allEnsayos.reduce((sum, e) => sum + e.porcentajeCumplimiento, 0) / allEnsayos.length
+  const avgCompliance = hasTests && adjustedEnsayos.length > 0
+    ? adjustedEnsayos.reduce((sum, e: any) => sum + (e.porcentajeCumplimientoAjustado || 0), 0) / adjustedEnsayos.length
     : 0;
 
-  const avgResistance = hasTests && allEnsayos.length > 0
-    ? allEnsayos.reduce((sum, e) => sum + e.resistenciaCalculada, 0) / allEnsayos.length
+  const avgResistance = hasTests && adjustedEnsayos.length > 0
+    ? adjustedEnsayos.reduce((sum, e: any) => sum + (e.resistenciaCalculadaAjustada || 0), 0) / adjustedEnsayos.length
     : 0;
 
   const isCompliant = avgCompliance >= 95;
@@ -144,7 +157,7 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
         {muestreo.revenimientoSitio > 0 && (
           <div className="glass-thin border border-white/20 rounded-xl p-3 hover:border-systemBlue/40 transition-colors">
             <div className="flex items-center gap-2 mb-2">
-              <div className="p-1.5 bg-systemBlue/10 rounded-lg">
+              <div className="p-1.5 bg-systemBlue/10 rounded-lg" title="Valor ajustado ×0.92">
                 <Droplets className="w-4 h-4 text-systemBlue" />
               </div>
               <p className="text-caption text-label-tertiary font-medium">Revenimiento</p>
@@ -159,7 +172,7 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
         {muestreo.masaUnitaria > 0 && (
           <div className="glass-thin border border-white/20 rounded-xl p-3 hover:border-systemPurple/40 transition-colors">
             <div className="flex items-center gap-2 mb-2">
-              <div className="p-1.5 bg-systemPurple/10 rounded-lg">
+              <div className="p-1.5 bg-systemPurple/10 rounded-lg" title="Valor sin ajuste">
                 <Scale className="w-4 h-4 text-systemPurple" />
               </div>
               <p className="text-caption text-label-tertiary font-medium">Masa Unitaria</p>
@@ -174,7 +187,7 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
         {muestreo.volumenFabricado && muestreo.volumenFabricado > 0 && (
           <div className="glass-thin border border-white/20 rounded-xl p-3 hover:border-systemIndigo/40 transition-colors">
             <div className="flex items-center gap-2 mb-2">
-              <div className="p-1.5 bg-systemIndigo/10 rounded-lg">
+              <div className="p-1.5 bg-systemIndigo/10 rounded-lg" title="Valor sin ajuste">
                 <Package className="w-4 h-4 text-systemIndigo" />
               </div>
               <p className="text-caption text-label-tertiary font-medium">Volumen</p>
@@ -187,7 +200,7 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
 
         {/* Muestras */}
         <div className="glass-thin border border-white/20 rounded-xl p-3 hover:border-systemGreen/40 transition-colors">
-          <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-2" title="Valores de ensayo ajustados ×0.92">
             <div className="p-1.5 bg-systemGreen/10 rounded-lg">
               <Beaker className="w-4 h-4 text-systemGreen" />
             </div>
@@ -250,12 +263,12 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
       {/* Test Results (if available) */}
       {hasTests && allEnsayos.length > 0 && (
         <div className="pt-4 border-t border-white/10">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-3" title="Resultados ajustados ×0.92">
             <Activity className="w-4 h-4 text-systemPurple" />
             <p className="text-callout font-semibold text-label-primary">Resultados de Ensayos</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {allEnsayos.map((ensayo, idx) => (
+            {adjustedEnsayos.map((ensayo: any, idx: number) => (
               <div 
                 key={ensayo.id}
                 className="flex items-center justify-between px-3 py-2.5 glass-thin rounded-xl border border-white/10 hover:border-white/20 transition-colors"
@@ -263,30 +276,30 @@ export function MuestreoCard({ muestreo, index = 0 }: MuestreoCardProps) {
                 <span className="text-callout font-medium text-label-secondary">Ensayo {idx + 1}</span>
                 <div className="flex items-center gap-2">
                   <span className={`text-callout font-bold ${
-                    ensayo.porcentajeCumplimiento >= 95 
+                    (ensayo.porcentajeCumplimientoAjustado || 0) >= 95 
                       ? 'text-systemGreen' 
-                      : ensayo.porcentajeCumplimiento >= 85
+                      : (ensayo.porcentajeCumplimientoAjustado || 0) >= 85
                       ? 'text-systemOrange'
                       : 'text-systemRed'
                   }`}>
-                    {ensayo.resistenciaCalculada.toFixed(0)} kg/cm²
+                    {Number(ensayo.resistenciaCalculadaAjustada || 0).toFixed(0)} kg/cm²
                   </span>
                   <span className="text-label-tertiary">•</span>
                   <span className={`text-callout font-bold ${
-                    ensayo.porcentajeCumplimiento >= 95 
+                    (ensayo.porcentajeCumplimientoAjustado || 0) >= 95 
                       ? 'text-systemGreen' 
-                      : ensayo.porcentajeCumplimiento >= 85
+                      : (ensayo.porcentajeCumplimientoAjustado || 0) >= 85
                       ? 'text-systemOrange'
                       : 'text-systemRed'
                   }`}>
-                    {ensayo.porcentajeCumplimiento.toFixed(0)}%
+                    {Number(ensayo.porcentajeCumplimientoAjustado || 0).toFixed(0)}%
                   </span>
                 </div>
               </div>
             ))}
           </div>
           {hasTests && avgResistance > 0 && (
-            <div className="mt-3 glass-thick border border-white/20 rounded-xl p-3">
+              <div className="mt-3 glass-thick border border-white/20 rounded-xl p-3" title="Promedio ajustado ×0.92">
               <div className="flex items-center justify-between">
                 <span className="text-callout font-semibold text-label-primary">Resistencia Promedio</span>
                 <span className={`text-title-2 font-bold ${

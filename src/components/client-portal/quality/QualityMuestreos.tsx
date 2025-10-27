@@ -6,7 +6,7 @@ import { List, BarChart3, Download, FileSpreadsheet } from 'lucide-react';
 import MuestreoCard from './MuestreoCard';
 import QualityChart from './QualityChart';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
-import { hasEnsayos, calculateDailyAverage, processMuestreosForChart } from '@/lib/qualityHelpers';
+import { hasEnsayos, calculateDailyAverage, processMuestreosForChart, adjustEnsayoResistencia, recomputeEnsayoCompliance } from '@/lib/qualityHelpers';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -25,17 +25,44 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
   
   // Process all muestreos from remisiones
   const allMuestreos = data.remisiones.flatMap(remision => 
-    remision.muestreos.map(muestreo => ({
-      ...muestreo,
-      remisionNumber: remision.remisionNumber,
-      fecha: remision.fecha,
-      constructionSite: remision.constructionSite,
-      rendimientoVolumetrico: remision.rendimientoVolumetrico,
-      volumenFabricado: remision.volume,
-      recipeFc: remision.recipeFc,
-      recipeCode: remision.recipeCode,
-      compliance: remision.avgCompliance
-    }))
+    remision.muestreos.map(muestreo => {
+      // Build adjusted ensayo fields per muestreo using recipe f'c
+      const adjustedMuestras = (muestreo.muestras || []).map(m => {
+        const adjEnsayos = (m.ensayos || []).map(e => {
+          const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+          const compAdj = recomputeEnsayoCompliance(resAdj, remision.recipeFc || 0);
+          return {
+            ...e,
+            resistenciaCalculadaAjustada: resAdj,
+            porcentajeCumplimientoAjustado: compAdj
+          };
+        });
+        return { ...m, ensayos: adjEnsayos };
+      });
+      const allAdjEnsayos = adjustedMuestras.flatMap(m => m.ensayos);
+      const avgCompAdj = allAdjEnsayos.length > 0
+        ? allAdjEnsayos.reduce((s, e: any) => s + (e.porcentajeCumplimientoAjustado || 0), 0) / allAdjEnsayos.length
+        : 0;
+      const avgResAdj = allAdjEnsayos.length > 0
+        ? allAdjEnsayos.reduce((s, e: any) => s + (e.resistenciaCalculadaAjustada || 0), 0) / allAdjEnsayos.length
+        : 0;
+
+      return {
+        ...muestreo,
+        muestras: adjustedMuestras,
+        avgComplianceAjustado: avgCompAdj,
+        avgResistanceAjustada: avgResAdj,
+        remisionNumber: remision.remisionNumber,
+        fecha: remision.fecha,
+        constructionSite: remision.constructionSite,
+        rendimientoVolumetrico: remision.rendimientoVolumetrico,
+        volumenFabricado: remision.volume,
+        recipeFc: remision.recipeFc,
+        recipeCode: remision.recipeCode,
+        // Use adjusted average for charts/summary in this component
+        compliance: avgCompAdj
+      };
+    })
   ).sort((a, b) => {
     // Sort by date descending (most recent first)
     const dateA = new Date(a.fecha);
@@ -47,42 +74,6 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
   const totalPages = Math.max(1, Math.ceil(allMuestreos.length / pageSize));
   const start = (page - 1) * pageSize;
   const visibleMuestreos = allMuestreos.slice(start, start + pageSize);
-
-  // Función para obtener todos los remisiones en slices
-  const fetchAllRemisiones = async () => {
-    const allRemisiones = [...data.remisiones];
-    let currentOffset = data.remisiones.length;
-    const batchSize = 1000;
-
-    while (currentOffset < summary.totals.remisiones) {
-      try {
-        const params = new URLSearchParams({
-          from: summary.period.from,
-          to: summary.period.to,
-          limit: String(batchSize),
-          offset: String(currentOffset)
-        });
-
-        const response = await fetch(`/api/client-portal/quality?${params}`);
-        const result = await response.json();
-
-        if (!response.ok || !result.data?.remisiones) {
-          break;
-        }
-
-        const newRemisiones = result.data.remisiones;
-        if (newRemisiones.length === 0) break;
-
-        allRemisiones.push(...newRemisiones);
-        currentOffset += newRemisiones.length;
-      } catch (error) {
-        console.error('Error fetching remisiones slice:', error);
-        break;
-      }
-    }
-
-    return allRemisiones;
-  };
 
   // Función para exportar a Excel
   const exportToExcel = async () => {
@@ -96,43 +87,19 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
 
       toast.loading('Preparando datos para exportar...');
 
-      // Fetch all remisiones if needed
-      const fullRemisiones = data.remisiones.length < summary.totals.remisiones 
-        ? await fetchAllRemisiones() 
-        : data.remisiones;
-
-      // Reconstruct all muestreos from full remisiones
-      const fullMuestreos = fullRemisiones.flatMap(remision => 
-        remision.muestreos.map(muestreo => ({
-          ...muestreo,
-          remisionNumber: remision.remisionNumber,
-          fecha: remision.fecha,
-          constructionSite: remision.constructionSite,
-          rendimientoVolumetrico: remision.rendimientoVolumetrico,
-          volumenFabricado: remision.volume,
-          recipeFc: remision.recipeFc,
-          recipeCode: remision.recipeCode,
-          compliance: remision.avgCompliance
-        }))
-      ).sort((a, b) => {
-        const dateA = new Date(a.fecha);
-        const dateB = new Date(b.fecha);
-        return dateB.getTime() - dateA.getTime();
-      });
-
       // Preparar datos para exportar
       const excelData: any[] = [];
 
-      fullMuestreos.forEach((muestreo) => {
+      allMuestreos.forEach((muestreo) => {
         const hasTests = muestreo.muestras.some(m => m.ensayos.length > 0);
         const allEnsayos = muestreo.muestras.flatMap(m => m.ensayos);
         
         const avgCompliance = hasTests && allEnsayos.length > 0
-          ? allEnsayos.reduce((sum, e) => sum + e.porcentajeCumplimiento, 0) / allEnsayos.length
+          ? allEnsayos.reduce((sum, e: any) => sum + (e.porcentajeCumplimientoAjustado || 0), 0) / allEnsayos.length
           : null;
 
         const avgResistance = hasTests && allEnsayos.length > 0
-          ? allEnsayos.reduce((sum, e) => sum + e.resistenciaCalculada, 0) / allEnsayos.length
+          ? allEnsayos.reduce((sum, e: any) => sum + (e.resistenciaCalculadaAjustada || 0), 0) / allEnsayos.length
           : null;
 
         // Crear fila base del muestreo
@@ -162,8 +129,8 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
             excelData.push({
               ...baseRow,
               'No. Ensayo': idx + 1,
-              'Resistencia (kg/cm²)': ensayo.resistenciaCalculada.toFixed(0),
-              'Cumplimiento (%)': ensayo.porcentajeCumplimiento.toFixed(1),
+              'Resistencia (kg/cm²)': Number((ensayo as any).resistenciaCalculadaAjustada || 0).toFixed(0),
+              'Cumplimiento (%)': Number((ensayo as any).porcentajeCumplimientoAjustado || 0).toFixed(1),
               'Resistencia Promedio (kg/cm²)': avgResistance ? avgResistance.toFixed(0) : 'N/A',
               'Cumplimiento Promedio (%)': avgCompliance ? avgCompliance.toFixed(1) : 'N/A',
             });

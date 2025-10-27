@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { addDays, endOfWeek, format, isAfter, startOfDay, startOfWeek } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import type { ClientQualityData, ClientQualityRemisionData, ClientQualitySummary } from '@/types/clientQuality';
+import { adjustEnsayoResistencia, recomputeEnsayoCompliance } from '@/lib/qualityHelpers';
 
 interface Options {
   newestFirst?: boolean;
@@ -307,6 +308,30 @@ function buildSummary(params: { clientId: string; fromDate: Date; toDate: Date; 
   const remisionesWithMuestreos = remisiones.filter(r => r.muestreos && r.muestreos.length > 0).length;
   const allEnsayos = remisiones.flatMap(r => r.muestreos.flatMap(m => m.muestras.flatMap(s => s.ensayos
     .filter(e => e.isEdadGarantia === true && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0 && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined))));
+
+  // Build adjusted totals for averages (client-side only), using remision.recipeFc per ensayo
+  let totalResAdj = 0;
+  let countResAdj = 0;
+  let totalCompAdj = 0;
+  let countCompAdj = 0;
+  remisiones.forEach(r => {
+    const fc = r.recipeFc || 0;
+    r.muestreos.forEach(m => m.muestras.forEach(s => s.ensayos
+      .filter(e => e.isEdadGarantia === true && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0 && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined)
+      .forEach(e => {
+        const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+        if (resAdj > 0) {
+          totalResAdj += resAdj;
+          countResAdj += 1;
+        }
+        const compAdj = recomputeEnsayoCompliance(resAdj, fc);
+        if (compAdj > 0) {
+          totalCompAdj += compAdj;
+          countCompAdj += 1;
+        }
+      })
+    ));
+  });
   const remisionesConDatosCalidad = remisiones.filter(r => r.muestreos.some(m => m.muestras.some(s => s.ensayos.some(e => e.isEdadGarantia === true && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0 && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined)))).length;
 
   const totals = {
@@ -322,8 +347,9 @@ function buildSummary(params: { clientId: string; fromDate: Date; toDate: Date; 
   };
 
   const averages = {
-    resistencia: avg(allEnsayos.map(e => e.resistenciaCalculada || 0)),
-    complianceRate: avg(allEnsayos.map(e => e.porcentajeCumplimiento || 0)),
+    // Use adjusted values for resistance and compliance
+    resistencia: countResAdj > 0 ? (totalResAdj / countResAdj) : 0,
+    complianceRate: countCompAdj > 0 ? (totalCompAdj / countCompAdj) : 0,
     masaUnitaria: (() => {
       const totalMuestreos = remisiones.reduce((sum, r) => sum + r.muestreos.length, 0) || 0;
       if (!totalMuestreos) return 0;
@@ -424,10 +450,12 @@ function buildQualityByRecipe(remisiones: ClientQualityRemisionData[]) {
       const valid = s.ensayos.filter(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0 && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined);
       d.totalTests += valid.length;
       valid.forEach(e => {
-        if (e.resistenciaCalculada > 0) { d.totalResistencia += e.resistenciaCalculada; d.resistenciaCount += 1; }
-        if ((e.porcentajeCumplimiento || 0) >= 100) d.compliantTests += 1;
-        // Sum DB-stored compliance percentages for average
-        d.totalCompliance += e.porcentajeCumplimiento || 0;
+        // Adjust resistance and compliance client-side
+        const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+        if (resAdj > 0) { d.totalResistencia += resAdj; d.resistenciaCount += 1; }
+        const compAdj = recomputeEnsayoCompliance(resAdj, r.recipeFc || 0);
+        if ((compAdj || 0) >= 100) d.compliantTests += 1;
+        d.totalCompliance += compAdj || 0;
       });
     }));
   });
@@ -437,7 +465,7 @@ function buildQualityByRecipe(remisiones: ClientQualityRemisionData[]) {
     totalVolume: d.totalVolume,
     totalTests: d.totalTests,
     avgResistencia: d.resistenciaCount > 0 ? d.totalResistencia / d.resistenciaCount : 0,
-    // Average of DB-stored age-adjusted compliance percentages
+    // Average of client-side adjusted compliance percentages
     complianceRate: d.totalTests > 0 ? d.totalCompliance / d.totalTests : 0,
     count: d.count
   }));
@@ -464,10 +492,11 @@ function buildQualityByConstructionSite(remisiones: ClientQualityRemisionData[])
       const valid = s.ensayos.filter(e => e.isEdadGarantia && !e.isEnsayoFueraTiempo && (e.resistenciaCalculada || 0) > 0 && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined);
       d.totalTests += valid.length;
       valid.forEach(e => {
-        if (e.resistenciaCalculada > 0) { d.totalResistencia += e.resistenciaCalculada; d.resistenciaCount += 1; }
-        if ((e.porcentajeCumplimiento || 0) >= 100) d.compliantTests += 1;
-        // Sum DB-stored compliance percentages for average
-        d.totalCompliance += e.porcentajeCumplimiento || 0;
+        const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+        if (resAdj > 0) { d.totalResistencia += resAdj; d.resistenciaCount += 1; }
+        const compAdj = recomputeEnsayoCompliance(resAdj, r.recipeFc || 0);
+        if ((compAdj || 0) >= 100) d.compliantTests += 1;
+        d.totalCompliance += compAdj || 0;
       });
     }));
   });
@@ -476,7 +505,7 @@ function buildQualityByConstructionSite(remisiones: ClientQualityRemisionData[])
     totalVolume: d.totalVolume,
     totalTests: d.totalTests,
     avgResistencia: d.resistenciaCount > 0 ? d.totalResistencia / d.resistenciaCount : 0,
-    // Average of DB-stored age-adjusted compliance percentages
+    // Average of client-side adjusted compliance percentages
     complianceRate: d.totalTests > 0 ? d.totalCompliance / d.totalTests : 0,
     count: d.count
   }));
