@@ -101,13 +101,13 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
               />
             </div>
           </DialogTrigger>
-          <DialogContent className="w-[95vw] max-w-7xl max-h-[90vh] glass-thick rounded-3xl border border-white/20 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl overflow-hidden flex flex-col p-0">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-systemPurple/20 to-transparent rounded-full blur-3xl -z-10" />
-            <div className="px-6 pt-6 pb-4">
-              <DialogTitle className="text-title-3 font-semibold text-label-primary">
+          <DialogContent className="w-[95vw] max-w-7xl max-h-[90vh] rounded-3xl border border-gray-200 bg-white shadow-2xl overflow-hidden flex flex-col p-0">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-gray-100/40 to-transparent rounded-full blur-3xl -z-10" />
+            <div className="px-6 pt-6 pb-4 border-b border-gray-200">
+              <DialogTitle className="text-title-3 font-semibold text-gray-900">
                 Coeficiente de Variación
               </DialogTitle>
-              <DialogDescription className="text-footnote text-label-tertiary mt-2">
+              <DialogDescription className="text-footnote text-gray-600 mt-2">
                 Análisis detallado de uniformidad por receta. Valores menores indican mayor consistencia de calidad.
               </DialogDescription>
             </div>

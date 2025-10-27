@@ -20,6 +20,8 @@ interface QualityMuestreosProps {
 export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
   const [viewMode, setViewMode] = useState<'list' | 'chart'>('list');
   const [isExporting, setIsExporting] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 50;
   
   // Process all muestreos from remisiones
   const allMuestreos = data.remisiones.flatMap(remision => 
@@ -42,9 +44,48 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
   });
 
   const chartData = processMuestreosForChart(allMuestreos);
+  const totalPages = Math.max(1, Math.ceil(allMuestreos.length / pageSize));
+  const start = (page - 1) * pageSize;
+  const visibleMuestreos = allMuestreos.slice(start, start + pageSize);
+
+  // Función para obtener todos los remisiones en slices
+  const fetchAllRemisiones = async () => {
+    const allRemisiones = [...data.remisiones];
+    let currentOffset = data.remisiones.length;
+    const batchSize = 1000;
+
+    while (currentOffset < summary.totals.remisiones) {
+      try {
+        const params = new URLSearchParams({
+          from: summary.period.from,
+          to: summary.period.to,
+          limit: String(batchSize),
+          offset: String(currentOffset)
+        });
+
+        const response = await fetch(`/api/client-portal/quality?${params}`);
+        const result = await response.json();
+
+        if (!response.ok || !result.data?.remisiones) {
+          break;
+        }
+
+        const newRemisiones = result.data.remisiones;
+        if (newRemisiones.length === 0) break;
+
+        allRemisiones.push(...newRemisiones);
+        currentOffset += newRemisiones.length;
+      } catch (error) {
+        console.error('Error fetching remisiones slice:', error);
+        break;
+      }
+    }
+
+    return allRemisiones;
+  };
 
   // Función para exportar a Excel
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     try {
       setIsExporting(true);
       
@@ -53,10 +94,36 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
         return;
       }
 
+      toast.loading('Preparando datos para exportar...');
+
+      // Fetch all remisiones if needed
+      const fullRemisiones = data.remisiones.length < summary.totals.remisiones 
+        ? await fetchAllRemisiones() 
+        : data.remisiones;
+
+      // Reconstruct all muestreos from full remisiones
+      const fullMuestreos = fullRemisiones.flatMap(remision => 
+        remision.muestreos.map(muestreo => ({
+          ...muestreo,
+          remisionNumber: remision.remisionNumber,
+          fecha: remision.fecha,
+          constructionSite: remision.constructionSite,
+          rendimientoVolumetrico: remision.rendimientoVolumetrico,
+          volumenFabricado: remision.volume,
+          recipeFc: remision.recipeFc,
+          recipeCode: remision.recipeCode,
+          compliance: remision.avgCompliance
+        }))
+      ).sort((a, b) => {
+        const dateA = new Date(a.fecha);
+        const dateB = new Date(b.fecha);
+        return dateB.getTime() - dateA.getTime();
+      });
+
       // Preparar datos para exportar
       const excelData: any[] = [];
 
-      allMuestreos.forEach((muestreo) => {
+      fullMuestreos.forEach((muestreo) => {
         const hasTests = muestreo.muestras.some(m => m.ensayos.length > 0);
         const allEnsayos = muestreo.muestras.flatMap(m => m.ensayos);
         
@@ -231,13 +298,35 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
       {viewMode === 'list' ? (
         allMuestreos.length > 0 ? (
           <div className="space-y-4">
-            {allMuestreos.map((muestreo, index) => (
+            {visibleMuestreos.map((muestreo, index) => (
               <MuestreoCard 
                 key={muestreo.id} 
                 muestreo={muestreo} 
                 index={index}
               />
             ))}
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className={`px-4 py-2 rounded-xl glass-thin hover:glass-interactive text-callout ${page === 1 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  Anterior
+                </button>
+                <div className="glass-thin rounded-xl px-3 py-2 text-footnote text-label-secondary">
+                  Página {page} de {totalPages}
+                </div>
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className={`px-4 py-2 rounded-xl glass-thin hover:glass-interactive text-callout ${page === totalPages ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  Siguiente
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="glass-thick rounded-3xl p-12 text-center">

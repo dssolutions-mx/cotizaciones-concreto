@@ -21,9 +21,12 @@ export default function QualityPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [showGlossary, setShowGlossary] = useState(false);
   const [dateRange, setDateRange] = useState({
-    from: startOfDay(subDays(new Date(), 365)), // Default to last 12 months
+    from: startOfDay(subDays(new Date(), 90)), // Default to last 3 months
     to: endOfDay(new Date())
   });
+  const [limit] = useState(500);
+  const [offset, setOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Helper to format date without timezone conversion
   const formatDateForAPI = (date: Date): string => {
@@ -58,7 +61,9 @@ export default function QualityPage() {
 
       const params = new URLSearchParams({
         from: formatDateForAPI(rangeToUse.from),
-        to: formatDateForAPI(rangeToUse.to)
+        to: formatDateForAPI(rangeToUse.to),
+        limit: String(limit),
+        offset: '0'
       });
 
       // Start progress simulation
@@ -87,6 +92,7 @@ export default function QualityPage() {
 
       setData(result.data);
       setSummary(result.summary);
+      setOffset(result.data?.remisiones?.length || 0);
     } catch (error) {
       console.error('Error fetching quality data:', error);
       setData(null);
@@ -94,6 +100,36 @@ export default function QualityPage() {
     } finally {
       setLoading(false);
       setLoadingProgress(0);
+    }
+  };
+
+  const loadMore = async () => {
+    if (!summary) return;
+    try {
+      setLoadingMore(true);
+      const params = new URLSearchParams({
+        from: summary.period.from,
+        to: summary.period.to,
+        limit: String(limit),
+        offset: String(offset)
+      });
+      const response = await fetch(`/api/client-portal/quality?${params}`);
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Failed to load more');
+      }
+      setData(prev => {
+        if (!prev) return result.data;
+        return {
+          ...prev,
+          remisiones: [...prev.remisiones, ...(result.data?.remisiones || [])]
+        };
+      });
+      setOffset(prev => prev + (result.data?.remisiones?.length || 0));
+    } catch (e) {
+      console.error('Error loading more quality data:', e);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -172,6 +208,7 @@ export default function QualityPage() {
               onApply={(newRange) => {
                 setDateRange(newRange);
                 setShowFilters(false);
+                setOffset(0);
                 fetchQualityData(newRange);
               }}
               onCancel={() => setShowFilters(false)}
@@ -190,6 +227,19 @@ export default function QualityPage() {
         >
           <QualityTabs data={data} summary={summary} />
         </motion.div>
+
+        {/* Load More - fetch additional remisiones slices */}
+        {data && summary && (data.remisiones.length < summary.totals.remisiones) && (
+          <div className="flex items-center justify-center mt-6">
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className={`px-5 py-2.5 rounded-2xl glass-interactive border-2 border-white/30 hover:border-white/50 text-callout font-semibold transition-all ${loadingMore ? 'opacity-60 cursor-not-allowed' : ''}`}
+            >
+              {loadingMore ? 'Cargando más…' : `Cargar más datos (${data.remisiones.length} / ${summary.totals.remisiones})`}
+            </button>
+          </div>
+        )}
       </Container>
     </div>
   );
