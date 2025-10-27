@@ -202,11 +202,10 @@ export async function POST(request: Request) {
       }
 
       // Determine product_type (required NOT NULL field)
+      // For client portal, we ONLY use master_recipes, NOT variant recipes
       let productType = 'CONCRETO'; // Default fallback
       if (quoteDetail.master_recipe_id && quoteDetail.master_recipes) {
         productType = quoteDetail.master_recipes.master_code || 'CONCRETO';
-      } else if (quoteDetail.recipe_id && quoteDetail.recipes) {
-        productType = quoteDetail.recipes.recipe_code || 'CONCRETO';
       } else if (quoteDetail.pump_service) {
         productType = 'SERVICIO DE BOMBEO';
       }
@@ -216,7 +215,7 @@ export async function POST(request: Request) {
         .insert({
           order_id: created.id,
           quote_detail_id,
-          recipe_id: quoteDetail.recipe_id || null,
+          recipe_id: null, // ALWAYS null for client portal orders - only use master recipes
           master_recipe_id: quoteDetail.master_recipe_id || null,
           product_type: productType,
           volume: Number(volume),
