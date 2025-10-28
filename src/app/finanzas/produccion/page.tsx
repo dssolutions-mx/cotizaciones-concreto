@@ -1117,7 +1117,7 @@ export default function ComparativaProduccion() {
           {/* Plant Filter */}
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" className="gap-2">
+              <Button variant="secondary" className="gap-2">
                 <Filter className="h-4 w-4" />
                 Plantas ({selectedPlants.length})
                 <ChevronDown className="h-4 w-4" />
@@ -1170,7 +1170,7 @@ export default function ComparativaProduccion() {
 
           <Button 
             onClick={exportToExcel} 
-            variant="outline" 
+            variant="secondary" 
             className="gap-2"
             disabled={streaming || !comparativeData || comparativeData.section1.length === 0}
           >
@@ -1234,7 +1234,7 @@ export default function ComparativaProduccion() {
               </p>
             </div>
             <Link href="/finanzas/produccion/detalle">
-              <Button variant="outline" className="gap-2">
+              <Button variant="secondary" className="gap-2">
                 <Eye className="h-4 w-4" />
                 Ver Análisis Detallado
               </Button>
@@ -1494,7 +1494,7 @@ export default function ComparativaProduccion() {
                 </div>
                 <Button
                   onClick={exportCombinedDataToExcel}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   className="gap-2"
                   disabled={combinedPlantData.length === 0}
@@ -1622,7 +1622,7 @@ export default function ComparativaProduccion() {
                   </div>
                   <Button
                     onClick={exportFinancialAnalysisToExcel}
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className="gap-2"
                     disabled={combinedPlantData.length === 0}
