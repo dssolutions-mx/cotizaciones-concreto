@@ -162,6 +162,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [pumpVolume, setPumpVolume] = useState<number>(0);
   const [pumpPrice, setPumpPrice] = useState<number | null>(null);
   
+  // Per-row recipe editor toggle (collapsed by default)
+  const [editingRecipeMap, setEditingRecipeMap] = useState<Record<string, boolean>>({});
+  const isEditingRecipe = useCallback((id: string) => !!editingRecipeMap[id], [editingRecipeMap]);
+  const openRecipeEditor = useCallback((id: string) => setEditingRecipeMap(m => ({ ...m, [id]: true })), []);
+  const closeRecipeEditor = useCallback((id: string) => setEditingRecipeMap(m => { const n = { ...m }; delete n[id]; return n; }), []);
+  
   // Track render performance for OrderDetails component
   useEffect(() => {
     const finishRender = renderTracker.trackRender('OrderDetails', 'order-data-change', undefined, {
@@ -1802,99 +1808,133 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                   </div>
                                 ) : (
                                   <>
-                                    {/* Filter controls for recipes */}
-                                    <div className="mb-3">
-                                      <div className="flex flex-wrap gap-2 mb-2">
-                                        <input
-                                          type="text"
-                                          placeholder="Buscar receta..."
-                                          value={searchFilter}
-                                          onChange={(e) => setSearchFilter(e.target.value)}
-                                          className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
-                                        />
-                                      </div>
-                                      <div className="flex flex-wrap gap-2 mb-2">
-                                        <select
-                                          className="text-xs px-2 py-1 border border-gray-300 rounded-md"
-                                          onChange={(e) => setStrengthFilter(e.target.value ? Number(e.target.value) : '')}
-                                          value={strengthFilter}
+                                    {/* Collapsed view with current recipe and price */}
+                                    {!isEditingRecipe(product.id) ? (
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                          <div className="text-sm text-gray-900 font-medium">
+                                            {originalProduct?.product_type || product.temp_recipe_code || 'Receta actual'}
+                                          </div>
+                                          {shouldShowFinancialInfo() && (
+                                            <div className="text-xs text-gray-500">
+                                              Precio unitario: {formatCurrency(getProductUnitPrice({ ...product, recipe_id: product.recipe_id || originalProduct?.recipe_id }))}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => openRecipeEditor(product.id)}
+                                          className="text-xs px-3 py-1 rounded border border-gray-300 hover:bg-gray-50"
                                         >
-                                          <option value="">Resistencia</option>
-                                          {getUniqueFilterValues('strength_fc').map((strength) => (
-                                            <option key={strength} value={strength}>{strength} kg/cm²</option>
-                                          ))}
-                                        </select>
+                                          Cambiar receta
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        {/* Filter controls for recipes */}
+                                        <div className="mb-3">
+                                          <div className="flex flex-wrap gap-2 mb-2">
+                                            <input
+                                              type="text"
+                                              placeholder="Buscar receta..."
+                                              value={searchFilter}
+                                              onChange={(e) => setSearchFilter(e.target.value)}
+                                              className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
+                                            />
+                                          </div>
+                                          <div className="flex flex-wrap gap-2 mb-2">
+                                            <select
+                                              className="text-xs px-2 py-1 border border-gray-300 rounded-md"
+                                              onChange={(e) => setStrengthFilter(e.target.value ? Number(e.target.value) : '')}
+                                              value={strengthFilter}
+                                            >
+                                              <option value="">Resistencia</option>
+                                              {getUniqueFilterValues('strength_fc').map((strength) => (
+                                                <option key={strength} value={strength}>{strength} kg/cm²</option>
+                                              ))}
+                                            </select>
+                                            
+                                            <select
+                                              className="text-xs px-2 py-1 border border-gray-300 rounded-md"
+                                              onChange={(e) => setSlumpFilter(e.target.value ? Number(e.target.value) : '')}
+                                              value={slumpFilter}
+                                            >
+                                              <option value="">Revenimiento</option>
+                                              {getUniqueFilterValues('slump').map((slump) => (
+                                                <option key={slump} value={slump}>{slump} cm</option>
+                                              ))}
+                                            </select>
+                                            
+                                            <select
+                                              className="text-xs px-2 py-1 border border-gray-300 rounded-md"
+                                              onChange={(e) => setPlacementTypeFilter(e.target.value)}
+                                              value={placementTypeFilter}
+                                            >
+                                              <option value="">Tipo colocación</option>
+                                              {getUniqueFilterValues('placement_type').map((type) => (
+                                                <option key={type} value={type}>{type}</option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                          
+                                          {(strengthFilter !== '' || placementTypeFilter || slumpFilter !== '' || searchFilter) && (
+                                            <div className="flex justify-between items-center text-xs mb-2">
+                                              <span className="text-gray-600">
+                                                Mostrando {filteredRecipeCount} de {totalRecipeCount} recetas
+                                              </span>
+                                              <button
+                                                onClick={resetFilters}
+                                                className="text-blue-600 hover:text-blue-800"
+                                              >
+                                                Limpiar filtros
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
                                         
                                         <select
-                                          className="text-xs px-2 py-1 border border-gray-300 rounded-md"
-                                          onChange={(e) => setSlumpFilter(e.target.value ? Number(e.target.value) : '')}
-                                          value={slumpFilter}
+                                          value={product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || ''}
+                                          onChange={(e) => handleRecipeChange(product.id, e.target.value)}
+                                          className="w-full px-2 py-1 border border-gray-300 rounded-md"
+                                          disabled={loadingRecipes}
                                         >
-                                          <option value="">Revenimiento</option>
-                                          {getUniqueFilterValues('slump').map((slump) => (
-                                            <option key={slump} value={slump}>{slump} cm</option>
+                                          {(product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id) ? null : (
+                                            <option value="" disabled>Seleccionar receta</option>
+                                          )}
+                                          {(() => {
+                                            const currentSelectionId = product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || '';
+                                            const currentSelectionLabel = originalProduct?.product_type || product.temp_recipe_code || '';
+                                            const isCurrentInList = filteredRecipes.some(r => r.id === currentSelectionId);
+                                            return !isCurrentInList && currentSelectionId ? (
+                                              <option key={`current-${product.id}`} value={currentSelectionId}>
+                                                {currentSelectionLabel || 'Receta actual'}
+                                              </option>
+                                            ) : null;
+                                          })()}
+                                          {filteredRecipes.map((recipe) => (
+                                            <option key={recipe.id} value={recipe.id}>
+                                              {recipe.recipe_code} - {recipe.strength_fc}kg/cm² {recipe.slump}cm {(recipe as any).age_hours ? `${(recipe as any).age_hours}h` : `${recipe.age_days}d`} {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
+                                            </option>
                                           ))}
                                         </select>
-                                        
-                                        <select
-                                          className="text-xs px-2 py-1 border border-gray-300 rounded-md"
-                                          onChange={(e) => setPlacementTypeFilter(e.target.value)}
-                                          value={placementTypeFilter}
-                                        >
-                                          <option value="">Tipo colocación</option>
-                                          {getUniqueFilterValues('placement_type').map((type) => (
-                                            <option key={type} value={type}>{type}</option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      
-                                      {(strengthFilter !== '' || placementTypeFilter || slumpFilter !== '' || searchFilter) && (
-                                        <div className="flex justify-between items-center text-xs mb-2">
-                                          <span className="text-gray-600">
-                                            Mostrando {filteredRecipeCount} de {totalRecipeCount} recetas
-                                          </span>
+                                        <div className="flex justify-end mt-2">
                                           <button
-                                            onClick={resetFilters}
-                                            className="text-blue-600 hover:text-blue-800"
+                                            type="button"
+                                            onClick={() => closeRecipeEditor(product.id)}
+                                            className="text-xs px-3 py-1 rounded border border-gray-300 hover:bg-gray-50"
                                           >
-                                            Limpiar filtros
+                                            Cerrar
                                           </button>
                                         </div>
-                                      )}
-                                    </div>
-                                    
-                                    <select
-                                      value={product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || ''}
-                                      onChange={(e) => handleRecipeChange(product.id, e.target.value)}
-                                      className="w-full px-2 py-1 border border-gray-300 rounded-md"
-                                      disabled={loadingRecipes}
-                                    >
-                                      {(product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id) ? null : (
-                                        <option value="" disabled>Seleccionar receta</option>
-                                      )}
-                                      {(() => {
-                                        const currentSelectionId = product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || '';
-                                        const currentSelectionLabel = originalProduct?.product_type || product.temp_recipe_code || '';
-                                        const isCurrentInList = filteredRecipes.some(r => r.id === currentSelectionId);
-                                        return !isCurrentInList && currentSelectionId ? (
-                                          <option key={`current-${product.id}`} value={currentSelectionId}>
-                                            {currentSelectionLabel || 'Receta actual'}
-                                          </option>
-                                        ) : null;
-                                      })()}
-                                      {filteredRecipes.map((recipe) => (
-                                        <option key={recipe.id} value={recipe.id}>
-                                          {recipe.recipe_code} - {recipe.strength_fc}kg/cm² {recipe.slump}cm {(recipe as any).age_hours ? `${(recipe as any).age_hours}h` : `${recipe.age_days}d`} {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </>
-                                )}
-                                {!isSpecialService && product.recipe_id && originalProduct?.recipe_id && product.recipe_id !== originalProduct?.recipe_id && (
-                                  <div className="mt-1 text-xs text-green-600 font-medium">
-                                    Producto cambiado
-                                  </div>
-                                )}
+                                      </div>
+                                    )}
+                                   </>
+                                 )}
+                                 {!isSpecialService && product.recipe_id && originalProduct?.recipe_id && product.recipe_id !== originalProduct?.recipe_id && (
+                                   <div className="mt-1 text-xs text-green-600 font-medium">
+                                     Producto cambiado
+                                   </div>
+                                 )}
                               </TableCell>
                               <TableCell>
                                 <input
