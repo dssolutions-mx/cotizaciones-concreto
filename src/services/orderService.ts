@@ -714,7 +714,7 @@ export async function updateOrderNormalized(
   // Fetch current order items to get master_recipe_id context
   const { data: currentItems, error: itemsErr } = await supabase
     .from('order_items')
-    .select('id, recipe_id, master_recipe_id, product_type')
+    .select('id, recipe_id, master_recipe_id, product_type, quote_detail_id, unit_price')
     .eq('order_id', orderId);
   if (itemsErr) throw itemsErr;
 
@@ -746,7 +746,15 @@ export async function updateOrderNormalized(
   }
 
   // Build master groups, intelligently handling both new variant selections and existing master items
-  type MasterAgg = { masterId: string; masterCode: string | null; volume: number; pumpVolume: number };
+  type MasterAgg = {
+    masterId: string;
+    masterCode: string | null;
+    volume: number;
+    pumpVolume: number;
+    needsPriceLookup: boolean;
+    existingQuoteDetailId?: string | null;
+    existingUnitPrice?: number | null;
+  };
   const masterIdToAgg: Record<string, MasterAgg> = {};
   const missingMasters: string[] = [];
   const specialServiceItems: typeof editedProducts = []; // Preserve special items
@@ -770,6 +778,7 @@ export async function updateOrderNormalized(
     // Determine target master_recipe_id
     let masterId: string | null = null;
     let masterCode: string | null = null;
+    let recipeChanged = false;
 
     // Log for debugging
     console.log(`Processing edited product ${p.id}:`, {
@@ -799,6 +808,12 @@ export async function updateOrderNormalized(
         masterId = map?.masterId || null;
         masterCode = map?.masterCode || null;
         console.log(`Selected new recipe ${p.recipe_id}, resolved master:`, { masterId, masterCode });
+      }
+      if (currentItem.recipe_id && p.recipe_id !== currentItem.recipe_id) {
+        recipeChanged = true;
+      }
+      if (currentItem.master_recipe_id && p.recipe_id !== currentItem.master_recipe_id) {
+        recipeChanged = recipeChanged || !!masterId;
       }
     }
     // Priority 2: Fall back to the current item's master_recipe_id (for items already at master level)
@@ -838,10 +853,27 @@ export async function updateOrderNormalized(
     }
 
     if (!masterIdToAgg[masterId]) {
-      masterIdToAgg[masterId] = { masterId, masterCode, volume: 0, pumpVolume: 0 };
+      masterIdToAgg[masterId] = {
+        masterId,
+        masterCode,
+        volume: 0,
+        pumpVolume: 0,
+        needsPriceLookup: false,
+        existingQuoteDetailId: currentItem.quote_detail_id || null,
+        existingUnitPrice: currentItem.unit_price || null,
+      };
     }
     masterIdToAgg[masterId].volume += Number(p.volume || 0);
     masterIdToAgg[masterId].pumpVolume += Number(p.pump_volume || 0);
+    if (recipeChanged || !currentItem.quote_detail_id) {
+      masterIdToAgg[masterId].needsPriceLookup = true;
+    }
+    if (!masterIdToAgg[masterId].existingQuoteDetailId && currentItem.quote_detail_id) {
+      masterIdToAgg[masterId].existingQuoteDetailId = currentItem.quote_detail_id;
+    }
+    if (!masterIdToAgg[masterId].existingUnitPrice && typeof currentItem.unit_price === 'number') {
+      masterIdToAgg[masterId].existingUnitPrice = currentItem.unit_price;
+    }
   }
 
   if (strictMasterOnly && missingMasters.length > 0) {
@@ -857,22 +889,32 @@ export async function updateOrderNormalized(
 
   // Resolve pricing per master as of created_at
   const { resolveMasterPriceForAsOf } = await import('@/lib/services/productPriceResolver');
-  const resolvedPerMaster: Record<string, { quoteId: string; quoteDetailId: string; unitPrice: number; priceSource: 'as_of'|'current' }> = {};
+  const resolvedPerMaster: Record<string, { quoteId: string | null; quoteDetailId: string; unitPrice: number; priceSource: 'as_of'|'current'|'existing' }> = {};
   for (const g of groups) {
-    const resolved = await resolveMasterPriceForAsOf({
-      clientId,
-      constructionSite: site,
-      plantId,
-      createdAt,
-      masterRecipeId: g.masterId,
-    });
-    resolvedPerMaster[g.masterId] = resolved;
+    if (g.needsPriceLookup || !g.existingQuoteDetailId) {
+      const resolved = await resolveMasterPriceForAsOf({
+        clientId,
+        constructionSite: site,
+        plantId,
+        createdAt,
+        masterRecipeId: g.masterId,
+      });
+      resolvedPerMaster[g.masterId] = resolved;
+    } else {
+      resolvedPerMaster[g.masterId] = {
+        quoteId: (orderRow as any).quote_id || null,
+        quoteDetailId: g.existingQuoteDetailId,
+        unitPrice: g.existingUnitPrice || 0,
+        priceSource: 'existing'
+      };
+    }
   }
 
-  // Choose an order-level quote_id to set (prefer the latest resolved by priceSource order)
-  const chosen = groups.map(g => ({ masterId: g.masterId, ...resolvedPerMaster[g.masterId] }))
-    .sort((a, b) => (a.priceSource === 'as_of' && b.priceSource === 'current') ? -1 : 0)[0];
-  const newQuoteId = chosen?.quoteId || null;
+  // Choose an order-level quote_id to set when a new linkage is resolved
+  const firstResolved = groups
+    .map(g => ({ masterId: g.masterId, ...resolvedPerMaster[g.masterId] }))
+    .find(entry => entry.priceSource !== 'existing' && entry.quoteId && entry.quoteId !== (orderRow as any).quote_id);
+  const newQuoteId = firstResolved?.quoteId || null;
 
   // Update order header (and set quote_id if provided by resolver)
   const orderHeaderUpdate = { ...orderUpdate } as any;

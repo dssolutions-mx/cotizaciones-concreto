@@ -502,13 +502,17 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       pump_volume: pumpVolume,
       products: order.products
         .filter(p => p.product_type !== 'SERVICIO DE BOMBEO') // Exclude global pump service items from product editing
-        .map(p => ({ 
-        id: p.id, 
-        volume: p.volume,
-        pump_volume: p.pump_volume,
-        recipe_id: p.recipe_id,
-        temp_recipe_code: p.product_type
-      }))
+        .map(p => { 
+          const masterId = (p as any).master_recipe_id || null;
+          return ({ 
+            id: p.id, 
+            volume: p.volume,
+            pump_volume: p.pump_volume,
+            recipe_id: p.recipe_id || masterId || null,
+            master_recipe_id: masterId,
+            temp_recipe_code: p.product_type
+          });
+        })
     });
     
     // Load available recipes when entering edit mode
@@ -1003,12 +1007,62 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       // Normalizar a recetas maestras y actualizar items (solo si no hay remisiones)
       if (editedOrder.products && editedOrder.products.length > 0 && !hasRemisiones) {
-        await orderService.updateOrderNormalized(
-          orderId,
-          orderUpdate,
-          editedOrder.products.map(p => ({ id: p.id, volume: p.volume, pump_volume: p.pump_volume, recipe_id: p.recipe_id })),
-          { normalizeToMasters: true, mergePerMaster: true, strictMasterOnly: true }
-        );
+        // Filter to only concrete/recipe items, exclude special service items
+        const concreteProducts = editedOrder.products.filter(p => {
+          const originalProduct = order.products.find(op => op.id === p.id);
+          return originalProduct && 
+                 originalProduct.product_type !== 'VACÍO DE OLLA' &&
+                 originalProduct.product_type !== 'SERVICIO DE BOMBEO' &&
+                 originalProduct.product_type !== 'EMPTY_TRUCK_CHARGE' &&
+                 !originalProduct.has_empty_truck_charge;
+        });
+
+        // Normalize and save concrete items
+        if (concreteProducts.length > 0) {
+          // Preserve original recipe_id if not explicitly changed
+          const concreteProductsWithRecipe = concreteProducts.map(p => {
+            const originalProduct = order.products.find(op => op.id === p.id);
+            return {
+              id: p.id,
+              volume: p.volume,
+              pump_volume: p.pump_volume,
+              // Use selected recipe_id, or fall back to original if unchanged
+              recipe_id: p.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || undefined
+            };
+          });
+
+          await orderService.updateOrderNormalized(
+            orderId,
+            orderUpdate,
+            concreteProductsWithRecipe,
+            { normalizeToMasters: true, mergePerMaster: true, strictMasterOnly: true }
+          );
+        }
+
+        // Handle special service items separately (just update volume)
+        const specialProducts = editedOrder.products.filter(p => {
+          const originalProduct = order.products.find(op => op.id === p.id);
+          return originalProduct && 
+                 (originalProduct.product_type === 'VACÍO DE OLLA' ||
+                  originalProduct.product_type === 'SERVICIO DE BOMBEO' ||
+                  originalProduct.product_type === 'EMPTY_TRUCK_CHARGE' ||
+                  originalProduct.has_empty_truck_charge);
+        });
+
+        // Update volume-only for special items if changed
+        for (const sp of specialProducts) {
+          const originalProduct = order.products.find(op => op.id === sp.id);
+          if (originalProduct && originalProduct.volume !== sp.volume) {
+            console.log(`Updating special item ${sp.id} volume from ${originalProduct.volume} to ${sp.volume}`);
+            await orderService.updateOrderItem(sp.id, {
+              volume: sp.volume,
+              total_price: sp.volume * (originalProduct.unit_price || 0)
+            });
+          }
+        }
+      } else if (!hasRemisiones) {
+        // No products to normalize, just update order header
+        await orderService.updateOrder(orderId, orderUpdate);
       }
       
       // Reload order details after saving
@@ -1728,10 +1782,20 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       {isEditing && canEditProducts
                       ? (editedOrder?.products || []).map((product) => {
                           const originalProduct = order.products.find(p => p.id === product.id);
+                          const isSpecialService = originalProduct && (
+                            originalProduct.product_type === 'VACÍO DE OLLA' ||
+                            originalProduct.product_type === 'SERVICIO DE BOMBEO' ||
+                            originalProduct.product_type === 'EMPTY_TRUCK_CHARGE' ||
+                            originalProduct.has_empty_truck_charge
+                          );
                           return (
                             <TableRow key={product.id}>
                               <TableCell className="font-medium">
-                                {loadingRecipes ? (
+                                {isSpecialService ? (
+                                  <div className="py-2 text-gray-700 font-semibold">
+                                    {originalProduct?.product_type || 'Servicio especial'}
+                                  </div>
+                                ) : loadingRecipes ? (
                                   <div className="flex items-center gap-2">
                                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-green-500 border-t-transparent"></div>
                                     <span>Cargando...</span>
@@ -1800,12 +1864,24 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                     </div>
                                     
                                     <select
-                                      value={product.recipe_id || ''}
+                                      value={product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || ''}
                                       onChange={(e) => handleRecipeChange(product.id, e.target.value)}
                                       className="w-full px-2 py-1 border border-gray-300 rounded-md"
                                       disabled={loadingRecipes}
                                     >
-                                      <option value="" disabled>Seleccionar receta</option>
+                                      {(product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id) ? null : (
+                                        <option value="" disabled>Seleccionar receta</option>
+                                      )}
+                                      {(() => {
+                                        const currentSelectionId = product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || '';
+                                        const currentSelectionLabel = originalProduct?.product_type || product.temp_recipe_code || '';
+                                        const isCurrentInList = filteredRecipes.some(r => r.id === currentSelectionId);
+                                        return !isCurrentInList && currentSelectionId ? (
+                                          <option key={`current-${product.id}`} value={currentSelectionId}>
+                                            {currentSelectionLabel || 'Receta actual'}
+                                          </option>
+                                        ) : null;
+                                      })()}
                                       {filteredRecipes.map((recipe) => (
                                         <option key={recipe.id} value={recipe.id}>
                                           {recipe.recipe_code} - {recipe.strength_fc}kg/cm² {recipe.slump}cm {(recipe as any).age_hours ? `${(recipe as any).age_hours}h` : `${recipe.age_days}d`} {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
@@ -1814,7 +1890,7 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                     </select>
                                   </>
                                 )}
-                                {product.recipe_id && originalProduct?.recipe_id && product.recipe_id !== originalProduct?.recipe_id && (
+                                {!isSpecialService && product.recipe_id && originalProduct?.recipe_id && product.recipe_id !== originalProduct?.recipe_id && (
                                   <div className="mt-1 text-xs text-green-600 font-medium">
                                     Producto cambiado
                                   </div>
@@ -1832,7 +1908,9 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                 <span className="ml-1">m³</span>
                               </TableCell>
                               <TableCell>
-                                {originalProduct?.has_pump_service ? (
+                                {isSpecialService ? (
+                                  originalProduct?.product_type === 'SERVICIO DE BOMBEO' ? 'Global' : '-'
+                                ) : originalProduct?.has_pump_service ? (
                                   <>
                                     <span className="mr-2">Sí -</span>
                                     <input
@@ -1851,8 +1929,20 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                               </TableCell>
                               {shouldShowFinancialInfo() && originalProduct && (
                                 <>
-                                  <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product))}</TableCell>
-                                  <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product) * product.volume)}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(
+                                      isSpecialService
+                                        ? (originalProduct.unit_price || originalProduct.empty_truck_price || 0)
+                                        : getProductUnitPrice(product)
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(
+                                      isSpecialService
+                                        ? (product.volume * (originalProduct.unit_price || originalProduct.empty_truck_price || 0))
+                                        : getProductUnitPrice(product) * product.volume
+                                    )}
+                                  </TableCell>
                                 </>
                               )}
                             </TableRow>
