@@ -59,17 +59,29 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
         return;
       }
 
-      // Get materials directly from remision_materiales - it already has both theoretical and actual quantities
+      // Get materials directly from remision_materiales with material relationship
+      // Join with materials table to get material_name dynamically
       const { data: materialsData, error: materialsError } = await supabase
         .from('remision_materiales')
-        .select('material_type, cantidad_real, cantidad_teorica, ajuste')
+        .select(`
+          id,
+          material_type,
+          material_id,
+          cantidad_real,
+          cantidad_teorica,
+          ajuste,
+          materials:material_id(id, material_name, material_code)
+        `)
         .eq('remision_id', remision.id);
       
       if (materialsError) throw materialsError;
       
       // Process the materials with calculated values
       const analysis: MaterialAnalysis[] = (materialsData || []).map((material: any) => {
-        const materialName = MATERIAL_TYPE_MAP[material.material_type] || material.material_type;
+        // Use material_name from materials table if available, otherwise fallback to MATERIAL_TYPE_MAP or material_type
+        const materialName = material.materials?.material_name 
+          || MATERIAL_TYPE_MAP[material.material_type] 
+          || material.material_type;
         const theoreticalQuantity = material.cantidad_teorica || 0;
         const actualQuantity = material.cantidad_real || 0;
         const adjustment = material.ajuste || 0;
@@ -250,10 +262,9 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
                 </thead>
                 <tbody>
                   {materialsAnalysis.map((material, index) => (
-                    <tr key={material.material_type} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <tr key={`${material.material_type}-${index}`} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                       <td className="px-4 py-3 border-b">
                         <div className="font-medium text-gray-900">{material.material_name}</div>
-                        <div className="text-xs text-gray-500">{material.material_type}</div>
                       </td>
                       <td className="px-4 py-3 border-b text-right font-mono text-sm">
                         {material.theoretical_quantity.toFixed(2)}
@@ -441,14 +452,13 @@ export default function RemisionMaterialsAnalysis({ remision }: RemisionMaterial
               {materialsAnalysis
                 .filter(m => m.has_adjustments)
                 .map((material, index) => (
-                  <div key={material.material_type} className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200">
+                  <div key={`${material.material_type}-adjustment-${index}`} className="flex items-center justify-between p-3 bg-white rounded-lg border border-orange-200">
                     <div className="flex items-center gap-3">
                       <div className={`w-3 h-3 rounded-full ${
                         material.adjustment > 0 ? 'bg-blue-500' : 'bg-orange-500'
                       }`}></div>
                       <div>
                         <p className="font-medium text-gray-900">{material.material_name}</p>
-                        <p className="text-sm text-gray-500">{material.material_type}</p>
                       </div>
                     </div>
                     <div className="text-right">

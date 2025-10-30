@@ -161,6 +161,13 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [hasPumpService, setHasPumpService] = useState<boolean>(false);
   const [pumpVolume, setPumpVolume] = useState<number>(0);
   const [pumpPrice, setPumpPrice] = useState<number | null>(null);
+  // Empty truck adder state
+  const emptyTruckExists = useMemo(() => {
+    return (order?.products || []).some(p => p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge);
+  }, [order?.products]);
+  const [showEmptyTruckAdder, setShowEmptyTruckAdder] = useState(false);
+  const [emptyTruckVolumeDraft, setEmptyTruckVolumeDraft] = useState<number>(1);
+  const [emptyTruckPriceDraft, setEmptyTruckPriceDraft] = useState<number>(0);
   
   // Per-row recipe editor toggle (collapsed by default)
   const [editingRecipeMap, setEditingRecipeMap] = useState<Record<string, boolean>>({});
@@ -1817,7 +1824,11 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                           </div>
                                           {shouldShowFinancialInfo() && (
                                             <div className="text-xs text-gray-500">
-                                              Precio unitario: {formatCurrency(getProductUnitPrice({ ...product, recipe_id: product.recipe_id || originalProduct?.recipe_id }))}
+                                              {(() => {
+                                                const selectedId = product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || '';
+                                                const unit = (selectedId ? (recipePrices[selectedId] ?? originalProduct?.unit_price ?? 0) : (originalProduct?.unit_price ?? 0));
+                                                return <>Precio unitario: {formatCurrency(unit)}</>;
+                                              })()}
                                             </div>
                                           )}
                                         </div>
@@ -2246,6 +2257,54 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                             ? "El servicio de bombeo se cobra globalmente para este cliente y sitio de construcción"
                             : "Precio manual requerido - no hay cotizaciones con bombeo para este cliente/sitio"}
                         </p>
+                      </div>
+                    )}
+
+                    {/* Add Empty Truck (Vacío de Olla) */}
+                    {!emptyTruckExists && (
+                      <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-amber-800">Vacío de olla</div>
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={showEmptyTruckAdder}
+                              onChange={(e) => setShowEmptyTruckAdder(e.target.checked)}
+                              className="h-4 w-4 text-amber-600 rounded border-gray-300"
+                            />
+                            <span className="text-amber-800">Agregar</span>
+                          </label>
+                        </div>
+                        {showEmptyTruckAdder && (
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+                            <div>
+                              <label className="block text-sm text-gray-700 mb-1">Volumen (m³)</label>
+                              <input
+                                type="number"
+                                min="0.1"
+                                step="0.1"
+                                value={emptyTruckVolumeDraft}
+                                onChange={(e)=> setEmptyTruckVolumeDraft(parseFloat(e.target.value)||0)}
+                                className="w-full rounded-md border border-amber-300 px-3 py-2 bg-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm text-gray-700 mb-1">Precio unitario</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={emptyTruckPriceDraft}
+                                onChange={(e)=> setEmptyTruckPriceDraft(parseFloat(e.target.value)||0)}
+                                className="w-full rounded-md border border-amber-300 px-3 py-2 bg-white"
+                              />
+                            </div>
+                            <div className="self-end text-sm text-gray-700">
+                              Total estimado: <span className="font-semibold">{formatCurrency((emptyTruckVolumeDraft||0)*(emptyTruckPriceDraft||0))}</span>
+                            </div>
+                          </div>
+                        )}
+                        <p className="text-xs text-amber-700 mt-2">Este cargo se agrega como un producto especial y no afecta la receta.</p>
                       </div>
                     )}
                     
