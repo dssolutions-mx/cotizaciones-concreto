@@ -15,6 +15,7 @@ interface ProductPriceData {
   slump: number;
   base_price: number;
   recipe_id: string | null; // Allow null for master-recipe based quotes
+  master_recipe_id: string | null; // Allow null for recipe-based quotes
   client_id: string;
   construction_site: string;
   quote_id: string;
@@ -90,6 +91,27 @@ export const productPriceService = {
       .match(updateConditions);
 
     if (error) throw new Error(`Error deactivating existing prices: ${error.message}`);
+  },
+
+  async deactivateExistingMasterPrices(clientId: string, masterRecipeId: string, constructionSite: string, plantId?: string) {
+    const updateConditions: any = { 
+      client_id: clientId,
+      master_recipe_id: masterRecipeId,
+      construction_site: constructionSite,
+      is_active: true 
+    };
+    
+    // Add plant_id filter if provided
+    if (plantId) {
+      updateConditions.plant_id = plantId;
+    }
+
+    const { error } = await supabase
+      .from('product_prices')
+      .update({ is_active: false })
+      .match(updateConditions);
+
+    if (error) throw new Error(`Error deactivating existing master prices: ${error.message}`);
   },
 
   async createNewPrice(priceData: ProductPriceData) {
@@ -270,16 +292,26 @@ export const productPriceService = {
         try {
           // Handle recipe-based quote details (concrete products)
           if ((detail.recipe_id || detail.master_recipe_id) && detail.recipes) {
-            // First deactivate existing prices for this client-recipe-construction_site combination
-            // For both recipe and master-recipe based quotes
-            const recipeIdToDeactivate = detail.recipe_id; // Use recipe_id if available, handles both cases
+            const plantId = detail.recipes.plant_id || quote.plant_id;
             
-            if (recipeIdToDeactivate) {
+            // Deactivate existing prices based on whether it's recipe-based or master-based
+            if (detail.recipe_id) {
+              // Recipe-based: deactivate existing recipe-level prices
               await productPriceService.deactivateExistingPrices(
                 quote.client_id, 
-                recipeIdToDeactivate, 
+                detail.recipe_id, 
                 quote.construction_site,
-                detail.recipes.plant_id || quote.plant_id
+                plantId
+              );
+            }
+            
+            if (detail.master_recipe_id) {
+              // Master-based: deactivate existing master-level prices
+              await productPriceService.deactivateExistingMasterPrices(
+                quote.client_id, 
+                detail.master_recipe_id, 
+                quote.construction_site,
+                plantId
               );
             }
 
@@ -298,13 +330,14 @@ export const productPriceService = {
               max_aggregate_size: detail.recipes.max_aggregate_size,
               slump: detail.recipes.slump,
               base_price: detail.final_price,
-              recipe_id: detail.recipe_id || null, // Set to null for master-recipe quotes, not empty string
+              recipe_id: detail.recipe_id || null, // Set to null for master-recipe quotes
+              master_recipe_id: detail.master_recipe_id || null, // Set to null for recipe-based quotes
               client_id: quote.client_id,
               construction_site: quote.construction_site,
               quote_id: quote.id, // Link to quote for traceability
               effective_date: now,
               approval_date: now,
-              plant_id: detail.recipes.plant_id || quote.plant_id
+              plant_id: plantId
             };
 
             await productPriceService.createNewPrice(priceData);

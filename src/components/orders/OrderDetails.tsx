@@ -635,6 +635,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       const uniqueQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
       console.log('Unique quote IDs from active prices:', uniqueQuoteIds);
       
+      // Check if the order's quote_id is in the list (important for debugging)
+      if ((order as any)?.quote_id && !uniqueQuoteIds.includes((order as any).quote_id)) {
+        console.warn(`Order's quote_id ${(order as any).quote_id} is NOT in active prices list - will include it anyway to ensure all quote masters are available`);
+        uniqueQuoteIds.push((order as any).quote_id);
+      }
+      
       // 2. Fetch all quotes with master and recipe joins (plant-scoped)
       const { data: quotesData, error: quotesError } = await supabase
         .from('quotes')
@@ -706,15 +712,21 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       quotesData.forEach(quoteData => {
         const activeDetails = quoteData.quote_details.filter((detail: any) => {
-          // Master-based: check plant and active pair
+          // Master-based: check plant and active pair, with fallback to include if master exists in quote_detail
           if (detail.master_recipe_id && detail.master_recipes) {
-            return detail.master_recipes.plant_id === plantId && activeQuoteMasterCombos.has(`${quoteData.id}:${detail.master_recipe_id}`);
+            const hasActivePrice = activeQuoteMasterCombos.has(`${quoteData.id}:${detail.master_recipe_id}`);
+            const masterExists = !!detail.master_recipes;
+            const plantMatches = detail.master_recipes.plant_id === plantId;
+            // Include if: (has active price AND plant matches) OR (master exists in quote AND plant matches)
+            return plantMatches && (hasActivePrice || masterExists);
           }
-          // Recipe-mapped to master: check plant and active pair
+          // Recipe-mapped to master: check plant and active pair, with fallback
           if (detail.recipe_id && detail.recipes && detail.recipes.master_recipe_id) {
-            return detail.recipes.master_recipes && 
-                   detail.recipes.master_recipes.plant_id === plantId && 
-                   activeQuoteMasterCombos.has(`${quoteData.id}:${detail.recipes.master_recipe_id}`);
+            const hasActivePrice = detail.recipes.master_recipes && 
+                                   activeQuoteMasterCombos.has(`${quoteData.id}:${detail.recipes.master_recipe_id}`);
+            const masterExists = !!detail.recipes.master_recipes;
+            const plantMatches = detail.recipes.master_recipes?.plant_id === plantId;
+            return plantMatches && (hasActivePrice || masterExists);
           }
           // Recipe fallback: check plant and fallback pair
           if (detail.recipe_id && detail.recipes && !detail.recipes.master_recipe_id) {
