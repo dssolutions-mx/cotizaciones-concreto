@@ -1987,10 +1987,15 @@ const ConcreteMixCalculator = () => {
               <Button
                 onClick={async () => {
                   try {
+                    if (!currentPlant?.id) {
+                      alert('Por favor selecciona una planta antes de exportar');
+                      return;
+                    }
                     const codesParam = successRecipeCodes.join(',');
                     const params = new URLSearchParams({ 
                       recipe_codes: codesParam,
-                      export_type: exportType
+                      export_type: exportType,
+                      plant_id: currentPlant.id
                     });
                     const res = await fetch(`/api/recipes/export/arkik?${params.toString()}`);
                     if (!res.ok) {
