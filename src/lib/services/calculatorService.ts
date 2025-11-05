@@ -562,10 +562,14 @@ export async function saveRecipesWithDecisions(
 
     try {
       if (decision.action === 'updateVariant') {
-        // Update existing recipe
+        // Update existing recipe AND create new version with materials
         if (!decision.existingRecipeId) throw new Error('Falta existingRecipeId para actualizar variante');
         
+        console.log(`[Recipe ${finalCode}] Updating existing variant ${decision.existingRecipeId}`);
+        
         const { variantSuffix } = parseMasterAndVariantFromRecipeCode(finalCode);
+        
+        // Update recipe record
         const { error: updErr } = await supabase
           .from('recipes')
           .update({
@@ -579,7 +583,270 @@ export async function saveRecipesWithDecisions(
             variant_suffix: variantSuffix
           })
           .eq('id', decision.existingRecipeId);
-        if (updErr) throw updErr;
+        if (updErr) {
+          console.error(`[Recipe ${finalCode}] Failed to update recipe:`, updErr);
+          throw updErr;
+        }
+        
+        // Get current version number to increment
+        const { data: currentVersions } = await supabase
+          .from('recipe_versions')
+          .select('version_number')
+          .eq('recipe_id', decision.existingRecipeId)
+          .order('version_number', { ascending: false })
+          .limit(1);
+        
+        const nextVersionNumber = currentVersions && currentVersions.length > 0 
+          ? (currentVersions[0].version_number || 0) + 1 
+          : 1;
+        
+        // Mark previous versions as not current
+        await supabase
+          .from('recipe_versions')
+          .update({ is_current: false })
+          .eq('recipe_id', decision.existingRecipeId)
+          .eq('is_current', true);
+        
+        // Create new version
+        const { data: version, error: versionErr } = await supabase
+          .from('recipe_versions')
+          .insert({
+            recipe_id: decision.existingRecipeId,
+            version_number: nextVersionNumber,
+            effective_date: new Date().toISOString(),
+            is_current: true,
+            notes: `Actualizado por calculadora automática - ${r.recipeType === 'MR' ? 'MR' : 'FC'}`
+          })
+          .select('id')
+          .single();
+        
+        if (versionErr || !version || !version.id) {
+          console.error(`[Recipe ${finalCode}] Version creation failed:`, versionErr);
+          throw new Error(`Failed to create version for recipe ${finalCode}: ${versionErr?.message || 'Version is null'}`);
+        }
+        
+        console.log(`[Recipe ${finalCode}] Created version ${nextVersionNumber}:`, version.id);
+        
+        // Now save materials (same logic as createVariant/newMaster)
+        // Insert materials - resolve from calculator recipe data
+        const materialQuantities: any[] = [];
+        
+        // Cement - always try to save if value exists
+        const cementMat = allMaterials?.find(m => m.category === 'CEMENTO' || m.category === 'cemento');
+        if (!cementMat) {
+          console.warn(`[Recipe ${finalCode}] No cement material found in plant ${plantId}`);
+        } else if (r.materialsDry.cement && r.materialsDry.cement > 0) {
+          materialQuantities.push({
+            recipe_version_id: version.id,
+            material_id: cementMat.id,
+            material_type: 'CEMENTO',
+            quantity: r.materialsDry.cement,
+            unit: 'kg/m³'
+          });
+          console.log(`[Recipe ${finalCode}] Added cement: ${cementMat.material_name} (${r.materialsDry.cement} kg/m³)`);
+        }
+
+        // Water - always try to save if value exists
+        const waterMat = allMaterials?.find(m => m.category === 'AGUA' || m.category === 'agua');
+        if (!waterMat) {
+          console.warn(`[Recipe ${finalCode}] No water material found in plant ${plantId}`);
+        } else if (r.materialsDry.water && r.materialsDry.water > 0) {
+          materialQuantities.push({
+            recipe_version_id: version.id,
+            material_id: waterMat.id,
+            material_type: 'AGUA',
+            quantity: r.materialsDry.water,
+            unit: 'L/m³'
+          });
+          console.log(`[Recipe ${finalCode}] Added water: ${waterMat.material_name} (${r.materialsDry.water} L/m³)`);
+        }
+
+        // Aggregates and additives from selection
+        if (selection) {
+          // Sands
+          if (selection.sandIds) {
+            Object.entries(selection.sandIds).forEach(([idx, matId]) => {
+              const key = `sand${idx}`;
+              const dryValue = r.materialsDry[key];
+              if (dryValue && dryValue > 0 && matId) {
+                materialQuantities.push({
+                  recipe_version_id: version.id,
+                  material_id: matId,
+                  material_type: 'AGREGADO_FINO',
+                  quantity: dryValue,
+                  unit: 'kg/m³'
+                });
+              }
+            });
+          }
+
+          // Gravels
+          if (selection.gravelIds) {
+            Object.entries(selection.gravelIds).forEach(([idx, matId]) => {
+              const key = `gravel${idx}`;
+              const dryValue = r.materialsDry[key];
+              if (dryValue && dryValue > 0 && matId) {
+                materialQuantities.push({
+                  recipe_version_id: version.id,
+                  material_id: matId,
+                  material_type: 'AGREGADO_GRUESO',
+                  quantity: dryValue,
+                  unit: 'kg/m³'
+                });
+              }
+            });
+          }
+
+          // Additives
+          if (selection.additiveIds) {
+            Object.entries(selection.additiveIds).forEach(([idx, matId]) => {
+              const key = `additive${idx}`;
+              const dryValue = r.materialsDry[key];
+              if (dryValue && dryValue > 0 && matId) {
+                // Additives can be in L/m³ or kg/m³, check the material to determine unit
+                const additiveMat = allMaterials?.find(m => m.id === matId);
+                const unit = additiveMat?.category === 'aditivo' && (additiveMat.unit_of_measure === 'l' || additiveMat.unit_of_measure === 'L') ? 'L/m³' : 'kg/m³';
+                materialQuantities.push({
+                  recipe_version_id: version.id,
+                  material_id: matId,
+                  material_type: 'ADITIVO',
+                  quantity: dryValue,
+                  unit: unit
+                });
+              }
+            });
+          }
+        }
+
+        if (materialQuantities.length === 0) {
+          console.warn(`[Recipe ${finalCode}] WARNING: No materials to insert for material_quantities table`);
+        } else {
+          console.log(`[Recipe ${finalCode}] Inserting ${materialQuantities.length} materials to material_quantities`);
+          const { error: mqErr } = await supabase.from('material_quantities').insert(materialQuantities);
+          if (mqErr) {
+            console.error(`[Recipe ${finalCode}] Failed to insert material_quantities:`, mqErr);
+            throw new Error(`Failed to insert materials for recipe ${finalCode}: ${mqErr.message}`);
+          }
+          console.log(`[Recipe ${finalCode}] Successfully inserted ${materialQuantities.length} materials to material_quantities`);
+        }
+
+        // Insert SSS reference materials - ALL materials with SSS values
+        const ssMaterialRows: any[] = [];
+        
+        // Cement SSS
+        if (cementMat && r.materialsSSS.cement && r.materialsSSS.cement > 0) {
+          ssMaterialRows.push({
+            recipe_version_id: version.id,
+            material_id: cementMat.id,
+            material_type: 'CEMENTO',
+            sss_value: r.materialsSSS.cement,
+            unit: 'kg/m³'
+          });
+        }
+        
+        // Water SSS
+        if (waterMat && r.materialsSSS.water && r.materialsSSS.water > 0) {
+          ssMaterialRows.push({
+            recipe_version_id: version.id,
+            material_id: waterMat.id,
+            material_type: 'AGUA',
+            sss_value: r.materialsSSS.water,
+            unit: 'L/m³'
+          });
+        }
+
+        // Sands SSS values
+        if (selection?.sandIds) {
+          Object.entries(selection.sandIds).forEach(([idx, matId]) => {
+            const key = `sand${idx}`;
+            const sssValue = r.materialsSSS[key];
+            if (sssValue && sssValue > 0 && matId) {
+              ssMaterialRows.push({
+                recipe_version_id: version.id,
+                material_id: matId,
+                material_type: 'AGREGADO_FINO',
+                sss_value: sssValue,
+                unit: 'kg/m³'
+              });
+            }
+          });
+        }
+
+        // Gravels SSS values
+        if (selection?.gravelIds) {
+          Object.entries(selection.gravelIds).forEach(([idx, matId]) => {
+            const key = `gravel${idx}`;
+            const sssValue = r.materialsSSS[key];
+            if (sssValue && sssValue > 0 && matId) {
+              ssMaterialRows.push({
+                recipe_version_id: version.id,
+                material_id: matId,
+                material_type: 'AGREGADO_GRUESO',
+                sss_value: sssValue,
+                unit: 'kg/m³'
+              });
+            }
+          });
+        }
+
+        // Additives SSS values
+        if (selection?.additiveIds) {
+          Object.entries(selection.additiveIds).forEach(([idx, matId]) => {
+            const key = `additive${idx}`;
+            const sssValue = r.materialsSSS[key];
+            if (sssValue && sssValue > 0 && matId) {
+              // Additives can be in L/m³ or kg/m³, check the material to determine unit
+              const additiveMat = allMaterials?.find(m => m.id === matId);
+              const unit = additiveMat?.category === 'aditivo' && (additiveMat.unit_of_measure === 'l' || additiveMat.unit_of_measure === 'L') ? 'L/m³' : 'kg/m³';
+              ssMaterialRows.push({
+                recipe_version_id: version.id,
+                material_id: matId,
+                material_type: 'ADITIVO',
+                sss_value: sssValue,
+                unit: unit
+              });
+            }
+          });
+        }
+
+        if (ssMaterialRows.length === 0) {
+          console.warn(`[Recipe ${finalCode}] WARNING: No SSS materials to insert for recipe_reference_materials table`);
+        } else {
+          console.log(`[Recipe ${finalCode}] Inserting ${ssMaterialRows.length} SSS materials to recipe_reference_materials`);
+          const { error: sssErr } = await supabase.from('recipe_reference_materials').insert(ssMaterialRows);
+          if (sssErr) {
+            console.error(`[Recipe ${finalCode}] Failed to insert recipe_reference_materials:`, sssErr);
+            throw new Error(`Failed to insert SSS materials for recipe ${finalCode}: ${sssErr.message}`);
+          }
+          console.log(`[Recipe ${finalCode}] Successfully inserted ${ssMaterialRows.length} SSS materials to recipe_reference_materials`);
+        }
+        
+        // Post-creation validation: Verify version and materials were saved
+        const { data: verifyVersion } = await supabase
+          .from('recipe_versions')
+          .select('id')
+          .eq('id', version.id)
+          .single();
+        
+        if (!verifyVersion) {
+          console.error(`[Recipe ${finalCode}] CRITICAL: Version ${version.id} not found after creation!`);
+        }
+        
+        const { count: materialCount } = await supabase
+          .from('material_quantities')
+          .select('id', { count: 'exact', head: true })
+          .eq('recipe_version_id', version.id);
+        
+        const { count: sssCount } = await supabase
+          .from('recipe_reference_materials')
+          .select('id', { count: 'exact', head: true })
+          .eq('recipe_version_id', version.id);
+        
+        console.log(`[Recipe ${finalCode}] Validation: Version exists=${!!verifyVersion}, Materials=${materialCount || 0}, SSS=${sssCount || 0}`);
+        
+        if ((materialCount || 0) === 0 && (sssCount || 0) === 0) {
+          console.error(`[Recipe ${finalCode}] CRITICAL: No materials saved! Recipe may be incomplete.`);
+        }
 
       } else if (decision.action === 'createVariant' || decision.action === 'newMaster') {
         // Create new recipe (for both createVariant and newMaster)
@@ -640,37 +907,45 @@ export async function saveRecipesWithDecisions(
           })
           .select('id')
           .single();
-        if (versionErr) throw versionErr;
+        
+        if (versionErr || !version || !version.id) {
+          console.error(`[Recipe ${finalCode}] Version creation failed:`, versionErr);
+          throw new Error(`Failed to create version for recipe ${finalCode}: ${versionErr?.message || 'Version is null'}`);
+        }
+        
+        console.log(`[Recipe ${finalCode}] Created version:`, version.id);
 
         // Insert materials - resolve from calculator recipe data
         const materialQuantities: any[] = [];
         
-        // Cement
-        if (r.materialsDry.cement > 0) {
-          const cementMat = allMaterials?.find(m => m.category === 'CEMENTO');
-          if (cementMat) {
-            materialQuantities.push({
-              recipe_version_id: version.id,
-              material_id: cementMat.id,
-              material_type: 'CEMENTO',
-              quantity: r.materialsDry.cement,
-              unit: 'kg/m³'
-            });
-          }
+        // Cement - always try to save if value exists (even if 0, but check > 0 for insert)
+        const cementMat = allMaterials?.find(m => m.category === 'CEMENTO' || m.category === 'cemento');
+        if (!cementMat) {
+          console.warn(`[Recipe ${finalCode}] No cement material found in plant ${plantId}`);
+        } else if (r.materialsDry.cement && r.materialsDry.cement > 0) {
+          materialQuantities.push({
+            recipe_version_id: version.id,
+            material_id: cementMat.id,
+            material_type: 'CEMENTO',
+            quantity: r.materialsDry.cement,
+            unit: 'kg/m³'
+          });
+          console.log(`[Recipe ${finalCode}] Added cement: ${cementMat.material_name} (${r.materialsDry.cement} kg/m³)`);
         }
 
-        // Water
-        if (r.materialsDry.water > 0) {
-          const waterMat = allMaterials?.find(m => m.category === 'AGUA');
-          if (waterMat) {
-            materialQuantities.push({
-              recipe_version_id: version.id,
-              material_id: waterMat.id,
-              material_type: 'AGUA',
-              quantity: r.materialsDry.water,
-              unit: 'L/m³'
-            });
-          }
+        // Water - always try to save if value exists
+        const waterMat = allMaterials?.find(m => m.category === 'AGUA' || m.category === 'agua');
+        if (!waterMat) {
+          console.warn(`[Recipe ${finalCode}] No water material found in plant ${plantId}`);
+        } else if (r.materialsDry.water && r.materialsDry.water > 0) {
+          materialQuantities.push({
+            recipe_version_id: version.id,
+            material_id: waterMat.id,
+            material_type: 'AGUA',
+            quantity: r.materialsDry.water,
+            unit: 'L/m³'
+          });
+          console.log(`[Recipe ${finalCode}] Added water: ${waterMat.material_name} (${r.materialsDry.water} L/m³)`);
         }
 
         // Aggregates and additives from selection
@@ -679,12 +954,13 @@ export async function saveRecipesWithDecisions(
           if (selection.sandIds) {
             Object.entries(selection.sandIds).forEach(([idx, matId]) => {
               const key = `sand${idx}`;
-              if (r.materialsDry[key] > 0 && matId) {
+              const dryValue = r.materialsDry[key];
+              if (dryValue && dryValue > 0 && matId) {
                 materialQuantities.push({
                   recipe_version_id: version.id,
                   material_id: matId,
                   material_type: 'AGREGADO_FINO',
-                  quantity: r.materialsDry[key],
+                  quantity: dryValue,
                   unit: 'kg/m³'
                 });
               }
@@ -695,12 +971,13 @@ export async function saveRecipesWithDecisions(
           if (selection.gravelIds) {
             Object.entries(selection.gravelIds).forEach(([idx, matId]) => {
               const key = `gravel${idx}`;
-              if (r.materialsDry[key] > 0 && matId) {
+              const dryValue = r.materialsDry[key];
+              if (dryValue && dryValue > 0 && matId) {
                 materialQuantities.push({
                   recipe_version_id: version.id,
                   material_id: matId,
                   material_type: 'AGREGADO_GRUESO',
-                  quantity: r.materialsDry[key],
+                  quantity: dryValue,
                   unit: 'kg/m³'
                 });
               }
@@ -711,54 +988,151 @@ export async function saveRecipesWithDecisions(
           if (selection.additiveIds) {
             Object.entries(selection.additiveIds).forEach(([idx, matId]) => {
               const key = `additive${idx}`;
-              if (r.materialsDry[key] > 0 && matId) {
+              const dryValue = r.materialsDry[key];
+              if (dryValue && dryValue > 0 && matId) {
+                // Additives can be in L/m³ or kg/m³, check the material to determine unit
+                const additiveMat = allMaterials?.find(m => m.id === matId);
+                const unit = additiveMat?.category === 'aditivo' && (additiveMat.unit_of_measure === 'l' || additiveMat.unit_of_measure === 'L') ? 'L/m³' : 'kg/m³';
                 materialQuantities.push({
                   recipe_version_id: version.id,
                   material_id: matId,
                   material_type: 'ADITIVO',
-                  quantity: r.materialsDry[key],
-                  unit: 'kg/m³'
+                  quantity: dryValue,
+                  unit: unit
                 });
               }
             });
           }
         }
 
-        if (materialQuantities.length > 0) {
+        if (materialQuantities.length === 0) {
+          console.warn(`[Recipe ${finalCode}] WARNING: No materials to insert for material_quantities table`);
+        } else {
+          console.log(`[Recipe ${finalCode}] Inserting ${materialQuantities.length} materials to material_quantities`);
           const { error: mqErr } = await supabase.from('material_quantities').insert(materialQuantities);
-          if (mqErr) throw mqErr;
+          if (mqErr) {
+            console.error(`[Recipe ${finalCode}] Failed to insert material_quantities:`, mqErr);
+            throw new Error(`Failed to insert materials for recipe ${finalCode}: ${mqErr.message}`);
+          }
+          console.log(`[Recipe ${finalCode}] Successfully inserted ${materialQuantities.length} materials to material_quantities`);
         }
 
-        // Insert SSS reference materials
+        // Insert SSS reference materials - ALL materials with SSS values
         const ssMaterialRows: any[] = [];
-        if (r.materialsSSS.cement > 0) {
-          const cementMat = allMaterials?.find(m => m.category === 'CEMENTO');
-          if (cementMat) {
-            ssMaterialRows.push({
-              recipe_version_id: version.id,
-              material_id: cementMat.id,
-              material_type: 'CEMENTO',
-              sss_value: r.materialsSSS.cement,
-              unit: 'kg/m³'
-            });
-          }
+        
+        // Cement SSS
+        if (cementMat && r.materialsSSS.cement && r.materialsSSS.cement > 0) {
+          ssMaterialRows.push({
+            recipe_version_id: version.id,
+            material_id: cementMat.id,
+            material_type: 'CEMENTO',
+            sss_value: r.materialsSSS.cement,
+            unit: 'kg/m³'
+          });
         }
-        if (r.materialsSSS.water > 0) {
-          const waterMat = allMaterials?.find(m => m.category === 'AGUA');
-          if (waterMat) {
-            ssMaterialRows.push({
-              recipe_version_id: version.id,
-              material_id: waterMat.id,
-              material_type: 'AGUA',
-              sss_value: r.materialsSSS.water,
-              unit: 'L/m³'
-            });
-          }
+        
+        // Water SSS
+        if (waterMat && r.materialsSSS.water && r.materialsSSS.water > 0) {
+          ssMaterialRows.push({
+            recipe_version_id: version.id,
+            material_id: waterMat.id,
+            material_type: 'AGUA',
+            sss_value: r.materialsSSS.water,
+            unit: 'L/m³'
+          });
         }
 
-        if (ssMaterialRows.length > 0) {
+        // Sands SSS values
+        if (selection?.sandIds) {
+          Object.entries(selection.sandIds).forEach(([idx, matId]) => {
+            const key = `sand${idx}`;
+            const sssValue = r.materialsSSS[key];
+            if (sssValue && sssValue > 0 && matId) {
+              ssMaterialRows.push({
+                recipe_version_id: version.id,
+                material_id: matId,
+                material_type: 'AGREGADO_FINO',
+                sss_value: sssValue,
+                unit: 'kg/m³'
+              });
+            }
+          });
+        }
+
+        // Gravels SSS values
+        if (selection?.gravelIds) {
+          Object.entries(selection.gravelIds).forEach(([idx, matId]) => {
+            const key = `gravel${idx}`;
+            const sssValue = r.materialsSSS[key];
+            if (sssValue && sssValue > 0 && matId) {
+              ssMaterialRows.push({
+                recipe_version_id: version.id,
+                material_id: matId,
+                material_type: 'AGREGADO_GRUESO',
+                sss_value: sssValue,
+                unit: 'kg/m³'
+              });
+            }
+          });
+        }
+
+        // Additives SSS values
+        if (selection?.additiveIds) {
+          Object.entries(selection.additiveIds).forEach(([idx, matId]) => {
+            const key = `additive${idx}`;
+            const sssValue = r.materialsSSS[key];
+            if (sssValue && sssValue > 0 && matId) {
+              // Additives can be in L/m³ or kg/m³, check the material to determine unit
+              const additiveMat = allMaterials?.find(m => m.id === matId);
+              const unit = additiveMat?.category === 'aditivo' && (additiveMat.unit_of_measure === 'l' || additiveMat.unit_of_measure === 'L') ? 'L/m³' : 'kg/m³';
+              ssMaterialRows.push({
+                recipe_version_id: version.id,
+                material_id: matId,
+                material_type: 'ADITIVO',
+                sss_value: sssValue,
+                unit: unit
+              });
+            }
+          });
+        }
+
+        if (ssMaterialRows.length === 0) {
+          console.warn(`[Recipe ${finalCode}] WARNING: No SSS materials to insert for recipe_reference_materials table`);
+        } else {
+          console.log(`[Recipe ${finalCode}] Inserting ${ssMaterialRows.length} SSS materials to recipe_reference_materials`);
           const { error: sssErr } = await supabase.from('recipe_reference_materials').insert(ssMaterialRows);
-          if (sssErr) throw sssErr;
+          if (sssErr) {
+            console.error(`[Recipe ${finalCode}] Failed to insert recipe_reference_materials:`, sssErr);
+            throw new Error(`Failed to insert SSS materials for recipe ${finalCode}: ${sssErr.message}`);
+          }
+          console.log(`[Recipe ${finalCode}] Successfully inserted ${ssMaterialRows.length} SSS materials to recipe_reference_materials`);
+        }
+        
+        // Post-creation validation: Verify version and materials were saved
+        const { data: verifyVersion } = await supabase
+          .from('recipe_versions')
+          .select('id')
+          .eq('id', version.id)
+          .single();
+        
+        if (!verifyVersion) {
+          console.error(`[Recipe ${finalCode}] CRITICAL: Version ${version.id} not found after creation!`);
+        }
+        
+        const { count: materialCount } = await supabase
+          .from('material_quantities')
+          .select('id', { count: 'exact', head: true })
+          .eq('recipe_version_id', version.id);
+        
+        const { count: sssCount } = await supabase
+          .from('recipe_reference_materials')
+          .select('id', { count: 'exact', head: true })
+          .eq('recipe_version_id', version.id);
+        
+        console.log(`[Recipe ${finalCode}] Validation: Version exists=${!!verifyVersion}, Materials=${materialCount || 0}, SSS=${sssCount || 0}`);
+        
+        if ((materialCount || 0) === 0 && (sssCount || 0) === 0) {
+          console.error(`[Recipe ${finalCode}] CRITICAL: No materials saved! Recipe may be incomplete.`);
         }
       }
     } catch (err: any) {

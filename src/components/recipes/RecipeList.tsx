@@ -4,12 +4,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { recipeService } from '@/lib/supabase/recipes';
 import { Recipe } from '@/types/recipes';
 import { RecipeDetailsModal } from './RecipeDetailsModal';
 import ReassignMasterModal from './ReassignMasterModal';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
 import { usePlantAwareRecipes } from '@/hooks/usePlantAwareRecipes';
+import { usePlantContext } from '@/contexts/PlantContext';
 
 interface RecipeListProps {
   hasEditPermission?: boolean;
@@ -30,6 +33,7 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   const [reassignOpenFor, setReassignOpenFor] = useState<any | null>(null);
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(new Set());
+  const [exportType, setExportType] = useState<'update' | 'new'>('update');
   
   // State to manage expanded/collapsed groups
   const [expandedTypes, setExpandedTypes] = useState<Record<string, boolean>>({});
@@ -40,6 +44,9 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
     limit: 10000,
     autoRefresh: true
   });
+  
+  // Get current plant for export
+  const { currentPlant } = usePlantContext();
 
   // Enrich recipes with master data if not already present
   const recipes = useMemo(() => {
@@ -62,7 +69,16 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
   const exportArkik = async () => {
     if (selectedCodes.size === 0) return;
     const codesParam = Array.from(selectedCodes).join(',');
-    const params = new URLSearchParams({ recipe_codes: codesParam });
+    const params = new URLSearchParams({ 
+      recipe_codes: codesParam,
+      export_type: exportType
+    });
+    
+    // Add plant_id if available
+    if (currentPlant?.id) {
+      params.append('plant_id', currentPlant.id);
+    }
+    
     const res = await fetch(`/api/recipes/export/arkik?${params.toString()}`);
     if (!res.ok) {
       alert('Error al exportar ARKIK');
@@ -162,7 +178,28 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
 
   return (
     <div className="container mx-auto p-4">
-      <h2 className="text-xl font-bold mb-4">Lista de Recetas</h2>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-xl font-bold">Lista de Recetas</h2>
+        {selectedCodes.size > 0 && (
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="export-type" className="text-sm">Formato de exportación:</Label>
+              <Select value={exportType} onValueChange={(value: 'update' | 'new') => setExportType(value)}>
+                <SelectTrigger id="export-type" className="w-[200px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="update">Actualizar existentes</SelectItem>
+                  <SelectItem value="new">Nuevas recetas</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Button onClick={exportArkik} variant="outline">
+              Exportar {selectedCodes.size} receta{selectedCodes.size !== 1 ? 's' : ''} a ARKIK
+            </Button>
+          </div>
+        )}
+      </div>
       
       {Object.keys(groupedRecipes).length === 0 ? (
         <div className="text-gray-500">No hay recetas disponibles</div>
@@ -177,7 +214,6 @@ export const RecipeList = ({ hasEditPermission = false }: RecipeListProps) => {
                 <h3 className="text-lg font-semibold">Tipo: {type}</h3>
                 <div className="flex items-center gap-2">
                   <span className="mr-2 text-gray-600">{countRecipes(strengthGroups)} Recetas</span>
-                  <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); exportArkik(); }}>Exportar ARKIK</Button>
                   <svg
                     className={`w-5 h-5 transform transition-transform ${
                       expandedTypes[type] ? 'rotate-180' : ''
