@@ -143,11 +143,13 @@ export default function CaracterizacionMaterialesPage() {
     fecha_elaboracion: new Date().toISOString().split('T')[0]
   });
 
-  // Cargar plantas al montar el componente
+  // Cargar plantas al montar el componente (depende del perfil para filtrado)
   useEffect(() => {
-    loadPlants();
-    loadMaterials();
-  }, []);
+    if (profile) {
+      loadPlants();
+      loadMaterials();
+    }
+  }, [profile]);
 
   // Filtrar materiales cuando cambie la planta o tipo de material
   useEffect(() => {
@@ -157,11 +159,24 @@ export default function CaracterizacionMaterialesPage() {
   const loadPlants = async () => {
     try {
       setLoadingPlants(true);
-      const { data, error } = await supabase
+      
+      let query = supabase
         .from('plants')
-        .select('id, code, name')
+        .select('id, code, name, business_unit_id')
         .eq('is_active', true)
         .order('code');
+
+      // Filtrar plantas según business_unit del usuario
+      if (profile?.business_unit_id) {
+        query = query.eq('business_unit_id', profile.business_unit_id);
+      }
+      // Si no tiene business_unit_id pero tiene plant_id, solo su planta
+      else if (profile?.plant_id) {
+        query = query.eq('id', profile.plant_id);
+      }
+      // Si no tiene ninguno (EXECUTIVE global), todas las plantas
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setPlants(data || []);

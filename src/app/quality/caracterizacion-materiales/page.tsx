@@ -107,14 +107,26 @@ export default function CaracterizacionMaterialesHistoricoPage() {
   const [selectedTipoEstudio, setSelectedTipoEstudio] = useState<string>('all');
   const [generatingPDFIds, setGeneratingPDFIds] = useState<Set<string>>(new Set());
 
-  // Cargar plantas
+  // Cargar plantas filtradas por business_unit del usuario
   useEffect(() => {
     const loadPlants = async () => {
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('plants')
-          .select('id, code, name')
+          .select('id, code, name, business_unit_id')
           .order('code');
+
+        // Filtrar plantas según business_unit del usuario
+        if (profile?.business_unit_id) {
+          query = query.eq('business_unit_id', profile.business_unit_id);
+        }
+        // Si no tiene business_unit_id pero tiene plant_id, solo su planta
+        else if (profile?.plant_id) {
+          query = query.eq('id', profile.plant_id);
+        }
+        // Si no tiene ninguno (EXECUTIVE global), todas las plantas
+
+        const { data, error } = await query;
 
         if (error) throw error;
         setPlants(data || []);
@@ -129,12 +141,32 @@ export default function CaracterizacionMaterialesHistoricoPage() {
     }
   }, [session, profile]);
 
-  // Cargar estudios
+  // Cargar estudios filtrados por business_unit del usuario
   useEffect(() => {
     const loadEstudios = async () => {
       try {
         setLoading(true);
-        const { data, error } = await supabase
+        
+        // Obtener IDs de plantas según el business_unit del usuario
+        let plantIds: string[] = [];
+        
+        if (profile?.business_unit_id) {
+          // Usuario tiene business_unit: obtener todas las plantas de esa unidad
+          const { data: plantsData, error: plantsError } = await supabase
+            .from('plants')
+            .select('id')
+            .eq('business_unit_id', profile.business_unit_id);
+          
+          if (plantsError) throw plantsError;
+          plantIds = plantsData?.map(p => p.id) || [];
+        } else if (profile?.plant_id) {
+          // Usuario tiene plant_id específica
+          plantIds = [profile.plant_id];
+        }
+        // Si no tiene ni business_unit_id ni plant_id (EXECUTIVE global): ver todos los estudios
+
+        // Construir query
+        let query = supabase
           .from('alta_estudio')
           .select(`
             *,
@@ -153,6 +185,13 @@ export default function CaracterizacionMaterialesHistoricoPage() {
             )
           `)
           .order('created_at', { ascending: false });
+
+        // Aplicar filtro por plantas si corresponde
+        if (plantIds.length > 0) {
+          query = query.in('id_planta', plantIds);
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
         setEstudios(data || []);

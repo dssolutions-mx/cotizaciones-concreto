@@ -227,9 +227,9 @@ interface EstudioData {
     fecha_muestreo?: string;
     numero_arena?: number;
     cliente?: string;
-    planta?: {
-      nombre: string;
-    };
+    planta?: string;
+    tipo_estudio?: string[];
+    origen_material?: string;
   };
   estudios: Array<{
     id: string;
@@ -611,9 +611,34 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
 
         {/* Metadata Grid */}
         <View style={styles.metadataGrid}>
+          {/* Row 1: Tipo de Análisis, Planta, Tipo de Material */}
           <View style={styles.metadataRow}>
             <View style={styles.metadataCell}>
-              <Text style={styles.metadataLabel}>Fecha de muestreo:</Text>
+              <Text style={styles.metadataLabel}>Tipo de Análisis:</Text>
+              <Text style={styles.metadataValue}>
+                {estudio.alta_estudio.tipo_estudio && estudio.alta_estudio.tipo_estudio.length > 0
+                  ? estudio.alta_estudio.tipo_estudio.join(', ')
+                  : 'N/A'}
+              </Text>
+            </View>
+            <View style={styles.metadataCell}>
+              <Text style={styles.metadataLabel}>Planta:</Text>
+              <Text style={styles.metadataValue}>{estudio.alta_estudio.planta || 'N/A'}</Text>
+            </View>
+            <View style={styles.metadataCell}>
+              <Text style={styles.metadataLabel}>Tipo de Material:</Text>
+              <Text style={styles.metadataValue}>{estudio.alta_estudio.tipo_material}</Text>
+            </View>
+          </View>
+          
+          {/* Row 2: Material, Fecha Muestreo, Fecha Elaboración */}
+          <View style={styles.metadataRow}>
+            <View style={styles.metadataCell}>
+              <Text style={styles.metadataLabel}>Material:</Text>
+              <Text style={styles.metadataValue}>{estudio.alta_estudio.nombre_material}</Text>
+            </View>
+            <View style={styles.metadataCell}>
+              <Text style={styles.metadataLabel}>Fecha de Muestreo:</Text>
               <Text style={styles.metadataValue}>
                 {estudio.alta_estudio.fecha_muestreo 
                   ? format(new Date(estudio.alta_estudio.fecha_muestreo), 'dd/MM/yyyy', { locale: es })
@@ -621,53 +646,47 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
               </Text>
             </View>
             <View style={styles.metadataCell}>
-              <Text style={styles.metadataLabel}>Fecha de estudio:</Text>
+              <Text style={styles.metadataLabel}>Fecha de Elaboración:</Text>
               <Text style={styles.metadataValue}>
                 {format(new Date(estudio.alta_estudio.fecha_elaboracion), 'dd/MM/yyyy', { locale: es })}
               </Text>
             </View>
-            <View style={styles.metadataCell}>
-              <Text style={styles.metadataLabel}>No. de Folio:</Text>
-              <Text style={styles.metadataValue}>
-                {estudio.alta_estudio.numero_arena || 'N/A'}
-              </Text>
-            </View>
           </View>
+          
+          {/* Row 3: Mina de Procedencia, Ubicación, Origen */}
           <View style={styles.metadataRow}>
             <View style={styles.metadataCell}>
-              <Text style={styles.metadataLabel}>Mina de procedencia:</Text>
+              <Text style={styles.metadataLabel}>Mina de Procedencia:</Text>
               <Text style={styles.metadataValue}>{estudio.alta_estudio.mina_procedencia}</Text>
             </View>
             <View style={styles.metadataCell}>
               <Text style={styles.metadataLabel}>Ubicación:</Text>
               <Text style={styles.metadataValue}>
-                {estudio.alta_estudio.ubicacion || estudio.alta_estudio.planta?.nombre || 'N/A'}
+                {estudio.alta_estudio.ubicacion || 'N/A'}
               </Text>
             </View>
             <View style={styles.metadataCell}>
-              <Text style={styles.metadataLabel}>Número de la Arena:</Text>
-              <Text style={styles.metadataValue}>{estudio.alta_estudio.numero_arena || 'N/A'}</Text>
+              <Text style={styles.metadataLabel}>Origen:</Text>
+              <Text style={styles.metadataValue}>{estudio.alta_estudio.origen_material || 'N/A'}</Text>
             </View>
           </View>
+          
+          {/* Row 4: Muestreada por, ID de Muestra */}
           <View style={styles.metadataRow}>
             <View style={styles.metadataCell}>
-              <Text style={styles.metadataLabel}>Muestreada por:</Text>
+              <Text style={styles.metadataLabel}>Muestreado por:</Text>
               <Text style={styles.metadataValue}>{estudio.alta_estudio.tecnico}</Text>
-            </View>
-            <View style={styles.metadataCell}>
-              <Text style={styles.metadataLabel}>Cliente:</Text>
-              <Text style={styles.metadataValue}>{estudio.alta_estudio.cliente || 'ITISA'}</Text>
             </View>
             <View style={styles.metadataCell}>
               <Text style={styles.metadataLabel}>ID de la Muestra:</Text>
               <Text style={styles.metadataValue}>{estudio.alta_estudio.id.slice(0, 8).toUpperCase()}</Text>
             </View>
-          </View>
-          <View style={styles.metadataRow}>
-            <View style={styles.metadataCell}>
-              <Text style={styles.metadataLabel}>Planta de procedencia:</Text>
-              <Text style={styles.metadataValue}>{estudio.alta_estudio.planta?.nombre || 'N/A'}</Text>
-            </View>
+            {estudio.alta_estudio.numero_arena && (
+              <View style={styles.metadataCell}>
+                <Text style={styles.metadataLabel}>No. de Folio:</Text>
+                <Text style={styles.metadataValue}>{estudio.alta_estudio.numero_arena}</Text>
+              </View>
+            )}
           </View>
         </View>
 
