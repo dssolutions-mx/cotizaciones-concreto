@@ -19,7 +19,7 @@ function getCSPHeader(nonce: string) {
 
 // Removed sessionRefreshes map and MIN_REFRESH_INTERVAL as helper handles refresh
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   // Generate a nonce for CSP
   const nonce = generateNonce();
   // console.log(`Generated nonce for CSP: ${nonce.substring(0, 10)}...`);

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Plus, Search, AlertCircle, CheckCircle2, Layers } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
@@ -88,6 +88,21 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isMaterialDropdownOpen, setIsMaterialDropdownOpen] = useState(false);
+  const materialPickerRef = useRef<HTMLDivElement | null>(null);
+  const materialInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (materialPickerRef.current && !materialPickerRef.current.contains(event.target as Node)) {
+        setIsMaterialDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const plantId = currentPlant?.id;
 
@@ -278,8 +293,8 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
         return;
       }
       
-      const invalidRegular = selectedMaterials.filter(m => !m.quantity_regular || parseFloat(m.quantity_regular) <= 0);
-      const invalidSSS = selectedMaterials.filter(m => !m.quantity_sss || parseFloat(m.quantity_sss) <= 0);
+      const invalidRegular = selectedMaterials.filter(m => parsedQuantity(m.quantity_regular) <= 0);
+      const invalidSSS = selectedMaterials.filter(m => parsedQuantity(m.quantity_sss) <= 0);
       if (invalidRegular.length > 0 || invalidSSS.length > 0) {
         setError('Ingresa cantidades para Regular y SSS en todos los materiales');
         return;
@@ -389,7 +404,7 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
         recipe_version_id: version.id,
         material_id: m.material_id,
         material_type: materials.find(mat => mat.id === m.material_id)?.category || 'MATERIAL',
-        quantity: parseFloat(m.quantity_regular),
+        quantity: parsedQuantity(m.quantity_regular),
         unit: m.unit
       }));
       
@@ -399,22 +414,21 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
       
       if (mqErr) throw mqErr;
 
-      // Insert SSS reference materials (if they have SSS quantities)
+      // Insert SSS reference materials (one row per material)
       const ssMaterialRows = selectedMaterials
-        .filter(m => m.quantity_sss && parseFloat(m.quantity_sss) > 0)
+        .filter(m => parsedQuantity(m.quantity_sss) > 0)
         .map(m => ({
           recipe_version_id: version.id,
           material_id: m.material_id,
           material_type: materials.find(mat => mat.id === m.material_id)?.category || 'SSS',
-          sss_value: parseFloat(m.quantity_sss),
+          sss_value: parsedQuantity(m.quantity_sss),
           unit: m.unit
         }));
 
       if (ssMaterialRows.length > 0) {
         const { error: sssErr } = await supabase
           .from('recipe_reference_materials')
-          .insert(ssMaterialRows);
-        
+          .upsert(ssMaterialRows, { onConflict: 'recipe_version_id,material_id' });
         if (sssErr) throw sssErr;
       }
       
@@ -486,6 +500,13 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
     onClose();
   };
 
+  const parsedQuantity = (value: string) => {
+    if (!value) return 0;
+    const normalized = value.replace(',', '.');
+    const parsed = Number.parseFloat(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
   const addMaterial = (material: Material) => {
     if (selectedMaterials.find(m => m.material_id === material.id)) {
       toast.error('Material ya agregado');
@@ -499,6 +520,10 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
       unit: material.unit_of_measure
     }]);
     setMaterialSearch('');
+    requestAnimationFrame(() => {
+      materialInputRef.current?.focus();
+      setIsMaterialDropdownOpen(true);
+    });
   };
 
   const removeMaterial = (materialId: string) => {
@@ -785,37 +810,45 @@ export const AddRecipeModalV2: React.FC<AddRecipeModalV2Props> = ({
                 <label className="block text-sm font-semibold mb-3">Materiales</label>
                 
                 {/* Add Material */}
-                <div className="relative mb-4">
+                <div className="relative mb-4" ref={materialPickerRef}>
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
+                    ref={materialInputRef}
                     type="text"
                     placeholder="Buscar material..."
                     value={materialSearch}
-                    onChange={(e) => setMaterialSearch(e.target.value)}
+                    onChange={(e) => {
+                      setMaterialSearch(e.target.value);
+                      setIsMaterialDropdownOpen(true);
+                    }}
                     onFocus={() => setIsMaterialDropdownOpen(true)}
-                    onBlur={() => setTimeout(() => setIsMaterialDropdownOpen(false), 150)}
                     className="w-full pl-10 pr-4 py-2 border rounded-lg"
                   />
                   
-                  {isMaterialDropdownOpen && filteredMaterials.length > 0 && (
+                  {isMaterialDropdownOpen && (
                     <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                      {filteredMaterials.map(material => (
-                        <button
-                          key={material.id}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            addMaterial(material);
-                            setIsMaterialDropdownOpen(false);
-                          }}
-                          className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center justify-between"
-                        >
-                          <div>
-                            <div className="font-medium text-sm">{material.material_name}</div>
-                            <div className="text-xs text-gray-600">{material.category || material.material_code}</div>
-                          </div>
-                          <Plus className="h-4 w-4 text-gray-400" />
-                        </button>
-                      ))}
+                      {filteredMaterials.length > 0 ? (
+                        filteredMaterials.map(material => (
+                          <button
+                            key={material.id}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              addMaterial(material);
+                            }}
+                            className="w-full px-4 py-2 text-left hover:bg-gray-50 flex items-center justify-between"
+                          >
+                            <div>
+                              <div className="font-medium text-sm">{material.material_name}</div>
+                              <div className="text-xs text-gray-600">{material.category || material.material_code}</div>
+                            </div>
+                            <Plus className="h-4 w-4 text-gray-400" />
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-gray-500">
+                          {materialSearch ? 'Sin resultados para la búsqueda actual' : 'No hay materiales disponibles'}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

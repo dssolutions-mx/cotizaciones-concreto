@@ -3,6 +3,72 @@
 import type { ClientQualityRemisionData, ClientQualityData } from '@/types/clientQuality';
 
 /**
+ * Global ensayo adjustment factor. All ensayo resistances are multiplied by this
+ * factor client-side and related compliance metrics are recomputed accordingly.
+ * CV and rendimiento volumétrico remain unchanged.
+ */
+export const ENSAYO_ADJUSTMENT_FACTOR = 0.92;
+
+/**
+ * Adjust an ensayo's calculated resistance by the global factor.
+ */
+export function adjustEnsayoResistencia(resistenciaCalculada: number): number {
+  const value = Number(resistenciaCalculada) || 0;
+  if (value <= 0) return 0;
+  return value * ENSAYO_ADJUSTMENT_FACTOR;
+}
+
+/**
+ * Recompute ensayo compliance based on adjusted resistance and recipe f'c.
+ */
+export function recomputeEnsayoCompliance(resistenciaAjustada: number, recipeFc: number): number {
+  const fc = Number(recipeFc) || 0;
+  if (fc <= 0) return 0;
+  const r = Number(resistenciaAjustada) || 0;
+  if (r <= 0) return 0;
+  return (r / fc) * 100;
+}
+
+/**
+ * Returns a shallow-cloned muestreo with adjusted ensayo fields and averages.
+ * - Adds per-ensayo: resistenciaCalculadaAjustada, porcentajeCumplimientoAjustado
+ * - Adds per-muestreo: avgResistanceAjustada, avgComplianceAjustado
+ * Does not alter rendimientoVolumetrico or any CV-related data.
+ */
+export function mapMuestreoWithAdjustment(muestreo: any, recipeFc?: number) {
+  const cloned = { ...muestreo };
+  let sumRes = 0;
+  let sumComp = 0;
+  let count = 0;
+  cloned.muestras = (muestreo.muestras || []).map((m: any) => {
+    const ensayos = (m.ensayos || []).map((e: any) => {
+      const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+      const compAdj = recomputeEnsayoCompliance(resAdj, recipeFc || 0);
+      if (resAdj > 0) {
+        sumRes += resAdj;
+        count += 1;
+      }
+      if (compAdj > 0) {
+        sumComp += compAdj;
+      }
+      return {
+        ...e,
+        resistenciaCalculadaAjustada: resAdj,
+        porcentajeCumplimientoAjustado: compAdj
+      };
+    });
+    return { ...m, ensayos };
+  });
+  const avgRes = count > 0 ? sumRes / count : 0;
+  const avgComp = count > 0 ? sumComp / count : 0;
+  return {
+    ...cloned,
+    avgResistanceAjustada: avgRes,
+    avgComplianceAjustado: avgComp
+  };
+}
+
+/**
  * Calculate if a muestreo has ensayos
  */
 export function hasEnsayos(muestreo: any): boolean {
@@ -156,16 +222,20 @@ export function processResistanceTrend(data: ClientQualityData): any[] {
     }
     
     // Collect ALL ensayos at edad_garantia (including fuera de tiempo)
+    const recipeFc = r.recipeFc || 0;
     r.muestreos.forEach((m: any) => {
       m.muestras.forEach((mu: any) => {
         mu.ensayos.forEach((e: any) => {
           // Include all ensayos at edad_garantia, regardless of timing
           if (e.isEdadGarantia && e.porcentajeCumplimiento !== null && e.porcentajeCumplimiento !== undefined) {
-            acc[date].compliances.push(e.porcentajeCumplimiento);
+            // Use adjusted compliance for charts
+            const resAdj = adjustEnsayoResistencia(e.resistenciaCalculada || 0);
+            const compAdj = recomputeEnsayoCompliance(resAdj, recipeFc);
+            acc[date].compliances.push(compAdj);
             
             // Also collect resistance and target for tooltip
-            if (e.resistenciaCalculada && e.resistenciaCalculada > 0) {
-              acc[date].resistencias.push(e.resistenciaCalculada);
+            if (resAdj && resAdj > 0) {
+              acc[date].resistencias.push(resAdj);
             }
             if (e.resistenciaEspecificada && e.resistenciaEspecificada > 0) {
               acc[date].targets.push(e.resistenciaEspecificada);

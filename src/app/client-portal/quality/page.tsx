@@ -21,7 +21,7 @@ export default function QualityPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [showGlossary, setShowGlossary] = useState(false);
   const [dateRange, setDateRange] = useState({
-    from: startOfDay(subDays(new Date(), 365)), // Default to last 12 months
+    from: startOfDay(subDays(new Date(), 90)), // Default to last 3 months
     to: endOfDay(new Date())
   });
 
@@ -56,9 +56,11 @@ export default function QualityPage() {
         { progress: 95, stage: 'Finalizando...' }
       ];
 
+      const fromDate = formatDateForAPI(rangeToUse.from);
+      const toDate = formatDateForAPI(rangeToUse.to);
       const params = new URLSearchParams({
-        from: formatDateForAPI(rangeToUse.from),
-        to: formatDateForAPI(rangeToUse.to)
+        from: fromDate,
+        to: toDate
       });
 
       // Start progress simulation
@@ -71,22 +73,60 @@ export default function QualityPage() {
         }
       }, 300);
 
+      // Fetch summary first
       const response = await fetch(`/api/client-portal/quality?${params}`);
       const result = await response.json();
-
-      clearInterval(progressInterval);
-      setLoadingProgress(100);
-      setLoadingStage('Completado');
 
       if (!response.ok) {
         throw new Error(result.error || 'Failed to fetch quality data');
       }
 
+      let allRemisiones = result.data?.remisiones || [];
+      const summary = result.summary;
+
+      // If there are more remisiones than returned, fetch them in slices
+      if (allRemisiones.length < summary.totals.remisiones) {
+        setLoadingStage('Obteniendo datos completos...');
+        let offset = allRemisiones.length;
+        const batchSize = 1000;
+
+        while (offset < summary.totals.remisiones) {
+          const sliceParams = new URLSearchParams({
+            from: fromDate,
+            to: toDate,
+            limit: String(batchSize),
+            offset: String(offset)
+          });
+
+          const sliceResponse = await fetch(`/api/client-portal/quality?${sliceParams}`);
+          const sliceResult = await sliceResponse.json();
+
+          if (!sliceResponse.ok || !sliceResult.data?.remisiones) {
+            break;
+          }
+
+          const newRemisiones = sliceResult.data.remisiones;
+          if (newRemisiones.length === 0) break;
+
+          allRemisiones = [...allRemisiones, ...newRemisiones];
+          offset += newRemisiones.length;
+        }
+      }
+
+      clearInterval(progressInterval);
+      setLoadingProgress(100);
+      setLoadingStage('Completado');
+
       // Small delay to show 100% completion
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      setData(result.data);
-      setSummary(result.summary);
+      const completeData = {
+        ...result.data,
+        remisiones: allRemisiones
+      };
+ 
+      setData(completeData);
+      setSummary(summary);
     } catch (error) {
       console.error('Error fetching quality data:', error);
       setData(null);
@@ -190,6 +230,9 @@ export default function QualityPage() {
         >
           <QualityTabs data={data} summary={summary} />
         </motion.div>
+
+        {/* Load More - fetch additional remisiones slices */}
+        {/* Removed Load More button as pagination is now display-only */}
       </Container>
     </div>
   );

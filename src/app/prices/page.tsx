@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-export const runtime = 'edge';
+export const runtime = 'nodejs';
 import { MaterialPriceForm } from '@/components/prices/MaterialPriceForm';
 import { MaterialPriceList } from '@/components/prices/MaterialPriceList';
 import { AdminCostForm } from '@/components/prices/AdminCostForm';

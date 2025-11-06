@@ -62,8 +62,14 @@ export interface ClientQualityRemisionData {
         porcentajeCumplimiento: number;
         isEdadGarantia: boolean;
         isEnsayoFueraTiempo: boolean;
+        // Client-side adjusted fields (optional)
+        resistenciaCalculadaAjustada?: number;
+        porcentajeCumplimientoAjustado?: number;
       }>;
     }>;
+    // Optional client-side adjusted averages per muestreo
+    avgResistanceAjustada?: number;
+    avgComplianceAjustado?: number;
   }>;
   complianceStatus: 'compliant' | 'non_compliant' | 'pending' | 'no_data';
   avgResistencia?: number;

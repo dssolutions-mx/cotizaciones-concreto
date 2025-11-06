@@ -3,12 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar as CalendarIcon, Package, ChevronLeft, Search, Check } from 'lucide-react';
+import { Calendar as CalendarIcon, Package, ChevronLeft, Search, Check, Clock } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import DatePicker from '@/components/client-portal/DatePicker';
-import { format, parseISO } from 'date-fns';
+import { format, parseISO, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 type Site = { id: string; name: string };
@@ -34,6 +35,39 @@ const formatDateLocal = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+// Time picker component - iOS HIG compliant
+function TimePicker({ value, onChange }: { value: string; onChange: (time: string) => void }) {
+  const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+  const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+  const [hour, minute] = value.split(':');
+
+  return (
+    <div className="flex items-center gap-2">
+      <Select value={hour} onValueChange={(h) => onChange(`${h}:${minute}`)}>
+        <SelectTrigger className="w-20 glass-thin border-white/20">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {hours.map(h => (
+            <SelectItem key={h} value={h}>{h}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <span className="text-label-primary font-bold">:</span>
+      <Select value={minute} onValueChange={(m) => onChange(`${hour}:${m}`)}>
+        <SelectTrigger className="w-20 glass-thin border-white/20">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {minutes.map(m => (
+            <SelectItem key={m} value={m}>{m}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
 export default function ScheduleOrderPage() {
   const router = useRouter();
   const [step, setStep] = useState<1 | 2>(1);
@@ -46,17 +80,19 @@ export default function ScheduleOrderPage() {
   const [plantId, setPlantId] = useState<string>('');
   const [constructionSiteId, setConstructionSiteId] = useState<string | 'other' | ''>('');
   const [constructionSiteName, setConstructionSiteName] = useState('');
-  const [deliveryDate, setDeliveryDate] = useState<string>(formatDateLocal(new Date()));
+  // Default to tomorrow
+  const getTomorrowDate = () => formatDateLocal(addDays(new Date(), 1));
+  const [deliveryDate, setDeliveryDate] = useState<string>(getTomorrowDate());
   const [deliveryTime, setDeliveryTime] = useState<string>('08:00');
   const [productId, setProductId] = useState<string>('');
   const [volume, setVolume] = useState<string>('10');
   const [elemento, setElemento] = useState<string>('');
-  const [requiresInvoice, setRequiresInvoice] = useState<boolean>(true);
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [productQuery, setProductQuery] = useState('');
   const [productDropdownOpen, setProductDropdownOpen] = useState(false);
+  const [productLoading, setProductLoading] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -82,9 +118,53 @@ export default function ScheduleOrderPage() {
     load();
   }, []);
 
+  // Memoized selectors - define before they're used in effects
   const selectedSite = useMemo(() => sites.find(s => s.id === constructionSiteId), [sites, constructionSiteId]);
   const selectedProduct = useMemo(() => products.find(p => p.id === productId), [products, productId]);
   const todayStr = useMemo(() => formatDateLocal(new Date()), []);
+  const tomorrowStr = useMemo(() => getTomorrowDate(), []);
+
+  // Load products when plant or construction site changes
+  useEffect(() => {
+    const loadProducts = async () => {
+      if (!plantId || (!constructionSiteId && constructionSiteId !== 'other')) {
+        setProducts([]);
+        setProductId('');
+        setProductQuery('');
+        return;
+      }
+
+      setProductLoading(true);
+      try {
+        let siteName = '';
+        if (constructionSiteId === 'other') {
+          siteName = constructionSiteName;
+        } else {
+          siteName = selectedSite?.name || '';
+        }
+
+        if (!siteName) {
+          setProducts([]);
+          return;
+        }
+
+        const res = await fetch(
+          `/api/client-portal/master-recipes?site=${encodeURIComponent(siteName)}&plant_id=${encodeURIComponent(plantId)}`
+        );
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Error al cargar productos');
+        setProducts(json.products || []);
+        setProductId('');
+      } catch (e: any) {
+        console.error('Error loading products:', e);
+        setProducts([]);
+      } finally {
+        setProductLoading(false);
+      }
+    };
+
+    loadProducts();
+  }, [plantId, constructionSiteId, constructionSiteName, selectedSite]);
 
   const filteredProducts = useMemo(() => {
     const q = productQuery.trim().toLowerCase();
@@ -127,7 +207,7 @@ export default function ScheduleOrderPage() {
         construction_site_id: siteIdToSend,
         delivery_date: deliveryDate,
         delivery_time: deliveryTime,
-        requires_invoice: requiresInvoice,
+        requires_invoice: true, // Always true, hidden from UI
         special_requirements: notes || null,
         elemento,
         plant_id: plantId,
@@ -202,72 +282,60 @@ export default function ScheduleOrderPage() {
                 transition={{ duration: 0.2 }}
                 className="space-y-6"
               >
-                {/* Plant */}
+                {/* Plant Selection - Custom Select */}
                 <div>
-                  <label className="block text-footnote text-label-tertiary mb-2">Planta *</label>
-                  <select
-                    value={plantId}
-                    onChange={async (e) => {
-                      const newPlantId = e.target.value;
-                      setPlantId(newPlantId);
-                      setProductId('');
-                      setProductQuery('');
-                      setProducts([]);
-                    }}
-                    className="w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
-                  >
-                    <option value="">Selecciona una planta…</option>
-                    {plants.map(p => (
-                      <option key={p.id} value={p.id}>{p.name}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Site */}
-                <div>
-                  <label className="block text-footnote text-label-tertiary mb-2">Obra *</label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <select
-                      value={constructionSiteId}
-                      onChange={async (e) => {
-                        const value = e.target.value as any;
-                        setConstructionSiteId(value);
-                        setProductId('');
-                        setProductQuery('');
-                        if (value && value !== 'other' && plantId) {
-                          try {
-                            const siteName = sites.find(s => s.id === value)?.name || value;
-                            const res = await fetch(`/api/client-portal/master-recipes?site=${encodeURIComponent(siteName)}&plant_id=${encodeURIComponent(plantId)}`);
-                            const json = await res.json();
-                            if (!res.ok) throw new Error(json.error || 'Error productos');
-                            setProducts(json.products || []);
-                          } catch (e: any) {
-                            setError(e?.message || 'Error cargando productos');
-                          }
-                        } else {
-                          setProducts([]);
-                        }
-                      }}
-                      className="w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
-                    >
-                      <option value="">Selecciona una obra…</option>
-                      {sites.map(s => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
+                  <label className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2">Planta *</label>
+                  <Select value={plantId} onValueChange={setPlantId}>
+                    <SelectTrigger className="w-full glass-thin border-white/20">
+                      <SelectValue placeholder="Seleccionar planta" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {plants.map(plant => (
+                        <SelectItem key={plant.id} value={plant.id}>
+                          {plant.name}
+                        </SelectItem>
                       ))}
-                      <option value="other">Otra…</option>
-                    </select>
-                    {constructionSiteId === 'other' && (
-                      <input
-                        value={constructionSiteName}
-                        onChange={(e) => setConstructionSiteName(e.target.value)}
-                        placeholder="Nombre de la obra"
-                        className="w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
-                      />
-                    )}
-                  </div>
+                    </SelectContent>
+                  </Select>
                 </div>
 
-                {/* Date & time */}
+                {/* Construction Site - Custom Select */}
+                <div>
+                  <label className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2">Obra *</label>
+                  <Select
+                    value={constructionSiteId}
+                    onValueChange={(value) => {
+                      setConstructionSiteId(value);
+                      if (value !== 'other') {
+                        setConstructionSiteName(sites.find(s => s.id === value)?.name || '');
+                      }
+                    }}
+                    disabled={!plantId}
+                  >
+                    <SelectTrigger className="w-full glass-thin border-white/20">
+                      <SelectValue placeholder="Seleccionar obra" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sites.map(site => (
+                        <SelectItem key={site.id} value={site.id}>
+                          {site.name}
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="other">Otra obra (especificar)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {constructionSiteId === 'other' && (
+                    <input
+                      type="text"
+                      placeholder="Nombre de la obra"
+                      value={constructionSiteName}
+                      onChange={(e) => setConstructionSiteName(e.target.value)}
+                      className="mt-3 w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
+                    />
+                  )}
+                </div>
+
+                {/* Date & Time */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <DatePicker
                     value={deliveryDate}
@@ -276,71 +344,76 @@ export default function ScheduleOrderPage() {
                     label="Fecha de entrega *"
                   />
                   <div>
-                    <label className="block text-footnote text-label-tertiary mb-2">Hora preferida</label>
-                    <input
-                      type="time"
-                      value={deliveryTime}
-                      onChange={(e) => setDeliveryTime(e.target.value)}
-                      className="w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
-                    />
+                    <label className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2">Hora de entrega *</label>
+                    <div className="flex items-center gap-2 p-3 rounded-xl glass-thin border border-white/20">
+                      <Clock className="w-5 h-5 text-label-tertiary" />
+                      <TimePicker value={deliveryTime} onChange={setDeliveryTime} />
+                    </div>
                   </div>
                 </div>
 
-                {/* Product - Custom Dropdown */}
+                {/* Elemento */}
                 <div>
-                  <label className="block text-footnote text-label-tertiary mb-2">Producto *</label>
-                  {products.length > 0 && (
-                    <div className="relative mb-2">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-label-tertiary" />
-                      <input
-                        value={productQuery}
-                        onChange={(e) => setProductQuery(e.target.value)}
-                        onFocus={() => setProductDropdownOpen(true)}
-                        placeholder="Buscar por código, resistencia o tipo…"
-                        className="w-full rounded-xl glass-thin px-10 py-2 text-sm border border-white/20 focus:border-primary/50 focus:outline-none"
-                      />
-                    </div>
-                  )}
-                  
-                  {/* Custom Dropdown */}
+                  <label className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2">Elemento *</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Losa de cimentación, Muro, Columna"
+                    value={elemento}
+                    onChange={(e) => setElemento(e.target.value)}
+                    className="w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
+                  />
+                </div>
+
+                {/* Product Selection */}
+                <div>
+                  <label className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2">Producto (Receta Maestra) *</label>
+                  <input
+                    type="text"
+                    placeholder="Buscar por código, resistencia, tipo..."
+                    value={productQuery}
+                    onChange={(e) => setProductQuery(e.target.value)}
+                    className="mb-3 w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
+                    disabled={!plantId || (!constructionSiteId && constructionSiteId !== 'other')}
+                  />
                   <div className="relative">
                     <button
                       type="button"
                       onClick={() => setProductDropdownOpen(!productDropdownOpen)}
-                      disabled={!plantId || !constructionSiteId || constructionSiteId === 'other'}
-                      className="w-full text-left rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none disabled:opacity-50"
+                      disabled={!plantId || (!constructionSiteId && constructionSiteId !== 'other')}
+                      className="w-full text-left rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none flex items-center justify-between disabled:opacity-50"
                     >
-                      {selectedProduct ? (
-                        <div>
-                          <div className="font-semibold text-label-primary">{selectedProduct.master_code}</div>
-                          <div className="text-sm text-label-secondary mt-1">
-                            {selectedProduct.strength_fc} kg/cm² • ${selectedProduct.unit_price.toLocaleString('es-MX')}/m³
-                            {selectedProduct.age_days && ` • ${selectedProduct.age_days} días`}
-                            {selectedProduct.slump && ` • Rev. ${selectedProduct.slump} cm`}
-                          </div>
-                        </div>
-                      ) : (
-                        <span className="text-label-tertiary">Selecciona un producto…</span>
-                      )}
+                      <span className="text-label-primary">{selectedProduct?.master_code || 'Seleccionar producto'}</span>
+                      <div className="flex items-center gap-2">
+                        {productLoading && <div className="w-4 h-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />}
+                        <ChevronLeft className="w-5 h-5 text-label-tertiary rotate-180" />
+                      </div>
                     </button>
-                    
-                    {productDropdownOpen && filteredProducts.length > 0 && (
+                    {productDropdownOpen && (
                       <>
-                        <div className="fixed inset-0 z-10" onClick={() => setProductDropdownOpen(false)} />
-                        <div className="absolute z-20 w-full mt-2 max-h-[400px] overflow-y-auto rounded-2xl glass-base border border-white/30 shadow-2xl">
-                          {filteredProducts.map(product => (
-                            <button
-                              key={product.id}
-                              type="button"
-                              onClick={() => {
-                                setProductId(product.id);
-                                setProductDropdownOpen(false);
-                              }}
-                              className={`w-full text-left px-4 py-3 border-b border-white/10 last:border-0 hover:bg-white/10 transition-colors ${
-                                productId === product.id ? 'bg-primary/10' : ''
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-4">
+                        <div className="fixed inset-0 z-20" onClick={() => setProductDropdownOpen(false)} />
+                        <div className="absolute z-30 w-full mt-2 max-h-[400px] overflow-y-auto rounded-2xl glass-base border border-white/30 shadow-2xl">
+                          {productLoading ? (
+                            <div className="flex items-center justify-center py-8">
+                              <div className="w-5 h-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                              <span className="ml-2 text-label-secondary">Cargando productos...</span>
+                            </div>
+                          ) : filteredProducts.length === 0 ? (
+                            <div className="p-6 text-center">
+                              <p className="text-label-secondary text-callout">No hay productos disponibles para esta selección</p>
+                            </div>
+                          ) : (
+                            filteredProducts.map(product => (
+                              <button
+                                key={product.id}
+                                type="button"
+                                onClick={() => {
+                                  setProductId(product.id);
+                                  setProductDropdownOpen(false);
+                                }}
+                                className={`w-full text-left px-4 py-3 border-b border-white/10 last:border-0 hover:bg-white/10 transition-colors ${
+                                  productId === product.id ? 'bg-primary/10' : ''
+                                }`}
+                              >
                                 <div className="flex-1">
                                   <div className="font-semibold text-label-primary flex items-center gap-2">
                                     {product.master_code}
@@ -354,28 +427,18 @@ export default function ScheduleOrderPage() {
                                     {product.max_aggregate_size && <div>TMA: {product.max_aggregate_size} mm</div>}
                                   </div>
                                 </div>
-                                <div className="text-right">
-                                  <div className="font-bold text-primary">
-                                    ${product.unit_price.toLocaleString('es-MX')}
-                                  </div>
-                                  <div className="text-xs text-label-tertiary">por m³</div>
-                                </div>
-                              </div>
-                            </button>
-                          ))}
+                              </button>
+                            ))
+                          )}
                         </div>
                       </>
                     )}
                   </div>
-                  
-                  {products.length === 0 && plantId && constructionSiteId && constructionSiteId !== 'other' && (
-                    <p className="text-caption text-label-tertiary mt-2">No hay productos disponibles para esta obra y planta.</p>
-                  )}
                 </div>
 
                 {/* Volume */}
                 <div>
-                  <label className="block text-footnote text-label-tertiary mb-2">Volumen (m³) *</label>
+                  <label className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2">Volumen (m³) *</label>
                   <input
                     type="number"
                     min="1"
@@ -386,27 +449,9 @@ export default function ScheduleOrderPage() {
                   />
                 </div>
 
-                {/* Elemento */}
+                {/* Notes */}
                 <div>
-                  <label className="block text-footnote text-label-tertiary mb-2">Elemento *</label>
-                  <input
-                    value={elemento}
-                    onChange={(e) => setElemento(e.target.value)}
-                    placeholder="Ej. Losas, Cimentación, Columnas"
-                    className="w-full rounded-xl glass-thin px-4 py-3 border border-white/20 focus:border-primary/50 focus:outline-none"
-                  />
-                </div>
-
-                {/* Options */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="flex items-center gap-3">
-                    <input id="factura" type="checkbox" checked={requiresInvoice} onChange={(e) => setRequiresInvoice(e.target.checked)} className="w-4 h-4" />
-                    <label htmlFor="factura" className="text-body text-label-secondary">Requiere factura</label>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-footnote text-label-tertiary mb-2">Notas</label>
+                  <label className="block text-footnote text-label-tertiary uppercase tracking-wide mb-2">Notas (Opcional)</label>
                   <textarea
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
@@ -417,10 +462,9 @@ export default function ScheduleOrderPage() {
 
                 <div className="flex justify-end pt-2">
                   <Button
-                    variant="glass"
-                    size="lg"
                     disabled={!canContinue}
                     onClick={() => setStep(2)}
+                    className="glass-button-blue"
                   >
                     Continuar
                   </Button>
@@ -435,55 +479,71 @@ export default function ScheduleOrderPage() {
                 transition={{ duration: 0.2 }}
                 className="space-y-6"
               >
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
-                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">Planta</p>
-                    <p className="text-title-3 font-bold text-label-primary">{plants.find(p => p.id === plantId)?.name || ''}</p>
+                {/* Order Details Summary */}
+                <div className="space-y-4">
+                  {/* Main Info Section */}
+                  <div className="glass-base rounded-3xl p-6 border border-white/20">
+                    <div className="space-y-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-1">Obra</p>
+                          <p className="text-title-2 font-bold text-label-primary">{constructionSiteId === 'other' ? constructionSiteName : (selectedSite?.name || '')}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-1">Planta</p>
+                          <p className="text-body font-semibold text-label-primary">{plants.find(p => p.id === plantId)?.name || ''}</p>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
-                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">Obra</p>
-                    <p className="text-title-3 font-bold text-label-primary">{constructionSiteId === 'other' ? constructionSiteName : (selectedSite?.name || '')}</p>
-                  </div>
-                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
-                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">Fecha y hora</p>
-                    <p className="text-title-3 font-bold text-label-primary">
-                      {format(parseISO(deliveryDate), 'dd MMM yyyy', { locale: es })} • {deliveryTime}
-                    </p>
-                  </div>
-                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
-                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">Producto</p>
-                    <p className="text-title-3 font-bold text-label-primary">{selectedProduct?.master_code || ''}</p>
-                    <p className="text-caption text-label-secondary mt-1">
-                      {selectedProduct?.strength_fc} kg/cm²
-                      {selectedProduct?.age_days && ` • ${selectedProduct.age_days} días`}
-                      {selectedProduct?.slump && ` • Rev. ${selectedProduct.slump} cm`}
-                    </p>
-                  </div>
-                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
-                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">Volumen</p>
-                    <p className="text-title-3 font-bold text-label-primary">{Number(volume).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³</p>
-                  </div>
-                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
-                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">Precio unitario</p>
-                    <p className="text-title-3 font-bold text-label-primary">${(selectedProduct?.unit_price || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/m³</p>
-                  </div>
-                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
-                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">Elemento</p>
-                    <p className="text-title-3 font-bold text-label-primary">{elemento}</p>
-                  </div>
-                  <div className="glass-thin rounded-2xl p-6 border border-white/10">
-                    <p className="text-footnote text-label-tertiary uppercase tracking-wide mb-2">Factura</p>
-                    <p className="text-title-3 font-bold text-label-primary">{requiresInvoice ? 'Sí' : 'No'}</p>
-                  </div>
-                </div>
 
-                {/* Total */}
-                <div className="glass-thin rounded-2xl p-6 border-2 border-primary/30">
-                  <div className="flex items-center justify-between">
-                    <p className="text-body font-semibold text-label-primary">Total estimado</p>
-                    <p className="text-title-1 font-bold text-primary">
-                      ${((selectedProduct?.unit_price || 0) * Number(volume)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
+                  {/* Delivery Details */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="glass-thin rounded-2xl p-5 border border-white/10">
+                      <p className="text-caption text-label-tertiary uppercase tracking-wide mb-2">Fecha y hora de entrega</p>
+                      <p className="text-body font-semibold text-label-primary">
+                        {format(parseISO(deliveryDate), 'EEEE, dd MMM', { locale: es })}
+                      </p>
+                      <p className="text-callout font-medium text-label-primary mt-1">{deliveryTime}</p>
+                    </div>
+                    <div className="glass-thin rounded-2xl p-5 border border-white/10">
+                      <p className="text-caption text-label-tertiary uppercase tracking-wide mb-2">Elemento</p>
+                      <p className="text-body font-semibold text-label-primary">{elemento}</p>
+                    </div>
+                  </div>
+
+                  {/* Product Details */}
+                  <div className="glass-thin rounded-2xl p-5 border border-white/10">
+                    <p className="text-caption text-label-tertiary uppercase tracking-wide mb-3">Producto a entregar</p>
+                    <div className="space-y-2">
+                      <p className="text-title-3 font-bold text-label-primary">{selectedProduct?.master_code || ''}</p>
+                      <div className="space-y-1">
+                        <p className="text-callout text-label-secondary">
+                          <span className="font-semibold">Resistencia:</span> {selectedProduct?.strength_fc} kg/cm²
+                        </p>
+                        {selectedProduct?.age_days && (
+                          <p className="text-callout text-label-secondary">
+                            <span className="font-semibold">Edad:</span> {selectedProduct.age_days} días
+                          </p>
+                        )}
+                        {selectedProduct?.slump && (
+                          <p className="text-callout text-label-secondary">
+                            <span className="font-semibold">Revenimiento:</span> {selectedProduct.slump} cm
+                          </p>
+                        )}
+                        {selectedProduct?.placement_type && (
+                          <p className="text-callout text-label-secondary">
+                            <span className="font-semibold">Tipo:</span> {selectedProduct.placement_type}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Volume Info */}
+                  <div className="glass-thin rounded-2xl p-5 border border-white/10">
+                    <p className="text-caption text-label-tertiary uppercase tracking-wide mb-2">Volumen</p>
+                    <p className="text-title-2 font-bold text-label-primary">{Number(volume).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³</p>
                   </div>
                 </div>
 
@@ -496,7 +556,7 @@ export default function ScheduleOrderPage() {
 
                 <div className="flex items-center justify-between pt-2">
                   <Button variant="ghost" size="lg" onClick={() => setStep(1)}>Editar</Button>
-                  <Button variant="glass" size="lg" disabled={submitting} onClick={handleSubmit}>
+                  <Button disabled={submitting} onClick={handleSubmit} className="glass-button-blue">
                     {submitting ? 'Programando…' : 'Programar pedido'}
                   </Button>
                 </div>

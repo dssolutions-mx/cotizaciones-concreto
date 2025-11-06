@@ -2,25 +2,44 @@ import { Suspense } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
-import { createServerSupabaseClient, createServiceClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/server';
 import { formatCurrency } from '@/lib/utils';
 import KPICard from '@/components/finanzas/KPICard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FinancialDashboardSkeleton } from '@/components/finanzas/FinancialDashboardSkeleton';
 import { CreditCard, Calculator, Ban, Wallet, CalendarIcon } from 'lucide-react';
 
-// Enable ISR with 5-minute revalidation interval
-export const revalidate = 300; // 5 minutes in seconds
+// Re-enable ISR (build-time prerender + periodic revalidation)
+export const dynamic = 'force-dynamic';
 
 export default async function DailyPaymentsReportPage({
   searchParams,
 }: {
-  searchParams: { [key: string]: string | string[] | undefined };
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  // Get the date range from query params or use today's date as default
-  const today = new Date().toISOString().slice(0, 10);
-  const startDateParam = searchParams.start_date ? String(searchParams.start_date) : today;
-  const endDateParam = searchParams.end_date ? String(searchParams.end_date) : today;
+  const resolvedSearchParams = await searchParams;
+  // Helpers: local YYYY-MM-DD and param parsing
+  const toLocalISODate = (d: Date) => {
+    const off = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - off * 60_000);
+    return local.toISOString().slice(0, 10);
+  };
+  const parseParam = (p: string | string[] | undefined) =>
+    Array.isArray(p) ? p[0] : p;
+  const isYMD = (s: string | undefined) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+  // Read params with sane fallbacks
+  const today = toLocalISODate(new Date());
+  let startDateParam = parseParam(resolvedSearchParams.start_date) || today;
+  let endDateParam = parseParam(resolvedSearchParams.end_date) || today;
+  if (!isYMD(startDateParam)) startDateParam = today;
+  if (!isYMD(endDateParam)) endDateParam = today;
+  if (startDateParam > endDateParam) {
+    // Swap if provided in reverse
+    const tmp = startDateParam;
+    startDateParam = endDateParam;
+    endDateParam = tmp;
+  }
   
   return (
     <Suspense fallback={<FinancialDashboardSkeleton />}>
@@ -39,12 +58,12 @@ export default async function DailyPaymentsReportPage({
           <div className="space-y-8">
             {/* Payment metrics summary cards with separate suspense boundary */}
             <Suspense fallback={<PaymentMetricsSkeleton />}>
-              <PaymentMetrics startDate={startDateParam} endDate={endDateParam} />
+              <PaymentMetrics key={`metrics-${startDateParam}-${endDateParam}`} startDate={startDateParam} endDate={endDateParam} />
             </Suspense>
             
             {/* Daily payments table */}
             <Suspense fallback={<DailyPaymentsTableSkeleton />}>
-              <DailyPaymentsTable startDate={startDateParam} endDate={endDateParam} />
+              <DailyPaymentsTable key={`table-${startDateParam}-${endDateParam}`} startDate={startDateParam} endDate={endDateParam} />
             </Suspense>
           </div>
         </RoleProtectedSection>
@@ -68,7 +87,7 @@ function formatIsoToDisplay(isoString: string): string {
 // Date Picker with Button Component - Modified to support date ranges
 function DatePickerWithButton({ startDate, endDate }: { startDate: string; endDate: string }) {
   return (
-    <form className="flex items-center space-x-2">
+    <form className="flex items-center space-x-2" method="get">
       <div className="flex items-center space-x-2 bg-muted p-2 rounded-md">
         <CalendarIcon className="h-4 w-4 text-muted-foreground" />
         <span className="text-sm text-muted-foreground">Desde:</span>
@@ -153,6 +172,7 @@ async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDa
     uniqueClients: new Set<string>(),
   };
   
+  let hadError = false;
   try {
     // Create a service client for data fetching
     const serviceClient = createServiceClient();
@@ -215,6 +235,7 @@ async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDa
     console.log("Final payment metrics:", metricsData);
   } catch (error) {
     console.error("Error fetching payment metrics:", error);
+    hadError = true;
   }
 
   // Determine the period description
@@ -225,6 +246,11 @@ async function PaymentMetrics({ startDate, endDate }: { startDate: string; endDa
   return (
     <section>
       <h2 className="text-2xl font-semibold mb-4">Resumen de Pagos {periodDescription}</h2>
+      {hadError && (
+        <div className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-800">
+          No se pudieron cargar las métricas de pagos. Mostrando valores vacíos.
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Total Payments */}
         <KPICard
@@ -273,15 +299,15 @@ async function DailyPaymentsTable({ startDate, endDate }: { startDate: string; e
   let fetchError: Error | null = null;
   
   try {
-    // Create a server-side Supabase client
-    const supabase = await createServerSupabaseClient();
+    // Use service client to avoid session/cookies and keep ISR compatibility
+    const serviceClient = createServiceClient();
     
     // Start and end of day in UTC without timezone transformations
     const startDateTime = new Date(`${startDate}T00:00:00.000Z`);
     const endDateTime = new Date(`${endDate}T23:59:59.999Z`);
     
     // Fetch payments for the selected date range with client information
-    const { data, error } = await supabase
+    const { data, error } = await serviceClient
       .from('client_payments')
       .select(`
         id,

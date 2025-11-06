@@ -161,6 +161,19 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [hasPumpService, setHasPumpService] = useState<boolean>(false);
   const [pumpVolume, setPumpVolume] = useState<number>(0);
   const [pumpPrice, setPumpPrice] = useState<number | null>(null);
+  // Empty truck adder state
+  const emptyTruckExists = useMemo(() => {
+    return (order?.products || []).some(p => p.product_type === 'VACÍO DE OLLA' || p.has_empty_truck_charge);
+  }, [order?.products]);
+  const [showEmptyTruckAdder, setShowEmptyTruckAdder] = useState(false);
+  const [emptyTruckVolumeDraft, setEmptyTruckVolumeDraft] = useState<number>(1);
+  const [emptyTruckPriceDraft, setEmptyTruckPriceDraft] = useState<number>(0);
+  
+  // Per-row recipe editor toggle (collapsed by default)
+  const [editingRecipeMap, setEditingRecipeMap] = useState<Record<string, boolean>>({});
+  const isEditingRecipe = useCallback((id: string) => !!editingRecipeMap[id], [editingRecipeMap]);
+  const openRecipeEditor = useCallback((id: string) => setEditingRecipeMap(m => ({ ...m, [id]: true })), []);
+  const closeRecipeEditor = useCallback((id: string) => setEditingRecipeMap(m => { const n = { ...m }; delete n[id]; return n; }), []);
   
   // Track render performance for OrderDetails component
   useEffect(() => {
@@ -502,13 +515,17 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       pump_volume: pumpVolume,
       products: order.products
         .filter(p => p.product_type !== 'SERVICIO DE BOMBEO') // Exclude global pump service items from product editing
-        .map(p => ({ 
-        id: p.id, 
-        volume: p.volume,
-        pump_volume: p.pump_volume,
-        recipe_id: p.recipe_id,
-        temp_recipe_code: p.product_type
-      }))
+        .map(p => { 
+          const masterId = (p as any).master_recipe_id || null;
+          return ({ 
+            id: p.id, 
+            volume: p.volume,
+            pump_volume: p.pump_volume,
+            recipe_id: p.recipe_id || masterId || null,
+            master_recipe_id: masterId,
+            temp_recipe_code: p.product_type
+          });
+        })
     });
     
     // Load available recipes when entering edit mode
@@ -618,6 +635,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       const uniqueQuoteIds = Array.from(new Set(trulyActivePrices.map(price => price.quote_id)));
       console.log('Unique quote IDs from active prices:', uniqueQuoteIds);
       
+      // Check if the order's quote_id is in the list (important for debugging)
+      if ((order as any)?.quote_id && !uniqueQuoteIds.includes((order as any).quote_id)) {
+        console.warn(`Order's quote_id ${(order as any).quote_id} is NOT in active prices list - will include it anyway to ensure all quote masters are available`);
+        uniqueQuoteIds.push((order as any).quote_id);
+      }
+      
       // 2. Fetch all quotes with master and recipe joins (plant-scoped)
       const { data: quotesData, error: quotesError } = await supabase
         .from('quotes')
@@ -689,15 +712,21 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       quotesData.forEach(quoteData => {
         const activeDetails = quoteData.quote_details.filter((detail: any) => {
-          // Master-based: check plant and active pair
+          // Master-based: check plant and active pair, with fallback to include if master exists in quote_detail
           if (detail.master_recipe_id && detail.master_recipes) {
-            return detail.master_recipes.plant_id === plantId && activeQuoteMasterCombos.has(`${quoteData.id}:${detail.master_recipe_id}`);
+            const hasActivePrice = activeQuoteMasterCombos.has(`${quoteData.id}:${detail.master_recipe_id}`);
+            const masterExists = !!detail.master_recipes;
+            const plantMatches = detail.master_recipes.plant_id === plantId;
+            // Include if: (has active price AND plant matches) OR (master exists in quote AND plant matches)
+            return plantMatches && (hasActivePrice || masterExists);
           }
-          // Recipe-mapped to master: check plant and active pair
+          // Recipe-mapped to master: check plant and active pair, with fallback
           if (detail.recipe_id && detail.recipes && detail.recipes.master_recipe_id) {
-            return detail.recipes.master_recipes && 
-                   detail.recipes.master_recipes.plant_id === plantId && 
-                   activeQuoteMasterCombos.has(`${quoteData.id}:${detail.recipes.master_recipe_id}`);
+            const hasActivePrice = detail.recipes.master_recipes && 
+                                   activeQuoteMasterCombos.has(`${quoteData.id}:${detail.recipes.master_recipe_id}`);
+            const masterExists = !!detail.recipes.master_recipes;
+            const plantMatches = detail.recipes.master_recipes?.plant_id === plantId;
+            return plantMatches && (hasActivePrice || masterExists);
           }
           // Recipe fallback: check plant and fallback pair
           if (detail.recipe_id && detail.recipes && !detail.recipes.master_recipe_id) {
@@ -1003,12 +1032,62 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       
       // Normalizar a recetas maestras y actualizar items (solo si no hay remisiones)
       if (editedOrder.products && editedOrder.products.length > 0 && !hasRemisiones) {
-        await orderService.updateOrderNormalized(
-          orderId,
-          orderUpdate,
-          editedOrder.products.map(p => ({ id: p.id, volume: p.volume, pump_volume: p.pump_volume, recipe_id: p.recipe_id })),
-          { normalizeToMasters: true, mergePerMaster: true, strictMasterOnly: true }
-        );
+        // Filter to only concrete/recipe items, exclude special service items
+        const concreteProducts = editedOrder.products.filter(p => {
+          const originalProduct = order.products.find(op => op.id === p.id);
+          return originalProduct && 
+                 originalProduct.product_type !== 'VACÍO DE OLLA' &&
+                 originalProduct.product_type !== 'SERVICIO DE BOMBEO' &&
+                 originalProduct.product_type !== 'EMPTY_TRUCK_CHARGE' &&
+                 !originalProduct.has_empty_truck_charge;
+        });
+
+        // Normalize and save concrete items
+        if (concreteProducts.length > 0) {
+          // Preserve original recipe_id if not explicitly changed
+          const concreteProductsWithRecipe = concreteProducts.map(p => {
+            const originalProduct = order.products.find(op => op.id === p.id);
+            return {
+              id: p.id,
+              volume: p.volume,
+              pump_volume: p.pump_volume,
+              // Use selected recipe_id, or fall back to original if unchanged
+              recipe_id: p.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || undefined
+            };
+          });
+
+          await orderService.updateOrderNormalized(
+            orderId,
+            orderUpdate,
+            concreteProductsWithRecipe,
+            { normalizeToMasters: true, mergePerMaster: true, strictMasterOnly: true }
+          );
+        }
+
+        // Handle special service items separately (just update volume)
+        const specialProducts = editedOrder.products.filter(p => {
+          const originalProduct = order.products.find(op => op.id === p.id);
+          return originalProduct && 
+                 (originalProduct.product_type === 'VACÍO DE OLLA' ||
+                  originalProduct.product_type === 'SERVICIO DE BOMBEO' ||
+                  originalProduct.product_type === 'EMPTY_TRUCK_CHARGE' ||
+                  originalProduct.has_empty_truck_charge);
+        });
+
+        // Update volume-only for special items if changed
+        for (const sp of specialProducts) {
+          const originalProduct = order.products.find(op => op.id === sp.id);
+          if (originalProduct && originalProduct.volume !== sp.volume) {
+            console.log(`Updating special item ${sp.id} volume from ${originalProduct.volume} to ${sp.volume}`);
+            await orderService.updateOrderItem(sp.id, {
+              volume: sp.volume,
+              total_price: sp.volume * (originalProduct.unit_price || 0)
+            });
+          }
+        }
+      } else if (!hasRemisiones) {
+        // No products to normalize, just update order header
+        await orderService.updateOrder(orderId, orderUpdate);
       }
       
       // Reload order details after saving
@@ -1728,97 +1807,157 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       {isEditing && canEditProducts
                       ? (editedOrder?.products || []).map((product) => {
                           const originalProduct = order.products.find(p => p.id === product.id);
+                          const isSpecialService = originalProduct && (
+                            originalProduct.product_type === 'VACÍO DE OLLA' ||
+                            originalProduct.product_type === 'SERVICIO DE BOMBEO' ||
+                            originalProduct.product_type === 'EMPTY_TRUCK_CHARGE' ||
+                            originalProduct.has_empty_truck_charge
+                          );
                           return (
                             <TableRow key={product.id}>
                               <TableCell className="font-medium">
-                                {loadingRecipes ? (
+                                {isSpecialService ? (
+                                  <div className="py-2 text-gray-700 font-semibold">
+                                    {originalProduct?.product_type || 'Servicio especial'}
+                                  </div>
+                                ) : loadingRecipes ? (
                                   <div className="flex items-center gap-2">
                                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-green-500 border-t-transparent"></div>
                                     <span>Cargando...</span>
                                   </div>
                                 ) : (
                                   <>
-                                    {/* Filter controls for recipes */}
-                                    <div className="mb-3">
-                                      <div className="flex flex-wrap gap-2 mb-2">
-                                        <input
-                                          type="text"
-                                          placeholder="Buscar receta..."
-                                          value={searchFilter}
-                                          onChange={(e) => setSearchFilter(e.target.value)}
-                                          className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
-                                        />
-                                      </div>
-                                      <div className="flex flex-wrap gap-2 mb-2">
-                                        <select
-                                          className="text-xs px-2 py-1 border border-gray-300 rounded-md"
-                                          onChange={(e) => setStrengthFilter(e.target.value ? Number(e.target.value) : '')}
-                                          value={strengthFilter}
+                                    {/* Collapsed view with current recipe and price */}
+                                    {!isEditingRecipe(product.id) ? (
+                                      <div className="flex items-center justify-between gap-3">
+                                        <div>
+                                          <div className="text-sm text-gray-900 font-medium">
+                                            {originalProduct?.product_type || product.temp_recipe_code || 'Receta actual'}
+                                          </div>
+                                          {shouldShowFinancialInfo() && (
+                                            <div className="text-xs text-gray-500">
+                                              {(() => {
+                                                const selectedId = product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || '';
+                                                const unit = (selectedId ? (recipePrices[selectedId] ?? originalProduct?.unit_price ?? 0) : (originalProduct?.unit_price ?? 0));
+                                                return <>Precio unitario: {formatCurrency(unit)}</>;
+                                              })()}
+                                            </div>
+                                          )}
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() => openRecipeEditor(product.id)}
+                                          className="text-xs px-3 py-1 rounded border border-gray-300 hover:bg-gray-50"
                                         >
-                                          <option value="">Resistencia</option>
-                                          {getUniqueFilterValues('strength_fc').map((strength) => (
-                                            <option key={strength} value={strength}>{strength} kg/cm²</option>
-                                          ))}
-                                        </select>
+                                          Cambiar receta
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div>
+                                        {/* Filter controls for recipes */}
+                                        <div className="mb-3">
+                                          <div className="flex flex-wrap gap-2 mb-2">
+                                            <input
+                                              type="text"
+                                              placeholder="Buscar receta..."
+                                              value={searchFilter}
+                                              onChange={(e) => setSearchFilter(e.target.value)}
+                                              className="w-full px-2 py-1 border border-gray-300 rounded-md text-sm"
+                                            />
+                                          </div>
+                                          <div className="flex flex-wrap gap-2 mb-2">
+                                            <select
+                                              className="text-xs px-2 py-1 border border-gray-300 rounded-md"
+                                              onChange={(e) => setStrengthFilter(e.target.value ? Number(e.target.value) : '')}
+                                              value={strengthFilter}
+                                            >
+                                              <option value="">Resistencia</option>
+                                              {getUniqueFilterValues('strength_fc').map((strength) => (
+                                                <option key={strength} value={strength}>{strength} kg/cm²</option>
+                                              ))}
+                                            </select>
+                                            
+                                            <select
+                                              className="text-xs px-2 py-1 border border-gray-300 rounded-md"
+                                              onChange={(e) => setSlumpFilter(e.target.value ? Number(e.target.value) : '')}
+                                              value={slumpFilter}
+                                            >
+                                              <option value="">Revenimiento</option>
+                                              {getUniqueFilterValues('slump').map((slump) => (
+                                                <option key={slump} value={slump}>{slump} cm</option>
+                                              ))}
+                                            </select>
+                                            
+                                            <select
+                                              className="text-xs px-2 py-1 border border-gray-300 rounded-md"
+                                              onChange={(e) => setPlacementTypeFilter(e.target.value)}
+                                              value={placementTypeFilter}
+                                            >
+                                              <option value="">Tipo colocación</option>
+                                              {getUniqueFilterValues('placement_type').map((type) => (
+                                                <option key={type} value={type}>{type}</option>
+                                              ))}
+                                            </select>
+                                          </div>
+                                          
+                                          {(strengthFilter !== '' || placementTypeFilter || slumpFilter !== '' || searchFilter) && (
+                                            <div className="flex justify-between items-center text-xs mb-2">
+                                              <span className="text-gray-600">
+                                                Mostrando {filteredRecipeCount} de {totalRecipeCount} recetas
+                                              </span>
+                                              <button
+                                                onClick={resetFilters}
+                                                className="text-blue-600 hover:text-blue-800"
+                                              >
+                                                Limpiar filtros
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
                                         
                                         <select
-                                          className="text-xs px-2 py-1 border border-gray-300 rounded-md"
-                                          onChange={(e) => setSlumpFilter(e.target.value ? Number(e.target.value) : '')}
-                                          value={slumpFilter}
+                                          value={product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || ''}
+                                          onChange={(e) => handleRecipeChange(product.id, e.target.value)}
+                                          className="w-full px-2 py-1 border border-gray-300 rounded-md"
+                                          disabled={loadingRecipes}
                                         >
-                                          <option value="">Revenimiento</option>
-                                          {getUniqueFilterValues('slump').map((slump) => (
-                                            <option key={slump} value={slump}>{slump} cm</option>
+                                          {(product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id) ? null : (
+                                            <option value="" disabled>Seleccionar receta</option>
+                                          )}
+                                          {(() => {
+                                            const currentSelectionId = product.recipe_id || originalProduct?.recipe_id || (originalProduct as any)?.master_recipe_id || '';
+                                            const currentSelectionLabel = originalProduct?.product_type || product.temp_recipe_code || '';
+                                            const isCurrentInList = filteredRecipes.some(r => r.id === currentSelectionId);
+                                            return !isCurrentInList && currentSelectionId ? (
+                                              <option key={`current-${product.id}`} value={currentSelectionId}>
+                                                {currentSelectionLabel || 'Receta actual'}
+                                              </option>
+                                            ) : null;
+                                          })()}
+                                          {filteredRecipes.map((recipe) => (
+                                            <option key={recipe.id} value={recipe.id}>
+                                              {recipe.recipe_code} - {recipe.strength_fc}kg/cm² {recipe.slump}cm {(recipe as any).age_hours ? `${(recipe as any).age_hours}h` : `${recipe.age_days}d`} {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
+                                            </option>
                                           ))}
                                         </select>
-                                        
-                                        <select
-                                          className="text-xs px-2 py-1 border border-gray-300 rounded-md"
-                                          onChange={(e) => setPlacementTypeFilter(e.target.value)}
-                                          value={placementTypeFilter}
-                                        >
-                                          <option value="">Tipo colocación</option>
-                                          {getUniqueFilterValues('placement_type').map((type) => (
-                                            <option key={type} value={type}>{type}</option>
-                                          ))}
-                                        </select>
-                                      </div>
-                                      
-                                      {(strengthFilter !== '' || placementTypeFilter || slumpFilter !== '' || searchFilter) && (
-                                        <div className="flex justify-between items-center text-xs mb-2">
-                                          <span className="text-gray-600">
-                                            Mostrando {filteredRecipeCount} de {totalRecipeCount} recetas
-                                          </span>
+                                        <div className="flex justify-end mt-2">
                                           <button
-                                            onClick={resetFilters}
-                                            className="text-blue-600 hover:text-blue-800"
+                                            type="button"
+                                            onClick={() => closeRecipeEditor(product.id)}
+                                            className="text-xs px-3 py-1 rounded border border-gray-300 hover:bg-gray-50"
                                           >
-                                            Limpiar filtros
+                                            Cerrar
                                           </button>
                                         </div>
-                                      )}
-                                    </div>
-                                    
-                                    <select
-                                      value={product.recipe_id || ''}
-                                      onChange={(e) => handleRecipeChange(product.id, e.target.value)}
-                                      className="w-full px-2 py-1 border border-gray-300 rounded-md"
-                                      disabled={loadingRecipes}
-                                    >
-                                      <option value="" disabled>Seleccionar receta</option>
-                                      {filteredRecipes.map((recipe) => (
-                                        <option key={recipe.id} value={recipe.id}>
-                                          {recipe.recipe_code} - {recipe.strength_fc}kg/cm² {recipe.slump}cm {(recipe as any).age_hours ? `${(recipe as any).age_hours}h` : `${recipe.age_days}d`} {shouldShowFinancialInfo() ? `(${formatCurrency(recipe.unit_price || 0)})` : ''}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </>
-                                )}
-                                {product.recipe_id && originalProduct?.recipe_id && product.recipe_id !== originalProduct?.recipe_id && (
-                                  <div className="mt-1 text-xs text-green-600 font-medium">
-                                    Producto cambiado
-                                  </div>
-                                )}
+                                      </div>
+                                    )}
+                                   </>
+                                 )}
+                                 {!isSpecialService && product.recipe_id && originalProduct?.recipe_id && product.recipe_id !== originalProduct?.recipe_id && (
+                                   <div className="mt-1 text-xs text-green-600 font-medium">
+                                     Producto cambiado
+                                   </div>
+                                 )}
                               </TableCell>
                               <TableCell>
                                 <input
@@ -1832,7 +1971,9 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                                 <span className="ml-1">m³</span>
                               </TableCell>
                               <TableCell>
-                                {originalProduct?.has_pump_service ? (
+                                {isSpecialService ? (
+                                  originalProduct?.product_type === 'SERVICIO DE BOMBEO' ? 'Global' : '-'
+                                ) : originalProduct?.has_pump_service ? (
                                   <>
                                     <span className="mr-2">Sí -</span>
                                     <input
@@ -1851,8 +1992,20 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                               </TableCell>
                               {shouldShowFinancialInfo() && originalProduct && (
                                 <>
-                                  <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product))}</TableCell>
-                                  <TableCell className="text-right">{formatCurrency(getProductUnitPrice(product) * product.volume)}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(
+                                      isSpecialService
+                                        ? (originalProduct.unit_price || originalProduct.empty_truck_price || 0)
+                                        : getProductUnitPrice(product)
+                                    )}
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency(
+                                      isSpecialService
+                                        ? (product.volume * (originalProduct.unit_price || originalProduct.empty_truck_price || 0))
+                                        : getProductUnitPrice(product) * product.volume
+                                    )}
+                                  </TableCell>
                                 </>
                               )}
                             </TableRow>
@@ -2116,6 +2269,54 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                             ? "El servicio de bombeo se cobra globalmente para este cliente y sitio de construcción"
                             : "Precio manual requerido - no hay cotizaciones con bombeo para este cliente/sitio"}
                         </p>
+                      </div>
+                    )}
+
+                    {/* Add Empty Truck (Vacío de Olla) */}
+                    {!emptyTruckExists && (
+                      <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
+                        <div className="flex items-center justify-between">
+                          <div className="font-medium text-amber-800">Vacío de olla</div>
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={showEmptyTruckAdder}
+                              onChange={(e) => setShowEmptyTruckAdder(e.target.checked)}
+                              className="h-4 w-4 text-amber-600 rounded border-gray-300"
+                            />
+                            <span className="text-amber-800">Agregar</span>
+                          </label>
+                        </div>
+                        {showEmptyTruckAdder && (
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+                            <div>
+                              <label className="block text-sm text-gray-700 mb-1">Volumen (m³)</label>
+                              <input
+                                type="number"
+                                min="0.1"
+                                step="0.1"
+                                value={emptyTruckVolumeDraft}
+                                onChange={(e)=> setEmptyTruckVolumeDraft(parseFloat(e.target.value)||0)}
+                                className="w-full rounded-md border border-amber-300 px-3 py-2 bg-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm text-gray-700 mb-1">Precio unitario</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={emptyTruckPriceDraft}
+                                onChange={(e)=> setEmptyTruckPriceDraft(parseFloat(e.target.value)||0)}
+                                className="w-full rounded-md border border-amber-300 px-3 py-2 bg-white"
+                              />
+                            </div>
+                            <div className="self-end text-sm text-gray-700">
+                              Total estimado: <span className="font-semibold">{formatCurrency((emptyTruckVolumeDraft||0)*(emptyTruckPriceDraft||0))}</span>
+                            </div>
+                          </div>
+                        )}
+                        <p className="text-xs text-amber-700 mt-2">Este cargo se agrega como un producto especial y no afecta la receta.</p>
                       </div>
                     )}
                     

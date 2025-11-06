@@ -38,6 +38,8 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
     aggregate_size: '',
     aggregate_lithology: '',
     aggregate_extraction: '',
+    arkik_short_code: '',
+    arkik_supplier: '',
     is_active: true,
     notes: ''
   });
@@ -87,6 +89,8 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
         aggregate_size: (material as any).aggregate_size?.toString() || '',
         aggregate_lithology: (material as any).aggregate_lithology || '',
         aggregate_extraction: (material as any).aggregate_extraction || '',
+        arkik_short_code: (material as any).arkik_short_code || '',
+        arkik_supplier: (material as any).arkik_supplier || '',
         is_active: material.is_active ?? true,
         notes: material.notes || ''
       });
@@ -360,6 +364,33 @@ export default function EditMaterialModal({ isOpen, onClose, onSuccess, material
               <div>
                 <Label>Código Interno</Label>
                 <Input value={suppliers.find(s => s.id === formData.supplier_id)?.internal_code || ''} disabled />
+              </div>
+            </div>
+          </div>
+
+          {/* ARKIK Export Information */}
+          <div>
+            <h3 className="text-lg font-semibold mb-3">Información ARKIK (Para Exportación)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="arkik_short_code">Código Corto ARKIK</Label>
+                <Input
+                  id="arkik_short_code"
+                  name="arkik_short_code"
+                  value={formData.arkik_short_code}
+                  onChange={handleInputChange}
+                  placeholder="Ej: C1, A1, GB1"
+                />
+              </div>
+              <div>
+                <Label htmlFor="arkik_supplier">Proveedor ARKIK</Label>
+                <Input
+                  id="arkik_supplier"
+                  name="arkik_supplier"
+                  value={formData.arkik_supplier}
+                  onChange={handleInputChange}
+                  placeholder="Ej: CEMEX, GENERICO, TRITURADOS AGRESA"
+                />
               </div>
             </div>
           </div>

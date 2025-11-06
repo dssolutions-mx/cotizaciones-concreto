@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // Types
 import { 
@@ -187,6 +188,7 @@ const ConcreteMixCalculator = () => {
   // Success modal after saving
   const [successOpen, setSuccessOpen] = useState(false);
   const [successRecipeCodes, setSuccessRecipeCodes] = useState<string[]>([]);
+  const [exportType, setExportType] = useState<'new' | 'update'>('new');
   // Batch preflight for variant governance
   const [conflictsOpen, setConflictsOpen] = useState(false);
   const [conflicts, setConflicts] = useState<Array<{
@@ -1960,6 +1962,18 @@ const ConcreteMixCalculator = () => {
                 <p className="text-sm text-gray-600 mb-4">
                   Las recetas están listas para ser exportadas a Excel en formato ARKIK.
                 </p>
+                <div className="flex items-center gap-3 mb-4">
+                  <Label htmlFor="calculator-export-type" className="text-sm">Formato de exportación:</Label>
+                  <Select value={exportType} onValueChange={(value: 'new' | 'update') => setExportType(value)}>
+                    <SelectTrigger id="calculator-export-type" className="w-[200px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="new">Nuevas recetas</SelectItem>
+                      <SelectItem value="update">Actualizar existentes</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 
@@ -1973,8 +1987,16 @@ const ConcreteMixCalculator = () => {
               <Button
                 onClick={async () => {
                   try {
+                    if (!currentPlant?.id) {
+                      alert('Por favor selecciona una planta antes de exportar');
+                      return;
+                    }
                     const codesParam = successRecipeCodes.join(',');
-                    const params = new URLSearchParams({ recipe_codes: codesParam });
+                    const params = new URLSearchParams({ 
+                      recipe_codes: codesParam,
+                      export_type: exportType,
+                      plant_id: currentPlant.id
+                    });
                     const res = await fetch(`/api/recipes/export/arkik?${params.toString()}`);
                     if (!res.ok) {
                       alert('Error al exportar ARKIK');

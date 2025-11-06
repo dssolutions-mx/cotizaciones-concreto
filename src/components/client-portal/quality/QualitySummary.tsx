@@ -11,7 +11,7 @@ import { DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import CvDetailsModal from '@/components/client-portal/quality/CvDetailsModal';
 import { Target, Award, TrendingUp, Activity, AlertTriangle, XCircle } from 'lucide-react';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
-import { processVolumetricTrend, processResistanceTrend } from '@/lib/qualityHelpers';
+import { processVolumetricTrend, processResistanceTrend, ENSAYO_ADJUSTMENT_FACTOR } from '@/lib/qualityHelpers';
 
 interface QualitySummaryProps {
   data: ClientQualityData;
@@ -21,6 +21,9 @@ interface QualitySummaryProps {
 export function QualitySummary({ data, summary }: QualitySummaryProps) {
   const volumetricData = processVolumetricTrend(data);
   const resistanceData = processResistanceTrend(data);
+  const factor = ENSAYO_ADJUSTMENT_FACTOR;
+  const adjustedCompliance = (summary.averages.complianceRate || 0) * factor;
+  const adjustedResistencia = (summary.averages.resistencia || 0) * factor;
 
   // Helper to get CV color based on value
   const getCVColor = (cv: number) => {
@@ -68,17 +71,17 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
         
         <QualityMetricCard
           title="Cumplimiento"
-          value={`${summary.averages.complianceRate.toFixed(1)}%`}
+          value={`${adjustedCompliance.toFixed(1)}%`}
           subtitle={`${summary.totals.ensayosEdadGarantia} ensayos válidos`}
           icon={<Award className="w-6 h-6" />}
-          trend={summary.averages.complianceRate >= 95 ? 'up' : summary.averages.complianceRate >= 85 ? 'neutral' : 'down'}
+          trend={adjustedCompliance >= 95 ? 'up' : adjustedCompliance >= 85 ? 'neutral' : 'down'}
           color="success"
           delay={0.1}
         />
         
         <QualityMetricCard
           title="Resistencia Promedio"
-          value={`${summary.averages.resistencia.toFixed(0)} kg/cm²`}
+          value={`${adjustedResistencia.toFixed(0)} kg/cm²`}
           subtitle="En edad de garantía"
           icon={<TrendingUp className="w-6 h-6" />}
           color="warning"
@@ -101,13 +104,13 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
               />
             </div>
           </DialogTrigger>
-          <DialogContent className="w-[95vw] max-w-7xl max-h-[90vh] glass-thick rounded-3xl border border-white/20 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl overflow-hidden flex flex-col p-0">
-            <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-systemPurple/20 to-transparent rounded-full blur-3xl -z-10" />
-            <div className="px-6 pt-6 pb-4">
-              <DialogTitle className="text-title-3 font-semibold text-label-primary">
+          <DialogContent className="w-[95vw] max-w-7xl max-h-[90vh] rounded-3xl border border-gray-200 bg-white shadow-2xl overflow-hidden flex flex-col p-0">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-gray-100/40 to-transparent rounded-full blur-3xl -z-10" />
+            <div className="px-6 pt-6 pb-4 border-b border-gray-200">
+              <DialogTitle className="text-title-3 font-semibold text-gray-900">
                 Coeficiente de Variación
               </DialogTitle>
-              <DialogDescription className="text-footnote text-label-tertiary mt-2">
+              <DialogDescription className="text-footnote text-gray-600 mt-2">
                 Análisis detallado de uniformidad por receta. Valores menores indican mayor consistencia de calidad.
               </DialogDescription>
             </div>
