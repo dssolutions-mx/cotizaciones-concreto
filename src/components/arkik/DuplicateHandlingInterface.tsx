@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface DuplicateHandlingInterfaceProps {
   duplicates: DuplicateRemisionInfo[];
@@ -36,6 +37,7 @@ export default function DuplicateHandlingInterface({
 }: DuplicateHandlingInterfaceProps) {
   const [decisions, setDecisions] = useState<Map<string, DuplicateHandlingDecision>>(new Map());
   const [expandedRemisiones, setExpandedRemisiones] = useState<Set<string>>(new Set());
+  const [selectedRemisiones, setSelectedRemisiones] = useState<Set<string>>(new Set());
 
   // Initialize decisions with suggested strategies
   React.useEffect(() => {
@@ -90,6 +92,71 @@ export default function DuplicateHandlingInterface({
         newSet.add(remisionNumber);
       }
       return newSet;
+    });
+  };
+
+  // Selection management functions
+  const toggleSelection = (remisionNumber: string) => {
+    setSelectedRemisiones(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(remisionNumber)) {
+        newSet.delete(remisionNumber);
+      } else {
+        newSet.add(remisionNumber);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedRemisiones(new Set(duplicates.map(d => d.remision_number)));
+  };
+
+  const deselectAll = () => {
+    setSelectedRemisiones(new Set());
+  };
+
+  const isAllSelected = () => {
+    return duplicates.length > 0 && selectedRemisiones.size === duplicates.length;
+  };
+
+  const isSomeSelected = () => {
+    return selectedRemisiones.size > 0 && selectedRemisiones.size < duplicates.length;
+  };
+
+  // Batch action handlers
+  const handleBatchAction = (strategy: DuplicateHandlingStrategy) => {
+    if (selectedRemisiones.size === 0) return;
+
+    // Check if any selected items are high risk
+    const selectedHighRisk = duplicates.filter(
+      d => selectedRemisiones.has(d.remision_number) && d.risk_level === 'high'
+    );
+
+    // Warn for high-risk items with UPDATE_ALL or MERGE
+    if (selectedHighRisk.length > 0 && (strategy === DuplicateHandlingStrategy.UPDATE_ALL || strategy === DuplicateHandlingStrategy.MERGE)) {
+      const confirmed = window.confirm(
+        `⚠️ Advertencia: ${selectedHighRisk.length} de las remisiones seleccionadas tienen riesgo alto. ` +
+        `¿Estás seguro de que deseas aplicar "${getStrategyDescription(strategy)}" a todas las seleccionadas?`
+      );
+      if (!confirmed) return;
+    }
+
+    setDecisions(prev => {
+      const newDecisions = new Map(prev);
+      selectedRemisiones.forEach(remisionNumber => {
+        const existing = newDecisions.get(remisionNumber);
+        if (existing) {
+          newDecisions.set(remisionNumber, {
+            ...existing,
+            strategy,
+            preserve_existing_data: strategy !== DuplicateHandlingStrategy.UPDATE_ALL,
+            update_materials_only: strategy === DuplicateHandlingStrategy.UPDATE_MATERIALS_ONLY,
+            skip_entirely: strategy === DuplicateHandlingStrategy.SKIP
+          });
+        }
+      });
+      return newDecisions;
     });
   };
 
@@ -248,16 +315,109 @@ export default function DuplicateHandlingInterface({
         </CardContent>
       </Card>
 
+      {/* Batch Selection Header */}
+      <Card className="border-l-4 border-l-blue-500">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                checked={isAllSelected()}
+                onCheckedChange={(checked) => {
+                  if (checked) {
+                    selectAll();
+                  } else {
+                    deselectAll();
+                  }
+                }}
+                className={isSomeSelected() ? 'data-[state=checked]:bg-blue-600' : ''}
+              />
+              <div>
+                <CardTitle className="text-lg">
+                  Selección en Lote
+                </CardTitle>
+                <CardDescription>
+                  {selectedRemisiones.size > 0 
+                    ? `${selectedRemisiones.size} de ${duplicates.length} remisiones seleccionadas`
+                    : 'Selecciona remisiones para aplicar acciones en lote'}
+                </CardDescription>
+              </div>
+            </div>
+
+            {selectedRemisiones.size > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleBatchAction(DuplicateHandlingStrategy.SKIP)}
+                  className="text-gray-700 border-gray-300"
+                >
+                  Aplicar Omitir
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleBatchAction(DuplicateHandlingStrategy.UPDATE_MATERIALS_ONLY)}
+                  className="text-blue-700 border-blue-300"
+                >
+                  Aplicar Solo Materiales
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleBatchAction(DuplicateHandlingStrategy.UPDATE_ALL)}
+                  className="text-amber-700 border-amber-300"
+                >
+                  Aplicar Actualizar Todo
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleBatchAction(DuplicateHandlingStrategy.MERGE)}
+                  className="text-green-700 border-green-300"
+                >
+                  Aplicar Combinar
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={deselectAll}
+                  className="text-gray-600"
+                >
+                  Deseleccionar Todo
+                </Button>
+              </div>
+            )}
+          </div>
+        </CardHeader>
+      </Card>
+
       {/* Duplicate List */}
       <div className="space-y-4">
         {duplicates.map((duplicate) => {
           const decision = decisions.get(duplicate.remision_number);
           const isExpanded = expandedRemisiones.has(duplicate.remision_number);
+          const isSelected = selectedRemisiones.has(duplicate.remision_number);
 
           return (
-            <Card key={duplicate.remision_number} className="border-l-4 border-l-amber-500">
+            <Card 
+              key={duplicate.remision_number} 
+              className={`border-l-4 ${
+                isSelected 
+                  ? 'border-l-blue-500 bg-blue-50/30' 
+                  : 'border-l-amber-500'
+              } transition-colors`}
+            >
               <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-4">
+                  {/* Checkbox for selection */}
+                  <div className="pt-1">
+                    <Checkbox
+                      checked={isSelected}
+                      onCheckedChange={() => toggleSelection(duplicate.remision_number)}
+                      className="data-[state=checked]:bg-blue-600"
+                    />
+                  </div>
+
                   <div className="flex-1">
                     <div className="flex items-center gap-3 mb-2">
                       <Badge variant="outline" className="font-mono">
