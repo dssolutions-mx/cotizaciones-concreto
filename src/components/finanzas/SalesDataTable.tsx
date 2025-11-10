@@ -18,6 +18,7 @@ interface SalesDataTableProps {
   summaryMetrics: any;
   includeVAT: boolean;
   onExportToExcel: () => void;
+  pricingMap?: Map<string, { subtotal_amount: number; volumen_fabricado: number }>;
 }
 
 export const SalesDataTable: React.FC<SalesDataTableProps> = ({
@@ -28,6 +29,7 @@ export const SalesDataTable: React.FC<SalesDataTableProps> = ({
   summaryMetrics,
   includeVAT,
   onExportToExcel,
+  pricingMap,
 }) => {
   // Extract all order items from salesData for sophisticated price matching
   // Note: order items include quote_details relationship which contains recipe_id
@@ -156,7 +158,17 @@ export const SalesDataTable: React.FC<SalesDataTableProps> = ({
                     }
 
                     // Use sophisticated price matching (same as remisiones page)
-                    const price = findProductPrice(productType, remision.order_id, recipeId, allOrderItems);
+                    // Pass pricing map and remision info to respect zero prices from view
+                    const remisionMasterRecipeId = (remision as any).master_recipe_id || remision.recipe?.master_recipe_id;
+                    const price = findProductPrice(
+                      productType, 
+                      remision.order_id, 
+                      recipeId, 
+                      allOrderItems,
+                      pricingMap,
+                      remision.id,
+                      remisionMasterRecipeId
+                    );
                     const subtotal = price * displayVolume;
 
                     // Format date
@@ -275,7 +287,17 @@ export const SalesDataTable: React.FC<SalesDataTableProps> = ({
                     }
 
                     // Use sophisticated price matching
-                    const price = findProductPrice(productType, remision.order_id, recipeId, allOrderItems);
+                    // Pass pricing map and remision info to respect zero prices from view
+                    const remisionMasterRecipeId = (remision as any).master_recipe_id || remision.recipe?.master_recipe_id;
+                    const price = findProductPrice(
+                      productType, 
+                      remision.order_id, 
+                      recipeId, 
+                      allOrderItems,
+                      pricingMap,
+                      remision.id,
+                      remisionMasterRecipeId
+                    );
                     const amount = price * displayVolume;
 
                     acc[clientId].count += 1;

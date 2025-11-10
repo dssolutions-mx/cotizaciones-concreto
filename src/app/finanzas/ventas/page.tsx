@@ -169,6 +169,7 @@ export default function VentasDashboard() {
     loading,
     error,
     orderItems, // Add order items for sophisticated price matching
+    pricingMap, // Pricing map from remisiones_with_pricing view
     streaming,
     progress
   } = useSalesData({
@@ -283,7 +284,7 @@ export default function VentasDashboard() {
     
     // debug removed
     
-    const metrics = SalesDataProcessor.calculateSummaryMetrics(filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems);
+    const metrics = SalesDataProcessor.calculateSummaryMetrics(filteredRemisionesWithVacioDeOlla, salesData, clientFilter, orderItems, pricingMap);
     
     // debug removed
     
@@ -432,8 +433,9 @@ export default function VentasDashboard() {
 
       // Resolve price with shared logic for BOMBEo to avoid using concrete unit prices
       let price = 0;
+      const remisionMasterRecipeId = (remision as any).master_recipe_id || (remision as any).recipe?.master_recipe_id;
       if (remision.tipo_remision === 'BOMBEO') {
-        price = findProductPrice('SER002', remision.order_id, (remision as any).recipe?.id, order?.items || []);
+        price = findProductPrice('SER002', remision.order_id, (remision as any).recipe?.id, order?.items || [], pricingMap, remision.id, remisionMasterRecipeId);
       } else {
         // Keep existing behavior for non-pump items
         const orderItem = (order?.items || []).find((item: any) =>
@@ -710,7 +712,8 @@ export default function VentasDashboard() {
         combinedRems as any, 
         orders as any,
         'all',
-        itemsForPricing
+        itemsForPricing,
+        pricingMap
       );
 
       // debug removed
@@ -934,17 +937,18 @@ export default function VentasDashboard() {
         let salesReportAmount = 0;
         let pricingMethod = '';
 
+        const remisionMasterRecipeId = (remision as any).master_recipe_id || remision.recipe?.master_recipe_id;
         if (remision.tipo_remision === 'VACÍO DE OLLA' || remision.isVirtualVacioDeOlla) {
-          salesReportPrice = findProductPrice('SER001', remision.order_id, null, orderItems);
+          salesReportPrice = findProductPrice('SER001', remision.order_id, null, orderItems, pricingMap, remision.id, remisionMasterRecipeId);
           pricingMethod = 'SER001';
         } else if (remision.tipo_remision === 'BOMBEO') {
-          salesReportPrice = findProductPrice('SER002', remision.order_id, null, orderItems);
+          salesReportPrice = findProductPrice('SER002', remision.order_id, null, orderItems, pricingMap, remision.id, remisionMasterRecipeId);
           pricingMethod = 'SER002';
         } else {
           // Concrete pricing - ALWAYS use concrete price, even if pump service exists
           const recipeCode = remision.recipe?.recipe_code;
           const recipeId = remision.recipe?.id;
-          salesReportPrice = findProductPrice(recipeCode, remision.order_id, recipeId, orderItems);
+          salesReportPrice = findProductPrice(recipeCode, remision.order_id, recipeId, orderItems, pricingMap, remision.id, remisionMasterRecipeId);
           pricingMethod = 'CONCRETE';
         }
 
@@ -1139,6 +1143,7 @@ export default function VentasDashboard() {
               summaryMetrics={currentSummaryMetrics}
               includeVAT={includeVAT}
               onExportToExcel={exportToExcel}
+              pricingMap={pricingMap}
             />
                         )}
                       </CardContent>

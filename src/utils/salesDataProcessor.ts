@@ -100,7 +100,34 @@ const getQuoteDetails = (p: any): { final_price?: number; recipe_id?: string | n
 };
 
 // Shared sophisticated price finding utility (extracted from remisiones page)
-export const findProductPrice = (productType: string, remisionOrderId: string, recipeId?: string, orderItems?: any[]): number => {
+// pricingMap: Map of remision_id -> { subtotal_amount, volumen_fabricado } from remisiones_with_pricing view
+// remisionId: Optional remision ID to check pricing map first (respects zero prices)
+// remisionMasterRecipeId: Optional master recipe ID from remision (for master-to-master matching)
+export const findProductPrice = (
+  productType: string, 
+  remisionOrderId: string, 
+  recipeId?: string, 
+  orderItems?: any[],
+  pricingMap?: Map<string, { subtotal_amount: number; volumen_fabricado: number }>,
+  remisionId?: string,
+  remisionMasterRecipeId?: string
+): number => {
+  // FIRST: Check pricing map from remisiones_with_pricing view (source of truth)
+  // This respects zero prices for internal transfers
+  if (pricingMap && remisionId) {
+    const pricingData = pricingMap.get(String(remisionId));
+    if (pricingData !== undefined) {
+      // View has pricing data - use it as source of truth
+      // Calculate unit price: subtotal_amount / volumen_fabricado
+      // If volumen_fabricado is 0, return 0 (avoid division by zero)
+      if (pricingData.volumen_fabricado > 0) {
+        return pricingData.subtotal_amount / pricingData.volumen_fabricado;
+      }
+      // If volumen is 0 but subtotal is also 0, return 0 (internal transfer)
+      return pricingData.subtotal_amount;
+    }
+  }
+
   if (!orderItems || orderItems.length === 0) return 0;
   
   // For SER001 (Vacío de Olla)
@@ -175,21 +202,62 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
   // For concrete products, first try to find in the specific order
   const orderSpecificProducts = orderItems.filter(p => String(p.order_id) === String(remisionOrderId));
   
-  // Normalize recipeId for comparisons
+  // Normalize recipeId and masterRecipeId for comparisons
   const recipeIdStr = recipeId ? String(recipeId) : undefined;
+  const remisionMasterRecipeIdStr = remisionMasterRecipeId ? String(remisionMasterRecipeId) : undefined;
   
-  // 1) Prefer match via quote_details.recipe_id (quote detail linkage)
-  let concreteProduct = recipeIdStr
+  // PRECISE MATCHING LOGIC (using both recipe_id and master_recipe_id from remision)
+  // Remisiones have BOTH recipe_id (actual variant) AND master_recipe_id (master it belongs to)
+  // Order items have EITHER recipe_id (legacy) OR master_recipe_id (new)
+  
+  // 1) Master-to-master matching (highest priority - most precise)
+  //    Match remision.master_recipe_id to order_item.master_recipe_id or quote_details.master_recipe_id
+  let concreteProduct = remisionMasterRecipeIdStr
     ? orderSpecificProducts.find(p => {
+        // Check order_item.master_recipe_id directly
+        if (p.master_recipe_id && String(p.master_recipe_id) === remisionMasterRecipeIdStr) {
+          return true;
+        }
+        // Check quote_details.master_recipe_id
         const qd = getQuoteDetails(p);
-        const qdRecipeId = qd?.recipe_id ? String(qd.recipe_id) : undefined;
-        return qdRecipeId && qdRecipeId === recipeIdStr;
+        const qdMasterRecipeId = qd?.master_recipe_id ? String(qd.master_recipe_id) : undefined;
+        return qdMasterRecipeId && qdMasterRecipeId === remisionMasterRecipeIdStr;
       })
     : undefined;
   
-  // 1b) NEW: If recipe_id didn't match, try matching by recipe_code
-  //     This handles cases where remision.recipe_id != quote_detail.recipe_id
-  //     but both recipes have the same recipe_code
+  // 2) Variant-to-variant matching (legacy but still precise)
+  //    Match remision.recipe_id to order_item.recipe_id or quote_details.recipe_id
+  if (!concreteProduct && recipeIdStr) {
+    concreteProduct = orderSpecificProducts.find(p => {
+      // Check order_item.recipe_id directly
+      if (p.recipe_id && String(p.recipe_id) === recipeIdStr) {
+        return true;
+      }
+      // Check quote_details.recipe_id
+      const qd = getQuoteDetails(p);
+      const qdRecipeId = qd?.recipe_id ? String(qd.recipe_id) : undefined;
+      return qdRecipeId && qdRecipeId === recipeIdStr;
+    });
+  }
+  
+  // 3) Variant-to-master matching (remision has variant, order item has master)
+  //    Match remision.master_recipe_id to order_item.master_recipe_id
+  //    This handles cases where remision used a specific variant but order was placed at master level
+  if (!concreteProduct && remisionMasterRecipeIdStr) {
+    concreteProduct = orderSpecificProducts.find(p => {
+      // Order item has master_recipe_id that matches remision's master
+      if (p.master_recipe_id && String(p.master_recipe_id) === remisionMasterRecipeIdStr) {
+        return true;
+      }
+      // Quote detail has master_recipe_id that matches remision's master
+      const qd = getQuoteDetails(p);
+      const qdMasterRecipeId = qd?.master_recipe_id ? String(qd.master_recipe_id) : undefined;
+      return qdMasterRecipeId && qdMasterRecipeId === remisionMasterRecipeIdStr;
+    });
+  }
+  
+  // 4) Try matching by recipe_code (fallback for edge cases)
+  //    Handles cases where IDs don't match but recipe codes do
   if (!concreteProduct && productType) {
     concreteProduct = orderSpecificProducts.find(p => {
       const qd = getQuoteDetails(p);
@@ -199,12 +267,7 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
     });
   }
   
-  // 2) Try exact match by order_item.recipe_id if provided
-  if (!concreteProduct && recipeIdStr) {
-    concreteProduct = orderSpecificProducts.find(p => p.recipe_id && String(p.recipe_id) === recipeIdStr);
-  }
-  
-  // 3) Try exact match by product_type or recipe_id string
+  // 5) Try exact match by product_type (legacy fallback)
   if (!concreteProduct) {
     concreteProduct = orderSpecificProducts.find(p => 
       p.product_type === productType || 
@@ -212,7 +275,7 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
     );
   }
   
-  // 4) Try with hyphen removal in specific order
+  // 6) Try with hyphen removal in specific order (legacy fallback)
   if (!concreteProduct) {
     const normalized = productType.replace(/-/g, '');
     concreteProduct = orderSpecificProducts.find(p => 
@@ -221,16 +284,33 @@ export const findProductPrice = (productType: string, remisionOrderId: string, r
     );
   }
   
-  // 5) If still not found, try global by quote_details.recipe_id
+  // GLOBAL FALLBACKS (if order-specific matching failed)
+  
+  // 7) Global master-to-master matching
+  if (!concreteProduct && remisionMasterRecipeIdStr) {
+    concreteProduct = orderItems.find(p => {
+      if (p.master_recipe_id && String(p.master_recipe_id) === remisionMasterRecipeIdStr) {
+        return true;
+      }
+      const qd = getQuoteDetails(p);
+      const qdMasterRecipeId = qd?.master_recipe_id ? String(qd.master_recipe_id) : undefined;
+      return qdMasterRecipeId && qdMasterRecipeId === remisionMasterRecipeIdStr;
+    });
+  }
+  
+  // 8) Global variant-to-variant matching (legacy)
   if (!concreteProduct && recipeIdStr) {
     concreteProduct = orderItems.find(p => {
+      if (p.recipe_id && String(p.recipe_id) === recipeIdStr) {
+        return true;
+      }
       const qd = getQuoteDetails(p);
       const qdRecipeId = qd?.recipe_id ? String(qd.recipe_id) : undefined;
       return qdRecipeId && qdRecipeId === recipeIdStr;
     });
   }
 
-  // 6) Global fallback by order_item.recipe_id or product_type
+  // 9) Global fallback by product_type (legacy)
   if (!concreteProduct) {
     concreteProduct = orderItems.find(p => 
       p.product_type === productType || 
@@ -458,7 +538,8 @@ export class SalesDataProcessor {
     remisiones: Remision[],
     salesData: Order[],
     clientFilter: string,
-    allOrderItems?: any[] // Add order items parameter for sophisticated price matching
+    allOrderItems?: any[], // Add order items parameter for sophisticated price matching
+    pricingMap?: Map<string, { subtotal_amount: number; volumen_fabricado: number }> // Pricing map from remisiones_with_pricing view
   ): SummaryMetrics {
     const result: SummaryMetrics = {
       concreteVolume: 0,
@@ -522,16 +603,19 @@ export class SalesDataProcessor {
         let unitPrice = 0;
         let calculatedAmount = 0;
 
+        // Get master recipe ID from remision if available
+        const remisionMasterRecipeId = (remision as any).master_recipe_id || (remision as any).recipe?.master_recipe_id;
+
         if (remision.tipo_remision === 'BOMBEO') {
           // Pump service - use SER002 code
-          unitPrice = findProductPrice('SER002', remision.order_id, recipeId, allOrderItems);
+          unitPrice = findProductPrice('SER002', remision.order_id, recipeId, allOrderItems, pricingMap, remision.id, remisionMasterRecipeId);
           calculatedAmount = unitPrice * volume;
           result.pumpAmount += calculatedAmount;
 
         } else if (recipeCode === 'SER001' || remision.tipo_remision === 'VACÍO DE OLLA') {
           // Empty truck charge - use SER001 code, typically volume is 1
           const unitCount = volume || 1;
-          unitPrice = findProductPrice('SER001', remision.order_id, recipeId, allOrderItems);
+          unitPrice = findProductPrice('SER001', remision.order_id, recipeId, allOrderItems, pricingMap, remision.id, remisionMasterRecipeId);
           calculatedAmount = unitPrice * unitCount;
           result.emptyTruckAmount += calculatedAmount;
           // debug removed
@@ -539,7 +623,7 @@ export class SalesDataProcessor {
         } else {
           // Regular concrete - use recipe code for sophisticated matching
           const productCode = recipeCode || 'PRODUCTO';
-          unitPrice = findProductPrice(productCode, remision.order_id, recipeId, allOrderItems);
+          unitPrice = findProductPrice(productCode, remision.order_id, recipeId, allOrderItems, pricingMap, remision.id, remisionMasterRecipeId);
           calculatedAmount = unitPrice * volume;
           result.concreteAmount += calculatedAmount;
         }

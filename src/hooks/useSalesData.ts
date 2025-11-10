@@ -12,6 +12,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
   const [salesData, setSalesData] = useState<any[]>([]);
   const [remisionesData, setRemisionesData] = useState<any[]>([]);
   const [orderItems, setOrderItems] = useState<any[]>([]); // Add order items for sophisticated price matching
+  const [pricingMap, setPricingMap] = useState<Map<string, { subtotal_amount: number; volumen_fabricado: number }>>(new Map()); // Pricing map from remisiones_with_pricing view
   const [clients, setClients] = useState<{id: string, name: string}[]>([]);
   const [resistances, setResistances] = useState<string[]>([]);
   const [tipos, setTipos] = useState<string[]>([]);
@@ -42,6 +43,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
       setSalesData([]);
       setRemisionesData([]);
       setOrderItems([]);
+      setPricingMap(new Map());
       setClients([]);
       setResistances([]);
       setTipos([]);
@@ -69,6 +71,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
       const ordersById = new Map<string, any>();
       const itemsByOrderId = new Map<string, any[]>();
       const clientMap = new Map<string, { id: string; name: string }>();
+      const pricingDataMap = new Map<string, { subtotal_amount: number; volumen_fabricado: number }>();
       let firstChunkRendered = false;
 
       try {
@@ -106,6 +109,36 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
 
           const { data: sliceRemisiones, error: remErr } = await remisionesQuery.order('fecha', { ascending: false });
           if (remErr) throw remErr;
+
+          // Fetch remisiones_with_pricing data for this slice to get accurate pricing
+          if (sliceRemisiones && sliceRemisiones.length > 0) {
+            const remisionIds = sliceRemisiones.map(r => r.id);
+            try {
+              let pricingQuery = supabase
+                .from('remisiones_with_pricing')
+                .select('remision_id, subtotal_amount, volumen_fabricado')
+                .in('remision_id', remisionIds.map(id => String(id)));
+
+              if (currentPlant?.id) {
+                pricingQuery = pricingQuery.eq('plant_id', currentPlant.id);
+              }
+
+              const { data: pricingData, error: pricingErr } = await pricingQuery;
+              if (!pricingErr && pricingData) {
+                pricingData.forEach((item: any) => {
+                  const remisionId = String(item.remision_id);
+                  pricingDataMap.set(remisionId, {
+                    subtotal_amount: parseFloat(item.subtotal_amount) || 0,
+                    volumen_fabricado: parseFloat(item.volumen_fabricado) || 0
+                  });
+                });
+                setPricingMap(new Map(pricingDataMap));
+              }
+            } catch (pricingError) {
+              // Non-fatal: continue without pricing map if view fetch fails
+              console.warn('Failed to fetch pricing data:', pricingError);
+            }
+          }
 
           // Append remisiones progressively
           if (sliceRemisiones && sliceRemisiones.length > 0) {
@@ -278,6 +311,7 @@ export const useSalesData = ({ startDate, endDate, currentPlant }: UseSalesDataP
     salesData,
     remisionesData,
     orderItems, // Add order items for sophisticated price matching
+    pricingMap, // Pricing map from remisiones_with_pricing view
     clients,
     resistances,
     tipos,
