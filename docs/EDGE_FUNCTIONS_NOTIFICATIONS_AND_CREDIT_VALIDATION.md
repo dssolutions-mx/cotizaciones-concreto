@@ -27,6 +27,12 @@ The following functions are ACTIVE in the `cotizador` project (id: `pkjqznogflgb
   - Purpose: Quality module function to enqueue notifications into `quality_notification_queue`.
   - Code: `supabase/functions/ensayo-notification/index.ts`.
 
+- daily-quality-summary-report
+  - Purpose: Daily summary of quality activities from the last 24 hours (rolling window). Shows muestreos entered, essays planned, essays completed, and essays pending per plant.
+  - Sends: SendGrid email to `QUALITY_TEAM` users plus Juan and Alejandro.
+  - Schedule: Daily at 8:00 PM Mexico time (2:00 AM UTC) via pg_cron.
+  - Code: `supabase/functions/daily-quality-summary-report/index.ts`.
+
 - weekly-balance-report (not in repo)
   - Purpose: Weekly customer balance digest; emails to management; records in `system_notifications` (table not present in this repo).
   - Action: Export and commit this function and any related migrations/tables to avoid drift.
@@ -165,6 +171,7 @@ Use this playbook to add a new interactive email flow or extend the current one.
   - `supabase/functions/daily-schedule-report/index.ts`
   - `supabase/functions/today-schedule-report/index.ts`
   - `supabase/functions/ensayo-notification/index.ts`
+  - `supabase/functions/daily-quality-summary-report/index.ts`
 
 - Next.js API routes
   - `src/app/api/credit-actions/direct-action/route.ts`
@@ -185,6 +192,11 @@ Use this playbook to add a new interactive email flow or extend the current one.
   - `supabase functions deploy daily-schedule-report`
   - `supabase functions deploy today-schedule-report`
   - `supabase functions deploy ensayo-notification`
+  - `supabase functions deploy daily-quality-summary-report`
+- Cron job configuration:
+  - `daily-quality-summary-report` is scheduled via pg_cron to run daily at 8:00 PM Mexico time (2:00 AM UTC)
+  - Cron job name: `daily-quality-summary-report`
+  - Schedule: `0 2 * * *` (2 AM UTC daily)
 - Export and commit `weekly-balance-report` and `send-actual-notification` (and related SQL) to avoid drift.
 
 
