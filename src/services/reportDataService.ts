@@ -343,7 +343,7 @@ export class ReportDataService {
         // Continue to enrichment step using remisionesData
         // Enrichment code below will use current scope remisionesData
         // so we assign it to a common variable via closure
-        var remisionesDataForEnrichment = remisionesData;
+        const remisionesDataForEnrichment = remisionesData;
 
         // Enrichment and post-filtering moved below common block
 

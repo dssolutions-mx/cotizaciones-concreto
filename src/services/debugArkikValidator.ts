@@ -954,7 +954,7 @@ export class DebugArkikValidator {
     this.validateMaterialsFromCache(row, errors, batchData.materials);
 
     // STEP 3: Get Pricing from cache (or reuse bestPricingMatch from multi-candidate branch)
-    let pricingOptions = batchData.pricingByRecipe.get(recipe.id) || [];
+    const pricingOptions = batchData.pricingByRecipe.get(recipe.id) || [];
     if (pricingOptions.length === 0 && !bestPricingMatch) {
       errors.push({
         row_number: row.row_number,
@@ -1742,7 +1742,7 @@ export class DebugArkikValidator {
 
     // Load quotes - CRITICAL: Query by master_recipe_id if available, otherwise by recipe_id
     // Master-based quotes have master_recipe_id set and recipe_id = NULL
-    let { data: quotes, error: quotesError } = await supabase
+    const { data: quotes, error: quotesError } = await supabase
       .from('quotes')
       .select(`
         id, client_id, construction_site, status,

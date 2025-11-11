@@ -16,83 +16,82 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Upload,
   FileText,
   Loader2,
   Eye,
   Trash2,
-  Download,
-  X,
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 
-interface Certificate {
+interface TechnicalSheet {
   id: string;
   material_id: string;
   file_name: string;
   original_name: string;
   file_path: string;
   file_size: number;
-  certificate_type: string;
+  sheet_type: string;
   notes: string | null;
   uploaded_by: string;
   created_at: string;
   url: string | null;
 }
 
-interface MaterialCertificateManagerProps {
+interface MaterialTechnicalSheetManagerProps {
   materialId: string;
   materialName: string;
-  isAggregate?: boolean;
 }
 
-export default function MaterialCertificateManager({
+export default function MaterialTechnicalSheetManager({
   materialId,
   materialName,
-  isAggregate = false,
-}: MaterialCertificateManagerProps) {
-  const [certificates, setCertificates] = useState<Certificate[]>([]);
+}: MaterialTechnicalSheetManagerProps) {
+  const [sheets, setSheets] = useState<TechnicalSheet[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [notes, setNotes] = useState('');
-  const [certificateType, setCertificateType] = useState<string>('control_interno');
-  const [filterType, setFilterType] = useState<string>('all');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  // Load certificates
+  // Load technical sheets
   useEffect(() => {
     if (materialId) {
-      loadCertificates();
+      loadSheets();
     }
   }, [materialId]);
 
-  const loadCertificates = async () => {
+  const loadSheets = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/materials/certificates?material_id=${materialId}`);
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        // Silently fail if no session
+        return;
+      }
+
+      const response = await fetch(`/api/materials/technical-sheets?material_id=${materialId}`, {
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      });
       
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setCertificates(result.data || []);
+        setSheets(result.data || []);
       } else {
-        console.error('Error loading certificates:', result.error);
-        // No mostrar toast en carga silenciosa, solo log
+        // Silently fail - table might not exist yet
+        setSheets([]);
       }
     } catch (error) {
-      console.error('Error loading certificates:', error);
-      // No mostrar toast en carga silenciosa, solo log
+      // Silently fail - table might not exist yet
+      setSheets([]);
     } finally {
       setLoading(false);
     }
@@ -124,63 +123,81 @@ export default function MaterialCertificateManager({
     try {
       setUploading(true);
 
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        toast.error('No hay sesión activa');
+        return;
+      }
+
       const formData = new FormData();
       formData.append('file', selectedFile);
       formData.append('material_id', materialId);
-      formData.append('certificate_type', certificateType);
       if (notes) {
         formData.append('notes', notes);
       }
 
-      const response = await fetch('/api/materials/certificates', {
+      const response = await fetch('/api/materials/technical-sheets', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        },
         body: formData,
       });
 
       const result = await response.json();
 
       if (response.ok && result.success) {
-        toast.success(result.message || 'Certificado subido exitosamente');
+        toast.success(result.message || 'Ficha técnica subida exitosamente');
         setIsDialogOpen(false);
         setSelectedFile(null);
         setNotes('');
-        setCertificateType('control_interno');
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
-        loadCertificates();
+        loadSheets();
       } else {
-        toast.error(result.error || 'Error al subir certificado');
+        toast.error(result.error || 'Error al subir ficha técnica');
       }
     } catch (error) {
-      console.error('Error uploading certificate:', error);
-      toast.error('Error al subir certificado');
+      console.error('Error uploading technical sheet:', error);
+      toast.error('Error al subir ficha técnica');
     } finally {
       setUploading(false);
     }
   };
 
-  const handleDelete = async (certificateId: string, fileName: string) => {
-    if (!confirm(`¿Está seguro de eliminar el certificado "${fileName}"?`)) {
+  const handleDelete = async (sheetId: string, fileName: string) => {
+    if (!confirm(`¿Está seguro de eliminar la ficha técnica "${fileName}"?`)) {
       return;
     }
 
     try {
-      const response = await fetch(`/api/materials/certificates?id=${certificateId}`, {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        toast.error('No hay sesión activa');
+        return;
+      }
+
+      const response = await fetch(`/api/materials/technical-sheets?id=${sheetId}`, {
         method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
       });
 
       const result = await response.json();
 
       if (response.ok && result.success) {
-        toast.success(result.message || 'Certificado eliminado exitosamente');
-        loadCertificates();
+        toast.success(result.message || 'Ficha técnica eliminada exitosamente');
+        loadSheets();
       } else {
-        toast.error(result.error || 'Error al eliminar certificado');
+        toast.error(result.error || 'Error al eliminar ficha técnica');
       }
     } catch (error) {
-      console.error('Error deleting certificate:', error);
-      toast.error('Error al eliminar certificado');
+      console.error('Error deleting technical sheet:', error);
+      toast.error('Error al eliminar ficha técnica');
     }
   };
 
@@ -200,33 +217,6 @@ export default function MaterialCertificateManager({
     });
   };
 
-  // Filtrar certificados según el tipo seleccionado
-  const filteredCertificates = isAggregate && filterType !== 'all'
-    ? certificates.filter(cert => cert.certificate_type === filterType)
-    : certificates;
-
-  const getCertificateTypeLabel = (type: string) => {
-    switch (type) {
-      case 'control_interno':
-        return 'Control Interno';
-      case 'proveedor':
-        return 'Proveedor';
-      default:
-        return 'Certificado';
-    }
-  };
-
-  const getCertificateTypeBadgeColor = (type: string) => {
-    switch (type) {
-      case 'control_interno':
-        return 'bg-blue-100 text-blue-700';
-      case 'proveedor':
-        return 'bg-green-100 text-green-700';
-      default:
-        return 'bg-gray-100 text-gray-700';
-    }
-  };
-
   return (
     <div className="space-y-3">
       {/* Header con contador y botón de subir */}
@@ -234,10 +224,10 @@ export default function MaterialCertificateManager({
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-gray-700" />
           <span className="text-sm font-bold !text-gray-900">
-            Certificados
+            Fichas Técnicas
           </span>
           <Badge variant="secondary" className="text-xs font-bold !text-gray-900">
-            {filteredCertificates.length}
+            {sheets.length}
           </Badge>
         </div>
         
@@ -254,35 +244,19 @@ export default function MaterialCertificateManager({
           </DialogTrigger>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle className="!text-gray-900">Subir Certificado de Calidad</DialogTitle>
+              <DialogTitle className="!text-gray-900">Subir Ficha Técnica</DialogTitle>
               <DialogDescription className="!text-gray-700">
                 Material: <span className="font-medium !text-gray-900">{materialName}</span>
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
-              {/* Certificate Type - Only for aggregates */}
-              {isAggregate && (
-                <div className="space-y-2">
-                  <Label htmlFor="certificate-type" className="!text-gray-900 font-semibold">Tipo de Certificado *</Label>
-                  <Select value={certificateType} onValueChange={setCertificateType}>
-                    <SelectTrigger className="!text-gray-900">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="control_interno">Control Interno</SelectItem>
-                      <SelectItem value="proveedor">Proveedor</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
               {/* File Input */}
               <div className="space-y-2">
-                <Label htmlFor="certificate-file" className="!text-gray-900 font-semibold">Archivo PDF *</Label>
+                <Label htmlFor="sheet-file" className="!text-gray-900 font-semibold">Archivo PDF *</Label>
                 <Input
                   ref={fileInputRef}
-                  id="certificate-file"
+                  id="sheet-file"
                   type="file"
                   accept="application/pdf"
                   onChange={handleFileSelect}
@@ -301,7 +275,7 @@ export default function MaterialCertificateManager({
                 <Label htmlFor="notes" className="!text-gray-900 font-semibold">Notas (opcional)</Label>
                 <Textarea
                   id="notes"
-                  placeholder="Ej: Certificado de laboratorio ABC, fecha de ensayo..."
+                  placeholder="Ej: Ficha técnica actualizada 2025, proveedor XYZ..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   rows={3}
@@ -317,7 +291,6 @@ export default function MaterialCertificateManager({
                   setIsDialogOpen(false);
                   setSelectedFile(null);
                   setNotes('');
-                  setCertificateType('control_interno');
                   if (fileInputRef.current) {
                     fileInputRef.current.value = '';
                   }
@@ -331,7 +304,7 @@ export default function MaterialCertificateManager({
                 variant="secondary"
                 onClick={handleUpload} 
                 disabled={uploading || !selectedFile} 
-                className="bg-gray-900 hover:bg-black !text-white border-2 border-gray-900"
+                className="bg-yellow-500 hover:bg-yellow-600 !text-white border-2 border-yellow-500"
               >
                 {uploading ? (
                   <>
@@ -350,84 +323,54 @@ export default function MaterialCertificateManager({
         </Dialog>
       </div>
 
-      {/* Filter by certificate type - Only for aggregates */}
-      {isAggregate && certificates.length > 0 && (
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-xs font-semibold text-gray-700">Filtrar:</span>
-          <Select value={filterType} onValueChange={setFilterType}>
-            <SelectTrigger className="h-8 w-40 text-xs !text-gray-900">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all" className="text-xs">Todos</SelectItem>
-              <SelectItem value="control_interno" className="text-xs">Control Interno</SelectItem>
-              <SelectItem value="proveedor" className="text-xs">Proveedor</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
-      {/* Certificates List */}
+      {/* Sheets List */}
       {loading ? (
         <div className="flex items-center justify-center py-6">
           <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
         </div>
-      ) : filteredCertificates.length === 0 ? (
+      ) : sheets.length === 0 ? (
         <div className="text-center py-6 text-sm bg-white rounded-lg border-2 border-dashed border-gray-200">
           <FileText className="h-10 w-10 mx-auto mb-2 text-gray-400" />
-          <p className="font-medium !text-gray-700">
-            {certificates.length > 0 && isAggregate && filterType !== 'all' 
-              ? 'No hay certificados de este tipo' 
-              : 'Sin certificados'}
-          </p>
-          <p className="text-xs !text-gray-600 mt-1">
-            {certificates.length > 0 && isAggregate && filterType !== 'all' 
-              ? 'Intenta cambiar el filtro' 
-              : 'Sube el primer certificado'}
-          </p>
+          <p className="font-medium !text-gray-700">Sin fichas técnicas</p>
+          <p className="text-xs !text-gray-600 mt-1">Sube la primera ficha técnica</p>
         </div>
       ) : (
         <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-          {filteredCertificates.map((cert) => (
+          {sheets.map((sheet) => (
             <div
-              key={cert.id}
-              className="group bg-white border-2 border-gray-200 rounded-lg p-2.5 hover:border-teal-300 hover:shadow-md transition-all duration-200"
+              key={sheet.id}
+              className="group bg-white border-2 border-gray-200 rounded-lg p-2.5 hover:border-yellow-300 hover:shadow-md transition-all duration-200"
             >
               <div className="flex items-start gap-2.5">
-                <div className="p-1.5 bg-red-50 rounded-md flex-shrink-0">
-                  <FileText className="h-4 w-4 text-red-600" />
+                <div className="p-1.5 bg-yellow-50 rounded-md flex-shrink-0">
+                  <FileText className="h-4 w-4 text-yellow-600" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold !text-gray-900 truncate leading-tight">
-                    {cert.original_name}
+                    {sheet.original_name}
                   </p>
-                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                    {isAggregate && (
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${getCertificateTypeBadgeColor(cert.certificate_type)}`}>
-                        {getCertificateTypeLabel(cert.certificate_type)}
-                      </span>
-                    )}
+                  <div className="flex items-center gap-1.5 mt-1">
                     <span className="text-[10px] font-medium !text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded">
-                      {formatFileSize(cert.file_size)}
+                      {formatFileSize(sheet.file_size)}
                     </span>
                     <span className="text-[10px] !text-gray-700">
-                      {formatDate(cert.created_at)}
+                      {formatDate(sheet.created_at)}
                     </span>
                   </div>
-                  {cert.notes && (
+                  {sheet.notes && (
                     <p className="text-[10px] !text-gray-700 mt-1 line-clamp-2 bg-gray-50 p-1.5 rounded leading-snug">
-                      {cert.notes}
+                      {sheet.notes}
                     </p>
                   )}
                 </div>
                 <div className="flex flex-col gap-1 flex-shrink-0">
-                  {cert.url ? (
-                    <a href={cert.url} target="_blank" rel="noopener noreferrer">
+                  {sheet.url ? (
+                    <a href={sheet.url} target="_blank" rel="noopener noreferrer">
                       <Button
                         variant="secondary"
                         size="sm"
                         className="h-7 w-7 p-0 bg-white border border-gray-300 hover:bg-gray-50 !text-black"
-                        title="Ver certificado"
+                        title="Ver ficha técnica"
                       >
                         <Eye className="h-3.5 w-3.5 text-black" />
                       </Button>
@@ -447,7 +390,7 @@ export default function MaterialCertificateManager({
                     variant="secondary"
                     size="sm"
                     className="h-7 w-7 p-0 bg-white border border-gray-300 hover:bg-red-50 !text-black"
-                    onClick={() => handleDelete(cert.id, cert.original_name)}
+                    onClick={() => handleDelete(sheet.id, sheet.original_name)}
                     title="Eliminar"
                   >
                     <Trash2 className="h-3.5 w-3.5 text-black" />

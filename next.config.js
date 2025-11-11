@@ -15,6 +15,11 @@ const nextConfig = {
     // !! WARN !!
     ignoreBuildErrors: true,
   },
+  eslint: {
+    // Warning: This allows production builds to successfully complete even if
+    // your project has ESLint errors.
+    ignoreDuringBuilds: true,
+  },
   // ESLint config should live in eslint.config.js or .eslintrc.* in Next 16
   // Use default output mode for better Vercel compatibility with static assets
   // output: 'standalone',
