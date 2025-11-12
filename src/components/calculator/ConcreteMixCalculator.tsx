@@ -200,7 +200,13 @@ const ConcreteMixCalculator = () => {
     placement: string;
     aggregateSize: number;
     intendedCode: string;
-    sameSpecCandidates: Array<{ id: string; recipe_code: string; master_recipe_id?: string | null; master_code?: string | null }>;
+    sameSpecCandidates: Array<{ 
+      id: string; 
+      recipe_code: string | null; 
+      master_recipe_id?: string | null; 
+      master_code?: string | null;
+      type?: 'recipe' | 'master';
+    }>;
     codeCollision: boolean;
     // decision UI
     decision: 'updateVariant' | 'createVariant' | 'newMaster';
@@ -1021,6 +1027,49 @@ const ConcreteMixCalculator = () => {
     setSaveOpen(true);
   };
 
+  // Helper function to match age criteria, handling both calculator and migration patterns
+  const matchesAgeCriteria = (
+    masterAgeDays: number | null | undefined,
+    masterAgeHours: number | null | undefined,
+    recipeAge: number,
+    recipeAgeUnit: 'D' | 'H'
+  ): boolean => {
+    // Normalize values (handle null, undefined, convert to numbers)
+    const masterDays = masterAgeDays == null ? null : Number(masterAgeDays);
+    const masterHours = masterAgeHours == null ? null : Number(masterAgeHours);
+    const recipeAgeNum = Number(recipeAge);
+
+    if (recipeAgeUnit === 'D') {
+      // For days-based recipes: check if master.age_days matches
+      if (masterDays !== recipeAgeNum) {
+        return false;
+      }
+      
+      // Accept if age_hours is null, 0, or matches migration pattern (age_hours = age_days * 24)
+      if (masterHours == null || masterHours === 0) {
+        return true; // Calculator pattern: only age_days set
+      }
+      
+      // Migration pattern: both fields set, check if age_hours = age_days * 24
+      const expectedHours = masterDays * 24;
+      return masterHours === expectedHours;
+    } else {
+      // For hours-based recipes: check if master.age_hours matches
+      if (masterHours !== recipeAgeNum) {
+        return false;
+      }
+      
+      // Accept if age_days is null, 0, or matches migration pattern (age_days = age_hours / 24)
+      if (masterDays == null || masterDays === 0) {
+        return true; // Calculator pattern: only age_hours set
+      }
+      
+      // Migration pattern: both fields set, check if age_days = age_hours / 24
+      const expectedDays = masterHours / 24;
+      return masterDays === expectedDays;
+    }
+  };
+
   const handleConfirmSave = async () => {
     const selected = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
     if (selected.length === 0 || !currentPlant?.id || !profile?.id) return;
@@ -1039,62 +1088,175 @@ const ConcreteMixCalculator = () => {
       // Preflight detect conflicts (same-spec with master and code collisions)
       const conflictRows: Array<any> = [];
       for (const { r, intendedCode } of provisional) {
-        // Fetch same-spec recipes with their master information
-        const { data: sameSpecs, error: sameSpecError } = await supabase
+        // Map placement to database values (handle both 'D'/'B' and 'DIRECTO'/'BOMBEADO' formats)
+        // Migration-created masters use 'D'/'B', calculator-created use 'DIRECTO'/'BOMBEADO'
+        const placementDbValues = r.placement === 'D' 
+          ? ['DIRECTO', 'D']  // Check both formats for migration compatibility
+          : ['BOMBEADO', 'B', 'BOMB'];  // Check multiple formats
+        
+        // Build query with .or() for placement_type to handle multiple formats
+        let recipesQuery = supabase
           .from('recipes')
           .select('id, recipe_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump, master_recipe_id, master_recipes:master_recipe_id(id, master_code)')
           .eq('plant_id', currentPlant.id)
           .eq('strength_fc', r.strength)
-          .eq('placement_type', r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO')
           .eq('max_aggregate_size', r.aggregateSize)
           .eq('slump', r.slump);
         
+        // Use .or() to check multiple placement_type values
+        if (placementDbValues.length === 1) {
+          recipesQuery = recipesQuery.eq('placement_type', placementDbValues[0]);
+        } else {
+          const orConditions = placementDbValues.map(val => `placement_type.eq.${val}`).join(',');
+          recipesQuery = recipesQuery.or(orConditions);
+        }
+        
+        const { data: sameSpecs, error: sameSpecError } = await recipesQuery;
+        
         if (sameSpecError) {
-          console.error('Error fetching same-spec recipes:', sameSpecError);
+          console.error(`[Preflight Recipe: ${r.code}] Error fetching same-spec recipes:`, sameSpecError);
         }
 
-        // Process same-spec recipes - filter by age
+        // Process same-spec recipes - filter by age (using helper function for consistency)
         const sameSpecFiltered = (sameSpecs || []).filter((row: any) => {
-          if (r.ageUnit === 'D') return (row.age_days === r.age) && (!row.age_hours || row.age_hours === 0);
-          return (row.age_hours === r.age) && (!row.age_days || row.age_days === 0);
+          return matchesAgeCriteria(row.age_days, row.age_hours, r.age, r.ageUnit);
         });
 
         // Also fetch master recipes directly with same core specs
-        const { data: sameMasters, error: sameMastersError } = await supabase
+        let mastersQuery = supabase
           .from('master_recipes')
           .select('id, master_code, strength_fc, age_days, age_hours, placement_type, max_aggregate_size, slump')
           .eq('plant_id', currentPlant.id)
           .eq('strength_fc', r.strength)
-          .eq('placement_type', r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO')
           .eq('max_aggregate_size', r.aggregateSize)
           .eq('slump', r.slump);
+        
+        // Use .or() to check multiple placement_type values
+        if (placementDbValues.length === 1) {
+          mastersQuery = mastersQuery.eq('placement_type', placementDbValues[0]);
+        } else {
+          const orConditions = placementDbValues.map(val => `placement_type.eq.${val}`).join(',');
+          mastersQuery = mastersQuery.or(orConditions);
+        }
+        
+        const { data: sameMasters, error: sameMastersError } = await mastersQuery;
 
         if (sameMastersError) {
-          console.error('Error fetching same-spec masters:', sameMastersError);
+          console.error(`[Preflight Recipe: ${r.code}] Error fetching same-spec masters:`, sameMastersError);
+          console.error('Query details:', {
+            plant_id: currentPlant.id,
+            strength_fc: r.strength,
+            placement_type: placementDbValues,
+            max_aggregate_size: r.aggregateSize,
+            slump: r.slump
+          });
         }
 
         console.log(`[Preflight Recipe: ${r.code}]`, {
           searchParams: {
             strength_fc: r.strength,
-            placement_type: r.placement === 'D' ? 'DIRECTO' : 'BOMBEADO',
+            placement_type: placementDbValues,  // Show all placement types being searched
+            placement_original: r.placement,
             max_aggregate_size: r.aggregateSize,
             slump: r.slump,
-            age: `${r.age}${r.ageUnit}`
+            age: `${r.age}${r.ageUnit}`,
+            plant_id: currentPlant.id
           },
           foundMasters: sameMasters?.length || 0,
-          foundRecipes: sameSpecs?.length || 0
+          foundRecipes: sameSpecs?.length || 0,
+          rawMasters: (sameMasters || []).map(m => ({
+            id: m.id,
+            code: m.master_code,
+            strength_fc: m.strength_fc,
+            placement_type: m.placement_type,  // Show actual placement_type from DB
+            max_aggregate_size: m.max_aggregate_size,
+            slump: m.slump,
+            age_days: m.age_days,
+            age_hours: m.age_hours,
+            age_days_type: typeof m.age_days,
+            age_hours_type: typeof m.age_hours
+          })),
+          rawRecipes: (sameSpecs || []).slice(0, 3).map(rec => ({
+            id: rec.id,
+            code: rec.recipe_code,
+            strength_fc: rec.strength_fc,
+            placement_type: rec.placement_type,
+            max_aggregate_size: rec.max_aggregate_size,
+            slump: rec.slump,
+            age_days: rec.age_days,
+            age_hours: rec.age_hours
+          }))
         });
+        
+        // Debug: Log if query returned empty but we expect results
+        if ((sameMasters?.length || 0) === 0 && (sameSpecs?.length || 0) === 0) {
+          console.warn(`[Preflight Recipe: ${r.code}] WARNING: No masters or recipes found!`, {
+            queryParams: {
+              plant_id: currentPlant.id,
+              strength_fc: r.strength,
+              placement_type: placementDbValues,
+              max_aggregate_size: r.aggregateSize,
+              slump: r.slump
+            },
+            recipeDetails: {
+              code: r.code,
+              strength: r.strength,
+              slump: r.slump,
+              placement: r.placement,
+              aggregateSize: r.aggregateSize,
+              age: r.age,
+              ageUnit: r.ageUnit
+            }
+          });
+        }
 
-        // Filter masters by age
+        // Filter masters by age using helper function that handles both calculator and migration patterns
         const sameSpecMastersFiltered = (sameMasters || []).filter((master: any) => {
-          if (r.ageUnit === 'D') return (master.age_days === r.age) && (!master.age_hours || master.age_hours === 0);
-          return (master.age_hours === r.age) && (!master.age_days || master.age_days === 0);
+          const matches = matchesAgeCriteria(master.age_days, master.age_hours, r.age, r.ageUnit);
+          
+          // Enhanced logging for debugging
+          if (!matches && sameMasters && sameMasters.length > 0) {
+            const masterDays = master.age_days == null ? null : Number(master.age_days);
+            const masterHours = master.age_hours == null ? null : Number(master.age_hours);
+            const recipeAgeNum = Number(r.age);
+            
+            let reason = '';
+            if (r.ageUnit === 'D') {
+              if (masterDays !== recipeAgeNum) {
+                reason = `age_days mismatch: ${masterDays} !== ${recipeAgeNum}`;
+              } else if (masterHours != null && masterHours !== 0 && masterHours !== masterDays * 24) {
+                reason = `age_hours doesn't match migration pattern: ${masterHours} !== ${masterDays * 24}`;
+              }
+            } else {
+              if (masterHours !== recipeAgeNum) {
+                reason = `age_hours mismatch: ${masterHours} !== ${recipeAgeNum}`;
+              } else if (masterDays != null && masterDays !== 0 && masterDays !== masterHours / 24) {
+                reason = `age_days doesn't match migration pattern: ${masterDays} !== ${masterHours / 24}`;
+              }
+            }
+            
+            console.log(`[Preflight Recipe: ${r.code}] Master excluded:`, {
+              master_code: master.master_code,
+              master_age_days: masterDays,
+              master_age_hours: masterHours,
+              recipe_age: `${recipeAgeNum}${r.ageUnit}`,
+              reason: reason || 'unknown'
+            });
+          }
+          
+          return matches;
         });
 
         console.log(`[Preflight Recipe: ${r.code}] After age filter:`, {
           mastersBeforeFilter: sameMasters?.length || 0,
           mastersAfterFilter: sameSpecMastersFiltered.length,
-          masters: sameSpecMastersFiltered.map(m => ({ id: m.id, code: m.master_code, age_days: m.age_days, age_hours: m.age_hours }))
+          masters: sameSpecMastersFiltered.map(m => ({
+            id: m.id,
+            code: m.master_code,
+            age_days: m.age_days,
+            age_hours: m.age_hours,
+            pattern: m.age_hours != null && m.age_days != null && m.age_hours === m.age_days * 24 ? 'MIGRATION' : 'CALCULATOR'
+          }))
         });
 
         // Combine recipe candidates with master data and master-only candidates
@@ -1730,12 +1892,22 @@ const ConcreteMixCalculator = () => {
 
                   {c.sameSpecCandidates.length > 0 && (
                     <div className="mt-3">
-                      <div className="text-xs text-gray-600 mb-1">Variantes existentes (mismas especificaciones)</div>
-                      <div className="rounded border bg-gray-50 max-h-24 overflow-auto">
+                      <div className="text-xs text-gray-600 mb-1">Variantes y maestros existentes (mismas especificaciones)</div>
+                      <div className="rounded border bg-gray-50 max-h-32 overflow-auto">
                         <ul className="text-xs p-2 space-y-1">
-                          {c.sameSpecCandidates.map(s => (
-                            <li key={s.id} className="font-mono">{s.recipe_code}</li>
-                          ))}
+                          {c.sameSpecCandidates.map(s => {
+                            // Determine type: explicit type field, or infer from recipe_code presence
+                            const isMaster = s.type === 'master' || (!s.recipe_code && s.master_code);
+                            return (
+                              <li key={s.id} className="font-mono">
+                                {isMaster ? (
+                                  <span className="text-blue-600">📦 MAESTRO: {s.master_code || 'N/A'}</span>
+                                ) : (
+                                  <span>🔧 Variante: {s.recipe_code || 'N/A'} {s.master_code ? `(Maestro: ${s.master_code})` : ''}</span>
+                                )}
+                              </li>
+                            );
+                          })}
                         </ul>
                       </div>
                     </div>
@@ -1759,9 +1931,15 @@ const ConcreteMixCalculator = () => {
                         <Label className="text-xs">Variante existente</Label>
                         <select className="w-full border rounded px-2 py-1 text-sm" value={c.selectedExistingId || ''} onChange={(e) => setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedExistingId:e.target.value}:x))}>
                           <option value="">Selecciona…</option>
-                          {c.sameSpecCandidates.map(s => (
-                            <option key={s.id} value={s.id}>{s.recipe_code}</option>
-                          ))}
+                          {c.sameSpecCandidates
+                            .filter(s => {
+                              // Only show recipe variants, not standalone masters
+                              const isMaster = s.type === 'master' || (!s.recipe_code && s.master_code);
+                              return !isMaster && s.recipe_code;
+                            })
+                            .map(s => (
+                              <option key={s.id} value={s.id}>{s.recipe_code}</option>
+                            ))}
                         </select>
                       </div>
                     )}
@@ -1779,22 +1957,44 @@ const ConcreteMixCalculator = () => {
                             <Label className="text-xs">Maestro</Label>
                             <select className="w-full border rounded px-2 py-1 text-sm" value={c.selectedMasterId || ''} onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, selectedMasterId: e.target.value}:x))}>
                               <option value="">Selecciona…</option>
-                              {/* Get unique masters by master_recipe_id */}
+                              {/* Get unique masters - include both masters from variants AND standalone masters */}
                               {(() => {
                                 const seenMasterIds = new Set<string>();
                                 const uniqueMasters: any[] = [];
                                 
+                                // First, collect masters from recipe variants
                                 for (const candidate of c.sameSpecCandidates) {
                                   if (candidate.master_recipe_id && !seenMasterIds.has(candidate.master_recipe_id)) {
                                     seenMasterIds.add(candidate.master_recipe_id);
-                                    uniqueMasters.push(candidate);
+                                    uniqueMasters.push({
+                                      id: candidate.master_recipe_id,
+                                      master_code: candidate.master_code,
+                                      type: 'from_variant'
+                                    });
                                   }
                                 }
                                 
-                                console.log(`[Conflict Row ${idx}] Total candidates: ${c.sameSpecCandidates.length}, Unique masters: ${uniqueMasters.length}`);
+                                // Then, add standalone masters (type: 'master' or inferred from missing recipe_code)
+                                for (const candidate of c.sameSpecCandidates) {
+                                  const isStandaloneMaster = (candidate.type === 'master' || (!candidate.recipe_code && candidate.master_code));
+                                  if (isStandaloneMaster && candidate.master_recipe_id && !seenMasterIds.has(candidate.master_recipe_id)) {
+                                    seenMasterIds.add(candidate.master_recipe_id);
+                                    uniqueMasters.push({
+                                      id: candidate.master_recipe_id,
+                                      master_code: candidate.master_code,
+                                      type: 'standalone'
+                                    });
+                                  }
+                                }
                                 
-                                return uniqueMasters.map((s) => (
-                                  <option key={s.master_recipe_id} value={s.master_recipe_id}>{s.master_code}</option>
+                                console.log(`[Conflict Row ${idx}] Total candidates: ${c.sameSpecCandidates.length}, Unique masters: ${uniqueMasters.length}`, {
+                                  masters: uniqueMasters.map(m => ({ id: m.id, code: m.master_code, type: m.type }))
+                                });
+                                
+                                return uniqueMasters.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.master_code || 'N/A'} {m.type === 'standalone' ? '(sin variantes)' : ''}
+                                  </option>
                                 ));
                               })()}
                             </select>
