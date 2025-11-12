@@ -1882,11 +1882,31 @@ const ConcreteMixCalculator = () => {
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="text-sm text-gray-600">Receta</div>
-                      <div className="font-mono text-sm font-semibold">{c.intendedCode}</div>
+                      <div className="font-mono text-sm font-semibold">
+                        {c.overrideCode !== c.intendedCode ? (
+                          <span>
+                            <span className="line-through text-gray-400">{c.intendedCode}</span>
+                            <span className="ml-2 text-blue-600">{c.overrideCode}</span>
+                          </span>
+                        ) : (
+                          c.intendedCode
+                        )}
+                      </div>
                       <div className="text-xs text-gray-600 mt-1">F'c: {c.strength} | Rev: {c.slump}cm | Coloc: {c.placement} | Edad: {c.age}{c.ageUnit}</div>
+                      {c.overrideCode !== c.intendedCode && (
+                        <div className="text-xs text-blue-600 mt-1">
+                          ✓ Código modificado: {c.intendedCode} → {c.overrideCode}
+                        </div>
+                      )}
                     </div>
                     {c.codeCollision && (
-                      <div className="text-xs text-red-600 font-semibold">⚠ Colisión de código</div>
+                      <div className="text-xs text-red-600 font-semibold">
+                        {c.overrideCode === c.intendedCode ? (
+                          '⚠ Colisión de código'
+                        ) : (
+                          '✓ Colisión resuelta'
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -2016,20 +2036,66 @@ const ConcreteMixCalculator = () => {
                   </div>
 
                   <div className="mt-3">
-                    <Label className="text-xs">Código ARKIK</Label>
+                    <Label className="text-xs">
+                      Código ARKIK {c.codeCollision && (c.decision === 'createVariant' || c.decision === 'newMaster') && (
+                        <span className="text-red-600 font-semibold">⚠️ Debe ser diferente</span>
+                      )}
+                    </Label>
                     <Input 
                       value={c.overrideCode} 
                       onChange={(e)=> setConflicts(prev => prev.map((x,i)=> i===idx?{...x, overrideCode:e.target.value}:x))} 
-                      className="font-mono text-sm w-full"
+                      className={`font-mono text-sm w-full ${
+                        c.codeCollision && (c.decision === 'createVariant' || c.decision === 'newMaster') && 
+                        (c.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === c.overrideCode))
+                          ? 'border-red-500 bg-red-50' 
+                          : ''
+                      }`}
                       title={c.overrideCode}
+                      placeholder={c.intendedCode}
                     />
+                    {c.codeCollision && (c.decision === 'createVariant' || c.decision === 'newMaster') && (
+                      <div className="mt-1 space-y-1">
+                        {c.overrideCode === c.intendedCode ? (
+                          <>
+                            <p className="text-xs text-red-600 font-semibold">
+                              ⚠️ Este código ya existe. Debes cambiar el código para crear una nueva variante.
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              💡 Tip: Cambia la última sección del código (ej: cambia "000" por "001" o "PCE")
+                            </p>
+                          </>
+                        ) : c.sameSpecCandidates.some(s => s.recipe_code === c.overrideCode) ? (
+                          <p className="text-xs text-red-600">
+                            ⚠️ Este código ya existe en las variantes existentes. Usa un código diferente.
+                          </p>
+                        ) : (
+                          <p className="text-xs text-green-600">
+                            ✓ Código válido (diferente al existente)
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {!c.codeCollision && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Puedes editar este código si necesitas cambiarlo
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setConflictsOpen(false)}>Cancelar</Button>
-              <Button onClick={async () => {
+              <Button 
+                disabled={(() => {
+                  // Disable button if there's a code collision and user hasn't changed the code for new variants/masters
+                  return conflicts.some(c => 
+                    c.codeCollision && 
+                    (c.decision === 'createVariant' || c.decision === 'newMaster') &&
+                    (c.overrideCode === c.intendedCode || c.sameSpecCandidates.some(s => s.recipe_code === c.overrideCode))
+                  );
+                })()}
+                onClick={async () => {
                 try {
                   setSaving(true);
                   const selected = generatedRecipes.filter(r => selectedRecipesForExport.has(r.code));
@@ -2060,13 +2126,24 @@ const ConcreteMixCalculator = () => {
                         throw new Error('Código maestro inválido.');
                       }
                     }
-                    // Check if createVariant code already exists
-                    if (c.decision === 'createVariant') {
+                    // CRITICAL: For new variants and new masters, code MUST be different if there's a collision
+                    if ((c.decision === 'createVariant' || c.decision === 'newMaster') && c.codeCollision) {
                       const finalArkikCode = c.overrideCode || c.intendedCode;
-                      if (c.sameSpecCandidates.some(s => s.recipe_code === finalArkikCode)) {
+                      
+                      // Check if code matches the original (collision)
+                      if (finalArkikCode === c.intendedCode) {
                         throw new Error(
                           `El código ARKIK "${finalArkikCode}" ya existe. ` +
-                          `Para crear una nueva variante, cambia el código ARKIK (última sección) en el campo "Código ARKIK".`
+                          `Debes cambiar el código para crear una nueva variante. ` +
+                          `Modifica el código en el campo "Código ARKIK" (generalmente la última sección del código).`
+                        );
+                      }
+                      
+                      // Check if code matches any existing variant
+                      if (c.sameSpecCandidates.some(s => s.recipe_code === finalArkikCode)) {
+                        throw new Error(
+                          `El código ARKIK "${finalArkikCode}" ya existe en las variantes existentes. ` +
+                          `Usa un código diferente en el campo "Código ARKIK".`
                         );
                       }
                     }
