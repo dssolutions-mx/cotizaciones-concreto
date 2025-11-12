@@ -790,12 +790,15 @@ export default function ScheduleOrderForm({
       try {
         console.log(`Fetching pump service pricing for Client: ${selectedClientId}, Site: ${selectedConstructionSite.name}`);
         
-        // Look for pump service pricing directly on quote_details, inner-joining quotes for filters
-        const { data: pumpServiceData, error: pumpServiceError } = await supabase
+        // PRIORITY 1: Look for standalone pumping services first (product_id IS NOT NULL, recipe_id IS NULL, master_recipe_id IS NULL)
+        const { data: standalonePumpData, error: standalonePumpError } = await supabase
           .from('quote_details')
           .select(`
             pump_price,
             pump_service,
+            product_id,
+            recipe_id,
+            master_recipe_id,
             quotes!inner(
               id,
               client_id,
@@ -808,12 +811,45 @@ export default function ScheduleOrderForm({
           .eq('quotes.client_id', selectedClientId)
           .eq('quotes.construction_site', selectedConstructionSite.name)
           .eq('quotes.status', 'APPROVED')
+          .not('product_id', 'is', null)
+          .is('recipe_id', null)
+          .is('master_recipe_id', null)
           .order('created_at', { ascending: false, foreignTable: 'quotes' })
           .limit(1);
           
-        if (pumpServiceError) {
-          console.error("Error fetching pump service pricing:", pumpServiceError);
-          return;
+        if (standalonePumpError) {
+          console.error("Error fetching standalone pump service pricing:", standalonePumpError);
+        }
+        
+        // PRIORITY 2: If no standalone pumping found, fall back to concrete products with pump service
+        let pumpServiceData = standalonePumpData;
+        if ((!standalonePumpData || standalonePumpData.length === 0) && !standalonePumpError) {
+          console.log('No standalone pumping services found, checking concrete products with pump service...');
+          const { data: concretePumpData, error: concretePumpError } = await supabase
+            .from('quote_details')
+            .select(`
+              pump_price,
+              pump_service,
+              quotes!inner(
+                id,
+                client_id,
+                construction_site,
+                status,
+                created_at
+              )
+            `)
+            .eq('pump_service', true)
+            .eq('quotes.client_id', selectedClientId)
+            .eq('quotes.construction_site', selectedConstructionSite.name)
+            .eq('quotes.status', 'APPROVED')
+            .order('created_at', { ascending: false, foreignTable: 'quotes' })
+            .limit(1);
+            
+          if (concretePumpError) {
+            console.error("Error fetching concrete pump service pricing:", concretePumpError);
+          } else {
+            pumpServiceData = concretePumpData;
+          }
         }
         
         console.log('Pump service data fetched:', pumpServiceData);
@@ -824,7 +860,7 @@ export default function ScheduleOrderForm({
           if (firstDetailWithPrice) {
             const priceNumber = Number(firstDetailWithPrice.pump_price);
             setPumpPrice(priceNumber);
-            console.log(`Found pump service price: $${priceNumber} for client + site combination`);
+            console.log(`Found pump service price: $${priceNumber} for client + site combination (${standalonePumpData && standalonePumpData.length > 0 ? 'standalone' : 'concrete with pump'})`);
           } else {
             console.log('Pump service details found but without price. Allowing manual entry.');
             setPumpPrice(0);
@@ -843,6 +879,18 @@ export default function ScheduleOrderForm({
     loadPumpServicePricing();
   }, [selectedClientId, selectedConstructionSite?.name]);
   
+  // Sync pumpPrice with standalone pumping products when available
+  useEffect(() => {
+    if (standalonePumpingProducts.length > 0 && orderType === 'pumping') {
+      // Use price from standalone pumping product if available (more accurate than query)
+      const standalonePrice = standalonePumpingProducts[0].pumpPrice || standalonePumpingProducts[0].unitPrice;
+      if (standalonePrice && standalonePrice > 0) {
+        console.log(`Using pump price from standalone pumping product: $${standalonePrice}`);
+        setPumpPrice(standalonePrice);
+      }
+    }
+  }, [standalonePumpingProducts, orderType]);
+
   // Auto-activate pump service when in pumping-only mode
   useEffect(() => {
     if (orderType === 'pumping' && pumpPrice !== null) {
@@ -1077,10 +1125,31 @@ export default function ScheduleOrderForm({
         // For pumping-only mode, we need to find any quote with pump service
         // This could be either standalone pumping products OR concrete with pump service
         if (standalonePumpingProducts.length > 0) {
-          // Find the quote that contains this standalone pumping product
-          quoteId = availableQuotes.find(q => 
-            q.products.some(p => p.quoteDetailId === standalonePumpingProducts[0].quoteDetailId)
-          )?.id;
+          // PRIORITY: Query quote_details directly using quoteDetailId to get quote_id (most reliable)
+          try {
+            const { data: quoteDetail, error: quoteDetailError } = await supabase
+              .from('quote_details')
+              .select('quote_id')
+              .eq('id', standalonePumpingProducts[0].quoteDetailId)
+              .single();
+            
+            if (!quoteDetailError && quoteDetail) {
+              quoteId = quoteDetail.quote_id;
+              console.log(`Found quote ID from standalone pumping product: ${quoteId}`);
+            } else {
+              console.warn('Failed to get quote_id from quote_details, falling back to availableQuotes search');
+              // Fallback: Find the quote that contains this standalone pumping product
+              quoteId = availableQuotes.find(q => 
+                q.products.some(p => p.quoteDetailId === standalonePumpingProducts[0].quoteDetailId)
+              )?.id;
+            }
+          } catch (err) {
+            console.error('Error querying quote_details for quote_id:', err);
+            // Fallback: Find the quote that contains this standalone pumping product
+            quoteId = availableQuotes.find(q => 
+              q.products.some(p => p.quoteDetailId === standalonePumpingProducts[0].quoteDetailId)
+            )?.id;
+          }
         } else if (availableQuotes.length > 0) {
           // If no standalone pumping products, use the first quote with pump service
           // (this handles the case where concrete products have pump service)
@@ -1153,10 +1222,12 @@ export default function ScheduleOrderForm({
       
       // Prepare pump service data separately
       // This applies to:
-      // 1. Traditional concrete orders with pump service (orderType !== 'pumping')
-      // 2. Pumping-only orders where we use pumpServiceData (orderType === 'pumping')
+      // 1. Traditional concrete orders with pump service (orderType !== 'pumping' AND hasPumpService)
+      // 2. Pumping-only orders WITHOUT standalone pumping products (orderType === 'pumping' AND standalonePumpingProducts.length === 0)
+      // DO NOT create pumpServiceData when standalone pumping products exist in order_items (they're already handled there)
       let pumpServiceData: PumpServiceDetails | null = null;
-      if (hasPumpService && pumpVolume > 0 && pumpPrice !== null) {
+      const hasStandalonePumpingInItems = orderType === 'pumping' && standalonePumpingProducts.length > 0;
+      if (hasPumpService && pumpVolume > 0 && pumpPrice !== null && !hasStandalonePumpingInItems) {
         pumpServiceData = {
           volume: pumpVolume,
           unit_price: pumpPrice,
