@@ -38,9 +38,12 @@ import {
   Plus,
   Package,
   ArrowUpRight,
-  Thermometer
+  Thermometer,
+  Trash2,
+  Pencil
 } from 'lucide-react';
-import { fetchMuestreoById } from '@/services/qualityMuestreoService';
+import { fetchMuestreoById, updateMuestreo, deleteMuestreo } from '@/services/qualityMuestreoService';
+import { deleteMuestra } from '@/services/qualityMuestraService';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { MuestreoWithRelations } from '@/types/quality';
 import Link from 'next/link';
@@ -49,6 +52,17 @@ import AddSampleModal from '@/components/quality/muestreos/AddSampleModal';
 import RemisionMaterialsAnalysis from '@/components/quality/RemisionMaterialsAnalysis';
 import { calcularRendimientoVolumetrico } from '@/lib/qualityMetricsUtils';
 import { supabase } from '@/lib/supabase';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/components/ui/use-toast";
 
 // Helper function to get order info for integration
 function getOrderInfo(muestreo: MuestreoWithRelations) {
@@ -77,6 +91,15 @@ export default function MuestreoDetailPage() {
   const [showAddSampleModal, setShowAddSampleModal] = useState(false);
   const [orderTotalsLoading, setOrderTotalsLoading] = useState(false);
   const [rendimientoLoading, setRendimientoLoading] = useState(false);
+  const [showDeleteMuestreoDialog, setShowDeleteMuestreoDialog] = useState(false);
+  const [showDeleteMuestraDialog, setShowDeleteMuestraDialog] = useState(false);
+  const [muestraToDelete, setMuestraToDelete] = useState<string | null>(null);
+  const [isDeletingMuestreo, setIsDeletingMuestreo] = useState(false);
+  const [isDeletingMuestra, setIsDeletingMuestra] = useState(false);
+  const [showEditRevenimientoDialog, setShowEditRevenimientoDialog] = useState(false);
+  const [revenimientoValue, setRevenimientoValue] = useState<string>('');
+  const [isUpdatingRevenimiento, setIsUpdatingRevenimiento] = useState(false);
+  const { toast } = useToast();
   
   const fetchMuestreoDetails = async () => {
     if (!params.id) return;
@@ -193,6 +216,96 @@ export default function MuestreoDetailPage() {
   const handleSampleAdded = () => {
     // Refresh muestreo data after adding a sample
     fetchMuestreoDetails();
+  };
+
+  const handleDeleteMuestreo = async () => {
+    if (!muestreo) return;
+    
+    setIsDeletingMuestreo(true);
+    try {
+      await deleteMuestreo(muestreo.id);
+      toast({
+        title: "Muestreo eliminado",
+        description: "El muestreo y sus muestras se han eliminado correctamente",
+        variant: "default",
+      });
+      router.push('/quality/muestreos');
+    } catch (error: any) {
+      console.error('Error deleting muestreo:', error);
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo eliminar el muestreo",
+        variant: "destructive",
+      });
+      setIsDeletingMuestreo(false);
+    }
+  };
+
+  const handleDeleteMuestra = async () => {
+    if (!muestraToDelete) return;
+    
+    setIsDeletingMuestra(true);
+    try {
+      await deleteMuestra(muestraToDelete);
+      toast({
+        title: "Muestra eliminada",
+        description: "La muestra se ha eliminado correctamente",
+        variant: "default",
+      });
+      setShowDeleteMuestraDialog(false);
+      setMuestraToDelete(null);
+      fetchMuestreoDetails();
+    } catch (error: any) {
+      console.error('Error deleting muestra:', error);
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo eliminar la muestra",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeletingMuestra(false);
+    }
+  };
+
+  const handleEditRevenimiento = () => {
+    if (!muestreo) return;
+    setRevenimientoValue(muestreo.revenimiento_sitio?.toString() || '');
+    setShowEditRevenimientoDialog(true);
+  };
+
+  const handleSaveRevenimiento = async () => {
+    if (!muestreo) return;
+    
+    const revenimiento = parseFloat(revenimientoValue);
+    if (isNaN(revenimiento) || revenimiento < 0 || revenimiento > 30) {
+      toast({
+        title: "Error de validación",
+        description: "El revenimiento debe ser un número entre 0 y 30",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingRevenimiento(true);
+    try {
+      await updateMuestreo(muestreo.id, { revenimiento_sitio: revenimiento });
+      toast({
+        title: "Revenimiento actualizado",
+        description: "El revenimiento se ha actualizado correctamente",
+        variant: "default",
+      });
+      setShowEditRevenimientoDialog(false);
+      fetchMuestreoDetails();
+    } catch (error: any) {
+      console.error('Error updating revenimiento:', error);
+      toast({
+        title: "Error",
+        description: error.message || "No se pudo actualizar el revenimiento",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUpdatingRevenimiento(false);
+    }
   };
 
   const retryOrderTotals = async () => {
@@ -405,6 +518,13 @@ export default function MuestreoDetailPage() {
             <ChevronLeft className="h-4 w-4 mr-2" />
             Volver
           </Button>
+          <Button 
+            variant="destructive" 
+            onClick={() => setShowDeleteMuestreoDialog(true)}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Eliminar Muestreo
+          </Button>
         </div>
       </div>
       
@@ -566,7 +686,17 @@ export default function MuestreoDetailPage() {
                 
                 {muestreo.revenimiento_sitio && (
                   <div>
-                    <p className="text-sm font-medium text-gray-500 mb-1">Revenimiento en Sitio</p>
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm font-medium text-gray-500">Revenimiento en Sitio</p>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleEditRevenimiento}
+                        className="h-6 w-6 p-0"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                    </div>
                     <div className="text-2xl font-bold text-gray-900">
                       {muestreo.revenimiento_sitio} 
                       <span className="text-sm font-normal text-gray-500 ml-1">cm</span>
@@ -841,24 +971,39 @@ export default function MuestreoDetailPage() {
                       <Badge variant="outline" className="bg-gray-50 text-gray-700 border-gray-300">
                         {muestra.tipo_muestra === 'CILINDRO' ? 'Cilindro' : muestra.tipo_muestra === 'VIGA' ? 'Viga' : 'Cubo'}
                       </Badge>
-                      <Badge 
-                        variant={
-                          muestra.estado === 'ENSAYADO' 
-                            ? 'default' 
-                            : muestra.estado === 'DESCARTADO'
-                              ? 'destructive'
-                              : 'secondary'
-                        }
-                        className={`text-xs ${
-                          muestra.estado === 'ENSAYADO' 
-                            ? 'bg-green-100 text-green-800 border-green-300' 
-                            : muestra.estado === 'DESCARTADO'
-                              ? ''
-                              : 'bg-gray-100 text-gray-800 border-gray-300'
-                        }`}
-                      >
-                        {muestra.estado}
-                      </Badge>
+                      <div className="flex gap-1">
+                        <Badge 
+                          variant={
+                            muestra.estado === 'ENSAYADO' 
+                              ? 'default' 
+                              : muestra.estado === 'DESCARTADO'
+                                ? 'destructive'
+                                : 'secondary'
+                          }
+                          className={`text-xs ${
+                            muestra.estado === 'ENSAYADO' 
+                              ? 'bg-green-100 text-green-800 border-green-300' 
+                              : muestra.estado === 'DESCARTADO'
+                                ? ''
+                                : 'bg-gray-100 text-gray-800 border-gray-300'
+                          }`}
+                        >
+                          {muestra.estado}
+                        </Badge>
+                        {muestra.estado !== 'ENSAYADO' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setMuestraToDelete(muestra.id);
+                              setShowDeleteMuestraDialog(true);
+                            }}
+                            className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        )}
+                      </div>
                     </div>
                     
                     <h3 className="font-semibold text-gray-900 mb-1">{displayNameById.get(muestra.id) || muestra.identificacion}</h3>
@@ -957,6 +1102,145 @@ export default function MuestreoDetailPage() {
           onSampleAdded={handleSampleAdded}
         />
       )}
+
+      {/* Delete Muestreo Confirmation Dialog */}
+      <Dialog open={showDeleteMuestreoDialog} onOpenChange={setShowDeleteMuestreoDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Eliminación</DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas eliminar el muestreo #{muestreo?.numero_muestreo}? 
+              Esta acción eliminará el muestreo y todas sus muestras asociadas. Esta acción no se puede deshacer.
+              {muestreo?.muestras && muestreo.muestras.length > 0 && (
+                <span className="block mt-2 text-red-600 font-medium">
+                  Se eliminarán {muestreo.muestras.length} muestra(s).
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteMuestreoDialog(false)}
+              disabled={isDeletingMuestreo}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteMuestreo}
+              disabled={isDeletingMuestreo}
+            >
+              {isDeletingMuestreo ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Eliminando...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Eliminar Muestreo
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Muestra Confirmation Dialog */}
+      <Dialog open={showDeleteMuestraDialog} onOpenChange={setShowDeleteMuestraDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Eliminación</DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas eliminar esta muestra? Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowDeleteMuestraDialog(false);
+                setMuestraToDelete(null);
+              }}
+              disabled={isDeletingMuestra}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteMuestra}
+              disabled={isDeletingMuestra}
+            >
+              {isDeletingMuestra ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Eliminando...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Eliminar Muestra
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Revenimiento Dialog */}
+      <Dialog open={showEditRevenimientoDialog} onOpenChange={setShowEditRevenimientoDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Revenimiento</DialogTitle>
+            <DialogDescription>
+              Ingresa el nuevo valor de revenimiento en sitio (0-30 cm).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Label htmlFor="revenimiento">Revenimiento (cm)</Label>
+            <Input
+              id="revenimiento"
+              type="number"
+              min="0"
+              max="30"
+              step="0.1"
+              value={revenimientoValue}
+              onChange={(e) => setRevenimientoValue(e.target.value)}
+              className="mt-2"
+              disabled={isUpdatingRevenimiento}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowEditRevenimientoDialog(false);
+                setRevenimientoValue('');
+              }}
+              disabled={isUpdatingRevenimiento}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSaveRevenimiento}
+              disabled={isUpdatingRevenimiento}
+            >
+              {isUpdatingRevenimiento ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Guardando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  Guardar
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

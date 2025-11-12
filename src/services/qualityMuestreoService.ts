@@ -377,3 +377,64 @@ export async function createMuestreoWithSamples(
     throw new Error('Error al crear muestreo y muestras');
   }
 }
+
+export async function updateMuestreo(id: string, updates: Partial<Muestreo>) {
+  try {
+    const updateData: any = {
+      ...updates,
+      updated_at: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase
+      .from('muestreos')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+    
+    if (error) throw error;
+    return data as Muestreo;
+  } catch (error) {
+    handleError(error, `updateMuestreo:${id}`);
+    throw new Error('Error al actualizar muestreo');
+  }
+}
+
+export async function deleteMuestreo(id: string) {
+  try {
+    // Check if muestreo has ensayos via muestras
+    const { data: muestras, error: muestrasError } = await supabase
+      .from('muestras')
+      .select('id')
+      .eq('muestreo_id', id);
+
+    if (muestrasError) throw muestrasError;
+
+    if (muestras && muestras.length > 0) {
+      const muestraIds = muestras.map(m => m.id);
+      const { data: ensayos, error: ensayosError } = await supabase
+        .from('ensayos')
+        .select('id')
+        .in('muestra_id', muestraIds)
+        .limit(1);
+
+      if (ensayosError) throw ensayosError;
+
+      if (ensayos && ensayos.length > 0) {
+        throw new Error('No se puede eliminar el muestreo porque tiene ensayos asociados');
+      }
+    }
+
+    // Delete muestreo (cascades to muestras via DB constraint)
+    const { error } = await supabase
+      .from('muestreos')
+      .delete()
+      .eq('id', id);
+    
+    if (error) throw error;
+    return { success: true };
+  } catch (error) {
+    handleError(error, `deleteMuestreo:${id}`);
+    throw error;
+  }
+}

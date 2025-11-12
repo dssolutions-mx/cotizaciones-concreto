@@ -451,3 +451,43 @@ async function crearMuestrasPorEdadFallback(
     throw error;
   }
 }
+
+export async function deleteMuestra(id: string) {
+  try {
+    // Check if muestra has ensayos
+    const { data: ensayos, error: ensayosError } = await supabase
+      .from('ensayos')
+      .select('id')
+      .eq('muestra_id', id)
+      .limit(1);
+
+    if (ensayosError) throw ensayosError;
+
+    if (ensayos && ensayos.length > 0) {
+      throw new Error('No se puede eliminar la muestra porque tiene ensayos asociados');
+    }
+
+    // Delete alertas_ensayos first
+    const { error: alertasError } = await supabase
+      .from('alertas_ensayos')
+      .delete()
+      .eq('muestra_id', id);
+
+    if (alertasError) {
+      console.warn('Error deleting alertas_ensayos:', alertasError);
+      // Continue with muestra deletion
+    }
+
+    // Delete muestra
+    const { error } = await supabase
+      .from('muestras')
+      .delete()
+      .eq('id', id);
+    
+    if (error) throw error;
+    return { success: true };
+  } catch (error) {
+    handleError(error, `deleteMuestra:${id}`);
+    throw error;
+  }
+}
