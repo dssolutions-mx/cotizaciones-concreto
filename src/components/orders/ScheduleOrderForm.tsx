@@ -892,20 +892,23 @@ export default function ScheduleOrderForm({
   }, [standalonePumpingProducts, orderType]);
 
   // Auto-activate pump service when in pumping-only mode
+  // NOTE: pumpVolume is NOT in dependencies to avoid interfering with manual checkbox clicks
   useEffect(() => {
     if (orderType === 'pumping' && pumpPrice !== null) {
       setHasPumpService(true);
-      // Set default pump volume if not set
+      // Set default pump volume if not set (only when switching to pumping mode)
       if (pumpVolume === 0 && standalonePumpingProducts.length > 0) {
         const defaultVolume = standalonePumpingProducts[0].volume;
         setPumpVolume(defaultVolume);
       }
-    } else if (orderType === 'concrete') {
-      // Reset pump service when switching back to concrete mode
-      setHasPumpService(false);
-      setPumpVolume(0);
     }
-  }, [orderType, pumpPrice, pumpVolume, standalonePumpingProducts]);
+    // DO NOT reset hasPumpService when switching to concrete mode - let user control it manually
+    // Only reset pumpVolume when switching away from pumping mode
+    if (orderType === 'concrete' && pumpVolume > 0 && standalonePumpingProducts.length === 0) {
+      // Only reset volume if we're switching away from pumping-only mode
+      // Don't reset hasPumpService - user might want to keep it for concrete orders
+    }
+  }, [orderType, pumpPrice, standalonePumpingProducts]);
 
   // Validate coordinates whenever they change
   useEffect(() => {
@@ -1069,6 +1072,17 @@ export default function ScheduleOrderForm({
     // For pumping-only mode, require pump service to be active
     if (orderType === 'pumping' && !hasPumpService) {
       setError('El servicio de bombeo debe estar activo para crear una orden de solo bombeo');
+      return;
+    }
+
+    // Validate pump service: if enabled, must have valid price and volume
+    if (hasPumpService && (pumpPrice === null || pumpPrice <= 0)) {
+      setError('Debe ingresar un precio válido para el servicio de bombeo');
+      return;
+    }
+
+    if (hasPumpService && pumpVolume <= 0) {
+      setError('Debe ingresar un volumen válido para el servicio de bombeo');
       return;
     }
 
@@ -1783,7 +1797,8 @@ export default function ScheduleOrderForm({
 
           {/* Pumping Service - available globally for client + construction site */}
           {/* Show this section when: 1) Normal mode with selected products, OR 2) Pumping-only mode */}
-          {((selectedProducts.length > 0 && pumpPrice !== null && orderType !== 'pumping') || (orderType === 'pumping' && pumpPrice !== null)) && (
+          {/* Always show when products are selected (pumpPrice can be null/0 for manual entry) or in pumping-only mode */}
+          {((selectedProducts.length > 0 && orderType !== 'pumping') || (orderType === 'pumping')) && (
             <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 mt-4">
               <div className="flex items-center mb-3">
                 <input 
@@ -1793,11 +1808,19 @@ export default function ScheduleOrderForm({
                   disabled={orderType === 'pumping'}
                   onChange={(e) => {
                     if (orderType !== 'pumping') {
-                      setHasPumpService(e.target.checked);
-                      if (e.target.checked && pumpVolume === 0) {
-                        // Set default pump volume to total concrete volume
-                        const totalVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
-                        setPumpVolume(totalVolume);
+                      const newValue = e.target.checked;
+                      setHasPumpService(newValue);
+                      if (newValue) {
+                        // When checking: Set default pump volume to total concrete volume if not set
+                        if (pumpVolume === 0) {
+                          const totalVolume = selectedProducts.reduce((sum, p) => sum + p.scheduledVolume, 0);
+                          if (totalVolume > 0) {
+                            setPumpVolume(totalVolume);
+                          }
+                        }
+                      } else {
+                        // When unchecking: Reset pump volume to 0
+                        setPumpVolume(0);
                       }
                     }
                   }}
@@ -1828,9 +1851,9 @@ export default function ScheduleOrderForm({
                     <label htmlFor="pumpPrice" className="block text-sm font-medium text-gray-700 mb-1">
                       Precio por m³
                     </label>
-                    {pumpPrice > 0 ? (
+                    {pumpPrice !== null && pumpPrice > 0 ? (
                     <div className="w-full rounded-md border border-gray-300 px-3 py-2 bg-gray-100 text-gray-700">
-                      ${pumpPrice?.toFixed(2) || '0.00'}
+                      ${pumpPrice.toFixed(2)}
                     </div>
                     ) : (
                       <div className="space-y-2">
@@ -1839,8 +1862,11 @@ export default function ScheduleOrderForm({
                           type="number"
                           min="0.01"
                           step="0.01"
-                          value={pumpPrice || ''}
-                          onChange={(e) => setPumpPrice(parseFloat(e.target.value) || 0)}
+                          value={pumpPrice !== null ? pumpPrice : ''}
+                          onChange={(e) => {
+                            const value = e.target.value === '' ? null : parseFloat(e.target.value) || 0;
+                            setPumpPrice(value);
+                          }}
                           placeholder="Ingrese precio de bombeo"
                           className="w-full rounded-md border border-yellow-400 px-3 py-2 bg-yellow-50"
                         />
