@@ -230,10 +230,12 @@ export async function createOrder(orderData: OrderCreationParams, emptyTruckData
         }
 
         // No longer include pump_volume field for individual items (legacy approach removed)
+        // CRITICAL: When master_recipe_id exists, recipe_id must be NULL (master-level item)
+        // This matches the pattern used in Arkik order creator and client portal
         return {
           order_id: order.id,
           quote_detail_id: item.quote_detail_id,
-          recipe_id: quoteDetail?.recipe_id || null,
+          recipe_id: quoteDetail?.master_recipe_id ? null : (quoteDetail?.recipe_id || null),
           master_recipe_id: quoteDetail?.master_recipe_id || null,
           product_type: productType,
           volume: item.volume,

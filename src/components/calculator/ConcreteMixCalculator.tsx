@@ -90,6 +90,8 @@ const ConcreteMixCalculator = () => {
   const [concreteType, setConcreteType] = useState<ConcreteTypeCode>(getDefaultConcreteTypeForDesignType('FC'));
   // Per-recipe concrete type overrides
   const [concreteTypePerRecipe, setConcreteTypePerRecipe] = useState<ConcreteTypePerRecipe>({});
+  // Type code (middle letter in ARKIK code, default 'B')
+  const [typeCode, setTypeCode] = useState<string>('B');
   
   // Material selection state
   const [availableMaterials, setAvailableMaterials] = useState<{
@@ -857,8 +859,7 @@ const ConcreteMixCalculator = () => {
         aggregateSize: r.aggregateSize,
         placement: r.placement,
         recipeType: designType,
-        // Use defaults that match the new logic
-        typeCode: 'B', // Default concrete type code
+        typeCode: typeCode, // Use user-selected type code
         num: '2', // Default number
         variante: '000', // Default variant, will be overridden by PCE detection
         detectPCEFromAdditiveNames: detectNames,
@@ -1538,7 +1539,7 @@ const ConcreteMixCalculator = () => {
     if (materials.sands.length > 0 && materials.gravels.length > 0) {
       generateRecipes();
     }
-  }, [designParams, recipeParams, designType, materials, concreteType]);
+  }, [designParams, recipeParams, designType, materials, concreteType, typeCode]);
 
   // Regenerate ARKIK codes when concreteType changes
   useEffect(() => {
@@ -1563,8 +1564,7 @@ const ConcreteMixCalculator = () => {
           aggregateSize: r.aggregateSize,
           placement: r.placement,
           recipeType: designType,
-          // Use defaults that match the new logic
-          typeCode: 'B', // Default concrete type code
+          typeCode: typeCode, // Use user-selected type code
           num: '2', // Default number
           variante: '000', // Default variant, will be overridden by PCE detection
           detectPCEFromAdditiveNames: detectNames,
@@ -1575,7 +1575,7 @@ const ConcreteMixCalculator = () => {
       });
       setArkikCodes(codes);
     }
-  }, [concreteType, concreteTypePerRecipe, generatedRecipes, designType, materials.additives, selectedMaterials.additives, availableMaterials.additives]);
+  }, [concreteType, concreteTypePerRecipe, generatedRecipes, designType, materials.additives, selectedMaterials.additives, availableMaterials.additives, typeCode]);
 
   // Handle design type change - update default concrete type
   const handleDesignTypeChange = (newType: DesignType) => {
@@ -1708,12 +1708,17 @@ const ConcreteMixCalculator = () => {
               recipeParams={recipeParams}
               materials={materials}
               concreteType={concreteType}
+              typeCode={typeCode}
               onDesignTypeChange={handleDesignTypeChange}
               onDesignParamsChange={(params) => setDesignParams(prev => ({ ...prev, ...params }))}
               onRecipeParamsChange={(params) => setRecipeParams(prev => ({ ...prev, ...params }))}
               onConcreteTypeChange={(type) => {
                 setConcreteType(type);
                 // useEffect will automatically regenerate codes when concreteType changes
+              }}
+              onTypeCodeChange={(code) => {
+                setTypeCode(code);
+                // useEffect will automatically regenerate codes when typeCode changes
               }}
               onCombinationChange={handleCombinationChange}
               onWaterDefinitionChange={handleWaterDefinitionChange}
@@ -2175,7 +2180,7 @@ const ConcreteMixCalculator = () => {
                     profile.id,
                     selectionMap,
                     {
-                      typeCode: 'B',
+                      typeCode: typeCode || 'B',
                       num: '2',
                       variante: (arkikExportParams.aire && parseFloat(arkikExportParams.aire) > 0) ? 'PCE' : '000',
                       volumenConcreto: parseFloat(arkikExportParams.volumen) || 1000,

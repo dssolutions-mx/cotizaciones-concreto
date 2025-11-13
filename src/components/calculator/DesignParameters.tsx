@@ -18,10 +18,12 @@ interface DesignParametersProps {
   recipeParams: RecipeParams;
   materials: Materials;
   concreteType: ConcreteTypeCode;
+  typeCode: string;
   onDesignTypeChange: (type: DesignType) => void;
   onDesignParamsChange: (params: Partial<DesignParams>) => void;
   onRecipeParamsChange: (params: Partial<RecipeParams>) => void;
   onConcreteTypeChange: (type: ConcreteTypeCode) => void;
+  onTypeCodeChange: (code: string) => void;
   onCombinationChange: (index: number, value: string, type: string) => void;
   onWaterDefinitionChange: (index: number, field: string, value: any) => void;
   onAdditiveSystemConfigChange: (field: string, value: any) => void;
@@ -36,10 +38,12 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
   recipeParams,
   materials,
   concreteType,
+  typeCode,
   onDesignTypeChange,
   onDesignParamsChange,
   onRecipeParamsChange,
   onConcreteTypeChange,
+  onTypeCodeChange,
   onCombinationChange,
   onWaterDefinitionChange,
   onAdditiveSystemConfigChange,
@@ -245,7 +249,7 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
             ⚡ <strong>NUEVA FUNCIONALIDAD:</strong> Selecciona el tipo de concreto para generar recetas específicas.
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <Select value={concreteType} onValueChange={(value) => onConcreteTypeChange(value as ConcreteTypeCode)}>
             <SelectTrigger className="h-10">
               <SelectValue />
@@ -258,6 +262,33 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
               ))}
             </SelectContent>
           </Select>
+          
+          {/* Type Code (middle letter) */}
+          <div>
+            <Label htmlFor="typeCode" className="text-sm font-medium">
+              Código de Tipo (Letra Media)
+            </Label>
+            <div className="text-xs text-gray-600 mb-1">
+              Letra que aparece en el medio del código ARKIK (ej: en "5-100-2-<span className="font-semibold font-mono">B</span>-28-10-D", la{' '}
+              <span className="font-semibold">B</span> es el código de tipo)
+            </div>
+            <Input
+              id="typeCode"
+              type="text"
+              value={typeCode}
+              onChange={(e) => {
+                // Only allow single uppercase letter
+                const value = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 1);
+                onTypeCodeChange(value || 'B');
+              }}
+              className="h-10 font-mono text-lg text-center max-w-[80px]"
+              placeholder="B"
+              maxLength={1}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Valor actual: <span className="font-mono font-semibold">{typeCode || 'B'}</span>
+            </p>
+          </div>
         </CardContent>
       </Card>
 
