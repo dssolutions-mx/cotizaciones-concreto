@@ -504,7 +504,7 @@ export default function OrderDetailPage() {
                                   {muestreo.masa_unitaria && (
                                     <div className="text-center bg-white/5 rounded p-1">
                                       <p className="text-label-tertiary text-[10px]">M.U.</p>
-                                      <p className="text-label-primary font-medium">{muestreo.masa_unitaria.toFixed(0)}</p>
+                                      <p className="text-label-primary font-medium">{Math.round(muestreo.masa_unitaria)}</p>
                                     </div>
                                   )}
                                   {muestreo.temperatura_concreto && (

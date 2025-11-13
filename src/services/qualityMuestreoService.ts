@@ -176,7 +176,11 @@ export async function fetchMuestreoById(id: string) {
 export async function createMuestreo(muestreo: Partial<Muestreo>) {
   try {
     // Map planta to plant_id if planta is provided
-    const muestreoToCreate = { ...muestreo };
+    const muestreoToCreate = { 
+      ...muestreo,
+      // Round masa_unitaria to nearest integer (no decimals): 23.3 -> 23, 23.5 -> 24
+      masa_unitaria: muestreo.masa_unitaria ? Math.round(muestreo.masa_unitaria) : muestreo.masa_unitaria
+    };
     if (muestreo.planta && !muestreo.plant_id) {
       const plantId = await mapPlantaToPlantId(muestreo.planta);
       if (plantId) {
@@ -267,6 +271,8 @@ export async function createMuestreoWithSamples(
 
     const muestreoToCreate = {
       ...muestreoData,
+      // Round masa_unitaria to nearest integer (no decimals): 23.3 -> 23, 23.5 -> 24
+      masa_unitaria: muestreoData.masa_unitaria ? Math.round(muestreoData.masa_unitaria) : muestreoData.masa_unitaria,
       plant_id: plantId,
       fecha_muestreo: formatDate(baseSamplingTimestamp, 'yyyy-MM-dd'),
       hora_muestreo: formatDate(baseSamplingTimestamp, 'HH:mm:ss'),
@@ -382,6 +388,8 @@ export async function updateMuestreo(id: string, updates: Partial<Muestreo>) {
   try {
     const updateData: any = {
       ...updates,
+      // Round masa_unitaria to nearest integer if provided (no decimals): 23.3 -> 23, 23.5 -> 24
+      masa_unitaria: updates.masa_unitaria !== undefined ? Math.round(updates.masa_unitaria) : updates.masa_unitaria,
       updated_at: new Date().toISOString()
     };
 

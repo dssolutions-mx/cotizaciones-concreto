@@ -180,7 +180,8 @@ export default function MuestreoDetailPage() {
             );
             
             const volumenFabricado = data.remision.volumen_fabricado || 0;
-            const masaUnitaria = data.masa_unitaria;
+            // Round masa_unitaria to nearest integer (no decimals)
+            const masaUnitaria = Math.round(data.masa_unitaria);
             
             const rendimientoValue = calcularRendimientoVolumetrico(
               volumenFabricado,
@@ -708,7 +709,7 @@ export default function MuestreoDetailPage() {
                   <div>
                     <p className="text-sm font-medium text-gray-500 mb-1">Masa Unitaria</p>
                     <div className="text-2xl font-bold text-gray-900">
-                      {muestreo.masa_unitaria}
+                      {Math.round(muestreo.masa_unitaria)}
                       <span className="text-sm font-normal text-gray-500 ml-1">kg/m³</span>
                     </div>
                   </div>

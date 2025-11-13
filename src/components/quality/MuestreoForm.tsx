@@ -191,7 +191,8 @@ export function MuestreoForm({ onSuccess, onCancel }: MuestreoFormProps) {
         remision_id: remisionId,
         planta: formData.planta,
         revenimiento_sitio: parseFloat(formData.revenimientoSitio) || 0,
-        masa_unitaria: parseFloat(formData.masaUnitaria) || 0,
+        // Round masa_unitaria to nearest integer (no decimals)
+        masa_unitaria: Math.round(parseFloat(formData.masaUnitaria) || 0),
         temperatura_ambiente: parseFloat(formData.temperaturaAmbiente) || 0,
         temperatura_concreto: parseFloat(formData.temperaturaConcreto) || 0,
         fecha_muestreo: remisionDate || currentDate.toISOString().split('T')[0],

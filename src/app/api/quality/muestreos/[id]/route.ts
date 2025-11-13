@@ -152,7 +152,12 @@ export async function PUT(
 
     allowedFields.forEach(field => {
       if (body[field] !== undefined) {
-        updateData[field] = body[field];
+        // Round masa_unitaria to nearest integer (no decimals): 23.3 -> 23, 23.5 -> 24
+        if (field === 'masa_unitaria' && typeof body[field] === 'number') {
+          updateData[field] = Math.round(body[field]);
+        } else {
+          updateData[field] = body[field];
+        }
       }
     });
 

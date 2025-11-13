@@ -155,7 +155,8 @@ export default function NuevoMuestreoPage() {
       const mu = net * factorRecipiente; // kg/m3
       if (isFinite(mu) && mu > 0) {
         const current = form.getValues('masa_unitaria');
-        const nextVal = parseFloat(mu.toFixed(1));
+        // Round to nearest integer (no decimals): 23.3 -> 23, 23.5 -> 24
+        const nextVal = Math.round(mu);
         if (current !== nextVal) {
           form.setValue('masa_unitaria', nextVal, { shouldValidate: true, shouldDirty: true });
         }
