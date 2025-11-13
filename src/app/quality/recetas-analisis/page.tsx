@@ -34,6 +34,8 @@ import {
 import { useProgressiveRecipeQuality } from '@/hooks/useProgressiveRecipeQuality';
 import { RecipeSearchModal } from '@/components/recipes/RecipeSearchModal';
 import { RecipeQualityMetrics } from '@/components/quality/recipes/RecipeQualityMetrics';
+import { RecipeAdvancedMetrics } from '@/components/quality/recipes/RecipeAdvancedMetrics';
+import { RecipeQualityCharts } from '@/components/quality/recipes/RecipeQualityCharts';
 import RecipeMuestreosCharts from '@/components/quality/recipes/RecipeMuestreosCharts';
 import type { RecipeSearchResult } from '@/types/recipes';
 
@@ -279,24 +281,44 @@ export default function RecipeAnalysisPage() {
       {/* Main Content */}
       {selectedRecipeIds.length > 0 && data && summary && !loading && (
         <div className="space-y-6">
-          {/* Metrics */}
+          {/* Recipe Header Info */}
           <RecipeQualityMetrics summary={summary} loading={loading} />
 
           {/* Tabs for different views */}
-          <Tabs defaultValue="charts" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="charts" className="flex items-center gap-2">
+          <Tabs defaultValue="metrics" className="w-full">
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="metrics" className="flex items-center gap-2">
+                <Target className="h-4 w-4" />
+                Métricas Clave
+              </TabsTrigger>
+              <TabsTrigger value="statistical" className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4" />
-                Análisis Visual
+                Análisis Estadístico
+              </TabsTrigger>
+              <TabsTrigger value="charts" className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4" />
+                Gráficos Avanzados
               </TabsTrigger>
               <TabsTrigger value="details" className="flex items-center gap-2">
-                <Target className="h-4 w-4" />
+                <FileBarChart className="h-4 w-4" />
                 Detalles
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="charts" className="space-y-6">
+            <TabsContent value="metrics" className="space-y-6">
+              <RecipeAdvancedMetrics summary={summary} loading={loading} />
+            </TabsContent>
+
+            <TabsContent value="statistical" className="space-y-6">
               <RecipeMuestreosCharts remisiones={data.remisiones} />
+            </TabsContent>
+
+            <TabsContent value="charts" className="space-y-6">
+              <RecipeQualityCharts
+                remisiones={data.remisiones}
+                targetStrength={summary.recipeInfo.strength_fc}
+                targetAge={summary.recipeInfo.age_days}
+              />
             </TabsContent>
 
             <TabsContent value="details">

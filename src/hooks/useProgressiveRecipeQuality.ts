@@ -108,6 +108,18 @@ export interface RecipeQualitySummary {
     qualityLevel: string;
     groupStats: Array<any>;
     groupsInTargetWeighted: number;
+    processCapability?: {
+      cp: number;
+      cpk: number;
+      sigma: number;
+    } | null;
+    controlLimits?: {
+      ucl: number;
+      lcl: number;
+      usl: number;
+      lsl: number;
+      centerLine: number;
+    } | null;
   };
   alerts: Array<{
     type: 'error' | 'warning' | 'info';
@@ -677,7 +689,7 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
     });
   }
 
-  // Calculate statistical analysis
+  // Calculate statistical analysis (Enhanced with client portal metrics)
   const calculateStatistics = () => {
     if (ensayosEdadGarantia.length === 0) {
       return {
@@ -686,7 +698,9 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
         cv: 0,
         qualityLevel: 'Sin datos',
         groupStats: [],
-        groupsInTargetWeighted: 0
+        groupsInTargetWeighted: 0,
+        processCapability: null,
+        controlLimits: null
       };
     }
 
@@ -698,12 +712,12 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
         const strength = specs.strength_fc ?? remision.recipeFc ?? 'NA';
         const ageLabel = getAgeLabel(specs);
         const key = `${strength}-${ageLabel}`;
-        
+
         const validEnsayosDelMuestreo: Array<{ resistencia: number; cumplimiento: number }> = [];
         muestreo.muestras.forEach(muestra => {
-          const ensayos = (muestra.ensayos || []).filter(ensayo => 
-            ensayo.isEdadGarantia && 
-            !ensayo.isEnsayoFueraTiempo && 
+          const ensayos = (muestra.ensayos || []).filter(ensayo =>
+            ensayo.isEdadGarantia &&
+            !ensayo.isEnsayoFueraTiempo &&
             (ensayo.resistenciaCalculada || 0) > 0
           );
           ensayos.forEach(ensayo => {
@@ -729,7 +743,8 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
     const groupStatsRaw = Object.entries(groups).map(([key, g]) => {
       const n = g.values.length || 1;
       const meanG = g.values.reduce((s, v) => s + v, 0) / n;
-      const varG = g.values.reduce((s, v) => s + Math.pow(v - meanG, 2), 0) / n;
+      // Use n-1 for sample variance (Bessel's correction)
+      const varG = n > 1 ? g.values.reduce((s, v) => s + Math.pow(v - meanG, 2), 0) / (n - 1) : 0;
       const stdG = Math.sqrt(varG);
       const cvG = meanG > 0 ? (stdG / meanG) * 100 : 0;
       const avgCompliance = g.compliances.length > 0
@@ -742,21 +757,43 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
     // Exclude groups with insufficient muestreos (<3)
     const groupStats = groupStatsRaw.filter(g => g.count >= 3);
     const totalCount = groupStats.reduce((s, g) => s + g.count, 0) || 1;
-    const cvWeighted = groupStats.reduce((s, g) => s + g.cv * (g.count / totalCount), 0);
+    const cvWeighted = groupStats.length > 0 ? groupStats.reduce((s, g) => s + g.cv * (g.count / totalCount), 0) : 0;
 
     // % groups in target (CV <= 10%) weighted by sample count
-    const groupsInTargetWeighted = groupStats.reduce((s, g) => s + (g.cv <= 10 ? g.count : 0), 0) / totalCount * 100;
+    const groupsInTargetWeighted = totalCount > 0 ? (groupStats.reduce((s, g) => s + (g.cv <= 10 ? g.count : 0), 0) / totalCount * 100) : 0;
 
     // Global statistics (all ensayos) for display
     const resistencias = ensayosEdadGarantia.map(e => e.resistenciaCalculada);
     const mean = resistencias.reduce((sum, val) => sum + val, 0) / resistencias.length;
-    const variance = resistencias.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / resistencias.length;
+    // Use sample variance (n-1)
+    const variance = resistencias.length > 1
+      ? resistencias.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (resistencias.length - 1)
+      : 0;
     const stdDev = Math.sqrt(variance);
     const cv = cvWeighted; // use grouped, weighted CV as consistency metric
 
+    // Calculate control limits (3-sigma)
+    const controlLimits = {
+      ucl: mean + (3 * stdDev), // Upper Control Limit
+      lcl: Math.max(0, mean - (3 * stdDev)), // Lower Control Limit
+      usl: recipeInfo.strength_fc * 1.2, // Upper Spec Limit
+      lsl: recipeInfo.strength_fc * 0.85, // Lower Spec Limit
+      centerLine: mean
+    };
+
+    // Calculate process capability indices
+    const processCapability = {
+      cp: (controlLimits.usl - controlLimits.lsl) / (6 * stdDev), // Process Capability
+      cpk: Math.min(
+        (controlLimits.usl - mean) / (3 * stdDev),
+        (mean - controlLimits.lsl) / (3 * stdDev)
+      ), // Process Capability Index
+      sigma: stdDev
+    };
+
     // Quality level (recipe-centric): compliance, low variation, yield near 100%
     let qualityLevel = 'Aceptable';
-    if (avgCompliance >= 97 && cv <= 8 && avgRendimiento >= 98) qualityLevel = 'Excelente';
+    if (avgCompliance >= 97 && cv <= 8 && avgRendimiento >= 99) qualityLevel = 'Excelente';
     else if (avgCompliance >= 95 && cv <= 10 && avgRendimiento >= 98) qualityLevel = 'Muy Bueno';
     else if (avgCompliance >= 92 && cv <= 12 && avgRendimiento >= 97.5) qualityLevel = 'Aceptable';
     else qualityLevel = 'Mejorable';
@@ -767,7 +804,9 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
       cv,
       qualityLevel,
       groupStats,
-      groupsInTargetWeighted
+      groupsInTargetWeighted,
+      processCapability,
+      controlLimits
     };
   };
 
