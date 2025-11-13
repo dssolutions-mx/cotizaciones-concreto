@@ -309,11 +309,12 @@ export default function RecipeAnalysisPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto -mx-4 md:mx-0">
-                    <table className="min-w-[760px] md:min-w-0 text-sm">
+                    <table className="min-w-[960px] md:min-w-0 text-sm">
                       <thead>
                         <tr className="text-left text-gray-600">
                           <th className="py-2 pr-4">Fecha</th>
                           <th className="py-2 pr-4">Remisión</th>
+                          <th className="py-2 pr-4">Código Receta</th>
                           <th className="py-2 pr-4">Sitio</th>
                           <th className="py-2 pr-4">Volumen</th>
                           <th className="py-2 pr-4">Resistencia</th>
@@ -327,13 +328,25 @@ export default function RecipeAnalysisPage() {
                           <tr key={r.id} className="border-t">
                             <td className="py-2 pr-4">{format(new Date(r.fecha), 'dd/MM/yyyy')}</td>
                             <td className="py-2 pr-4">{r.remisionNumber}</td>
+                            <td className="py-2 pr-4">
+                              <div className="flex flex-col">
+                                <span className="font-mono text-xs">
+                                  {r.arkikLongCode || r.recipeCode}
+                                </span>
+                                {r.variantSuffix && (
+                                  <span className="text-xs text-gray-500">
+                                    Variante: {r.variantSuffix}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="py-2 pr-4 max-w-xs truncate">{r.constructionSite}</td>
                             <td className="py-2 pr-4">{r.volume.toFixed(2)} m³</td>
                             <td className="py-2 pr-4">
                               {r.avgResistencia ? `${r.avgResistencia.toFixed(1)} kg/cm²` : '—'}
                             </td>
                             <td className="py-2 pr-4">
-                              <Badge variant={r.complianceStatus === 'compliant' ? 'default' : 
+                              <Badge variant={r.complianceStatus === 'compliant' ? 'default' :
                                            r.complianceStatus === 'pending' ? 'secondary' : 'destructive'}>
                                 {r.complianceStatus === 'compliant' ? 'Excelente' :
                                  r.complianceStatus === 'pending' ? 'Aceptable' : 'Requiere Atención'}

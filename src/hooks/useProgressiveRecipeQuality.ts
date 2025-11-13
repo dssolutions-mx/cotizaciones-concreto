@@ -6,13 +6,18 @@ import { es } from 'date-fns/locale';
 import { supabase } from '@/lib/supabase';
 
 // Use similar types as client analysis
-interface RecipeQualityRemisionData {
+export interface RecipeQualityRemisionData {
   id: string;
   remisionNumber: string;
   fecha: string;
   volume: number;
   recipeCode: string;
   recipeFc: number;
+  recipeId: string;
+  masterRecipeId?: string | null;
+  arkikLongCode?: string | null;
+  arkikShortCode?: string | null;
+  variantSuffix?: string | null;
   constructionSite: string;
   orderId: string;
   complianceStatus: string;
@@ -57,15 +62,22 @@ interface RecipeQualityRemisionData {
   }>;
 }
 
-interface RecipeQualityData {
+export interface RecipeQualityData {
   remisiones: RecipeQualityRemisionData[];
 }
 
-interface RecipeQualitySummary {
+export interface RecipeQualitySummary {
   recipeInfo: {
     recipe_code: string;
     strength_fc: number;
     age_days: number;
+    master_recipe_id?: string | null;
+    master_code?: string | null;
+    arkik_long_code?: string | null;
+    arkik_short_code?: string | null;
+    variant_suffix?: string | null;
+    is_master_analysis?: boolean; // true if analyzing all variants of a master
+    variant_count?: number; // number of variants included in analysis
   };
   totals: {
     volume: number;
@@ -89,6 +101,14 @@ interface RecipeQualitySummary {
     qualityTrend: string;
     onTimeTestingRate: number;
   };
+  statistics?: {
+    mean: number;
+    stdDev: number;
+    cv: number;
+    qualityLevel: string;
+    groupStats: Array<any>;
+    groupsInTargetWeighted: number;
+  };
   alerts: Array<{
     type: 'error' | 'warning' | 'info';
     metric: string;
@@ -104,6 +124,7 @@ interface Options {
 interface UseProgressiveRecipeQualityArgs {
   recipeId?: string;
   recipeIds?: string[];
+  masterRecipeId?: string; // Analyze all variants of this master
   plantId?: string;
   fromDate?: Date;
   toDate?: Date;
@@ -113,6 +134,7 @@ interface UseProgressiveRecipeQualityArgs {
 export function useProgressiveRecipeQuality({
   recipeId,
   recipeIds,
+  masterRecipeId,
   plantId,
   fromDate,
   toDate,
@@ -174,7 +196,7 @@ export function useProgressiveRecipeQuality({
   }, [fromDate, toDate, newestFirst, granularity]);
 
   useEffect(() => {
-    if (!plantId || (!recipeId && (!recipeIds || recipeIds.length === 0)) || !fromDate || !toDate) {
+    if (!plantId || (!recipeId && (!recipeIds || recipeIds.length === 0) && !masterRecipeId) || !fromDate || !toDate) {
       setData(null);
       setSummary(null);
       setLoading(false);
@@ -194,7 +216,53 @@ export function useProgressiveRecipeQuality({
 
     const load = async () => {
       try {
-        const targetRecipeIds = recipeId ? [recipeId] : recipeIds;
+        let targetRecipeIds: string[] = [];
+        let masterRecipeInfo: any = null;
+
+        // If analyzing by master recipe, fetch all its variants
+        if (masterRecipeId) {
+          const { data: masterData, error: masterErr } = await supabase
+            .from('master_recipes')
+            .select('*')
+            .eq('id', masterRecipeId)
+            .single();
+
+          if (masterErr) {
+            setError('Error fetching master recipe: ' + masterErr.message);
+            setLoading(false);
+            setStreaming(false);
+            return;
+          }
+
+          masterRecipeInfo = masterData;
+
+          // Get all variant recipe IDs for this master
+          const { data: variants, error: variantsErr } = await supabase
+            .from('recipes')
+            .select('id')
+            .eq('master_recipe_id', masterRecipeId)
+            .eq('plant_id', plantId);
+
+          if (variantsErr) {
+            setError('Error fetching recipe variants: ' + variantsErr.message);
+            setLoading(false);
+            setStreaming(false);
+            return;
+          }
+
+          targetRecipeIds = (variants || []).map((v: any) => v.id);
+
+          if (targetRecipeIds.length === 0) {
+            setError('No variants found for this master recipe.');
+            setLoading(false);
+            setStreaming(false);
+            return;
+          }
+        } else {
+          // Use provided recipe IDs
+          targetRecipeIds = recipeId ? [recipeId] : recipeIds || [];
+        }
+
         if (!targetRecipeIds || targetRecipeIds.length === 0) {
           setError('No recipe selected for analysis.');
           setLoading(false);
@@ -226,7 +294,11 @@ export function useProgressiveRecipeQuality({
                 recipe_code,
                 strength_fc,
                 age_days,
-                age_hours
+                age_hours,
+                master_recipe_id,
+                arkik_long_code,
+                arkik_short_code,
+                variant_suffix
               ),
               orders!inner (
                 id,
@@ -296,14 +368,36 @@ export function useProgressiveRecipeQuality({
             continue;
           }
 
-          // Get recipe info from first remision
+          // Get recipe info from first remision or master
           if (!recipeInfo && sliceRems.length > 0) {
             const firstRem = sliceRems[0];
             recipeInfo = {
               recipe_code: firstRem.recipes?.recipe_code || '',
               strength_fc: firstRem.recipes?.strength_fc || 0,
-              age_days: firstRem.recipes?.age_days || 28
+              age_days: firstRem.recipes?.age_days || 28,
+              master_recipe_id: firstRem.recipes?.master_recipe_id || null,
+              arkik_long_code: firstRem.recipes?.arkik_long_code || null,
+              arkik_short_code: firstRem.recipes?.arkik_short_code || null,
+              variant_suffix: firstRem.recipes?.variant_suffix || null
             };
+          }
+
+          // Override with master info if analyzing by master
+          if (masterRecipeInfo && !recipeInfo) {
+            recipeInfo = {
+              recipe_code: masterRecipeInfo.master_code,
+              strength_fc: masterRecipeInfo.strength_fc || 0,
+              age_days: masterRecipeInfo.age_days || 28,
+              master_recipe_id: masterRecipeInfo.id,
+              master_code: masterRecipeInfo.master_code,
+              is_master_analysis: true,
+              variant_count: targetRecipeIds.length
+            };
+          } else if (masterRecipeInfo && recipeInfo) {
+            // Enrich with master info
+            recipeInfo.master_code = masterRecipeInfo.master_code;
+            recipeInfo.is_master_analysis = true;
+            recipeInfo.variant_count = targetRecipeIds.length;
           }
 
           // Get current material prices for cost calculations
@@ -432,6 +526,11 @@ export function useProgressiveRecipeQuality({
               volume,
               recipeCode: r.recipes?.recipe_code || '',
               recipeFc: r.recipes?.strength_fc || 0,
+              recipeId: String(r.recipe_id || r.recipes?.id || ''),
+              masterRecipeId: r.recipes?.master_recipe_id || null,
+              arkikLongCode: r.recipes?.arkik_long_code || null,
+              arkikShortCode: r.recipes?.arkik_short_code || null,
+              variantSuffix: r.recipes?.variant_suffix || null,
               constructionSite: r.orders?.construction_site || '',
               orderId: String(r.order_id || r.orders?.id || ''),
               complianceStatus,
@@ -485,7 +584,7 @@ export function useProgressiveRecipeQuality({
 
     load();
     return () => { abortRef.current.aborted = true; };
-  }, [plantId, recipeId, recipeIds, fromDate, toDate, slices, granularity]);
+  }, [plantId, recipeId, recipeIds, masterRecipeId, fromDate, toDate, slices, granularity]);
 
   return { data, summary, loading, streaming, progress, error };
 }

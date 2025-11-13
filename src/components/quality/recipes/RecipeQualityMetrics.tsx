@@ -16,57 +16,7 @@ import {
   FlaskConical
 } from 'lucide-react';
 import { formatCurrency, formatNumber } from '@/lib/utils';
-
-interface RecipeQualitySummary {
-  recipeInfo: {
-    recipe_code: string;
-    strength_fc: number;
-    age_days: number;
-  };
-  totals: {
-    volume: number;
-    remisiones: number;
-    remisionesMuestreadas: number;
-    muestreos: number;
-    ensayos: number;
-    ensayosEdadGarantia: number;
-    porcentajeCoberturaMuestreo: number;
-    porcentajeCoberturaCalidad: number;
-  };
-  averages: {
-    complianceRate: number;
-    resistencia: number;
-    masaUnitaria: number;
-    rendimientoVolumetrico: number;
-    costPerM3: number;
-    cementSharePct: number;
-  };
-  performance: {
-    qualityTrend: string;
-    onTimeTestingRate: number;
-  };
-  statistics?: {
-    mean: number;
-    stdDev: number;
-    cv: number;
-    qualityLevel: string;
-    groupStats: Array<{
-      strength: string;
-      age: string;
-      count: number;
-      mean: number;
-      std: number;
-      cv: number;
-      compliance: number;
-    }>;
-    groupsInTargetWeighted: number;
-  };
-  alerts: Array<{
-    type: 'error' | 'warning' | 'info';
-    metric: string;
-    message: string;
-  }>;
-}
+import { RecipeQualitySummary } from '@/hooks/useProgressiveRecipeQuality';
 
 interface RecipeQualityMetricsProps {
   summary: RecipeQualitySummary;
@@ -119,23 +69,49 @@ export function RecipeQualityMetrics({ summary, loading }: RecipeQualityMetricsP
       {/* Recipe Info Header */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between">
+          <CardTitle className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <FlaskConical className="h-5 w-5" />
-              {summary.recipeInfo.recipe_code}
+              <div className="flex flex-col">
+                <span className="text-lg">
+                  {summary.recipeInfo.is_master_analysis
+                    ? summary.recipeInfo.master_code || summary.recipeInfo.recipe_code
+                    : summary.recipeInfo.arkik_long_code || summary.recipeInfo.recipe_code
+                  }
+                </span>
+                {summary.recipeInfo.is_master_analysis && (
+                  <span className="text-xs text-gray-500 font-normal">
+                    Análisis de Receta Maestra ({summary.recipeInfo.variant_count || 0} variantes)
+                  </span>
+                )}
+              </div>
             </div>
-            <Badge variant="outline">
-              f'c {summary.recipeInfo.strength_fc} MPa @ {summary.recipeInfo.age_days}d
-            </Badge>
+            <div className="flex gap-2">
+              {summary.recipeInfo.master_code && !summary.recipeInfo.is_master_analysis && (
+                <Badge variant="outline" className="bg-blue-50">
+                  Maestro: {summary.recipeInfo.master_code}
+                </Badge>
+              )}
+              <Badge variant="outline">
+                f'c {summary.recipeInfo.strength_fc} MPa @ {summary.recipeInfo.age_days}d
+              </Badge>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
             <div>
-              <span className="font-medium">Resistencia Objetivo:</span> {summary.recipeInfo.strength_fc} MPa
+              <span className="font-medium">Código Legacy:</span>
+              <span className="ml-2 text-gray-600">{summary.recipeInfo.recipe_code}</span>
             </div>
+            {summary.recipeInfo.arkik_short_code && !summary.recipeInfo.is_master_analysis && (
+              <div>
+                <span className="font-medium">Código ARKIK:</span>
+                <span className="ml-2 text-gray-600 font-mono text-xs">{summary.recipeInfo.arkik_short_code}</span>
+              </div>
+            )}
             <div>
-              <span className="font-medium">Edad de Garantía:</span> {summary.recipeInfo.age_days} días
+              <span className="font-medium">Resistencia:</span> {summary.recipeInfo.strength_fc} MPa
             </div>
             <div className="flex items-center gap-2">
               <span className="font-medium">Tendencia:</span>
