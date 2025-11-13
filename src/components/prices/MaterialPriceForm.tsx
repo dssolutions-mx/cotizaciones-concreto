@@ -48,6 +48,8 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
   const [success, setSuccess] = useState(false);
   const [materials, setMaterials] = useState<RecipeMaterial[]>([]);
   const [loadingMaterials, setLoadingMaterials] = useState(false);
+  // Local state to track raw price input string while typing
+  const [priceInput, setPriceInput] = useState<string>("");
 
   // Set effective date after component mounts to prevent hydration mismatch
   useEffect(() => {
@@ -158,6 +160,7 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
         pricePerUnit: 0,
         effectiveDate: ''
       });
+      setPriceInput("");
 
       // Reset effective date after form reset
       setTimeout(() => {
@@ -245,32 +248,24 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
           <input
             type="text"
             inputMode="decimal"
-            value={formData.pricePerUnit === 0 ? '' : formData.pricePerUnit.toString()}
+            value={priceInput !== "" ? priceInput : (formData.pricePerUnit === 0 ? '' : formData.pricePerUnit.toString())}
             onChange={(e) => {
-              const value = e.target.value;
-              console.log('Price input value:', value, 'Type:', typeof value);
-              
+              const rawValue = e.target.value;
               // Allow empty string, single dot, or valid decimal numbers up to 5 decimal places
-              if (value === '' || value === '.' || /^\d*\.?\d{0,5}$/.test(value)) {
-                // Only update form if it's a valid number or empty
-                if (value === '' || value === '.' || /^\d+\.?\d*$/.test(value)) {
-                  const parsedValue = value === '' || value === '.' ? 0 : parseFloat(value) || 0;
-                  console.log('Parsed price value:', parsedValue);
-                  setFormData(prev => ({ 
-                    ...prev, 
-                    pricePerUnit: parsedValue
-                  }));
-                }
+              if (rawValue === '' || rawValue === '.' || /^\d*\.?\d{0,5}$/.test(rawValue)) {
+                setPriceInput(rawValue);
               }
             }}
             onBlur={(e) => {
-              // Format to 5 decimal places on blur
-              const value = parseFloat(e.target.value) || 0;
-              console.log('Price onBlur value:', value);
+              const rawValue = e.target.value;
+              const numValue = rawValue === '' || rawValue === '.' 
+                ? 0 
+                : parseFloat(rawValue) || 0;
               setFormData(prev => ({ 
                 ...prev, 
-                pricePerUnit: value 
+                pricePerUnit: numValue 
               }));
+              setPriceInput(numValue === 0 ? '' : numValue.toString());
             }}
             required
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -278,9 +273,6 @@ export const MaterialPriceForm = ({ onPriceSaved }: MaterialPriceFormProps) => {
           />
           <p className="mt-1 text-xs text-gray-500">
             Puedes ingresar hasta 5 decimales para mayor precisión (ej: 4.12567)
-          </p>
-          <p className="mt-1 text-xs text-blue-600">
-            Valor actual: {formData.pricePerUnit} (tipo: {typeof formData.pricePerUnit})
           </p>
         </div>
 
