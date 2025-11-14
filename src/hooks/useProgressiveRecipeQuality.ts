@@ -6,13 +6,18 @@ import { es } from 'date-fns/locale';
 import { supabase } from '@/lib/supabase';
 
 // Use similar types as client analysis
-interface RecipeQualityRemisionData {
+export interface RecipeQualityRemisionData {
   id: string;
   remisionNumber: string;
   fecha: string;
   volume: number;
   recipeCode: string;
   recipeFc: number;
+  recipeId: string;
+  masterRecipeId?: string | null;
+  arkikLongCode?: string | null;
+  arkikShortCode?: string | null;
+  variantSuffix?: string | null;
   constructionSite: string;
   orderId: string;
   complianceStatus: string;
@@ -57,15 +62,22 @@ interface RecipeQualityRemisionData {
   }>;
 }
 
-interface RecipeQualityData {
+export interface RecipeQualityData {
   remisiones: RecipeQualityRemisionData[];
 }
 
-interface RecipeQualitySummary {
+export interface RecipeQualitySummary {
   recipeInfo: {
     recipe_code: string;
     strength_fc: number;
     age_days: number;
+    master_recipe_id?: string | null;
+    master_code?: string | null;
+    arkik_long_code?: string | null;
+    arkik_short_code?: string | null;
+    variant_suffix?: string | null;
+    is_master_analysis?: boolean; // true if analyzing all variants of a master
+    variant_count?: number; // number of variants included in analysis
   };
   totals: {
     volume: number;
@@ -89,6 +101,26 @@ interface RecipeQualitySummary {
     qualityTrend: string;
     onTimeTestingRate: number;
   };
+  statistics?: {
+    mean: number;
+    stdDev: number;
+    cv: number;
+    qualityLevel: string;
+    groupStats: Array<any>;
+    groupsInTargetWeighted: number;
+    processCapability?: {
+      cp: number;
+      cpk: number;
+      sigma: number;
+    } | null;
+    controlLimits?: {
+      ucl: number;
+      lcl: number;
+      usl: number;
+      lsl: number;
+      centerLine: number;
+    } | null;
+  };
   alerts: Array<{
     type: 'error' | 'warning' | 'info';
     metric: string;
@@ -104,6 +136,7 @@ interface Options {
 interface UseProgressiveRecipeQualityArgs {
   recipeId?: string;
   recipeIds?: string[];
+  masterRecipeId?: string; // Analyze all variants of this master
   plantId?: string;
   fromDate?: Date;
   toDate?: Date;
@@ -113,6 +146,7 @@ interface UseProgressiveRecipeQualityArgs {
 export function useProgressiveRecipeQuality({
   recipeId,
   recipeIds,
+  masterRecipeId,
   plantId,
   fromDate,
   toDate,
@@ -174,7 +208,7 @@ export function useProgressiveRecipeQuality({
   }, [fromDate, toDate, newestFirst, granularity]);
 
   useEffect(() => {
-    if (!plantId || (!recipeId && (!recipeIds || recipeIds.length === 0)) || !fromDate || !toDate) {
+    if (!plantId || (!recipeId && (!recipeIds || recipeIds.length === 0) && !masterRecipeId) || !fromDate || !toDate) {
       setData(null);
       setSummary(null);
       setLoading(false);
@@ -194,7 +228,53 @@ export function useProgressiveRecipeQuality({
 
     const load = async () => {
       try {
-        const targetRecipeIds = recipeId ? [recipeId] : recipeIds;
+        let targetRecipeIds: string[] = [];
+        let masterRecipeInfo: any = null;
+
+        // If analyzing by master recipe, fetch all its variants
+        if (masterRecipeId) {
+          const { data: masterData, error: masterErr } = await supabase
+            .from('master_recipes')
+            .select('*')
+            .eq('id', masterRecipeId)
+            .single();
+
+          if (masterErr) {
+            setError('Error fetching master recipe: ' + masterErr.message);
+            setLoading(false);
+            setStreaming(false);
+            return;
+          }
+
+          masterRecipeInfo = masterData;
+
+          // Get all variant recipe IDs for this master
+          const { data: variants, error: variantsErr } = await supabase
+            .from('recipes')
+            .select('id')
+            .eq('master_recipe_id', masterRecipeId)
+            .eq('plant_id', plantId);
+
+          if (variantsErr) {
+            setError('Error fetching recipe variants: ' + variantsErr.message);
+            setLoading(false);
+            setStreaming(false);
+            return;
+          }
+
+          targetRecipeIds = (variants || []).map((v: any) => v.id);
+
+          if (targetRecipeIds.length === 0) {
+            setError('No variants found for this master recipe.');
+            setLoading(false);
+            setStreaming(false);
+            return;
+          }
+        } else {
+          // Use provided recipe IDs
+          targetRecipeIds = recipeId ? [recipeId] : recipeIds || [];
+        }
+
         if (!targetRecipeIds || targetRecipeIds.length === 0) {
           setError('No recipe selected for analysis.');
           setLoading(false);
@@ -226,7 +306,11 @@ export function useProgressiveRecipeQuality({
                 recipe_code,
                 strength_fc,
                 age_days,
-                age_hours
+                age_hours,
+                master_recipe_id,
+                arkik_long_code,
+                arkik_short_code,
+                variant_suffix
               ),
               orders!inner (
                 id,
@@ -296,14 +380,36 @@ export function useProgressiveRecipeQuality({
             continue;
           }
 
-          // Get recipe info from first remision
+          // Get recipe info from first remision or master
           if (!recipeInfo && sliceRems.length > 0) {
             const firstRem = sliceRems[0];
             recipeInfo = {
               recipe_code: firstRem.recipes?.recipe_code || '',
               strength_fc: firstRem.recipes?.strength_fc || 0,
-              age_days: firstRem.recipes?.age_days || 28
+              age_days: firstRem.recipes?.age_days || 28,
+              master_recipe_id: firstRem.recipes?.master_recipe_id || null,
+              arkik_long_code: firstRem.recipes?.arkik_long_code || null,
+              arkik_short_code: firstRem.recipes?.arkik_short_code || null,
+              variant_suffix: firstRem.recipes?.variant_suffix || null
             };
+          }
+
+          // Override with master info if analyzing by master
+          if (masterRecipeInfo && !recipeInfo) {
+            recipeInfo = {
+              recipe_code: masterRecipeInfo.master_code,
+              strength_fc: masterRecipeInfo.strength_fc || 0,
+              age_days: masterRecipeInfo.age_days || 28,
+              master_recipe_id: masterRecipeInfo.id,
+              master_code: masterRecipeInfo.master_code,
+              is_master_analysis: true,
+              variant_count: targetRecipeIds.length
+            };
+          } else if (masterRecipeInfo && recipeInfo) {
+            // Enrich with master info
+            recipeInfo.master_code = masterRecipeInfo.master_code;
+            recipeInfo.is_master_analysis = true;
+            recipeInfo.variant_count = targetRecipeIds.length;
           }
 
           // Get current material prices for cost calculations
@@ -432,6 +538,11 @@ export function useProgressiveRecipeQuality({
               volume,
               recipeCode: r.recipes?.recipe_code || '',
               recipeFc: r.recipes?.strength_fc || 0,
+              recipeId: String(r.recipe_id || r.recipes?.id || ''),
+              masterRecipeId: r.recipes?.master_recipe_id || null,
+              arkikLongCode: r.recipes?.arkik_long_code || null,
+              arkikShortCode: r.recipes?.arkik_short_code || null,
+              variantSuffix: r.recipes?.variant_suffix || null,
               constructionSite: r.orders?.construction_site || '',
               orderId: String(r.order_id || r.orders?.id || ''),
               complianceStatus,
@@ -485,7 +596,7 @@ export function useProgressiveRecipeQuality({
 
     load();
     return () => { abortRef.current.aborted = true; };
-  }, [plantId, recipeId, recipeIds, fromDate, toDate, slices, granularity]);
+  }, [plantId, recipeId, recipeIds, masterRecipeId, fromDate, toDate, slices, granularity]);
 
   return { data, summary, loading, streaming, progress, error };
 }
@@ -533,14 +644,20 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
   }, 0) / Math.max(remisionesMuestreadas, 1);
 
   const rendimientos = remisiones.map(r => r.rendimientoVolumetrico).filter(r => r !== undefined) as number[];
-  const avgRendimiento = rendimientos.length > 0 
+  const avgRendimiento = rendimientos.length > 0
     ? rendimientos.reduce((sum, r) => sum + r, 0) / rendimientos.length
     : 0;
 
-  const costos = remisiones.map(r => r.costPerM3).filter(c => c !== undefined && c > 0) as number[];
-  const avgCostPerM3 = costos.length > 0
-    ? costos.reduce((sum, c) => sum + c, 0) / costos.length
-    : 0;
+  // Calculate volume-weighted average cost per m³ (matches production report methodology)
+  let totalCostWeighted = 0;
+  let totalVolumeForCost = 0;
+  remisiones.forEach(r => {
+    if (r.costPerM3 !== undefined && r.costPerM3 > 0 && r.volume > 0) {
+      totalCostWeighted += r.costPerM3 * r.volume;
+      totalVolumeForCost += r.volume;
+    }
+  });
+  const avgCostPerM3 = totalVolumeForCost > 0 ? totalCostWeighted / totalVolumeForCost : 0;
 
   // Calculate cement share
   let totalCementCost = 0;
@@ -578,7 +695,7 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
     });
   }
 
-  // Calculate statistical analysis
+  // Calculate statistical analysis (Enhanced with client portal metrics)
   const calculateStatistics = () => {
     if (ensayosEdadGarantia.length === 0) {
       return {
@@ -587,7 +704,9 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
         cv: 0,
         qualityLevel: 'Sin datos',
         groupStats: [],
-        groupsInTargetWeighted: 0
+        groupsInTargetWeighted: 0,
+        processCapability: null,
+        controlLimits: null
       };
     }
 
@@ -599,12 +718,12 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
         const strength = specs.strength_fc ?? remision.recipeFc ?? 'NA';
         const ageLabel = getAgeLabel(specs);
         const key = `${strength}-${ageLabel}`;
-        
+
         const validEnsayosDelMuestreo: Array<{ resistencia: number; cumplimiento: number }> = [];
         muestreo.muestras.forEach(muestra => {
-          const ensayos = (muestra.ensayos || []).filter(ensayo => 
-            ensayo.isEdadGarantia && 
-            !ensayo.isEnsayoFueraTiempo && 
+          const ensayos = (muestra.ensayos || []).filter(ensayo =>
+            ensayo.isEdadGarantia &&
+            !ensayo.isEnsayoFueraTiempo &&
             (ensayo.resistenciaCalculada || 0) > 0
           );
           ensayos.forEach(ensayo => {
@@ -630,7 +749,8 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
     const groupStatsRaw = Object.entries(groups).map(([key, g]) => {
       const n = g.values.length || 1;
       const meanG = g.values.reduce((s, v) => s + v, 0) / n;
-      const varG = g.values.reduce((s, v) => s + Math.pow(v - meanG, 2), 0) / n;
+      // Use n-1 for sample variance (Bessel's correction)
+      const varG = n > 1 ? g.values.reduce((s, v) => s + Math.pow(v - meanG, 2), 0) / (n - 1) : 0;
       const stdG = Math.sqrt(varG);
       const cvG = meanG > 0 ? (stdG / meanG) * 100 : 0;
       const avgCompliance = g.compliances.length > 0
@@ -643,21 +763,43 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
     // Exclude groups with insufficient muestreos (<3)
     const groupStats = groupStatsRaw.filter(g => g.count >= 3);
     const totalCount = groupStats.reduce((s, g) => s + g.count, 0) || 1;
-    const cvWeighted = groupStats.reduce((s, g) => s + g.cv * (g.count / totalCount), 0);
+    const cvWeighted = groupStats.length > 0 ? groupStats.reduce((s, g) => s + g.cv * (g.count / totalCount), 0) : 0;
 
     // % groups in target (CV <= 10%) weighted by sample count
-    const groupsInTargetWeighted = groupStats.reduce((s, g) => s + (g.cv <= 10 ? g.count : 0), 0) / totalCount * 100;
+    const groupsInTargetWeighted = totalCount > 0 ? (groupStats.reduce((s, g) => s + (g.cv <= 10 ? g.count : 0), 0) / totalCount * 100) : 0;
 
     // Global statistics (all ensayos) for display
     const resistencias = ensayosEdadGarantia.map(e => e.resistenciaCalculada);
     const mean = resistencias.reduce((sum, val) => sum + val, 0) / resistencias.length;
-    const variance = resistencias.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / resistencias.length;
+    // Use sample variance (n-1)
+    const variance = resistencias.length > 1
+      ? resistencias.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / (resistencias.length - 1)
+      : 0;
     const stdDev = Math.sqrt(variance);
     const cv = cvWeighted; // use grouped, weighted CV as consistency metric
 
+    // Calculate control limits (3-sigma)
+    const controlLimits = {
+      ucl: mean + (3 * stdDev), // Upper Control Limit
+      lcl: Math.max(0, mean - (3 * stdDev)), // Lower Control Limit
+      usl: recipeInfo.strength_fc * 1.2, // Upper Spec Limit
+      lsl: recipeInfo.strength_fc * 0.85, // Lower Spec Limit
+      centerLine: mean
+    };
+
+    // Calculate process capability indices
+    const processCapability = {
+      cp: (controlLimits.usl - controlLimits.lsl) / (6 * stdDev), // Process Capability
+      cpk: Math.min(
+        (controlLimits.usl - mean) / (3 * stdDev),
+        (mean - controlLimits.lsl) / (3 * stdDev)
+      ), // Process Capability Index
+      sigma: stdDev
+    };
+
     // Quality level (recipe-centric): compliance, low variation, yield near 100%
     let qualityLevel = 'Aceptable';
-    if (avgCompliance >= 97 && cv <= 8 && avgRendimiento >= 98) qualityLevel = 'Excelente';
+    if (avgCompliance >= 97 && cv <= 8 && avgRendimiento >= 99) qualityLevel = 'Excelente';
     else if (avgCompliance >= 95 && cv <= 10 && avgRendimiento >= 98) qualityLevel = 'Muy Bueno';
     else if (avgCompliance >= 92 && cv <= 12 && avgRendimiento >= 97.5) qualityLevel = 'Aceptable';
     else qualityLevel = 'Mejorable';
@@ -668,7 +810,9 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
       cv,
       qualityLevel,
       groupStats,
-      groupsInTargetWeighted
+      groupsInTargetWeighted,
+      processCapability,
+      controlLimits
     };
   };
 

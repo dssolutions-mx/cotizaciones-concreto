@@ -32,10 +32,12 @@ import {
   AlertTriangle 
 } from 'lucide-react';
 import { useProgressiveRecipeQuality } from '@/hooks/useProgressiveRecipeQuality';
-import { RecipeSearchModal } from '@/components/recipes/RecipeSearchModal';
+import { MasterRecipeSearchModal } from '@/components/quality/recipes/MasterRecipeSearchModal';
 import { RecipeQualityMetrics } from '@/components/quality/recipes/RecipeQualityMetrics';
+import { RecipeAdvancedMetrics } from '@/components/quality/recipes/RecipeAdvancedMetrics';
+import { RecipeQualityCharts } from '@/components/quality/recipes/RecipeQualityCharts';
+import { VariantsComparisonTable } from '@/components/quality/recipes/VariantsComparisonTable';
 import RecipeMuestreosCharts from '@/components/quality/recipes/RecipeMuestreosCharts';
-import type { RecipeSearchResult } from '@/types/recipes';
 
 export default function RecipeAnalysisPage() {
   const { profile } = useAuthBridge();
@@ -46,11 +48,13 @@ export default function RecipeAnalysisPage() {
     from: subDays(new Date(), 90),
     to: new Date()
   });
-  const [selectedRecipeIds, setSelectedRecipeIds] = useState<string[]>([]);
+  const [selectedMasterId, setSelectedMasterId] = useState<string | null>(null);
+  const [selectedMasterCode, setSelectedMasterCode] = useState<string | null>(null);
+  const [selectedVariantCount, setSelectedVariantCount] = useState<number>(0);
   const [searchOpen, setSearchOpen] = useState(false);
 
   const { data, summary, loading, streaming, progress, error } = useProgressiveRecipeQuality({
-    recipeIds: selectedRecipeIds,
+    masterRecipeId: selectedMasterId || undefined,
     plantId: currentPlant?.id || '',
     fromDate: dateRange?.from,
     toDate: dateRange?.to,
@@ -70,18 +74,23 @@ export default function RecipeAnalysisPage() {
   ];
 
   const headerSubtitle = useMemo(() => {
-    if (!dateRange?.from || !dateRange?.to) return 'Selecciona un período para comenzar';
-    return `Período: ${format(dateRange.from, 'dd/MM/yyyy', { locale: es })} - ${format(dateRange.to, 'dd/MM/yyyy', { locale: es })}`;
-  }, [dateRange]);
-
-  const handleRecipeSelect = (recipe: RecipeSearchResult) => {
-    if (!selectedRecipeIds.includes(recipe.recipe_id)) {
-      setSelectedRecipeIds([...selectedRecipeIds, recipe.recipe_id]);
+    if (!dateRange?.from || !dateRange?.to) return 'Selecciona un período y una receta maestra para comenzar';
+    if (selectedMasterCode) {
+      return `${selectedMasterCode} (${selectedVariantCount} variante${selectedVariantCount !== 1 ? 's' : ''}) | ${format(dateRange.from, 'dd/MM/yyyy', { locale: es })} - ${format(dateRange.to, 'dd/MM/yyyy', { locale: es })}`;
     }
+    return `Período: ${format(dateRange.from, 'dd/MM/yyyy', { locale: es })} - ${format(dateRange.to, 'dd/MM/yyyy', { locale: es })}`;
+  }, [dateRange, selectedMasterCode, selectedVariantCount]);
+
+  const handleMasterSelect = (masterId: string, masterCode: string, variantCount: number) => {
+    setSelectedMasterId(masterId);
+    setSelectedMasterCode(masterCode);
+    setSelectedVariantCount(variantCount);
   };
 
-  const removeRecipe = (recipeId: string) => {
-    setSelectedRecipeIds(selectedRecipeIds.filter(id => id !== recipeId));
+  const clearSelection = () => {
+    setSelectedMasterId(null);
+    setSelectedMasterCode(null);
+    setSelectedVariantCount(0);
   };
 
   if (!hasAccess) {
@@ -161,39 +170,46 @@ export default function RecipeAnalysisPage() {
 
       {/* Controls */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-        {/* Recipe Selection */}
+        {/* Master Recipe Selection */}
         <Card>
           <CardContent className="p-4">
             <div className="space-y-3">
               <label className="text-sm font-medium text-gray-700">
-                Recetas Seleccionadas ({selectedRecipeIds.length})
+                Receta Maestra
               </label>
-              
+
               <Button
-                variant="outline"
+                variant={selectedMasterId ? "secondary" : "outline"}
                 onClick={() => setSearchOpen(true)}
                 className="w-full justify-start"
               >
                 <Search className="h-4 w-4 mr-2" />
-                {selectedRecipeIds.length === 0 ? 'Seleccionar recetas...' : 'Agregar más recetas...'}
+                {selectedMasterId ? 'Cambiar receta maestra...' : 'Seleccionar receta maestra...'}
               </Button>
 
-              {selectedRecipeIds.length > 0 && (
-                <div className="space-y-2 max-h-40 overflow-y-auto -mr-2 pr-2">
-                  {selectedRecipeIds.map((recipeId) => (
-                    <div key={recipeId} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                      <span className="text-sm font-medium truncate mr-2">{recipeId}</span>
+              {selectedMasterId && selectedMasterCode && (
+                <div className="space-y-2">
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1">
+                        <div className="font-semibold text-blue-900">
+                          {selectedMasterCode}
+                        </div>
+                        <div className="text-xs text-blue-600 mt-1">
+                          {selectedVariantCount} variante{selectedVariantCount !== 1 ? 's' : ''} en análisis
+                        </div>
+                      </div>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => removeRecipe(recipeId)}
-                        className="h-6 w-6 p-0"
-                        aria-label={`Quitar receta ${recipeId}`}
+                        onClick={clearSelection}
+                        className="h-8 w-8 p-0 hover:bg-blue-100"
+                        aria-label="Limpiar selección"
                       >
                         ×
                       </Button>
                     </div>
-                  ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -238,8 +254,8 @@ export default function RecipeAnalysisPage() {
                 </div>
               ) : (
                 <div className="text-sm text-gray-500">
-                  {selectedRecipeIds.length === 0 
-                    ? 'Selecciona recetas para ver el resumen'
+                  {!selectedMasterId
+                    ? 'Selecciona una receta maestra para ver el resumen'
                     : 'Cargando datos...'
                   }
                 </div>
@@ -250,7 +266,7 @@ export default function RecipeAnalysisPage() {
       </div>
 
       {/* Loading State */}
-      {loading && selectedRecipeIds.length > 0 && (
+      {loading && selectedMasterId && (
         <Card className="mb-6">
           <CardContent className="p-6">
             <div className="flex items-center justify-center space-x-4">
@@ -277,26 +293,57 @@ export default function RecipeAnalysisPage() {
       )}
 
       {/* Main Content */}
-      {selectedRecipeIds.length > 0 && data && summary && !loading && (
+      {selectedMasterId && data && summary && !loading && (
         <div className="space-y-6">
-          {/* Metrics */}
+          {/* Recipe Header Info */}
           <RecipeQualityMetrics summary={summary} loading={loading} />
 
           {/* Tabs for different views */}
-          <Tabs defaultValue="charts" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="charts" className="flex items-center gap-2">
+          <Tabs defaultValue="metrics" className="w-full">
+            <TabsList className="grid w-full grid-cols-5">
+              <TabsTrigger value="metrics" className="flex items-center gap-2">
+                <Target className="h-4 w-4" />
+                Métricas Clave
+              </TabsTrigger>
+              <TabsTrigger value="variants" className="flex items-center gap-2">
+                <FlaskConical className="h-4 w-4" />
+                Variantes
+              </TabsTrigger>
+              <TabsTrigger value="statistical" className="flex items-center gap-2">
                 <BarChart3 className="h-4 w-4" />
-                Análisis Visual
+                Análisis Estadístico
+              </TabsTrigger>
+              <TabsTrigger value="charts" className="flex items-center gap-2">
+                <TrendingUp className="h-4 w-4" />
+                Gráficos Avanzados
               </TabsTrigger>
               <TabsTrigger value="details" className="flex items-center gap-2">
-                <Target className="h-4 w-4" />
+                <FileBarChart className="h-4 w-4" />
                 Detalles
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="charts" className="space-y-6">
+            <TabsContent value="metrics" className="space-y-6">
+              <RecipeAdvancedMetrics summary={summary} loading={loading} />
+            </TabsContent>
+
+            <TabsContent value="variants" className="space-y-6">
+              <VariantsComparisonTable
+                remisiones={data.remisiones}
+                targetStrength={summary.recipeInfo.strength_fc}
+              />
+            </TabsContent>
+
+            <TabsContent value="statistical" className="space-y-6">
               <RecipeMuestreosCharts remisiones={data.remisiones} />
+            </TabsContent>
+
+            <TabsContent value="charts" className="space-y-6">
+              <RecipeQualityCharts
+                remisiones={data.remisiones}
+                targetStrength={summary.recipeInfo.strength_fc}
+                targetAge={summary.recipeInfo.age_days}
+              />
             </TabsContent>
 
             <TabsContent value="details">
@@ -309,11 +356,12 @@ export default function RecipeAnalysisPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto -mx-4 md:mx-0">
-                    <table className="min-w-[760px] md:min-w-0 text-sm">
+                    <table className="min-w-[960px] md:min-w-0 text-sm">
                       <thead>
                         <tr className="text-left text-gray-600">
                           <th className="py-2 pr-4">Fecha</th>
                           <th className="py-2 pr-4">Remisión</th>
+                          <th className="py-2 pr-4">Código Receta</th>
                           <th className="py-2 pr-4">Sitio</th>
                           <th className="py-2 pr-4">Volumen</th>
                           <th className="py-2 pr-4">Resistencia</th>
@@ -327,13 +375,25 @@ export default function RecipeAnalysisPage() {
                           <tr key={r.id} className="border-t">
                             <td className="py-2 pr-4">{format(new Date(r.fecha), 'dd/MM/yyyy')}</td>
                             <td className="py-2 pr-4">{r.remisionNumber}</td>
+                            <td className="py-2 pr-4">
+                              <div className="flex flex-col">
+                                <span className="font-mono text-xs">
+                                  {r.arkikLongCode || r.recipeCode}
+                                </span>
+                                {r.variantSuffix && (
+                                  <span className="text-xs text-gray-500">
+                                    Variante: {r.variantSuffix}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
                             <td className="py-2 pr-4 max-w-xs truncate">{r.constructionSite}</td>
                             <td className="py-2 pr-4">{r.volume.toFixed(2)} m³</td>
                             <td className="py-2 pr-4">
                               {r.avgResistencia ? `${r.avgResistencia.toFixed(1)} kg/cm²` : '—'}
                             </td>
                             <td className="py-2 pr-4">
-                              <Badge variant={r.complianceStatus === 'compliant' ? 'default' : 
+                              <Badge variant={r.complianceStatus === 'compliant' ? 'default' :
                                            r.complianceStatus === 'pending' ? 'secondary' : 'destructive'}>
                                 {r.complianceStatus === 'compliant' ? 'Excelente' :
                                  r.complianceStatus === 'pending' ? 'Aceptable' : 'Requiere Atención'}
@@ -358,31 +418,32 @@ export default function RecipeAnalysisPage() {
       )}
 
       {/* Empty State */}
-      {selectedRecipeIds.length === 0 && (
+      {!selectedMasterId && (
         <Card>
           <CardContent className="p-12">
             <div className="text-center">
               <FlaskConical className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-900 mb-2">
-                Selecciona recetas para analizar
+                Selecciona una receta maestra para analizar
               </h3>
               <p className="text-gray-600 mb-4">
-                Elige una o más recetas para ver su análisis de calidad, costos y rendimiento.
+                El análisis se realiza por receta maestra, agrupando todas sus variantes.
+                Podrás ver métricas globales y comparación detallada entre variantes.
               </p>
-              <Button onClick={() => setSearchOpen(true)}>
+              <Button onClick={() => setSearchOpen(true)} size="lg">
                 <Search className="h-4 w-4 mr-2" />
-                Buscar Recetas
+                Buscar Receta Maestra
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Recipe Search Modal */}
-      <RecipeSearchModal
+      {/* Master Recipe Search Modal */}
+      <MasterRecipeSearchModal
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
-        onRecipeSelect={handleRecipeSelect}
+        onMasterSelect={handleMasterSelect}
       />
     </div>
   );
