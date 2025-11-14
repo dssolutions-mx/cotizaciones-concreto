@@ -127,7 +127,7 @@ export function RecipeAdvancedMetrics({ summary, loading }: RecipeAdvancedMetric
                   {formatNumber(summary.averages.resistencia, 0)}
                 </div>
                 <div className="text-sm text-gray-500 mt-1">
-                  kg/cm² (objetivo: {summary.recipeInfo.strength_fc})
+                  kg/cm² (objetivo f'c: {summary.recipeInfo.strength_fc})
                 </div>
               </div>
               <div className="bg-blue-100 p-2 rounded-md">

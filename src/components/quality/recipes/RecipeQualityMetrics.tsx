@@ -93,7 +93,7 @@ export function RecipeQualityMetrics({ summary, loading }: RecipeQualityMetricsP
                 </Badge>
               )}
               <Badge variant="outline">
-                f'c {summary.recipeInfo.strength_fc} MPa @ {summary.recipeInfo.age_days}d
+                f'c {summary.recipeInfo.strength_fc} kg/cm² @ {summary.recipeInfo.age_days}d
               </Badge>
             </div>
           </CardTitle>
@@ -111,7 +111,7 @@ export function RecipeQualityMetrics({ summary, loading }: RecipeQualityMetricsP
               </div>
             )}
             <div>
-              <span className="font-medium">Resistencia:</span> {summary.recipeInfo.strength_fc} MPa
+              <span className="font-medium">Resistencia:</span> {summary.recipeInfo.strength_fc} kg/cm²
             </div>
             <div className="flex items-center gap-2">
               <span className="font-medium">Tendencia:</span>
