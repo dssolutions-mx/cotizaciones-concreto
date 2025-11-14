@@ -134,43 +134,79 @@ export function RecipeQualityCharts({ remisiones, targetStrength, targetAge }: R
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={400}>
-            <ComposedChart data={resistanceTrendData}>
+          <ResponsiveContainer width="100%" height={450}>
+            <ComposedChart
+              data={resistanceTrendData}
+              margin={{ top: 20, right: 40, left: 20, bottom: 70 }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
               <XAxis
                 dataKey="fecha"
-                tick={{ fontSize: 12 }}
+                tick={{ fontSize: 11 }}
                 angle={-45}
                 textAnchor="end"
                 height={80}
+                interval={resistanceTrendData.length > 20 ? Math.floor(resistanceTrendData.length / 15) : 0}
               />
               <YAxis
-                label={{ value: 'Resistencia (kg/cm²)', angle: -90, position: 'insideLeft' }}
-                tick={{ fontSize: 12 }}
+                label={{ value: 'Resistencia (kg/cm²)', angle: -90, position: 'insideLeft', style: { fontSize: 12 } }}
+                tick={{ fontSize: 11 }}
+                width={60}
               />
               <Tooltip
-                contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                contentStyle={{ backgroundColor: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '8px' }}
                 formatter={(value: any, name: string) => {
                   if (name === 'resistencia') return [value.toFixed(1) + ' kg/cm²', 'Resistencia'];
                   if (name === 'cumplimiento') return [value.toFixed(1) + '%', 'Cumplimiento'];
                   return [value, name];
                 }}
               />
-              <Legend />
+              <Legend wrapperStyle={{ paddingTop: '10px' }} />
 
               {/* Spec Limits */}
-              <ReferenceLine y={controlLimits.usl} stroke="#dc2626" strokeDasharray="5 5" label="LSE" />
-              <ReferenceLine y={controlLimits.lsl} stroke="#dc2626" strokeDasharray="5 5" label="LIE" />
+              <ReferenceLine
+                y={controlLimits.usl}
+                stroke="#dc2626"
+                strokeDasharray="5 5"
+                label={{ value: `LSE (${controlLimits.usl.toFixed(0)})`, position: 'right', fill: '#dc2626', fontSize: 11 }}
+              />
+              <ReferenceLine
+                y={controlLimits.lsl}
+                stroke="#dc2626"
+                strokeDasharray="5 5"
+                label={{ value: `LIE (${controlLimits.lsl.toFixed(0)})`, position: 'right', fill: '#dc2626', fontSize: 11 }}
+              />
 
               {/* Control Limits */}
-              <ReferenceLine y={controlLimits.ucl} stroke="#f59e0b" strokeDasharray="3 3" label="LCS" />
-              <ReferenceLine y={controlLimits.lcl} stroke="#f59e0b" strokeDasharray="3 3" label="LCI" />
+              <ReferenceLine
+                y={controlLimits.ucl}
+                stroke="#f59e0b"
+                strokeDasharray="3 3"
+                label={{ value: `LCS (${controlLimits.ucl.toFixed(0)})`, position: 'left', fill: '#f59e0b', fontSize: 11 }}
+              />
+              <ReferenceLine
+                y={controlLimits.lcl}
+                stroke="#f59e0b"
+                strokeDasharray="3 3"
+                label={{ value: `LCI (${controlLimits.lcl.toFixed(0)})`, position: 'left', fill: '#f59e0b', fontSize: 11 }}
+              />
 
               {/* Mean Line */}
-              <ReferenceLine y={controlLimits.mean} stroke="#3b82f6" strokeWidth={2} label="Media" />
+              <ReferenceLine
+                y={controlLimits.mean}
+                stroke="#3b82f6"
+                strokeWidth={2}
+                label={{ value: `Media (${controlLimits.mean.toFixed(0)})`, position: 'insideTopRight', fill: '#3b82f6', fontSize: 11 }}
+              />
 
               {/* Target */}
-              <ReferenceLine y={targetStrength} stroke="#22c55e" strokeWidth={2} strokeDasharray="5 5" label="Objetivo" />
+              <ReferenceLine
+                y={targetStrength}
+                stroke="#22c55e"
+                strokeWidth={2}
+                strokeDasharray="5 5"
+                label={{ value: `Objetivo (${targetStrength})`, position: 'insideBottomRight', fill: '#22c55e', fontSize: 11 }}
+              />
 
               {/* Area between control limits */}
               <Area
@@ -187,29 +223,47 @@ export function RecipeQualityCharts({ remisiones, targetStrength, targetAge }: R
                 dataKey="resistencia"
                 stroke="#3b82f6"
                 strokeWidth={3}
-                dot={{ r: 5, fill: '#3b82f6' }}
+                dot={{ r: 4, fill: '#3b82f6' }}
                 activeDot={{ r: 7 }}
               />
             </ComposedChart>
           </ResponsiveContainer>
 
-          {/* Legend */}
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-0.5 bg-green-500"></div>
-              <span>Objetivo (f'c {targetStrength})</span>
+          {/* Enhanced Legend with Explanations */}
+          <div className="mt-6 space-y-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-0.5 bg-green-500"></div>
+                <div className="flex flex-col">
+                  <span className="font-medium">Objetivo</span>
+                  <span className="text-gray-500">f'c {targetStrength} kg/cm²</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-0.5 bg-blue-500"></div>
+                <div className="flex flex-col">
+                  <span className="font-medium">Media</span>
+                  <span className="text-gray-500">{controlLimits.mean.toFixed(1)} kg/cm²</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-0.5 bg-amber-500 border-dashed"></div>
+                <div className="flex flex-col">
+                  <span className="font-medium">Límites Control</span>
+                  <span className="text-gray-500">±3σ (LCS/LCI)</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-0.5 bg-red-500 border-dashed"></div>
+                <div className="flex flex-col">
+                  <span className="font-medium">Límites Espec.</span>
+                  <span className="text-gray-500">85%-120% (LSE/LIE)</span>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-0.5 bg-blue-500"></div>
-              <span>Media ({controlLimits.mean.toFixed(1)})</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-0.5 bg-amber-500 border-dashed"></div>
-              <span>Límites Control (±3σ)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-0.5 bg-red-500 border-dashed"></div>
-              <span>Límites Especificación</span>
+            <div className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg">
+              <strong>Interpretación:</strong> El proceso está bajo control cuando todos los puntos están dentro de los límites de control (LCS/LCI).
+              Los límites de especificación (LSE/LIE) representan los valores aceptables según estándares.
             </div>
           </div>
         </CardContent>

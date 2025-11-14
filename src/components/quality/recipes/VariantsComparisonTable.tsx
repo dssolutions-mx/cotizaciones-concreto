@@ -119,9 +119,16 @@ export function VariantsComparisonTable({ remisiones, targetStrength }: Variants
         ? muestreoMetrics.filter(m => m.yield > 0).reduce((sum, m) => sum + m.yield, 0) / muestreoMetrics.filter(m => m.yield > 0).length || 0
         : 0;
 
-      const avgCostPerM3 = variantRemisiones.filter(r => r.costPerM3 && r.costPerM3 > 0).length > 0
-        ? variantRemisiones.filter(r => r.costPerM3 && r.costPerM3 > 0).reduce((sum, r) => sum + (r.costPerM3 || 0), 0) / variantRemisiones.filter(r => r.costPerM3 && r.costPerM3 > 0).length
-        : 0;
+      // Volume-weighted average cost per m³ (matches production report methodology)
+      let totalCostWeighted = 0;
+      let totalVolumeForCost = 0;
+      variantRemisiones.forEach(r => {
+        if (r.costPerM3 && r.costPerM3 > 0 && r.volume > 0) {
+          totalCostWeighted += r.costPerM3 * r.volume;
+          totalVolumeForCost += r.volume;
+        }
+      });
+      const avgCostPerM3 = totalVolumeForCost > 0 ? totalCostWeighted / totalVolumeForCost : 0;
 
       // Quality classification
       let qualityLevel = 'Mejorable';
@@ -320,7 +327,9 @@ export function VariantsComparisonTable({ remisiones, targetStrength }: Variants
                 </td>
                 <td className="text-right py-3 pr-4">
                   {formatCurrency(
-                    variantMetrics.reduce((sum, v) => sum + v.avgCostPerM3, 0) / variantMetrics.length
+                    // Volume-weighted average across all variants
+                    variantMetrics.reduce((sum, v) => sum + (v.avgCostPerM3 * v.totalVolume), 0) /
+                    variantMetrics.reduce((sum, v) => sum + v.totalVolume, 0)
                   )}
                 </td>
                 <td className="text-center py-3 pr-4">—</td>

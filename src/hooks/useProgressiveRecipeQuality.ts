@@ -644,14 +644,20 @@ function calculateSummary(data: RecipeQualityData, recipeInfo: any): RecipeQuali
   }, 0) / Math.max(remisionesMuestreadas, 1);
 
   const rendimientos = remisiones.map(r => r.rendimientoVolumetrico).filter(r => r !== undefined) as number[];
-  const avgRendimiento = rendimientos.length > 0 
+  const avgRendimiento = rendimientos.length > 0
     ? rendimientos.reduce((sum, r) => sum + r, 0) / rendimientos.length
     : 0;
 
-  const costos = remisiones.map(r => r.costPerM3).filter(c => c !== undefined && c > 0) as number[];
-  const avgCostPerM3 = costos.length > 0
-    ? costos.reduce((sum, c) => sum + c, 0) / costos.length
-    : 0;
+  // Calculate volume-weighted average cost per m³ (matches production report methodology)
+  let totalCostWeighted = 0;
+  let totalVolumeForCost = 0;
+  remisiones.forEach(r => {
+    if (r.costPerM3 !== undefined && r.costPerM3 > 0 && r.volume > 0) {
+      totalCostWeighted += r.costPerM3 * r.volume;
+      totalVolumeForCost += r.volume;
+    }
+  });
+  const avgCostPerM3 = totalVolumeForCost > 0 ? totalCostWeighted / totalVolumeForCost : 0;
 
   // Calculate cement share
   let totalCementCost = 0;
