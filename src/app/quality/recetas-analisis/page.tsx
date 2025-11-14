@@ -254,8 +254,8 @@ export default function RecipeAnalysisPage() {
                 </div>
               ) : (
                 <div className="text-sm text-gray-500">
-                  {selectedRecipeIds.length === 0 
-                    ? 'Selecciona recetas para ver el resumen'
+                  {!selectedMasterId
+                    ? 'Selecciona una receta maestra para ver el resumen'
                     : 'Cargando datos...'
                   }
                 </div>
