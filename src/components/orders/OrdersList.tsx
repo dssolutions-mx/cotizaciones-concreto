@@ -393,6 +393,11 @@ export default function OrdersList({
   // Estados para los datos filtrados y agrupados
   const [filteredOrders, setFilteredOrders] = useState<OrderWithClient[]>([]);
   const [groupedOrders, setGroupedOrders] = useState<GroupedOrders>({});
+  
+  // Pagination state for dosificadores
+  const [dosificadorOffset, setDosificadorOffset] = useState(0);
+  const [dosificadorHasMore, setDosificadorHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   // Simple function to load orders
   const loadOrders = useCallback(async () => {
@@ -404,7 +409,11 @@ export default function OrdersList({
     try {
       if (isDosificador) {
         const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
-        const data = await getOrdersForDosificador();
+        // Reset pagination state on initial load
+        setDosificadorOffset(0);
+        const result = await getOrdersForDosificador(100, 0);
+        const data = result.data;
+        setDosificadorHasMore(result.hasMore);
 
         // Transform DOSIFICADOR data structure to match OrderWithClient
         const transformedData = (data || []).map((order: any) => ({
@@ -701,6 +710,131 @@ export default function OrdersList({
       setLoading(false);
     }
   }, [currentPlant?.id, isDosificador, statusFilter, filterStatus, creditStatusFilter, maxItems]);
+
+  // Function to load more orders for dosificadores
+  const loadMoreOrders = useCallback(async () => {
+    if (!isDosificador || !dosificadorHasMore || loadingMore) return;
+    
+    setLoadingMore(true);
+    setError(null);
+
+    try {
+      const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
+      const nextOffset = dosificadorOffset + 100;
+      const result = await getOrdersForDosificador(100, nextOffset);
+      const data = result.data;
+      setDosificadorHasMore(result.hasMore);
+      setDosificadorOffset(nextOffset);
+
+      // Transform DOSIFICADOR data structure to match OrderWithClient
+      const transformedData = (data || []).map((order: any) => ({
+        ...order,
+        site_access_rating: order.site_access_rating,
+        order_site_validations: order.order_site_validations,
+        products: order.order_items || []
+      }));
+
+      const { supabase } = await import('@/lib/supabase/client');
+
+      // Compute volumes/prices consistently for DOSIFICADOR
+      const processedDataBase = (transformedData || []).map((order: any) => {
+        const orderItems = order.order_items || [];
+        let concreteVolumePlanned = 0;
+        let concreteVolumeDelivered = 0;
+        let pumpVolumePlanned = 0;
+        let pumpVolumeDelivered = 0;
+        let hasPumpService = false;
+        let hasDeliveredConcrete = false;
+        let concreteUnitPrice: number | undefined = undefined;
+        let pumpUnitPrice: number | undefined = undefined;
+
+        if (orderItems.length > 0) {
+          orderItems.forEach((item: any) => {
+            const productType = (item.product_type || '').toString();
+            const volume = Number(item.volume) || 0;
+            const pumpVolumeItem = Number(item.pump_volume) || 0;
+            const pumpDelivered = Number(item.pump_volume_delivered) || 0;
+            const concreteDelivered = Number(item.concrete_volume_delivered) || 0;
+            const unitPrice = item.unit_price != null ? Number(item.unit_price) : undefined;
+            const pumpPrice = item.pump_price != null ? Number(item.pump_price) : undefined;
+
+            const isEmptyTruckCharge = item.has_empty_truck_charge ||
+              productType === 'VACÍO DE OLLA' ||
+              productType === 'EMPTY_TRUCK_CHARGE';
+            const isPumpService = productType === 'SERVICIO DE BOMBEO' ||
+              productType.toLowerCase().includes('bombeo') ||
+              productType.toLowerCase().includes('pump');
+
+            if (!isEmptyTruckCharge && !isPumpService) {
+              concreteVolumePlanned += volume;
+              if (concreteDelivered > 0) {
+                concreteVolumeDelivered += concreteDelivered;
+              }
+              if (concreteUnitPrice === undefined && unitPrice != null && unitPrice > 0) {
+                concreteUnitPrice = unitPrice;
+              }
+            }
+
+            if (item.has_pump_service || isPumpService) {
+              if (pumpVolumeItem > 0) {
+                pumpVolumePlanned += pumpVolumeItem;
+              } else if (isPumpService && volume > 0) {
+                pumpVolumePlanned += volume;
+              }
+              hasPumpService = true;
+              if (pumpDelivered > 0) {
+                pumpVolumeDelivered += pumpDelivered;
+              }
+              const effectivePumpPrice = pumpPrice != null ? pumpPrice : unitPrice;
+              if (pumpUnitPrice === undefined && effectivePumpPrice != null && effectivePumpPrice > 0) {
+                pumpUnitPrice = effectivePumpPrice;
+              }
+            }
+          });
+        }
+
+        hasDeliveredConcrete = (concreteVolumeDelivered > 0) || (pumpVolumeDelivered > 0);
+
+        return {
+          ...order,
+          concreteVolumePlanned: concreteVolumePlanned > 0 ? concreteVolumePlanned : undefined,
+          concreteVolumeDelivered: concreteVolumeDelivered > 0 ? concreteVolumeDelivered : undefined,
+          pumpVolumePlanned: pumpVolumePlanned > 0 ? pumpVolumePlanned : undefined,
+          pumpVolumeDelivered: pumpVolumeDelivered > 0 ? pumpVolumeDelivered : undefined,
+          concreteUnitPrice,
+          pumpUnitPrice,
+          hasPumpService,
+          hasDeliveredConcrete
+        };
+      });
+
+      // Attach creator profiles for initials
+      let processedData = processedDataBase;
+      try {
+        const creatorIds = Array.from(new Set((transformedData || []).map((o: any) => o.created_by).filter(Boolean)));
+        if (creatorIds.length > 0) {
+          const { data: creators } = await supabase
+            .from('user_profiles')
+            .select('id, first_name, last_name, email')
+            .in('id', creatorIds);
+          const map = new Map<string, any>();
+          (creators || []).forEach((u: any) => map.set(u.id, u));
+          processedData = processedDataBase.map((o: any) => ({
+            ...o,
+            creator: o.created_by ? map.get(o.created_by) : undefined
+          }));
+        }
+      } catch (_e) {}
+
+      // Append new orders to existing ones
+      setOrders(prevOrders => [...prevOrders, ...processedData]);
+    } catch (err) {
+      console.error('Error loading more orders:', err);
+      setError('Error al cargar más pedidos. Por favor, intente nuevamente.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [isDosificador, dosificadorOffset, dosificadorHasMore, loadingMore]);
 
   // Load orders when component mounts or when dependencies change
   useEffect(() => {
@@ -1167,6 +1301,34 @@ export default function OrdersList({
               </div>
             );
           })}
+          
+          {/* Load more button for dosificadores */}
+          {isDosificador && dosificadorHasMore && (
+            <div className="text-center mt-6">
+              <button
+                onClick={loadMoreOrders}
+                disabled={loadingMore}
+                className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                {loadingMore ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Cargando...
+                  </>
+                ) : (
+                  <>
+                    Cargar más pedidos
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v2H7a1 1 0 100 2h2v2a1 1 0 102 0v-2h2a1 1 0 100-2h-2V7z" clipRule="evenodd" />
+                    </svg>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
           
           {maxItems && filteredOrders.length >= maxItems && (
             <div className="text-center mt-4">

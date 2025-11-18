@@ -319,7 +319,7 @@ interface OrderWithDetailsBasic extends OrderBasic {
   order_items: OrderItemBasic[];
 }
 
-export async function getOrdersForDosificador() {
+export async function getOrdersForDosificador(limit: number = 100, offset: number = 0): Promise<{ data: OrderWithClient[], hasMore: boolean }> {
   // Fetch orders relevant for DOSIFICADOR role (read-only access)
   try {
     // First, get the current user's profile to check their plant assignment
@@ -386,10 +386,24 @@ export async function getOrdersForDosificador() {
       query = query.eq('plant_id', profile.plant_id);
     }
 
-    const { data, error } = await query.order('delivery_date', { ascending: true });
+    // Apply pagination using range
+    // Order by delivery_date descending (newest first) so dosificadores see recent orders first
+    query = query
+      .order('delivery_date', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    const { data, error } = await query;
     
     if (error) throw error;
-    return data as unknown as OrderWithClient[]; // Return type remains the same
+    
+    // Determine if there are more orders available
+    // If we got exactly 'limit' items, there might be more
+    const hasMore = (data?.length || 0) === limit;
+    
+    return {
+      data: (data || []) as unknown as OrderWithClient[],
+      hasMore
+    };
   } catch (err) {
     console.error('Error fetching orders for dosificador:', err);
     throw new Error('Error al obtener los pedidos.');

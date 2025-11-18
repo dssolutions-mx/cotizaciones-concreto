@@ -77,7 +77,8 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
     try {
       if (isDosificador) {
         const { getOrdersForDosificador } = await import('@/lib/supabase/orders');
-        const data = await getOrdersForDosificador();
+        const result = await getOrdersForDosificador(1000, 0);
+        const data = result.data;
         
         // Transform and compute volumes consistently for DOSIFICADOR
         const processedData = (data || []).map((order: any) => {
