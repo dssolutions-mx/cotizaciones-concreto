@@ -9,6 +9,29 @@ import { usePlantAwareManagerOrders } from '@/hooks/usePlantAwareManagerOrders';
 import { OrderWithClient, CreditStatus } from '@/types/orders';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import orderService from '@/services/orderService';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { CheckCircle2, XCircle, Clock, AlertCircle, ChevronRight, TrendingUp, TrendingDown } from 'lucide-react';
+import { toast } from 'sonner';
 
 export default function CreditValidationTab() {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState<boolean>(false);
@@ -16,6 +39,8 @@ export default function CreditValidationTab() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string>('');
   const [localError, setLocalError] = useState<string | null>(null);
+  const [isApprovingCredit, setIsApprovingCredit] = useState<string | null>(null);
+  const [isRejectingCredit, setIsRejectingCredit] = useState<string | null>(null);
   const router = useRouter();
   const { profile } = useAuthBridge();
   
@@ -67,13 +92,32 @@ export default function CreditValidationTab() {
   }
 
   async function handleApproveCredit(id: string) {
+    if (isApprovingCredit || isRejectingCredit) return;
+    
     try {
-      await orderService.approveCreditForOrder(id);
-      // Actualizar la lista después de aprobar
-      loadOrders();
+      setIsApprovingCredit(id);
+      const { success, error: approveError } = await orderService.approveCreditForOrder(id);
+      
+      if (approveError) {
+        throw new Error(approveError);
+      }
+      
+      if (success) {
+        toast.success('Crédito aprobado exitosamente', {
+          description: 'La orden ha sido aprobada correctamente.',
+        });
+        // Actualizar la lista después de aprobar
+        loadOrders();
+      }
     } catch (err) {
       console.error('Error approving credit:', err);
-      setLocalError('Error al aprobar el crédito. Por favor, intente nuevamente.');
+      const errorMessage = err instanceof Error ? err.message : 'Error al aprobar el crédito. Por favor, intente nuevamente.';
+      toast.error('Error al aprobar el crédito', {
+        description: errorMessage,
+      });
+      setLocalError(errorMessage);
+    } finally {
+      setIsApprovingCredit(null);
     }
   }
 
@@ -89,61 +133,107 @@ export default function CreditValidationTab() {
   }
 
   async function handleValidatorReject() {
-    if (!selectedOrderId || !rejectionReason.trim()) return;
+    if (!selectedOrderId || !rejectionReason.trim() || isRejectingCredit) return;
     
     try {
-      await orderService.rejectCreditByValidator(selectedOrderId, rejectionReason);
-      setIsRejectReasonModalOpen(false);
-      setSelectedOrderId(null);
-      setRejectionReason('');
-      // Actualizar la lista después de rechazar
-      loadOrders();
+      setIsRejectingCredit(selectedOrderId);
+      const { success, error: rejectError } = await orderService.rejectCreditByValidator(selectedOrderId, rejectionReason);
+      
+      if (rejectError) {
+        throw new Error(rejectError);
+      }
+      
+      if (success) {
+        toast.success('Crédito rechazado', {
+          description: 'La orden ha sido rechazada por el validador.',
+        });
+        setIsRejectReasonModalOpen(false);
+        setSelectedOrderId(null);
+        setRejectionReason('');
+        // Actualizar la lista después de rechazar
+        loadOrders();
+      }
     } catch (err) {
       console.error('Error rejecting credit:', err);
-      setLocalError('Error al rechazar el crédito. Por favor, intente nuevamente.');
+      const errorMessage = err instanceof Error ? err.message : 'Error al rechazar el crédito. Por favor, intente nuevamente.';
+      toast.error('Error al rechazar el crédito', {
+        description: errorMessage,
+      });
+      setLocalError(errorMessage);
+    } finally {
+      setIsRejectingCredit(null);
     }
   }
   
   async function handleManagerReject() {
-    if (!selectedOrderId) return;
+    if (!selectedOrderId || isRejectingCredit) return;
     
     try {
+      setIsRejectingCredit(selectedOrderId);
       // Default reason for manager rejection
       const defaultReason = "Crédito rechazado definitivamente por gerencia";
       
       // Use existing rejection method for final rejection
-      await orderService.rejectCreditForOrder(selectedOrderId, defaultReason);
+      const { success, error: rejectError } = await orderService.rejectCreditForOrder(selectedOrderId, defaultReason);
       
-      setIsConfirmModalOpen(false);
-      setSelectedOrderId(null);
-      // Actualizar la lista después de rechazar
-      loadOrders();
+      if (rejectError) {
+        throw new Error(rejectError);
+      }
+      
+      if (success) {
+        toast.success('Crédito rechazado definitivamente', {
+          description: 'La orden ha sido rechazada por gerencia.',
+        });
+        setIsConfirmModalOpen(false);
+        setSelectedOrderId(null);
+        // Actualizar la lista después de rechazar
+        loadOrders();
+      }
     } catch (err) {
       console.error('Error rejecting credit:', err);
-      setLocalError('Error al rechazar el crédito. Por favor, intente nuevamente.');
+      const errorMessage = err instanceof Error ? err.message : 'Error al rechazar el crédito. Por favor, intente nuevamente.';
+      toast.error('Error al rechazar el crédito', {
+        description: errorMessage,
+      });
+      setLocalError(errorMessage);
+    } finally {
+      setIsRejectingCredit(null);
     }
   }
 
-  function getCreditStatusLabel(status: string) {
+  function getCreditStatusConfig(status: string) {
     switch(status) {
       case CreditStatus.PENDING:
-        return 'Validación Pendiente';
+        return {
+          label: 'Validación Pendiente',
+          variant: 'secondary' as const,
+          icon: Clock,
+          color: 'text-yellow-700 bg-yellow-50 border-yellow-200'
+        };
       case CreditStatus.REJECTED_BY_VALIDATOR:
-        return 'Rechazado por Validador';
+        return {
+          label: 'Rechazado por Validador',
+          variant: 'destructive' as const,
+          icon: AlertCircle,
+          color: 'text-orange-700 bg-orange-50 border-orange-200'
+        };
       default:
-        return status;
+        return {
+          label: status,
+          variant: 'outline' as const,
+          icon: AlertCircle,
+          color: 'text-gray-700 bg-gray-50 border-gray-200'
+        };
     }
   }
-  
-  function getCreditStatusColor(status: string) {
-    switch(status) {
-      case CreditStatus.PENDING:
-        return 'bg-yellow-500 text-white';
-      case CreditStatus.REJECTED_BY_VALIDATOR:
-        return 'bg-orange-500 text-white';
-      default:
-        return 'bg-gray-500 text-white';
-    }
+
+  function formatCurrency(amount: number) {
+    return new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency: 'MXN',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
   }
 
   if (loading) {
@@ -163,161 +253,239 @@ export default function CreditValidationTab() {
   }
 
   return (
-    <div className="space-y-4">
-      {orders.map((order) => (
-        <div key={`credit-validation-${order.id}`} className="border rounded-lg shadow-xs hover:shadow-md transition-shadow bg-white">
-          <div className="p-4">
-            <div className="flex flex-col md:flex-row justify-between">
-              <div className="flex-1">
-                <h3 className="font-semibold text-lg">{order.clients?.business_name || 'Cliente no disponible'}</h3>
-                <p className="text-sm text-gray-600">Código: {order.clients?.client_code || 'N/A'}</p>
-                <p className="text-sm">
-                  Entrega: {formatDate(order.delivery_date)} a las {formatTime(order.delivery_time)}
-                </p>
-                <p className="text-sm font-medium mt-1">
-                  Monto Preliminar: ${order.preliminary_amount?.toLocaleString('es-MX', { minimumFractionDigits: 2 }) || 'N/A'}
-                </p>
-                <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-sm font-medium text-gray-700 mb-1">Balance Cliente</p>
-                  
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-600">Balance Actual (Previo):</span>
-                    <span className={`font-medium ${order.previous_client_balance ?? 0 > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      ${order.previous_client_balance?.toLocaleString('es-MX', {minimumFractionDigits: 2}) ?? 'N/A'}
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between text-xs mt-1">
-                    <span className="text-gray-600">Monto Orden (con IVA si aplica):</span>
-                    <span className="font-medium">
-                      ${order.invoice_amount?.toLocaleString('es-MX', {minimumFractionDigits: 2}) ?? 'N/A'}
-                    </span>
-                  </div>
-                  
-                  <div className="flex justify-between text-xs mt-1 pt-1 border-t">
-                    <span className="text-gray-600">Balance Proyectado:</span>
-                    <span className={`font-medium ${( (order.previous_client_balance ?? 0) + (order.invoice_amount ?? 0) ) > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      ${( (order.previous_client_balance ?? 0) + (order.invoice_amount ?? 0) ).toLocaleString('es-MX', {minimumFractionDigits: 2}) ?? 'N/A'}
-                    </span>
+    <div className="space-y-3">
+      {orders.map((order) => {
+        const statusConfig = getCreditStatusConfig(order.credit_status);
+        const StatusIcon = statusConfig.icon;
+        const projectedBalance = (order.previous_client_balance ?? 0) + (order.invoice_amount ?? 0);
+        const balanceIsNegative = projectedBalance > 0;
+
+        return (
+          <div
+            key={`credit-validation-${order.id}`}
+            className="border rounded-xl bg-white hover:shadow-md transition-all duration-200 overflow-hidden"
+          >
+            {/* Card Header - Client Info and Status */}
+            <div className="px-6 py-4 border-b bg-gray-50/50">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-lg text-foreground truncate">
+                    {order.clients?.business_name || 'Cliente no disponible'}
+                  </h3>
+                  <div className="flex items-center gap-3 mt-1">
+                    <p className="text-sm text-muted-foreground">
+                      {order.clients?.client_code || 'N/A'}
+                    </p>
+                    <span className="text-muted-foreground">•</span>
+                    <p className="text-sm text-muted-foreground">
+                      {formatDate(order.delivery_date)} · {formatTime(order.delivery_time)}
+                    </p>
                   </div>
                 </div>
-                {order.special_requirements && (
-                  <p className="text-sm mt-1 text-gray-700">
-                    <span className="font-medium">Notas:</span> {order.special_requirements.substring(0, 100)}
-                    {order.special_requirements.length > 100 ? '...' : ''}
+                <Badge
+                  variant={statusConfig.variant}
+                  className={`${statusConfig.color} border font-medium px-3 py-1 gap-1.5 flex-shrink-0`}
+                >
+                  <StatusIcon className="h-3.5 w-3.5" />
+                  {statusConfig.label}
+                </Badge>
+              </div>
+            </div>
+
+            {/* Card Body - Financial Info */}
+            <div className="px-6 py-5">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* Order Amount - Most prominent */}
+                <div className="space-y-1">
+                  <label className="text-xs uppercase tracking-wide font-medium text-muted-foreground">
+                    Monto de Orden
+                  </label>
+                  <p className="text-2xl font-bold text-foreground">
+                    {formatCurrency(order.invoice_amount ?? order.preliminary_amount ?? 0)}
                   </p>
+                </div>
+
+                {/* Current Balance */}
+                <div className="space-y-1">
+                  <label className="text-xs uppercase tracking-wide font-medium text-muted-foreground">
+                    Balance Actual
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {(order.previous_client_balance ?? 0) > 0 ? (
+                      <TrendingUp className="h-5 w-5 text-red-500" />
+                    ) : (
+                      <TrendingDown className="h-5 w-5 text-green-500" />
+                    )}
+                    <p className={`text-lg font-semibold ${
+                      (order.previous_client_balance ?? 0) > 0 ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {formatCurrency(order.previous_client_balance ?? 0)}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Projected Balance */}
+                <div className="space-y-1">
+                  <label className="text-xs uppercase tracking-wide font-medium text-muted-foreground">
+                    Balance Proyectado
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {balanceIsNegative ? (
+                      <TrendingUp className="h-5 w-5 text-red-500" />
+                    ) : (
+                      <TrendingDown className="h-5 w-5 text-green-500" />
+                    )}
+                    <p className={`text-lg font-semibold ${
+                      balanceIsNegative ? 'text-red-600' : 'text-green-600'
+                    }`}>
+                      {formatCurrency(projectedBalance)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Special Requirements */}
+              {order.special_requirements && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-sm text-blue-900 leading-relaxed">
+                    <span className="font-semibold">Notas:</span>{' '}
+                    {order.special_requirements.substring(0, 150)}
+                    {order.special_requirements.length > 150 ? '...' : ''}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Card Footer - Actions */}
+            <div className="px-6 py-4 bg-gray-50/50 border-t flex items-center justify-between gap-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => handleOrderClick(order.id)}
+                className="gap-2"
+              >
+                Ver Detalles
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+
+              <div className="flex gap-2">
+                {/* Validator buttons */}
+                {isCreditValidator && order.credit_status === CreditStatus.PENDING && (
+                  <>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => handleApproveCredit(order.id)}
+                      disabled={isApprovingCredit === order.id || isRejectingCredit === order.id}
+                      className="bg-green-600 hover:bg-green-700 gap-2"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      {isApprovingCredit === order.id ? 'Aprobando...' : 'Aprobar'}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => openRejectReasonModal(order.id)}
+                      disabled={isApprovingCredit === order.id || isRejectingCredit === order.id}
+                      className="gap-2"
+                    >
+                      <XCircle className="h-4 w-4" />
+                      Rechazar
+                    </Button>
+                  </>
+                )}
+
+                {/* Manager buttons */}
+                {isManager && (
+                  <>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => handleApproveCredit(order.id)}
+                      disabled={isApprovingCredit === order.id || isRejectingCredit === order.id}
+                      className="bg-green-600 hover:bg-green-700 gap-2"
+                    >
+                      <CheckCircle2 className="h-4 w-4" />
+                      {isApprovingCredit === order.id ? 'Aprobando...' : 'Aprobar'}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => openConfirmModal(order.id)}
+                      disabled={isApprovingCredit === order.id || isRejectingCredit === order.id}
+                      className="gap-2"
+                    >
+                      <XCircle className="h-4 w-4" />
+                      Rechazar
+                    </Button>
+                  </>
                 )}
               </div>
-              <div className="flex flex-col md:items-end mt-2 md:mt-0 space-y-2">
-                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getCreditStatusColor(order.credit_status)}`}>
-                  {getCreditStatusLabel(order.credit_status)}
-                </span>
-                <div className="flex space-x-2">
-                  <button 
-                    onClick={() => handleOrderClick(order.id)}
-                    className="inline-flex items-center justify-center rounded-md border border-input px-3 h-9 text-sm font-medium bg-background hover:bg-accent hover:text-accent-foreground"
-                  >
-                    Ver detalles
-                  </button>
-                  
-                  {/* Para validadores, mostrar botones de aprobar/rechazar solo en órdenes pendientes */}
-                  {isCreditValidator && order.credit_status === CreditStatus.PENDING && (
-                    <>
-                      <button 
-                        onClick={() => handleApproveCredit(order.id)}
-                        className="inline-flex items-center justify-center rounded-md px-3 h-9 text-sm font-medium bg-green-600 hover:bg-green-700 text-white"
-                      >
-                        Aprobar
-                      </button>
-                      <button 
-                        onClick={() => openRejectReasonModal(order.id)}
-                        className="inline-flex items-center justify-center rounded-md px-3 h-9 text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
-                      >
-                        Rechazar
-                      </button>
-                    </>
-                  )}
-                  
-                  {/* Para gerentes, mostrar botones dependiendo del estado */}
-                  {isManager && (
-                    <>
-                      <button 
-                        onClick={() => handleApproveCredit(order.id)}
-                        className="inline-flex items-center justify-center rounded-md px-3 h-9 text-sm font-medium bg-green-600 hover:bg-green-700 text-white"
-                      >
-                        Aprobar
-                      </button>
-                      
-                      {/* Mostrar botón de rechazo para cualquier estado de la orden */}
-                      <button 
-                        onClick={() => openConfirmModal(order.id)}
-                        className="inline-flex items-center justify-center rounded-md px-3 h-9 text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
-                      >
-                        Rechazar
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
-      {/* Modal para confirmar rechazo por gerencia */}
-      {isConfirmModalOpen && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">Confirmar rechazo definitivo</h3>
-            <p className="mb-4">¿Está seguro de rechazar definitivamente el crédito para esta orden? Esta acción cancelará la orden y no se puede deshacer.</p>
-            <div className="flex justify-end space-x-2">
-              <button 
-                onClick={() => setIsConfirmModalOpen(false)}
-                className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleManagerReject}
-                className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
-              >
-                Rechazar Definitivamente
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Modal para capturar razón de rechazo por validador */}
-      {isRejectReasonModalOpen && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center p-4 z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl max-w-md w-full">
-            <h3 className="text-lg font-semibold mb-4">Razón de rechazo</h3>
-            <p className="mb-2">Por favor, ingrese la razón por la que está rechazando esta solicitud de crédito:</p>
-            <textarea 
+      {/* Manager Rejection Confirmation Dialog */}
+      <AlertDialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar rechazo definitivo</AlertDialogTitle>
+            <AlertDialogDescription>
+              ¿Está seguro de rechazar definitivamente el crédito para esta orden? Esta acción
+              cancelará la orden y no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isRejectingCredit === selectedOrderId}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleManagerReject}
+              disabled={isRejectingCredit === selectedOrderId}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isRejectingCredit === selectedOrderId ? 'Rechazando...' : 'Rechazar Definitivamente'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Validator Rejection Reason Dialog */}
+      <Dialog open={isRejectReasonModalOpen} onOpenChange={setIsRejectReasonModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Razón de rechazo</DialogTitle>
+            <DialogDescription>
+              Por favor, ingrese la razón por la que está rechazando esta solicitud de crédito.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <Textarea
               value={rejectionReason}
               onChange={(e) => setRejectionReason(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-md mb-4 h-32"
               placeholder="Razón de rechazo..."
-            ></textarea>
-            <div className="flex justify-end space-x-2">
-              <button 
-                onClick={() => setIsRejectReasonModalOpen(false)}
-                className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleValidatorReject}
-                disabled={!rejectionReason.trim()}
-                className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white disabled:bg-red-300 disabled:cursor-not-allowed"
-              >
-                Enviar Rechazo
-              </button>
-            </div>
+              className="min-h-[120px] resize-none"
+            />
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsRejectReasonModalOpen(false)}
+              disabled={isRejectingCredit === selectedOrderId}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleValidatorReject}
+              disabled={!rejectionReason.trim() || isRejectingCredit === selectedOrderId}
+            >
+              {isRejectingCredit === selectedOrderId ? 'Rechazando...' : 'Enviar Rechazo'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 } 

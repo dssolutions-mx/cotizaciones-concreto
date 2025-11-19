@@ -22,7 +22,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import QuickAddPaymentButton from '@/components/finanzas/QuickAddPaymentButton';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { BarChart, PieChart } from 'lucide-react';
+import { BarChart, PieChart, TrendingUp } from 'lucide-react';
 
 // Enable ISR with 5-minute revalidation interval
 export const revalidate = 300; // 5 minutes in seconds
@@ -120,6 +120,22 @@ export default async function FinancialHubPage() {
                 <CardContent>
                   <p className="text-xs text-muted-foreground">
                     Registro y seguimiento de pagos diarios
+                  </p>
+                </CardContent>
+              </Card>
+            </Link>
+
+            <Link href="/finanzas/credito-validacion">
+              <Card className="hover:shadow-md transition-shadow cursor-pointer border-l-4 border-l-indigo-500">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-medium">Validación de Crédito</CardTitle>
+                    <TrendingUp className="h-5 w-5 text-indigo-500" />
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-xs text-muted-foreground">
+                    Gestión de términos de crédito y límites de clientes
                   </p>
                 </CardContent>
               </Card>

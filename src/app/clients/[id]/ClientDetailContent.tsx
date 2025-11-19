@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { clientService } from '@/lib/supabase/clients';
 import { orderService } from '@/lib/supabase/orders';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
@@ -38,7 +39,7 @@ import { toast } from "sonner";
 import dynamic from 'next/dynamic';
 import { Badge } from "@/components/ui/badge";
 // Import icons
-import { Pencil, Trash2, Plus, X, Save, Map } from "lucide-react";
+import { Pencil, Trash2, Plus, X, Save, Map, CreditCard } from "lucide-react";
 import { authService } from '@/lib/supabase/auth';
 import { supabase } from '@/lib/supabase/client';
 import ClientLogoManager from '@/components/clients/ClientLogoManager';
@@ -1660,6 +1661,7 @@ function OrderDetailModal({
 }
 
 export default function ClientDetailContent({ clientId }: { clientId: string }) {
+  const router = useRouter();
   const [client, setClient] = useState<Client | null>(null);
   const [sites, setSites] = useState<ConstructionSite[]>([]);
   const [payments, setPayments] = useState<ClientPayment[]>([]);
@@ -1864,14 +1866,24 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
               <CardTitle>{client.business_name}</CardTitle>
               <CardDescription>Código: {client.client_code} | RFC: {client.rfc}</CardDescription>
             </div>
-            <RoleProtectedButton
-              allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
-              onClick={openEditClient}
-              className="flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-md"
-            >
-              <Pencil className="h-4 w-4" />
-              <span>Editar Cliente</span>
-            </RoleProtectedButton>
+            <div className="flex gap-2">
+              <RoleProtectedButton
+                allowedRoles={['EXECUTIVE', 'CREDIT_VALIDATOR', 'ADMIN_OPERATIONS', 'SALES_AGENT']}
+                onClick={() => router.push(`/clients/${clientId}/credito`)}
+                className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-md"
+              >
+                <CreditCard className="h-4 w-4" />
+                <span>Gestionar Crédito</span>
+              </RoleProtectedButton>
+              <RoleProtectedButton
+                allowedRoles={['SALES_AGENT', 'PLANT_MANAGER', 'EXECUTIVE', 'CREDIT_VALIDATOR']}
+                onClick={openEditClient}
+                className="flex items-center gap-1 bg-yellow-500 hover:bg-yellow-600 text-white px-3 py-2 rounded-md"
+              >
+                <Pencil className="h-4 w-4" />
+                <span>Editar Cliente</span>
+              </RoleProtectedButton>
+            </div>
           </div>
         </CardHeader>
         <CardContent>

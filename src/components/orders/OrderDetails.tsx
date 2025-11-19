@@ -84,6 +84,7 @@ import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import { Copy, CalculatorIcon, Beaker, FileText } from 'lucide-react';
 import QualityOverview from './QualityOverview';
 import { toast } from 'sonner';
+import CreditContextPanel from '@/components/credit/CreditContextPanel';
 import { supabase } from '@/lib/supabase';
 import { masterRecipeService } from '@/lib/services/masterRecipeService';
 
@@ -145,6 +146,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isApprovingCredit, setIsApprovingCredit] = useState(false);
+  const [isRejectingCredit, setIsRejectingCredit] = useState(false);
   const [availableRecipes, setAvailableRecipes] = useState<any[]>([]);
   const [loadingRecipes, setLoadingRecipes] = useState(false);
   const [recipePrices, setRecipePrices] = useState<Record<string, number>>({});
@@ -1103,14 +1106,31 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   }
 
   async function handleApproveCredit() {
-    if (!order) return;
+    if (!order || isApprovingCredit) return;
     
     try {
-      await orderService.approveCreditForOrder(order.id);
-      await loadOrderDetails();
+      setIsApprovingCredit(true);
+      const { success, error: approveError } = await orderService.approveCreditForOrder(order.id);
+      
+      if (approveError) {
+        throw new Error(approveError);
+      }
+      
+      if (success) {
+        toast.success('Crédito aprobado exitosamente', {
+          description: `La orden ${order.order_number || order.id} ha sido aprobada.`,
+        });
+        await loadOrderDetails();
+      }
     } catch (err) {
       console.error('Error approving credit:', err);
-      setError('Error al aprobar el crédito. Por favor, intente nuevamente.');
+      const errorMessage = err instanceof Error ? err.message : 'Error al aprobar el crédito. Por favor, intente nuevamente.';
+      toast.error('Error al aprobar el crédito', {
+        description: errorMessage,
+      });
+      setError(errorMessage);
+    } finally {
+      setIsApprovingCredit(false);
     }
   }
   
@@ -1126,30 +1146,64 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   }
   
   async function handleValidatorReject() {
-    if (!order || !rejectionReason.trim()) return;
+    if (!order || !rejectionReason.trim() || isRejectingCredit) return;
     
     try {
-      await orderService.rejectCreditByValidator(order.id, rejectionReason);
-      setIsRejectReasonModalOpen(false);
-      setRejectionReason('');
-      await loadOrderDetails();
+      setIsRejectingCredit(true);
+      const { success, error: rejectError } = await orderService.rejectCreditByValidator(order.id, rejectionReason);
+      
+      if (rejectError) {
+        throw new Error(rejectError);
+      }
+      
+      if (success) {
+        toast.success('Crédito rechazado', {
+          description: `La orden ${order.order_number || order.id} ha sido rechazada por el validador.`,
+        });
+        setIsRejectReasonModalOpen(false);
+        setRejectionReason('');
+        await loadOrderDetails();
+      }
     } catch (err) {
       console.error('Error rejecting credit:', err);
-      setError('Error al rechazar el crédito. Por favor, intente nuevamente.');
+      const errorMessage = err instanceof Error ? err.message : 'Error al rechazar el crédito. Por favor, intente nuevamente.';
+      toast.error('Error al rechazar el crédito', {
+        description: errorMessage,
+      });
+      setError(errorMessage);
+    } finally {
+      setIsRejectingCredit(false);
     }
   }
   
   async function handleManagerReject() {
-    if (!order) return;
+    if (!order || isRejectingCredit) return;
     
     try {
+      setIsRejectingCredit(true);
       const defaultReason = "Crédito rechazado definitivamente por gerencia";
-      await orderService.rejectCreditForOrder(order.id, defaultReason);
-      setIsConfirmModalOpen(false);
-      await loadOrderDetails();
+      const { success, error: rejectError } = await orderService.rejectCreditForOrder(order.id, defaultReason);
+      
+      if (rejectError) {
+        throw new Error(rejectError);
+      }
+      
+      if (success) {
+        toast.success('Crédito rechazado definitivamente', {
+          description: `La orden ${order.order_number || order.id} ha sido rechazada por gerencia.`,
+        });
+        setIsConfirmModalOpen(false);
+        await loadOrderDetails();
+      }
     } catch (err) {
       console.error('Error rejecting credit:', err);
-      setError('Error al rechazar el crédito. Por favor, intente nuevamente.');
+      const errorMessage = err instanceof Error ? err.message : 'Error al rechazar el crédito. Por favor, intente nuevamente.';
+      toast.error('Error al rechazar el crédito', {
+        description: errorMessage,
+      });
+      setError(errorMessage);
+    } finally {
+      setIsRejectingCredit(false);
     }
   }
 
@@ -1690,9 +1744,46 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                       </span>
                     </div>
                   </div>
+
+                  {/* Credit Context Panel - Show for credit validators and executives */}
+                  {(isCreditValidator || isManager) && order && order.client && (
+                    <div className="mt-6">
+                      <CreditContextPanel
+                        clientId={order.client.id}
+                        clientName={order.client.business_name}
+                        orderAmount={order.total_amount || 0}
+                        compact={false}
+                      />
+                    </div>
+                  )}
+
+                  {/* Credit Approval/Rejection Buttons */}
                   {canManageCredit && order.credit_status === 'pending' && (
-                    <div className="mt-4 flex space-x-2">
-                      {/* Credit buttons removed to avoid duplication - actions available in the bottom actions section */}
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        onClick={handleApproveCredit}
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                        disabled={isApprovingCredit || isRejectingCredit}
+                      >
+                        {isApprovingCredit ? 'Aprobando...' : 'Aprobar Crédito'}
+                      </Button>
+                      <Button
+                        onClick={openRejectReasonModal}
+                        variant="destructive"
+                        disabled={isApprovingCredit || isRejectingCredit}
+                      >
+                        Rechazar Crédito
+                      </Button>
+                      {isManager && (
+                        <Button
+                          onClick={openConfirmModal}
+                          variant="destructive"
+                          className="bg-red-800 hover:bg-red-900"
+                          disabled={isApprovingCredit || isRejectingCredit}
+                        >
+                          Rechazar Definitivamente
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2418,16 +2509,17 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
             <div className="flex justify-end space-x-2">
               <button 
                 onClick={() => setIsRejectReasonModalOpen(false)}
-                className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent"
+                disabled={isRejectingCredit}
+                className="inline-flex items-center justify-center rounded-md border border-input px-4 py-2 text-sm font-medium bg-background hover:bg-accent disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button 
                 onClick={handleValidatorReject}
-                disabled={!rejectionReason.trim()}
+                disabled={!rejectionReason.trim() || isRejectingCredit}
                 className="inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"
               >
-                Confirmar Rechazo
+                {isRejectingCredit ? 'Rechazando...' : 'Confirmar Rechazo'}
               </button>
             </div>
           </div>

@@ -30,6 +30,38 @@ export function formatNumber(num: number, decimals: number = 1): string {
   }).format(num);
 }
 
+// Function to format number with thousand separators (commas) for input fields
+export function formatNumberWithCommas(value: string | number): string {
+  if (value === '' || value === null || value === undefined) return '';
+  
+  // Remove all non-digit characters except decimal point
+  const numericString = String(value).replace(/[^\d.]/g, '');
+  
+  if (numericString === '' || numericString === '.') return numericString;
+  
+  // Split by decimal point
+  const parts = numericString.split('.');
+  const integerPart = parts[0];
+  const decimalPart = parts[1];
+  
+  // Format integer part with commas
+  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  
+  // Combine with decimal part if exists
+  return decimalPart !== undefined ? `${formattedInteger}.${decimalPart}` : formattedInteger;
+}
+
+// Function to parse formatted number string back to number
+export function parseFormattedNumber(value: string): number | null {
+  if (!value || value.trim() === '') return null;
+  
+  // Remove commas and parse
+  const numericString = value.replace(/,/g, '');
+  const parsed = parseFloat(numericString);
+  
+  return isNaN(parsed) ? null : parsed;
+}
+
 // Function to format dates
 export function formatDate(date: string | Date | null | undefined, formatString = 'PP'): string {
   if (!date) return 'N/A';
