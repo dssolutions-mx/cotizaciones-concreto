@@ -914,9 +914,9 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
 
         {/* Footer */}
         <View style={styles.footer}>
-          <Text style={styles.footerText}>477-129-2394</Text>
-          <Text style={styles.footerText}>ventas@dcconcretos.com.mx</Text>
-          <Text style={styles.footerText}>www.dcconcretos.com.mx</Text>
+          <Text style={styles.footerText}>+52 618 159 1481</Text>
+          <Text style={styles.footerText}>alejandrodiaz@dcconcretos.com.mx</Text>
+          <Text style={styles.footerText}>GERENTE DE CALIDAD - Alejandro Diaz Fernandez de Cevallos</Text>
         </View>
       </Page>
     </Document>
