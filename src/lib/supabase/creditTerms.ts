@@ -19,6 +19,9 @@ export interface ClientCreditTerms {
   notes: string | null;
   effective_date: string;
   is_active: boolean;
+  status: 'draft' | 'pending_validation' | 'active' | 'terminated';
+  validated_by: string | null;
+  validated_at: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -91,6 +94,7 @@ interface UpsertCreditTermsData {
   payment_instrument_type?: 'pagare_2_a_1' | 'garantia_prendaria' | 'contrato' | 'cheque_post_fechado' | 'visto_bueno_direccion' | null;
   notes?: string | null;
   effective_date?: string;
+  status?: 'draft' | 'pending_validation' | 'active' | 'terminated';
 }
 
 // ============================================================================
@@ -98,7 +102,7 @@ interface UpsertCreditTermsData {
 // ============================================================================
 
 /**
- * Get active credit terms for a client
+ * Get active credit terms for a client (only returns terms with status = 'active')
  */
 export async function getClientCreditTerms(
   clientId: string,
@@ -111,12 +115,12 @@ export async function getClientCreditTerms(
       .from('client_credit_terms')
       .select('*')
       .eq('client_id', clientId)
-      .eq('is_active', true)
+      .eq('status', 'active')
       .single();
 
     if (error) {
       if (error.code === 'PGRST116') {
-        // No rows returned - client has no credit terms yet
+        // No rows returned - client has no active credit terms yet
         return null;
       }
       throw error;
@@ -157,39 +161,93 @@ export async function getAllClientCreditTerms(
 }
 
 /**
+ * Get latest credit terms for a client (including pending/draft status)
+ * Useful for showing pending validation status to sales agents
+ */
+export async function getLatestClientCreditTerms(
+  clientId: string,
+  useServerClient = false
+): Promise<ClientCreditTerms | null> {
+  try {
+    const client = useServerClient ? await createServerSupabaseClient() : browserClient;
+
+    const { data, error } = await client
+      .from('client_credit_terms')
+      .select('*')
+      .eq('client_id', clientId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      throw error;
+    }
+
+    return data as ClientCreditTerms | null;
+  } catch (error) {
+    console.error('Error fetching latest client credit terms:', error);
+    handleError(error, 'Failed to fetch latest client credit terms');
+    return null;
+  }
+}
+
+/**
  * Create or update credit terms for a client
- * If terms exist, deactivates old terms and creates new active terms
+ * Status is determined by user role:
+ * - Sales agents: 'pending_validation' (needs validator approval)
+ * - Validators/Executives: 'active' (immediately active)
+ * If terms exist, deactivates old terms and creates new terms
  */
 export async function upsertCreditTerms(
   termsData: UpsertCreditTermsData,
   userId: string,
+  userRole?: string,
   useServerClient = false
 ): Promise<{ success: boolean; data?: ClientCreditTerms; error?: string }> {
   try {
     const client = useServerClient ? await createServerSupabaseClient() : browserClient;
-    const { client_id, ...updateData } = termsData;
+    const { client_id, status, ...updateData } = termsData;
+
+    // Determine status based on user role if not explicitly provided
+    let finalStatus: 'draft' | 'pending_validation' | 'active' | 'terminated' = status || 'pending_validation';
+    
+    if (!status) {
+      // Sales agents create pending_validation, others create active
+      if (userRole === 'SALES_AGENT' || userRole === 'EXTERNAL_SALES_AGENT') {
+        finalStatus = 'pending_validation';
+      } else if (['EXECUTIVE', 'CREDIT_VALIDATOR', 'ADMIN_OPERATIONS'].includes(userRole || '')) {
+        finalStatus = 'active';
+      }
+    }
 
     // Start a transaction-like operation
     // First, check if active terms exist
     const existingTerms = await getClientCreditTerms(client_id, useServerClient);
 
-    if (existingTerms) {
-      // Deactivate existing active terms
+    if (existingTerms && finalStatus === 'active') {
+      // Deactivate existing active terms when creating new active ones
       const { error: deactivateError } = await client
         .from('client_credit_terms')
-        .update({ is_active: false })
+        .update({ 
+          is_active: false,
+          status: 'terminated'
+        })
         .eq('id', existingTerms.id);
 
       if (deactivateError) throw deactivateError;
     }
 
-    // Insert new active terms
+    // Insert new terms
     const { data, error } = await client
       .from('client_credit_terms')
       .insert({
         client_id,
         ...updateData,
-        is_active: true,
+        status: finalStatus,
+        is_active: finalStatus === 'active', // Only active if status is 'active'
         created_by: userId,
         effective_date: updateData.effective_date || new Date().toISOString().split('T')[0],
       })
@@ -207,6 +265,111 @@ export async function upsertCreditTerms(
     return {
       success: false,
       error: error.message || 'Failed to save credit terms',
+    };
+  }
+}
+
+/**
+ * Get all credit terms pending validation (for credit validators)
+ */
+export async function getPendingValidationCreditTerms(
+  useServerClient = false
+): Promise<ClientCreditTerms[]> {
+  try {
+    const client = useServerClient ? await createServerSupabaseClient() : browserClient;
+
+    const { data, error } = await client
+      .from('client_credit_terms')
+      .select('*')
+      .eq('status', 'pending_validation')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return data as ClientCreditTerms[];
+  } catch (error) {
+    console.error('Error fetching pending validation credit terms:', error);
+    handleError(error, 'Failed to fetch pending credit terms');
+    return [];
+  }
+}
+
+/**
+ * Approve and activate credit terms (for credit validators)
+ * Adds pagaré information and activates the credit terms
+ */
+export async function approveCreditTerms(
+  termsId: string,
+  validatorId: string,
+  pagareData: {
+    pagare_amount?: number | null;
+    pagare_expiry_date?: string | null;
+  },
+  useServerClient = false
+): Promise<{ success: boolean; data?: ClientCreditTerms; error?: string }> {
+  try {
+    const client = useServerClient ? await createServerSupabaseClient() : browserClient;
+
+    // Get existing terms
+    const { data: existingTerms, error: fetchError } = await client
+      .from('client_credit_terms')
+      .select('*')
+      .eq('id', termsId)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    if (existingTerms.status !== 'pending_validation') {
+      return {
+        success: false,
+        error: 'Credit terms are not pending validation',
+      };
+    }
+
+    // Deactivate any existing active terms for this client
+    const { data: activeTerms } = await client
+      .from('client_credit_terms')
+      .select('id')
+      .eq('client_id', existingTerms.client_id)
+      .eq('status', 'active')
+      .single();
+
+    if (activeTerms) {
+      await client
+        .from('client_credit_terms')
+        .update({ 
+          is_active: false,
+          status: 'terminated'
+        })
+        .eq('id', activeTerms.id);
+    }
+
+    // Update terms to active with pagaré info
+    const { data, error } = await client
+      .from('client_credit_terms')
+      .update({
+        status: 'active',
+        is_active: true,
+        pagare_amount: pagareData.pagare_amount || existingTerms.pagare_amount,
+        pagare_expiry_date: pagareData.pagare_expiry_date || existingTerms.pagare_expiry_date,
+        validated_by: validatorId,
+        validated_at: new Date().toISOString(),
+      })
+      .eq('id', termsId)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return {
+      success: true,
+      data: data as ClientCreditTerms,
+    };
+  } catch (error: any) {
+    console.error('Error approving credit terms:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to approve credit terms',
     };
   }
 }
@@ -793,9 +956,12 @@ export const creditTermsService = {
   // CRUD operations
   getClientCreditTerms,
   getAllClientCreditTerms,
+  getLatestClientCreditTerms,
   upsertCreditTerms,
   deleteCreditTerms,
   getCreditTermsHistory,
+  getPendingValidationCreditTerms,
+  approveCreditTerms,
 
   // Credit status calculations
   getCreditStatus,

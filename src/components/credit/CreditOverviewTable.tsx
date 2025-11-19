@@ -4,6 +4,7 @@ import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -31,6 +32,8 @@ import {
   CheckCircle,
   XCircle,
   TrendingUp,
+  Filter,
+  X,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { CreditStatus } from '@/lib/supabase/creditTerms';
@@ -55,17 +58,23 @@ export default function CreditOverviewTable({ clientsData }: CreditOverviewTable
   const [sortField, setSortField] = useState<SortField>('business_name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [utilizationFilter, setUtilizationFilter] = useState<string>('all');
+  const [balanceFilter, setBalanceFilter] = useState<string>('all');
+  const [hasTermsFilter, setHasTermsFilter] = useState<string>('yes'); // Default to showing only clients with terms
+  const [overdueFilter, setOverdueFilter] = useState<string>('all');
+  const [showFilters, setShowFilters] = useState(false);
 
   // Filter and sort data
   const filteredAndSortedData = useMemo(() => {
-    let filtered = clientsData;
+    let filtered = [...clientsData]; // Create a copy to avoid mutating original
 
-    // Apply search filter
-    if (searchTerm) {
+    // Apply search filter - fixed to handle null/undefined values
+    if (searchTerm.trim()) {
+      const searchLower = searchTerm.toLowerCase().trim();
       filtered = filtered.filter(
         (client) =>
-          client.business_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          client.client_code.toLowerCase().includes(searchTerm.toLowerCase())
+          (client.business_name?.toLowerCase().includes(searchLower) ?? false) ||
+          (client.client_code?.toLowerCase().includes(searchLower) ?? false)
       );
     }
 
@@ -79,6 +88,58 @@ export default function CreditOverviewTable({ clientsData }: CreditOverviewTable
         );
       } else if (statusFilter === 'no_terms') {
         filtered = filtered.filter((c) => !c.credit_status.has_terms);
+      } else if (statusFilter === 'healthy') {
+        filtered = filtered.filter((c) => c.credit_status.status === 'healthy');
+      } else if (statusFilter === 'warning') {
+        filtered = filtered.filter((c) => c.credit_status.status === 'warning');
+      } else if (statusFilter === 'critical') {
+        filtered = filtered.filter((c) => c.credit_status.status === 'critical');
+      }
+    }
+
+    // Apply utilization filter
+    if (utilizationFilter !== 'all') {
+      if (utilizationFilter === '0-50') {
+        filtered = filtered.filter((c) => c.credit_status.utilization_percentage >= 0 && c.credit_status.utilization_percentage < 50);
+      } else if (utilizationFilter === '50-70') {
+        filtered = filtered.filter((c) => c.credit_status.utilization_percentage >= 50 && c.credit_status.utilization_percentage < 70);
+      } else if (utilizationFilter === '70-90') {
+        filtered = filtered.filter((c) => c.credit_status.utilization_percentage >= 70 && c.credit_status.utilization_percentage < 90);
+      } else if (utilizationFilter === '90-100') {
+        filtered = filtered.filter((c) => c.credit_status.utilization_percentage >= 90 && c.credit_status.utilization_percentage < 100);
+      } else if (utilizationFilter === '100+') {
+        filtered = filtered.filter((c) => c.credit_status.utilization_percentage >= 100);
+      }
+    }
+
+    // Apply balance filter
+    if (balanceFilter !== 'all') {
+      if (balanceFilter === 'positive') {
+        filtered = filtered.filter((c) => c.credit_status.current_balance > 0);
+      } else if (balanceFilter === 'negative') {
+        filtered = filtered.filter((c) => c.credit_status.current_balance < 0);
+      } else if (balanceFilter === 'zero') {
+        filtered = filtered.filter((c) => c.credit_status.current_balance === 0);
+      } else if (balanceFilter === 'high_balance') {
+        filtered = filtered.filter((c) => c.credit_status.current_balance > 100000);
+      }
+    }
+
+    // Apply has terms filter
+    if (hasTermsFilter !== 'all') {
+      if (hasTermsFilter === 'yes') {
+        filtered = filtered.filter((c) => c.credit_status.has_terms);
+      } else if (hasTermsFilter === 'no') {
+        filtered = filtered.filter((c) => !c.credit_status.has_terms);
+      }
+    }
+
+    // Apply overdue filter
+    if (overdueFilter !== 'all') {
+      if (overdueFilter === 'overdue') {
+        filtered = filtered.filter((c) => c.credit_status.is_overdue);
+      } else if (overdueFilter === 'not_overdue') {
+        filtered = filtered.filter((c) => !c.credit_status.is_overdue);
       }
     }
 
@@ -119,7 +180,7 @@ export default function CreditOverviewTable({ clientsData }: CreditOverviewTable
     });
 
     return filtered;
-  }, [clientsData, searchTerm, sortField, sortDirection, statusFilter]);
+  }, [clientsData, searchTerm, sortField, sortDirection, statusFilter, utilizationFilter, balanceFilter, hasTermsFilter, overdueFilter]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -196,8 +257,8 @@ export default function CreditOverviewTable({ clientsData }: CreditOverviewTable
       </CardHeader>
 
       <CardContent>
-        {/* Filters */}
-        <div className="flex flex-col md:flex-row gap-4 mb-6">
+        {/* Search and Quick Filters */}
+        <div className="flex flex-col md:flex-row gap-4 mb-4">
           <div className="flex-1 relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -208,17 +269,146 @@ export default function CreditOverviewTable({ clientsData }: CreditOverviewTable
             />
           </div>
 
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full md:w-[200px]">
-              <SelectValue placeholder="Filtrar por estado" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="over_limit">Sobre el Límite</SelectItem>
-              <SelectItem value="high_utilization">Alta Utilización</SelectItem>
-              <SelectItem value="no_terms">Sin Términos</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="flex gap-2">
+            <Select value={hasTermsFilter} onValueChange={setHasTermsFilter}>
+              <SelectTrigger className="w-full md:w-[180px]">
+                <SelectValue placeholder="Términos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="yes">Con Términos</SelectItem>
+                <SelectItem value="no">Sin Términos</SelectItem>
+                <SelectItem value="all">Todos</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full md:w-[180px]">
+                <SelectValue placeholder="Estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los Estados</SelectItem>
+                <SelectItem value="over_limit">Sobre el Límite</SelectItem>
+                <SelectItem value="critical">Crítico</SelectItem>
+                <SelectItem value="warning">Advertencia</SelectItem>
+                <SelectItem value="healthy">Saludable</SelectItem>
+                <SelectItem value="high_utilization">Alta Utilización</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Button
+              variant="outline"
+              onClick={() => setShowFilters(!showFilters)}
+              className="gap-2"
+            >
+              <Filter className="h-4 w-4" />
+              Filtros
+              {(utilizationFilter !== 'all' || balanceFilter !== 'all' || hasTermsFilter !== 'yes' || overdueFilter !== 'all') && (
+                <Badge variant="secondary" className="ml-1">
+                  {[
+                    utilizationFilter !== 'all',
+                    balanceFilter !== 'all',
+                    hasTermsFilter !== 'yes',
+                    overdueFilter !== 'all',
+                  ].filter(Boolean).length}
+                </Badge>
+              )}
+            </Button>
+
+            {(searchTerm || statusFilter !== 'all' || utilizationFilter !== 'all' || balanceFilter !== 'all' || hasTermsFilter !== 'yes' || overdueFilter !== 'all') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearchTerm('');
+                  setStatusFilter('all');
+                  setUtilizationFilter('all');
+                  setBalanceFilter('all');
+                  setHasTermsFilter('yes'); // Reset to default: show only clients with terms
+                  setOverdueFilter('all');
+                }}
+                className="gap-2"
+              >
+                <X className="h-4 w-4" />
+                Limpiar
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Advanced Filters */}
+        {showFilters && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 p-4 bg-muted/50 rounded-lg border">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Utilización</Label>
+              <Select value={utilizationFilter} onValueChange={setUtilizationFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todas</SelectItem>
+                  <SelectItem value="0-50">0% - 50%</SelectItem>
+                  <SelectItem value="50-70">50% - 70%</SelectItem>
+                  <SelectItem value="70-90">70% - 90%</SelectItem>
+                  <SelectItem value="90-100">90% - 100%</SelectItem>
+                  <SelectItem value="100+">100% o más</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Saldo</Label>
+              <Select value={balanceFilter} onValueChange={setBalanceFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="positive">Saldo Positivo</SelectItem>
+                  <SelectItem value="negative">Saldo Negativo</SelectItem>
+                  <SelectItem value="zero">Saldo Cero</SelectItem>
+                  <SelectItem value="high_balance">Saldo Alto (&gt;$100K)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Términos de Crédito</Label>
+              <Select value={hasTermsFilter} onValueChange={setHasTermsFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="yes">Con Términos</SelectItem>
+                  <SelectItem value="no">Sin Términos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Estado de Pago</Label>
+              <Select value={overdueFilter} onValueChange={setOverdueFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Todos" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="overdue">Vencido</SelectItem>
+                  <SelectItem value="not_overdue">Al Día</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
+
+        {/* Results Count */}
+        <div className="mb-4 text-sm text-muted-foreground">
+          Mostrando {filteredAndSortedData.length} de {clientsData.length} clientes
+          {(searchTerm || statusFilter !== 'all' || utilizationFilter !== 'all' || balanceFilter !== 'all' || hasTermsFilter !== 'all' || overdueFilter !== 'all') && (
+            <span className="ml-2">
+              (filtros activos)
+            </span>
+          )}
         </div>
 
         {/* Table */}

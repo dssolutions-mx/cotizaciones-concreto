@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
@@ -64,7 +64,21 @@ export default function CreditValidationTab() {
   } = usePlantAwareManagerOrders({ autoRefresh: true });
 
   // Determine which orders and loading state to use
-  const orders = isCreditValidator ? creditOrders : managerOrders;
+  // Filter out orders that already have remisiones (already delivered)
+  const ordersWithoutRemisiones = React.useMemo(() => {
+    const allOrders = isCreditValidator ? creditOrders : managerOrders;
+    // Filter out orders that have remisiones - credit validation doesn't make sense after delivery
+    return allOrders.filter(order => {
+      // Check if order has remisiones by checking if it has a remisiones count or if it's been delivered
+      const hasRemisiones = (order as any).remisiones_count > 0 || 
+                           (order as any).has_remisiones === true ||
+                           order.order_status === 'completed' ||
+                           order.order_status === 'delivered';
+      return !hasRemisiones;
+    });
+  }, [isCreditValidator, creditOrders, managerOrders]);
+
+  const orders = ordersWithoutRemisiones;
   const loading = isCreditValidator ? creditLoading : managerLoading;
   const error = isCreditValidator ? creditError : managerError;
   const loadOrders = isCreditValidator ? creditRefetch : managerRefetch;
@@ -273,11 +287,11 @@ export default function CreditValidationTab() {
                     {order.clients?.business_name || 'Cliente no disponible'}
                   </h3>
                   <div className="flex items-center gap-3 mt-1">
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-gray-600">
                       {order.clients?.client_code || 'N/A'}
                     </p>
-                    <span className="text-muted-foreground">•</span>
-                    <p className="text-sm text-muted-foreground">
+                    <span className="text-gray-400">•</span>
+                    <p className="text-sm text-gray-600">
                       {formatDate(order.delivery_date)} · {formatTime(order.delivery_time)}
                     </p>
                   </div>

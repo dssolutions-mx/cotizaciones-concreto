@@ -447,7 +447,7 @@ export async function getOrderById(id: string) {
     .from('orders')
     .select(`
       *,
-      clients!inner(business_name, client_code, email, phone),
+      clients!inner(id, business_name, client_code, email, phone),
       products:order_items(*, quote_details(recipe_id)),
       plant:plant_id(
         id,
@@ -505,6 +505,16 @@ export async function getOrdersForCreditValidation(plantIds?: string[] | null) {
   // Use singleton supabase client
   // const supabase = createClientComponentClient<Database>();
   
+  // First, get order IDs that have remisiones (already delivered)
+  const { data: ordersWithRemisiones } = await supabase
+    .from('remisiones')
+    .select('order_id')
+    .not('order_id', 'is', null);
+  
+  const deliveredOrderIds = ordersWithRemisiones 
+    ? [...new Set(ordersWithRemisiones.map((r: any) => r.order_id).filter(Boolean))]
+    : [];
+  
   let query = supabase
     .from('orders')
     .select(`
@@ -536,8 +546,14 @@ export async function getOrdersForCreditValidation(plantIds?: string[] | null) {
 
   if (error) throw error;
 
+  // Filter out orders that already have remisiones (already delivered)
+  // Credit validation doesn't make sense after delivery
+  const filteredOrders = deliveredOrderIds.length > 0
+    ? data?.filter((order: any) => !deliveredOrderIds.includes(order.id))
+    : data;
+
   // Calculate concrete and pump volumes for each order
-  const enrichedOrders = data?.map(order => {
+  const enrichedOrders = filteredOrders?.map(order => {
     const items = order.order_items || [];
     let concreteVolume = 0;
     let pumpVolume = 0;

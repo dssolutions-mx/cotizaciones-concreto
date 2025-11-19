@@ -196,7 +196,7 @@ export default function QuickSetupModal({
     setIsSubmitting(true);
 
     try {
-      // Get current user ID for document uploads
+      // Get current user ID and role for document uploads
       const { createClient } = await import('@/lib/supabase/client');
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
@@ -205,7 +205,17 @@ export default function QuickSetupModal({
         throw new Error('Usuario no autenticado');
       }
 
+      // Get user role
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      
+      const userRole = profile?.role || '';
+
       // Save credit terms first
+      // Note: Sales agents shouldn't include pagaré info - validators will add it
       const payload: any = {
         credit_limit: parsedCreditLimit,
         payment_frequency_days: parseInt(paymentFrequency) || 30,
@@ -213,11 +223,14 @@ export default function QuickSetupModal({
         payment_instrument_type: paymentInstrumentType,
       };
 
-      if (pagareAmount) {
-        const parsedPagareAmount = parseFormattedNumber(pagareAmount);
-        if (parsedPagareAmount) payload.pagare_amount = parsedPagareAmount;
+      // Only include pagaré info if user is validator/executive (not sales agent)
+      if (!['SALES_AGENT', 'EXTERNAL_SALES_AGENT'].includes(userRole)) {
+        if (pagareAmount) {
+          const parsedPagareAmount = parseFormattedNumber(pagareAmount);
+          if (parsedPagareAmount) payload.pagare_amount = parsedPagareAmount;
+        }
+        if (pagareExpiry) payload.pagare_expiry_date = pagareExpiry;
       }
-      if (pagareExpiry) payload.pagare_expiry_date = pagareExpiry;
       if (notes) payload.notes = notes;
 
       const response = await fetch(`/api/credit-terms/${clientId}`, {
@@ -236,7 +249,13 @@ export default function QuickSetupModal({
         await uploadDocuments(user.id);
       }
 
-      toast.success('Términos de crédito configurados correctamente');
+      // Show appropriate success message based on user role
+      if (['SALES_AGENT', 'EXTERNAL_SALES_AGENT'].includes(userRole)) {
+        toast.success('Información de crédito enviada para validación. Un validador revisará y completará el proceso agregando el pagaré.');
+      } else {
+        toast.success('Términos de crédito configurados correctamente');
+      }
+      
       handleClose();
       onSuccess?.();
     } catch (error: any) {
@@ -332,59 +351,64 @@ export default function QuickSetupModal({
             </p>
           </div>
 
-          {/* Pagaré Amount (conditional) */}
+          {/* Pagaré Amount (conditional) - Only show for validators/executives */}
           {(paymentInstrumentType === 'pagare_2_a_1' || paymentInstrumentType === 'cheque_post_fechado') && (
-            <div className="space-y-2">
-              <Label htmlFor="pagare-amount">
-                Monto del Instrumento {paymentInstrumentType === 'pagare_2_a_1' ? '(Pagaré)' : '(Cheque Post Fechado)'} (opcional)
-              </Label>
-              <Input
-                id="pagare-amount"
-                type="text"
-                inputMode="numeric"
-                placeholder="200,000"
-                value={formatNumberWithCommas(pagareAmount)}
-                onChange={(e) => {
-                  const rawValue = e.target.value;
-                  // Allow only digits, commas, and one decimal point
-                  if (rawValue === '' || /^[\d,]*\.?\d*$/.test(rawValue.replace(/,/g, ''))) {
-                    const cleanValue = rawValue.replace(/,/g, '');
-                    setPagareAmount(cleanValue);
-                    // Update document amounts when pagaré amount changes
+            <>
+              <div className="space-y-2">
+                <Label htmlFor="pagare-amount">
+                  Monto del Instrumento {paymentInstrumentType === 'pagare_2_a_1' ? '(Pagaré)' : '(Cheque Post Fechado)'} (opcional)
+                </Label>
+                <Input
+                  id="pagare-amount"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="200,000"
+                  value={formatNumberWithCommas(pagareAmount)}
+                  onChange={(e) => {
+                    const rawValue = e.target.value;
+                    // Allow only digits, commas, and one decimal point
+                    if (rawValue === '' || /^[\d,]*\.?\d*$/.test(rawValue.replace(/,/g, ''))) {
+                      const cleanValue = rawValue.replace(/,/g, '');
+                      setPagareAmount(cleanValue);
+                      // Update document amounts when pagaré amount changes
+                      setDocuments((prev) =>
+                        prev.map((doc) => ({
+                          ...doc,
+                          documentAmount: cleanValue || undefined,
+                        }))
+                      );
+                    }
+                  }}
+                />
+                <p className="text-xs text-gray-500">
+                  {paymentInstrumentType === 'pagare_2_a_1' 
+                    ? 'El validador de crédito agregará esta información al aprobar'
+                    : 'Información del instrumento de cobro'}
+                </p>
+              </div>
+
+              {/* Pagaré Expiry Date (conditional) */}
+              <div className="space-y-2">
+                <Label htmlFor="pagare-expiry">
+                  Fecha de Vencimiento {paymentInstrumentType === 'pagare_2_a_1' ? '(Pagaré)' : '(Cheque Post Fechado)'} (opcional)
+                </Label>
+                <Input
+                  id="pagare-expiry"
+                  type="date"
+                  value={pagareExpiry}
+                  onChange={(e) => {
+                    setPagareExpiry(e.target.value);
+                    // Update document expiry dates when pagaré expiry changes
                     setDocuments((prev) =>
                       prev.map((doc) => ({
                         ...doc,
-                        documentAmount: cleanValue || undefined,
+                        expiryDate: e.target.value || undefined,
                       }))
                     );
-                  }
-                }}
-              />
-            </div>
-          )}
-
-          {/* Pagaré Expiry Date (conditional) */}
-          {(paymentInstrumentType === 'pagare_2_a_1' || paymentInstrumentType === 'cheque_post_fechado') && (
-            <div className="space-y-2">
-              <Label htmlFor="pagare-expiry">
-                Fecha de Vencimiento {paymentInstrumentType === 'pagare_2_a_1' ? '(Pagaré)' : '(Cheque Post Fechado)'} (opcional)
-              </Label>
-              <Input
-                id="pagare-expiry"
-                type="date"
-                value={pagareExpiry}
-                onChange={(e) => {
-                  setPagareExpiry(e.target.value);
-                  // Update document expiry dates when pagaré expiry changes
-                  setDocuments((prev) =>
-                    prev.map((doc) => ({
-                      ...doc,
-                      expiryDate: e.target.value || undefined,
-                    }))
-                  );
-                }}
-              />
-            </div>
+                  }}
+                />
+              </div>
+            </>
           )}
 
           {/* Payment Frequency */}

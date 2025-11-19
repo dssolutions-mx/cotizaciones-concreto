@@ -1746,11 +1746,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   </div>
 
                   {/* Credit Context Panel - Show for credit validators and executives */}
-                  {(isCreditValidator || isManager) && order && order.client && (
+                  {/* Always show credit terms - they're important and useful even after delivery */}
+                  {(isCreditValidator || isManager) && order && (order.client?.id || order.client_id) && (
                     <div className="mt-6">
                       <CreditContextPanel
-                        clientId={order.client.id}
-                        clientName={order.client.business_name}
+                        clientId={order.client?.id || order.client_id}
+                        clientName={order.client?.business_name || 'Cliente'}
                         orderAmount={order.total_amount || 0}
                         compact={false}
                       />
@@ -1758,11 +1759,12 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                   )}
 
                   {/* Credit Approval/Rejection Buttons */}
-                  {canManageCredit && order.credit_status === 'pending' && (
+                  {/* Only show if order hasn't been delivered (no remisiones) and credit is pending */}
+                  {canManageCredit && order.credit_status === 'pending' && !hasRemisiones && (
                     <div className="mt-4 flex gap-2">
                       <Button
                         onClick={handleApproveCredit}
-                        className="bg-green-600 hover:bg-green-700 text-white"
+                        className="bg-green-600 hover:bg-green-700 text-black font-semibold"
                         disabled={isApprovingCredit || isRejectingCredit}
                       >
                         {isApprovingCredit ? 'Aprobando...' : 'Aprobar Crédito'}

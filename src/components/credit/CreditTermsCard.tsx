@@ -17,7 +17,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
 import { toast } from 'sonner';
-import { Edit3, Save, X, CreditCard, Calendar, FileText, Trash2 } from 'lucide-react';
+import { Edit3, Save, X, CreditCard, Calendar, FileText, Trash2, Clock, CheckCircle, AlertCircle } from 'lucide-react';
 import { ClientCreditTerms } from '@/lib/supabase/creditTerms';
 import { formatCurrency, formatDate, formatNumberWithCommas, parseFormattedNumber } from '@/lib/utils';
 import {
@@ -45,6 +45,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Badge } from '@/components/ui/badge';
 
 const PAYMENT_INSTRUMENT_LABELS: Record<string, string> = {
   pagare_2_a_1: 'Pagaré 2 a 1',
@@ -256,16 +257,63 @@ export default function CreditTermsCard({
           {!isEditing ? (
             <>
               <div>
-                <p className="text-sm font-medium text-muted-foreground">
-                  Configuración de Crédito
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Configuración de Crédito
+                  </p>
+                  {creditTerms && (
+                    <Badge
+                      variant={
+                        creditTerms.status === 'active'
+                          ? 'default'
+                          : creditTerms.status === 'pending_validation'
+                          ? 'secondary'
+                          : 'outline'
+                      }
+                      className={
+                        creditTerms.status === 'pending_validation'
+                          ? 'bg-orange-100 text-orange-700 border-orange-200'
+                          : ''
+                      }
+                    >
+                      {creditTerms.status === 'active' && (
+                        <>
+                          <CheckCircle className="h-3 w-3 mr-1" />
+                          Activo
+                        </>
+                      )}
+                      {creditTerms.status === 'pending_validation' && (
+                        <>
+                          <Clock className="h-3 w-3 mr-1" />
+                          Pendiente Validación
+                        </>
+                      )}
+                      {creditTerms.status === 'draft' && (
+                        <>
+                          <FileText className="h-3 w-3 mr-1" />
+                          Borrador
+                        </>
+                      )}
+                      {creditTerms.status === 'terminated' && (
+                        <>
+                          <X className="h-3 w-3 mr-1" />
+                          Terminado
+                        </>
+                      )}
+                    </Badge>
+                  )}
+                </div>
                 {creditTerms && (
                   <p className="text-xs text-muted-foreground mt-1">
-                    Vigente desde {formatDate(creditTerms.effective_date)}
+                    {creditTerms.status === 'active'
+                      ? `Vigente desde ${formatDate(creditTerms.effective_date)}`
+                      : creditTerms.status === 'pending_validation'
+                      ? `Creado el ${formatDate(creditTerms.created_at)} - Esperando validación`
+                      : `Creado el ${formatDate(creditTerms.created_at)}`}
                   </p>
                 )}
               </div>
-              {isEditable && creditTerms && (
+              {isEditable && creditTerms && creditTerms.status === 'active' && (
                 <div className="flex gap-2">
                   <Button onClick={handleEdit} variant="ghost" size="sm" className="gap-2">
                     <Edit3 className="h-4 w-4" />
@@ -281,6 +329,12 @@ export default function CreditTermsCard({
                     <Trash2 className="h-4 w-4" />
                     Terminar
                   </Button>
+                </div>
+              )}
+              {creditTerms && creditTerms.status === 'pending_validation' && (
+                <div className="flex items-center gap-2 text-sm text-orange-700">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>Esperando validación del validador de crédito</span>
                 </div>
               )}
             </>

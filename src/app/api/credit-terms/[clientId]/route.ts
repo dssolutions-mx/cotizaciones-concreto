@@ -125,7 +125,7 @@ export async function POST(
       );
     }
 
-    // Upsert credit terms
+    // Upsert credit terms (status determined by user role)
     const result = await creditTermsService.upsertCreditTerms(
       {
         client_id: clientId,
@@ -139,6 +139,7 @@ export async function POST(
         effective_date,
       },
       user.id,
+      profile.role, // Pass user role to determine status
       true // use server client
     );
 
@@ -192,19 +193,48 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Verify user has permission (EXECUTIVE, CREDIT_VALIDATOR, ADMIN_OPERATIONS)
+    // Verify user has permission (EXECUTIVE, CREDIT_VALIDATOR, ADMIN_OPERATIONS can delete)
+    // Sales agents can only delete their own drafts/pending terms
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('role')
       .eq('id', user.id)
       .single();
 
-    if (
-      !profile ||
-      !['EXECUTIVE', 'CREDIT_VALIDATOR', 'ADMIN_OPERATIONS'].includes(
-        profile.role
-      )
-    ) {
+    if (!profile) {
+      return NextResponse.json(
+        { error: 'Insufficient permissions' },
+        { status: 403 }
+      );
+    }
+
+    // Check if user can delete
+    const canDelete = ['EXECUTIVE', 'CREDIT_VALIDATOR', 'ADMIN_OPERATIONS'].includes(profile.role);
+    
+    // Sales agents can only delete their own pending/draft terms
+    if (!canDelete && ['SALES_AGENT', 'EXTERNAL_SALES_AGENT'].includes(profile.role)) {
+      // Check if terms exist and were created by this user
+      const { data: existingTerms } = await supabase
+        .from('client_credit_terms')
+        .select('created_by, status')
+        .eq('client_id', clientId)
+        .eq('status', 'active')
+        .single();
+
+      if (existingTerms && existingTerms.created_by !== user.id) {
+        return NextResponse.json(
+          { error: 'You can only delete credit terms you created' },
+          { status: 403 }
+        );
+      }
+
+      if (existingTerms && existingTerms.status === 'active') {
+        return NextResponse.json(
+          { error: 'You cannot delete active credit terms' },
+          { status: 403 }
+        );
+      }
+    } else if (!canDelete) {
       return NextResponse.json(
         { error: 'Insufficient permissions' },
         { status: 403 }

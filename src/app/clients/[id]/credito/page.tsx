@@ -144,7 +144,24 @@ export default async function ClientCreditPage({ params }: ClientCreditPageProps
     let paymentCompliance: PaymentComplianceInfo;
 
     try {
+      // First try to get active terms
       creditTerms = await creditTermsService.getClientCreditTerms(id, true);
+      
+      // If no active terms, check for pending/draft terms (for sales agents to see their submissions)
+      if (!creditTerms) {
+        const { data: latestTerms } = await supabase
+          .from('client_credit_terms')
+          .select('*')
+          .eq('client_id', id)
+          .in('status', ['pending_validation', 'draft'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (latestTerms) {
+          creditTerms = latestTerms as ClientCreditTerms;
+        }
+      }
     } catch (error) {
       console.error('Error fetching credit terms:', error);
       // creditTerms can be null - that's expected when client has no terms yet

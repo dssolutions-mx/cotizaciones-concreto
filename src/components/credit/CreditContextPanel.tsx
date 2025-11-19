@@ -45,10 +45,23 @@ export default function CreditContextPanel({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchCreditInfo();
+    // Only fetch if clientId is valid
+    if (clientId && clientId !== 'undefined' && clientId.trim() !== '') {
+      fetchCreditInfo();
+    } else {
+      setIsLoading(false);
+      setError('ID de cliente no válido');
+    }
   }, [clientId, orderAmount]);
 
   const fetchCreditInfo = async () => {
+    // Validate clientId before making request
+    if (!clientId || clientId === 'undefined' || clientId.trim() === '') {
+      setError('ID de cliente no válido');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       setIsLoading(true);
       setError(null);

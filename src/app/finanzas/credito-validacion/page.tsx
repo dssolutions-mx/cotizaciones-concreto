@@ -3,8 +3,9 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { redirect } from 'next/navigation';
 import { creditTermsService } from '@/lib/supabase/creditTerms';
 import CreditOverviewTable from '@/components/credit/CreditOverviewTable';
+import PendingCreditApprovalList from '@/components/credit/PendingCreditApprovalList';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { TrendingUp, AlertCircle, Users, FileText } from 'lucide-react';
+import { TrendingUp, AlertCircle, Users, FileText, Clock } from 'lucide-react';
 import { formatCurrency } from '@/lib/utils';
 import Link from 'next/link';
 import {
@@ -221,6 +222,11 @@ export default async function CreditValidationDashboard() {
               <p className="text-xs text-muted-foreground mt-1">Clientes sin configurar</p>
             </CardContent>
           </Card>
+        </div>
+
+        {/* Pending Credit Approvals */}
+        <div className="mb-6">
+          <PendingCreditApprovalList />
         </div>
 
         {/* Main Table */}
