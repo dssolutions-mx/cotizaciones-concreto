@@ -65,12 +65,12 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
 
   if (loading) {
     return (
-      <div className={`mt-6 p-6 border border-slate-200/60 rounded-xl bg-gradient-to-br from-white/90 to-slate-50/90 backdrop-blur shadow-lg ${className}`}>
+      <div className={`mt-6 p-6 border border-slate-200 rounded-lg bg-white shadow-sm ${className}`}>
         <div className="flex items-center justify-between mb-4">
-          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-5 w-48" />
           <Skeleton className="h-8 w-20" />
         </div>
-        <div className="space-y-4">
+        <div className="space-y-3">
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-3/4" />
           <Skeleton className="h-4 w-1/2" />
@@ -81,18 +81,18 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
 
   if (error || !analysisData) {
     return (
-      <div className={`mt-6 p-6 border border-red-200/60 rounded-xl bg-gradient-to-br from-red-50/90 to-white/90 backdrop-blur shadow-lg ${className}`}>
+      <div className={`mt-6 p-6 border border-red-200 rounded-lg bg-red-50 shadow-sm ${className}`}>
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-500" />
-            <h3 className="text-lg font-semibold text-red-800">Error en el Análisis</h3>
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600" />
+            <h3 className="text-base font-semibold text-red-800">Error en el Análisis</h3>
           </div>
-          <Button size="sm" variant="outline" onClick={onClose}>
+          <Button size="sm" variant="ghost" onClick={onClose}>
             <X className="w-4 h-4" />
           </Button>
         </div>
-        <p className="text-red-600 mb-4">{error || 'No se pudieron cargar los datos'}</p>
-        <Button variant="outline" onClick={onClose}>
+        <p className="text-sm text-red-700 mb-4">{error || 'No se pudieron cargar los datos'}</p>
+        <Button size="sm" variant="outline" onClick={onClose}>
           Cerrar
         </Button>
       </div>
@@ -136,30 +136,27 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
   const complianceStatus = getComplianceStatus(point.y);
 
   return (
-    <div className={`mt-6 space-y-6 ${className}`}>
+    <div className={`mt-6 space-y-4 ${className}`}>
       {/* Header Section */}
-      <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
-        <CardHeader className="pb-4">
+      <Card className="bg-white border-slate-200 shadow-sm">
+        <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-blue-500"></div>
-              <CardTitle className="text-xl font-semibold text-slate-800">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-lg font-semibold text-slate-900">
                 Análisis Detallado del Punto
               </CardTitle>
               {point.isAggregated && (
-                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                <Badge variant="outline" className="text-xs">
                   Promedio de {point.aggregatedCount || 2} muestras
                 </Badge>
               )}
             </div>
-            <Button 
-              size="sm" 
-              variant="outline" 
+            <Button
+              size="sm"
+              variant="ghost"
               onClick={onClose}
-              className="hover:bg-slate-50"
             >
-              <X className="w-4 h-4 mr-2" />
-              Cerrar
+              <X className="w-4 h-4" />
             </Button>
           </div>
         </CardHeader>
@@ -264,20 +261,20 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
 
       {/* Detailed Analysis Tabs */}
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 bg-white/70 backdrop-blur border border-slate-200/60">
-          <TabsTrigger value="overview" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
+        <TabsList className="grid w-full grid-cols-4 bg-white border-slate-200">
+          <TabsTrigger value="overview">
             <Activity className="w-4 h-4 mr-2" />
             Resumen
           </TabsTrigger>
-          <TabsTrigger value="evolution" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
+          <TabsTrigger value="evolution">
             <TrendingUp className="w-4 h-4 mr-2" />
             Evolución
           </TabsTrigger>
-          <TabsTrigger value="samples" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
+          <TabsTrigger value="samples">
             <Beaker className="w-4 h-4 mr-2" />
             Muestras
           </TabsTrigger>
-          <TabsTrigger value="project" className="data-[state=active]:bg-blue-50 data-[state=active]:text-blue-700">
+          <TabsTrigger value="project">
             <Building2 className="w-4 h-4 mr-2" />
             Proyecto
           </TabsTrigger>
@@ -287,7 +284,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
         <TabsContent value="overview" className="mt-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Technical Specifications */}
-            <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
+            <Card className="bg-white border-slate-200 shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                   <Target className="w-5 h-5 text-slate-600" />
@@ -332,7 +329,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             </Card>
 
             {/* Muestreo Conditions */}
-            <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
+            <Card className="bg-white border-slate-200 shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                   <Thermometer className="w-5 h-5 text-slate-600" />
@@ -387,7 +384,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
           
           {/* Fallback information if no evolution data */}
           {analysisData.resistanceEvolution.length === 0 && (
-            <Card className="bg-amber-50/70 backdrop-blur border border-amber-200/60 rounded-2xl mt-4">
+            <Card className="bg-amber-50 border-amber-200 mt-4">
               <CardContent className="pt-6">
                 <div className="text-center">
                   <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-amber-500" />
@@ -432,7 +429,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
 
         {/* Samples Tab */}
         <TabsContent value="samples" className="mt-4">
-          <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
+          <Card className="bg-white border-slate-200 shadow-sm">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                 <Beaker className="w-5 h-5 text-slate-600" />
@@ -534,7 +531,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
         <TabsContent value="project" className="mt-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Project Information */}
-            <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
+            <Card className="bg-white border-slate-200 shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                   <Building2 className="w-5 h-5 text-slate-600" />
@@ -577,7 +574,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             </Card>
 
             {/* Plant Information */}
-            <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
+            <Card className="bg-white border-slate-200 shadow-sm">
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
                   <Droplets className="w-5 h-5 text-slate-600" />
@@ -617,7 +614,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
       </Tabs>
 
       {/* Action Buttons */}
-      <Card className="bg-white/70 backdrop-blur border border-slate-200/60 rounded-2xl">
+      <Card className="bg-white border-slate-200 shadow-sm">
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-3 justify-center">
             <Button 

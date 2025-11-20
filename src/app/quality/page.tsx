@@ -150,26 +150,24 @@ export default function QualityDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50">
+    <div className="min-h-screen bg-slate-50">
       <div className="container mx-auto px-4 md:px-6 py-6 md:py-8">
-        {/* Header Section - Modern Apple HIG Style */}
+        {/* Header Section */}
         <div className="mb-8">
-          <div className="flex items-start justify-between mb-6">
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold tracking-tight bg-gradient-to-br from-slate-900 to-slate-700 bg-clip-text text-transparent mb-2">
-                Control de Calidad
-              </h1>
-              <p className="text-base md:text-lg text-slate-600">
-                Métricas y análisis de resistencia de concreto
-              </p>
-            </div>
+          <div className="mb-6">
+            <h1 className="text-3xl font-semibold text-slate-900 mb-2">
+              Dashboard de Control de Calidad
+            </h1>
+            <p className="text-base text-slate-600">
+              Métricas y análisis de resistencia de concreto
+            </p>
           </div>
 
-          {/* Date Range Picker - Modern Card Style */}
-          <div className="glass-thick rounded-2xl p-4 border border-white/20 shadow-sm">
+          {/* Date Range Picker */}
+          <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
               <div className="flex items-center gap-3 flex-1">
-                <span className="text-sm font-semibold text-slate-700 whitespace-nowrap">Período de Muestreo</span>
+                <span className="text-sm font-medium text-slate-700 whitespace-nowrap">Período de Muestreo</span>
                 <DatePickerWithRange
                   value={dateRange}
                   onChange={handleDateRangeChange}
@@ -182,7 +180,6 @@ export default function QualityDashboardPage() {
                   variant="outline"
                   size="sm"
                   onClick={handleCheckDatabaseContent}
-                  className="rounded-xl"
                 >
                   Check DB Data
                 </Button>
@@ -238,13 +235,14 @@ export default function QualityDashboardPage() {
 
         {/* Error Handling */}
         {error ? (
-          <Alert variant="destructive" className="mb-8 glass-thick rounded-2xl border border-red-200/60 shadow-lg">
-            <AlertCircle className="h-5 w-5" />
-            <AlertTitle className="text-lg font-semibold">Error al cargar datos</AlertTitle>
-            <AlertDescription className="text-base mt-2">{error}</AlertDescription>
+          <Alert variant="destructive" className="mb-8">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error al cargar datos</AlertTitle>
+            <AlertDescription className="mt-2">{error}</AlertDescription>
             <Button
-              className="mt-4 rounded-xl"
+              className="mt-4"
               variant="outline"
+              size="sm"
               onClick={retryLoadData}
             >
               Reintentar

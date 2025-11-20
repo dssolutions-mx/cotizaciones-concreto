@@ -137,14 +137,14 @@ export function QualityChartSection({
 
   if (loading) {
     return (
-      <Card className="glass-thick rounded-2xl border border-white/20 shadow-lg overflow-hidden">
-        <CardHeader className="pb-4">
-          <div className="h-7 w-[280px] bg-slate-200/50 rounded-xl animate-pulse" />
+      <Card className="bg-white border-slate-200 shadow-sm">
+        <CardHeader>
+          <div className="h-6 w-[250px] bg-slate-200 rounded animate-pulse" />
         </CardHeader>
-        <CardContent className="h-[450px] flex items-center justify-center">
-          <div className="flex flex-col items-center gap-4">
-            <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
-            <p className="text-base font-medium text-slate-600">Cargando datos del gráfico...</p>
+        <CardContent className="h-[400px] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+            <p className="text-sm text-slate-500">Cargando datos del gráfico...</p>
           </div>
         </CardContent>
       </Card>
@@ -152,32 +152,26 @@ export function QualityChartSection({
   }
 
   return (
-    <Card className="glass-thick rounded-2xl border border-white/20 shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300">
-      <CardHeader className="pb-4">
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          <div className="space-y-2">
-            <CardTitle className="text-xl md:text-2xl font-bold text-slate-800">
-              Cumplimiento de Resistencia
-            </CardTitle>
-            <p className="text-sm text-slate-600">
-              Por fecha de muestreo · {datosGrafico.length} punto{datosGrafico.length !== 1 ? 's' : ''}
-            </p>
-          </div>
+    <Card className="bg-white border-slate-200 shadow-sm">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-lg font-semibold text-slate-900">
+            Cumplimiento de Resistencia por Fecha de Muestreo
+          </CardTitle>
+          <span className="text-sm text-slate-500">
+            {datosGrafico.length} punto{datosGrafico.length !== 1 ? 's' : ''}
+          </span>
         </div>
 
         {/* Age Information Display */}
         {soloEdadGarantia && datosGrafico.length > 0 && (
-          <div className="mt-4 p-4 bg-blue-50/70 backdrop-blur border border-blue-200/60 rounded-xl">
-            <div className="text-sm text-blue-800 leading-relaxed">
-              <span className="font-semibold">Edad de Garantía:</span> Mostrando solo ensayos realizados en la edad de garantía especificada en la receta.
+          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="text-xs text-blue-700">
+              <strong>Edad de Garantía:</strong> Mostrando solo ensayos realizados en la edad de garantía especificada en la receta.
               {(() => {
                 const ages = Array.from(new Set(datosGrafico.map(d => d.edad))).sort((a, b) => a - b);
                 if (ages.length > 0) {
-                  return (
-                    <span className="block mt-2">
-                      <span className="font-medium">Edades encontradas:</span> {ages.join(', ')} días
-                    </span>
-                  );
+                  return ` Edades encontradas: ${ages.join(', ')} días`;
                 }
                 return '';
               })()}
@@ -337,11 +331,9 @@ export function QualityChartSection({
             )}
           </div>
         ) : (
-          <div className="flex flex-col items-center justify-center py-16 px-4">
-            <div className="p-4 bg-slate-100 rounded-2xl mb-4">
-              <BarChart3 className="h-12 w-12 text-slate-400" />
-            </div>
-            <p className="text-lg font-semibold text-slate-700 mb-2">
+          <div className="flex flex-col items-center justify-center py-12 px-4">
+            <BarChart3 className="h-10 w-10 text-slate-300 mb-3" />
+            <p className="text-base font-medium text-slate-600 mb-1">
               No hay datos para mostrar
             </p>
             <p className="text-sm text-slate-500 text-center max-w-md">

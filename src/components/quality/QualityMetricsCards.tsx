@@ -14,15 +14,15 @@ interface QualityMetricsCardsProps {
 export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rendimientoVolumetricoOverride, showStdDev = false }: QualityMetricsCardsProps) {
   if (loading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[1, 2, 3, 4].map((item) => (
-          <Card key={item} className="glass-thick rounded-2xl border border-white/20 shadow-lg overflow-hidden">
-            <CardHeader className="pb-3">
-              <div className="h-5 w-[140px] bg-slate-200/50 rounded-lg animate-pulse" />
+          <Card key={item} className="bg-white border-slate-200">
+            <CardHeader className="pb-2">
+              <div className="h-4 w-[120px] bg-slate-200 rounded animate-pulse" />
             </CardHeader>
             <CardContent>
-              <div className="h-12 w-[100px] bg-slate-200/50 rounded-xl animate-pulse mb-3" />
-              <div className="h-4 w-[160px] bg-slate-200/50 rounded-lg animate-pulse" />
+              <div className="h-10 w-[80px] bg-slate-200 rounded animate-pulse mb-2" />
+              <div className="h-4 w-[140px] bg-slate-200 rounded animate-pulse" />
             </CardContent>
           </Card>
         ))}
@@ -38,158 +38,123 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
     : metrics.rendimientoVolumetrico;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       {/* KPI: Muestras en cumplimiento */}
-      <Card className="glass-thick rounded-2xl border-l-4 border-l-emerald-500 border border-white/20 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-            <div className="p-2 bg-emerald-100 rounded-xl group-hover:scale-110 transition-transform">
-              <TrendingUp className="h-4 w-4 text-emerald-600" />
-            </div>
+      <Card className="bg-white border-l-4 border-l-emerald-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-slate-600">
             Muestras en Cumplimiento
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <div className="text-4xl md:text-5xl font-bold tracking-tight bg-gradient-to-br from-emerald-600 to-emerald-700 bg-clip-text text-transparent">
-              {metrics.muestrasEnCumplimiento}
-            </div>
-            <div className="text-sm text-slate-600 font-medium">
-              de {metrics.numeroMuestras} muestras
-            </div>
+          <div className="text-3xl font-semibold text-slate-900 mb-1">
+            {metrics.muestrasEnCumplimiento}
+          </div>
+          <div className="text-sm text-slate-500">
+            de {metrics.numeroMuestras} muestras
           </div>
         </CardContent>
       </Card>
 
       {/* KPI: Resistencia Promedio */}
-      <Card className="glass-thick rounded-2xl border-l-4 border-l-blue-500 border border-white/20 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-            <div className="p-2 bg-blue-100 rounded-xl group-hover:scale-110 transition-transform">
-              <BarChart3 className="h-4 w-4 text-blue-600" />
-            </div>
+      <Card className="bg-white border-l-4 border-l-blue-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-slate-600">
             Resistencia Promedio
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <div className="text-4xl md:text-5xl font-bold tracking-tight bg-gradient-to-br from-blue-600 to-blue-700 bg-clip-text text-transparent">
-              {typeof metrics.resistenciaPromedio === 'number' ? metrics.resistenciaPromedio.toFixed(2) : '0.00'}
-            </div>
-            <div className="text-sm text-slate-600 font-medium">
-              kg/cm²
-            </div>
+          <div className="text-3xl font-semibold text-slate-900 mb-1">
+            {typeof metrics.resistenciaPromedio === 'number' ? metrics.resistenciaPromedio.toFixed(2) : '0.00'}
+          </div>
+          <div className="text-sm text-slate-500">
+            kg/cm²
           </div>
         </CardContent>
       </Card>
 
       {/* KPI: % Resistencia Garantía */}
-      <Card className="glass-thick rounded-2xl border-l-4 border-l-amber-500 border border-white/20 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-            <div className="p-2 bg-amber-100 rounded-xl group-hover:scale-110 transition-transform">
-              <Activity className="h-4 w-4 text-amber-600" />
-            </div>
+      <Card className="bg-white border-l-4 border-l-amber-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-slate-600">
             % Resistencia a Garantía
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <div className="text-4xl md:text-5xl font-bold tracking-tight bg-gradient-to-br from-amber-600 to-amber-700 bg-clip-text text-transparent">
-              {typeof metrics.porcentajeResistenciaGarantia === 'number' ? metrics.porcentajeResistenciaGarantia.toFixed(2) : '0.00'}%
-            </div>
-            <div className="text-sm text-slate-600 font-medium">
-              promedio de cumplimiento
-            </div>
+          <div className="text-3xl font-semibold text-slate-900 mb-1">
+            {typeof metrics.porcentajeResistenciaGarantia === 'number' ? metrics.porcentajeResistenciaGarantia.toFixed(2) : '0.00'}%
+          </div>
+          <div className="text-sm text-slate-500">
+            promedio de cumplimiento
           </div>
         </CardContent>
       </Card>
 
       {/* KPI: Coeficiente de Variación */}
-      <Card className="glass-thick rounded-2xl border-l-4 border-l-purple-500 border border-white/20 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-            <div className="p-2 bg-purple-100 rounded-xl group-hover:scale-110 transition-transform">
-              <Activity className="h-4 w-4 text-purple-600" />
-            </div>
+      <Card className="bg-white border-l-4 border-l-purple-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-slate-600">
             Coeficiente de Variación
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <div className="text-4xl md:text-5xl font-bold tracking-tight bg-gradient-to-br from-purple-600 to-purple-700 bg-clip-text text-transparent">
-              {typeof metrics.coeficienteVariacion === 'number' ? metrics.coeficienteVariacion.toFixed(2) : '0.00'}%
-            </div>
-            <div className="text-sm text-slate-600 font-medium">
-              uniformidad del concreto
-            </div>
+          <div className="text-3xl font-semibold text-slate-900 mb-1">
+            {typeof metrics.coeficienteVariacion === 'number' ? metrics.coeficienteVariacion.toFixed(2) : '0.00'}%
+          </div>
+          <div className="text-sm text-slate-500">
+            uniformidad del concreto
           </div>
         </CardContent>
       </Card>
 
       {/* KPI: Eficiencia */}
-      <Card className="glass-thick rounded-2xl border-l-4 border-l-teal-500 border border-white/20 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-            <div className="p-2 bg-teal-100 rounded-xl group-hover:scale-110 transition-transform">
-              <Activity className="h-4 w-4 text-teal-600" />
-            </div>
+      <Card className="bg-white border-l-4 border-l-teal-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-slate-600">
             Eficiencia
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <div className="text-4xl md:text-5xl font-bold tracking-tight bg-gradient-to-br from-teal-600 to-teal-700 bg-clip-text text-transparent">
-              {typeof eficiencia === 'number' ? eficiencia.toFixed(3) : '0.000'}
-            </div>
-            <div className="text-sm text-slate-600 font-medium">
-              kg/cm² por kg de cemento
-            </div>
+          <div className="text-3xl font-semibold text-slate-900 mb-1">
+            {typeof eficiencia === 'number' ? eficiencia.toFixed(3) : '0.000'}
+          </div>
+          <div className="text-sm text-slate-500">
+            kg/cm² por kg de cemento
           </div>
         </CardContent>
       </Card>
 
       {/* KPI: Rendimiento Volumétrico */}
-      <Card className="glass-thick rounded-2xl border-l-4 border-l-cyan-500 border border-white/20 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-            <div className="p-2 bg-cyan-100 rounded-xl group-hover:scale-110 transition-transform">
-              <TrendingUp className="h-4 w-4 text-cyan-600" />
-            </div>
+      <Card className="bg-white border-l-4 border-l-cyan-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-medium text-slate-600">
             Rendimiento Volumétrico
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
-            <div className="text-4xl md:text-5xl font-bold tracking-tight bg-gradient-to-br from-cyan-600 to-cyan-700 bg-clip-text text-transparent">
-              {typeof rendimientoVolumetrico === 'number' ? rendimientoVolumetrico.toFixed(2) : '0.00'}%
-            </div>
-            <div className="text-sm text-slate-600 font-medium">
-              volumen real vs registrado
-            </div>
+          <div className="text-3xl font-semibold text-slate-900 mb-1">
+            {typeof rendimientoVolumetrico === 'number' ? rendimientoVolumetrico.toFixed(2) : '0.00'}%
+          </div>
+          <div className="text-sm text-slate-500">
+            volumen real vs registrado
           </div>
         </CardContent>
       </Card>
 
       {/* KPI: Desviación Estándar (visible solo con un FC seleccionado) */}
       {showStdDev && (
-        <Card className="glass-thick rounded-2xl border-l-4 border-l-rose-500 border border-white/20 shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-              <div className="p-2 bg-rose-100 rounded-xl group-hover:scale-110 transition-transform">
-                <BarChart3 className="h-4 w-4 text-rose-600" />
-              </div>
+        <Card className="bg-white border-l-4 border-l-rose-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-slate-600">
               Desviación Estándar
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              <div className="text-4xl md:text-5xl font-bold tracking-tight bg-gradient-to-br from-rose-600 to-rose-700 bg-clip-text text-transparent">
-                {typeof metrics.desviacionEstandar === 'number' ? metrics.desviacionEstandar.toFixed(2) : '0.00'}
-              </div>
-              <div className="text-sm text-slate-600 font-medium">
-                variabilidad de resistencia
-              </div>
+            <div className="text-3xl font-semibold text-slate-900 mb-1">
+              {typeof metrics.desviacionEstandar === 'number' ? metrics.desviacionEstandar.toFixed(2) : '0.00'}
+            </div>
+            <div className="text-sm text-slate-500">
+              variabilidad de resistencia
             </div>
           </CardContent>
         </Card>
