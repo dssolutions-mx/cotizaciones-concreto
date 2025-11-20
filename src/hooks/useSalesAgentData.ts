@@ -44,21 +44,10 @@ export function useSalesAgentData({
 
         console.log('[SalesAgent] 📅 Fetching from:', startDateStr, 'to:', endDateStr, 'plant:', plantId || 'all');
 
-        // Step 1: Fetch remisiones with order data
+        // Step 1: Fetch remisiones (no nested joins to avoid 400 errors)
         let remisionesQuery = supabase
           .from('remisiones')
-          .select(`
-            order_id,
-            volumen_fabricado,
-            tipo_remision,
-            plant_id,
-            order:orders!inner(
-              id,
-              total_amount,
-              created_by,
-              users(id, name, email)
-            )
-          `)
+          .select('id, order_id, volumen_fabricado, tipo_remision, plant_id, fecha')
           .gte('fecha', startDateStr)
           .lte('fecha', endDateStr)
           .not('order_id', 'is', null);
@@ -82,6 +71,55 @@ export function useSalesAgentData({
           return;
         }
 
+        // Step 2: Get unique order IDs and fetch orders with user info
+        const orderIds = Array.from(new Set(remisiones.map(r => r.order_id).filter(Boolean)));
+
+        if (orderIds.length === 0) {
+          console.log('[SalesAgent] ⚠️ No valid order IDs found');
+          setData([]);
+          return;
+        }
+
+        console.log('[SalesAgent] 📦 Fetching', orderIds.length, 'unique orders');
+
+        const { data: orders, error: ordersError } = await supabase
+          .from('orders')
+          .select('id, total_amount, created_by')
+          .in('id', orderIds);
+
+        if (ordersError) {
+          console.error('[SalesAgent] ❌ Orders fetch error:', ordersError);
+          throw ordersError;
+        }
+
+        console.log('[SalesAgent] ✅ Fetched', orders?.length || 0, 'orders');
+
+        if (!orders || orders.length === 0) {
+          console.log('[SalesAgent] ⚠️ No orders found');
+          setData([]);
+          return;
+        }
+
+        // Step 3: Get unique user IDs and fetch user info
+        const userIds = Array.from(new Set(orders.map(o => o.created_by).filter(Boolean)));
+
+        console.log('[SalesAgent] 👥 Fetching', userIds.length, 'users');
+
+        const { data: users, error: usersError } = await supabase
+          .from('users')
+          .select('id, name, email')
+          .in('id', userIds);
+
+        if (usersError) {
+          console.warn('[SalesAgent] ⚠️ Users fetch error:', usersError);
+        }
+
+        console.log('[SalesAgent] ✅ Fetched', users?.length || 0, 'users');
+
+        // Create lookup maps
+        const orderMap = new Map(orders.map(o => [String(o.id), o]));
+        const userMap = new Map((users || []).map(u => [u.id, u]));
+
         // Group by agent (created_by)
         const agentMap: Map<string, {
           agentName: string;
@@ -91,14 +129,14 @@ export function useSalesAgentData({
         }> = new Map();
 
         remisiones.forEach((remision: any) => {
-          const order = remision.order;
+          const order = orderMap.get(String(remision.order_id));
           if (!order || !order.created_by) {
-            console.log('[SalesAgent] ⚠️ Skipping remision without created_by');
             return;
           }
 
           const agentId = order.created_by;
-          const agentName = order.users?.name || order.users?.email || 'Agente Desconocido';
+          const user = userMap.get(agentId);
+          const agentName = user?.name || user?.email || 'Agente Desconocido';
 
           // Initialize agent if not exists
           if (!agentMap.has(agentId)) {
