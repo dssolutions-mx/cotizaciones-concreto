@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, BarChart3, Activity } from 'lucide-react';
+import { TrendingUp, BarChart3, Activity, CheckCircle2, Gauge, Target, Droplets, TrendingDown } from 'lucide-react';
 import type { QualityMetrics } from '@/hooks/useQualityDashboard';
 
 interface QualityMetricsCardsProps {
@@ -42,9 +42,12 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
       {/* KPI: Muestras en cumplimiento */}
       <Card className="bg-white border-l-4 border-l-emerald-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-slate-600">
-            Muestras en Cumplimiento
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium text-slate-600">
+              Muestras en Cumplimiento
+            </CardTitle>
+            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-semibold text-slate-900 mb-1">
@@ -59,9 +62,12 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
       {/* KPI: Resistencia Promedio */}
       <Card className="bg-white border-l-4 border-l-blue-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-slate-600">
-            Resistencia Promedio
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium text-slate-600">
+              Resistencia Promedio
+            </CardTitle>
+            <BarChart3 className="h-5 w-5 text-blue-600" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-semibold text-slate-900 mb-1">
@@ -76,9 +82,12 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
       {/* KPI: % Resistencia Garantía */}
       <Card className="bg-white border-l-4 border-l-amber-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-slate-600">
-            % Resistencia a Garantía
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium text-slate-600">
+              % Resistencia a Garantía
+            </CardTitle>
+            <Target className="h-5 w-5 text-amber-600" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-semibold text-slate-900 mb-1">
@@ -93,9 +102,12 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
       {/* KPI: Coeficiente de Variación */}
       <Card className="bg-white border-l-4 border-l-purple-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-slate-600">
-            Coeficiente de Variación
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium text-slate-600">
+              Coeficiente de Variación
+            </CardTitle>
+            <Activity className="h-5 w-5 text-purple-600" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-semibold text-slate-900 mb-1">
@@ -110,9 +122,12 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
       {/* KPI: Eficiencia */}
       <Card className="bg-white border-l-4 border-l-teal-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-slate-600">
-            Eficiencia
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium text-slate-600">
+              Eficiencia
+            </CardTitle>
+            <Gauge className="h-5 w-5 text-teal-600" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-semibold text-slate-900 mb-1">
@@ -127,9 +142,12 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
       {/* KPI: Rendimiento Volumétrico */}
       <Card className="bg-white border-l-4 border-l-cyan-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium text-slate-600">
-            Rendimiento Volumétrico
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium text-slate-600">
+              Rendimiento Volumétrico
+            </CardTitle>
+            <Droplets className="h-5 w-5 text-cyan-600" />
+          </div>
         </CardHeader>
         <CardContent>
           <div className="text-3xl font-semibold text-slate-900 mb-1">
@@ -145,9 +163,12 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
       {showStdDev && (
         <Card className="bg-white border-l-4 border-l-rose-600 border-slate-200 shadow-sm hover:shadow-md transition-shadow">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-slate-600">
-              Desviación Estándar
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm font-medium text-slate-600">
+                Desviación Estándar
+              </CardTitle>
+              <TrendingDown className="h-5 w-5 text-rose-600" />
+            </div>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-semibold text-slate-900 mb-1">

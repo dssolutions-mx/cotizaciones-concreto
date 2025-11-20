@@ -150,7 +150,7 @@ export default function QualityDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen">
       <div className="container mx-auto px-4 md:px-6 py-6 md:py-8">
         {/* Header Section */}
         <div className="mb-8">
