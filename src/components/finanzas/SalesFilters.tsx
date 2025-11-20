@@ -190,7 +190,7 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             {/* Plant Context Display */}
             <div className="flex flex-col space-y-2">
               <Label className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Planta</Label>
-              <ModernPlantSelector showLabel={false} />
+              <ModernPlantSelector showLabel={false} compact={true} />
             </div>
 
             {/* Date Range Picker */}

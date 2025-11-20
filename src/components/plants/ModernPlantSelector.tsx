@@ -9,11 +9,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface ModernPlantSelectorProps {
   className?: string;
   showLabel?: boolean;
+  compact?: boolean; // New prop for compact/stacked layout
 }
 
 export default function ModernPlantSelector({
   className = '',
-  showLabel = false
+  showLabel = false,
+  compact = false
 }: ModernPlantSelectorProps) {
   const {
     currentPlant,
@@ -124,14 +126,17 @@ export default function ModernPlantSelector({
   }
 
   return (
-    <div className={cn("flex items-center gap-3", className)}>
+    <div className={cn(compact ? "flex flex-col gap-2" : "flex items-center gap-3", className)}>
       {/* Business Unit Selector - Only for global admins */}
       {isGlobalAdmin && (
         <div ref={buDropdownRef} className="relative">
           <button
             type="button"
             onClick={() => setIsBusinessUnitOpen(!isBusinessUnitOpen)}
-            className="glass-thick rounded-2xl px-4 py-2 border border-label-tertiary/10 hover:border-systemBlue/30 transition-all duration-200 flex items-center gap-2 min-w-[180px]"
+            className={cn(
+              "glass-thick rounded-2xl px-4 py-2 border border-label-tertiary/10 hover:border-systemBlue/30 transition-all duration-200 flex items-center gap-2",
+              compact ? "w-full min-w-0" : "min-w-[180px]"
+            )}
           >
             <Building2 className="h-4 w-4 text-systemBlue" />
             <span className="text-callout font-medium text-label-primary flex-1 text-left">
@@ -210,7 +215,10 @@ export default function ModernPlantSelector({
           type="button"
           onClick={() => setIsOpen(!isOpen)}
           disabled={accessiblePlants.length === 0}
-          className="glass-thick rounded-2xl px-4 py-2 border border-label-tertiary/10 hover:border-systemBlue/30 transition-all duration-200 flex items-center gap-2 min-w-[200px] disabled:opacity-50 disabled:cursor-not-allowed"
+          className={cn(
+            "glass-thick rounded-2xl px-4 py-2 border border-label-tertiary/10 hover:border-systemBlue/30 transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed",
+            compact ? "w-full min-w-0" : "min-w-[200px]"
+          )}
         >
           <MapPin className="h-4 w-4 text-systemBlue" />
           <span className="text-callout font-medium text-label-primary flex-1 text-left">

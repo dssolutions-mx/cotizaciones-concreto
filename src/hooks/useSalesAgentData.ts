@@ -100,25 +100,33 @@ export function useSalesAgentData({
           return;
         }
 
-        // Step 3: Get unique user IDs and fetch user info
+        // Step 3: Try to get user info (optional - may not exist in schema)
         const userIds = Array.from(new Set(orders.map(o => o.created_by).filter(Boolean)));
+        let users: any[] = [];
 
-        console.log('[SalesAgent] 👥 Fetching', userIds.length, 'users');
+        console.log('[SalesAgent] 👥 Attempting to fetch', userIds.length, 'users');
 
-        const { data: users, error: usersError } = await supabase
-          .from('users')
-          .select('id, name, email')
-          .in('id', userIds);
+        try {
+          // Try fetching from users table (may not exist)
+          const { data: usersData, error: usersError } = await supabase
+            .from('users')
+            .select('id, name, email')
+            .in('id', userIds);
 
-        if (usersError) {
-          console.warn('[SalesAgent] ⚠️ Users fetch error:', usersError);
+          if (usersError) {
+            console.warn('[SalesAgent] ⚠️ Users table not available:', usersError.message);
+            console.log('[SalesAgent] ℹ️ Will use user IDs as agent names');
+          } else {
+            users = usersData || [];
+            console.log('[SalesAgent] ✅ Fetched', users.length, 'users');
+          }
+        } catch (err) {
+          console.warn('[SalesAgent] ⚠️ Could not fetch users, using IDs instead');
         }
-
-        console.log('[SalesAgent] ✅ Fetched', users?.length || 0, 'users');
 
         // Create lookup maps
         const orderMap = new Map(orders.map(o => [String(o.id), o]));
-        const userMap = new Map((users || []).map(u => [u.id, u]));
+        const userMap = new Map(users.map(u => [u.id, u]));
 
         // Group by agent (created_by)
         const agentMap: Map<string, {
@@ -136,7 +144,8 @@ export function useSalesAgentData({
 
           const agentId = order.created_by;
           const user = userMap.get(agentId);
-          const agentName = user?.name || user?.email || 'Agente Desconocido';
+          // Use user name/email if available, otherwise use a shortened ID
+          const agentName = user?.name || user?.email || `Agente ${String(agentId).substring(0, 8)}`;
 
           // Initialize agent if not exists
           if (!agentMap.has(agentId)) {
