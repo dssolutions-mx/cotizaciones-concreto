@@ -28,6 +28,7 @@ export default function ModernPlantSelector({
 
   const [isOpen, setIsOpen] = useState(false);
   const [isBusinessUnitOpen, setIsBusinessUnitOpen] = useState(false);
+  const [selectedBUFilter, setSelectedBUFilter] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -60,9 +61,11 @@ export default function ModernPlantSelector({
 
   const getAccessiblePlants = () => {
     if (isGlobalAdmin) {
-      return currentPlant?.business_unit_id
-        ? availablePlants.filter(p => p.business_unit_id === currentPlant.business_unit_id)
-        : availablePlants;
+      // Global admins can see all plants, filtered by selected business unit if any
+      if (selectedBUFilter) {
+        return availablePlants.filter(p => p.business_unit_id === selectedBUFilter);
+      }
+      return availablePlants;
     }
     if (userAccess?.accessLevel === 'BUSINESS_UNIT') {
       return availablePlants.filter(p => p.business_unit_id === userAccess.businessUnitId);
@@ -75,18 +78,24 @@ export default function ModernPlantSelector({
 
   const accessibleBusinessUnits = getAccessibleBusinessUnits();
   const accessiblePlants = getAccessiblePlants();
-  const selectedBusinessUnit = businessUnits.find(bu => bu.id === currentPlant?.business_unit_id);
+  const selectedBusinessUnit = selectedBUFilter
+    ? businessUnits.find(bu => bu.id === selectedBUFilter)
+    : null;
 
-  const handleBusinessUnitSelect = (businessUnitId: string) => {
-    if (switchBusinessUnit) {
+  const handleBusinessUnitSelect = (businessUnitId: string | null) => {
+    setSelectedBUFilter(businessUnitId);
+    setIsBusinessUnitOpen(false);
+
+    // If a specific business unit is selected and switchBusinessUnit exists, use it
+    if (businessUnitId && switchBusinessUnit) {
       switchBusinessUnit(businessUnitId);
-    } else {
+    } else if (businessUnitId) {
+      // Otherwise, switch to the first plant in that business unit
       const plantsInBU = availablePlants.filter(p => p.business_unit_id === businessUnitId);
       if (plantsInBU.length > 0) {
         switchPlant(plantsInBU[0].id);
       }
     }
-    setIsBusinessUnitOpen(false);
   };
 
   const handlePlantSelect = (plantId: string) => {
@@ -146,6 +155,27 @@ export default function ModernPlantSelector({
                 className="absolute z-[100] mt-2 w-full min-w-[280px] glass-thick rounded-2xl border border-label-tertiary/10 shadow-2xl overflow-hidden"
               >
                 <div className="max-h-[400px] overflow-y-auto p-2">
+                  {/* "All Business Units" option */}
+                  <button
+                    type="button"
+                    onClick={() => handleBusinessUnitSelect(null)}
+                    className={cn(
+                      "w-full text-left px-4 py-3 rounded-xl text-callout transition-all duration-150",
+                      "hover:bg-systemBlue/10 flex items-center gap-3",
+                      !selectedBusinessUnit && "bg-systemBlue/10"
+                    )}
+                  >
+                    <Building2 className="h-4 w-4 text-systemBlue flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-label-primary">Todas las unidades</div>
+                      <div className="text-caption text-label-tertiary">Ver todas las plantas</div>
+                    </div>
+                    {!selectedBusinessUnit && (
+                      <Check className="h-4 w-4 text-systemBlue flex-shrink-0" />
+                    )}
+                  </button>
+
+                  {/* Individual business units */}
                   {accessibleBusinessUnits.map((bu) => (
                     <button
                       key={bu.id}

@@ -42,51 +42,26 @@ export function useSalesAgentData({
         const startDateStr = format(start, 'yyyy-MM-dd');
         const endDateStr = format(end, 'yyyy-MM-dd');
 
-        console.log('[SalesAgent] Fetching data from:', startDateStr, 'to:', endDateStr, 'plant:', plantId);
+        console.log('[SalesAgent] 📅 Fetching from:', startDateStr, 'to:', endDateStr, 'plant:', plantId || 'all');
 
-        // Fetch orders with created_by and total_amount
-        let ordersQuery = supabase
-          .from('orders')
-          .select(`
-            id,
-            total_amount,
-            created_by,
-            plant_id,
-            users(id, name, email)
-          `)
-          .gte('delivery_date', startDateStr)
-          .lte('delivery_date', endDateStr)
-          .not('created_by', 'is', null)
-          .neq('order_status', 'cancelled');
-
-        // Filter by plant if specified
-        if (plantId) {
-          ordersQuery = ordersQuery.eq('plant_id', plantId);
-        }
-
-        const { data: orders, error: ordersError } = await ordersQuery;
-
-        if (ordersError) {
-          console.error('[SalesAgent] Orders fetch error:', ordersError);
-          throw ordersError;
-        }
-
-        console.log('[SalesAgent] Fetched orders:', orders?.length || 0);
-
-        if (!orders || orders.length === 0) {
-          console.log('[SalesAgent] No orders found');
-          setData([]);
-          return;
-        }
-
-        // Get order IDs
-        const orderIds = orders.map(o => o.id);
-
-        // Fetch remisiones for these orders
+        // Step 1: Fetch remisiones with order data
         let remisionesQuery = supabase
           .from('remisiones')
-          .select('order_id, volumen_fabricado, tipo_remision')
-          .in('order_id', orderIds);
+          .select(`
+            order_id,
+            volumen_fabricado,
+            tipo_remision,
+            plant_id,
+            order:orders!inner(
+              id,
+              total_amount,
+              created_by,
+              users(id, name, email)
+            )
+          `)
+          .gte('fecha', startDateStr)
+          .lte('fecha', endDateStr)
+          .not('order_id', 'is', null);
 
         if (plantId) {
           remisionesQuery = remisionesQuery.eq('plant_id', plantId);
@@ -95,59 +70,64 @@ export function useSalesAgentData({
         const { data: remisiones, error: remisionesError } = await remisionesQuery;
 
         if (remisionesError) {
-          console.error('[SalesAgent] Remisiones fetch error:', remisionesError);
+          console.error('[SalesAgent] ❌ Remisiones fetch error:', remisionesError);
           throw remisionesError;
         }
 
-        console.log('[SalesAgent] Fetched remisiones:', remisiones?.length || 0);
+        console.log('[SalesAgent] ✅ Fetched', remisiones?.length || 0, 'remisiones');
 
-        // Group remisiones by order_id
-        const remisionesByOrder = new Map<string, any[]>();
-        remisiones?.forEach(rem => {
-          const orderId = String(rem.order_id);
-          if (!remisionesByOrder.has(orderId)) {
-            remisionesByOrder.set(orderId, []);
-          }
-          remisionesByOrder.get(orderId)!.push(rem);
-        });
+        if (!remisiones || remisiones.length === 0) {
+          console.log('[SalesAgent] ⚠️ No remisiones found in date range');
+          setData([]);
+          return;
+        }
 
-        // Aggregate data by agent
+        // Group by agent (created_by)
         const agentMap: Map<string, {
           agentName: string;
           totalVolume: number;
           totalRevenue: number;
-          orderCount: number;
+          orderIds: Set<string>;
         }> = new Map();
 
-        orders.forEach((order: any) => {
-          const agentId = order.created_by;
-          if (!agentId) return;
+        remisiones.forEach((remision: any) => {
+          const order = remision.order;
+          if (!order || !order.created_by) {
+            console.log('[SalesAgent] ⚠️ Skipping remision without created_by');
+            return;
+          }
 
+          const agentId = order.created_by;
           const agentName = order.users?.name || order.users?.email || 'Agente Desconocido';
 
+          // Initialize agent if not exists
           if (!agentMap.has(agentId)) {
             agentMap.set(agentId, {
               agentName,
               totalVolume: 0,
               totalRevenue: 0,
-              orderCount: 0
+              orderIds: new Set<string>()
             });
           }
 
           const agentData = agentMap.get(agentId)!;
-          agentData.orderCount += 1;
-          agentData.totalRevenue += Number(order.total_amount) || 0;
 
-          // Sum volumes from remisiones for this order
-          const orderRemisiones = remisionesByOrder.get(String(order.id)) || [];
-          orderRemisiones.forEach((remision: any) => {
-            if (remision.tipo_remision === 'CONCRETO' || remision.tipo_remision === 'BOMBEO') {
-              agentData.totalVolume += Number(remision.volumen_fabricado) || 0;
-            }
-          });
+          // Add volume (CONCRETO and BOMBEO only)
+          if (remision.tipo_remision === 'CONCRETO' || remision.tipo_remision === 'BOMBEO') {
+            const volume = Number(remision.volumen_fabricado) || 0;
+            agentData.totalVolume += volume;
+          }
+
+          // Add revenue (only once per unique order)
+          const orderId = String(order.id);
+          if (!agentData.orderIds.has(orderId)) {
+            agentData.orderIds.add(orderId);
+            const revenue = Number(order.total_amount) || 0;
+            agentData.totalRevenue += revenue;
+          }
         });
 
-        // Convert to array and calculate average price
+        // Convert to array and calculate metrics
         const result: SalesAgentData[] = Array.from(agentMap.entries()).map(
           ([agentId, data]) => ({
             agentId,
@@ -155,22 +135,29 @@ export function useSalesAgentData({
             totalVolume: data.totalVolume,
             totalRevenue: data.totalRevenue,
             averagePrice: data.totalVolume > 0 ? data.totalRevenue / data.totalVolume : 0,
-            orderCount: data.orderCount,
+            orderCount: data.orderIds.size,
             month: monthKey
           })
         );
 
-        // Filter out agents with no volume (might be admin actions, etc.)
+        // Filter out agents with no volume
         const filteredResult = result.filter(agent => agent.totalVolume > 0);
 
-        console.log('[SalesAgent] Processed agents:', filteredResult.length);
+        console.log('[SalesAgent] 📊 Processed', filteredResult.length, 'agents with volume');
         if (filteredResult.length > 0) {
-          console.log('[SalesAgent] Sample agent:', filteredResult[0]);
+          console.log('[SalesAgent] 📝 Sample:', {
+            name: filteredResult[0].agentName,
+            volume: filteredResult[0].totalVolume.toFixed(1),
+            revenue: filteredResult[0].totalRevenue.toFixed(2),
+            orders: filteredResult[0].orderCount
+          });
+        } else {
+          console.log('[SalesAgent] ⚠️ No agents found with volume data');
         }
 
         setData(filteredResult);
       } catch (err) {
-        console.error('[SalesAgent] Error:', err);
+        console.error('[SalesAgent] ❌ Error:', err);
         setError(err instanceof Error ? err.message : 'Error desconocido');
       } finally {
         setLoading(false);

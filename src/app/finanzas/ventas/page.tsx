@@ -37,6 +37,9 @@ import { SalesCharts } from '@/components/finanzas/SalesCharts';
 import { SalesVATIndicators, SalesInfoGuide } from '@/components/finanzas/SalesVATIndicators';
 import { HistoricalVolumeChart } from '@/components/finanzas/HistoricalVolumeChart';
 import { SalesAgentRankingChart } from '@/components/finanzas/SalesAgentRankingChart';
+import { PaymentDistributionChart } from '@/components/finanzas/PaymentDistributionChart';
+import { ProductPerformanceChart } from '@/components/finanzas/ProductPerformanceChart';
+import { ClientDistributionChart } from '@/components/finanzas/ClientDistributionChart';
 
 // Import utilities
 import { exportSalesToExcel } from '@/utils/salesExport';
@@ -1396,117 +1399,35 @@ export default function VentasDashboard() {
                   </div>
                 </div>
               ) : (
-              <div className="space-y-12 mt-12">
-                {/* Row 1: Key Performance Indicators - Apple-like Design */}
+              <div className="space-y-8 mt-12">
+                {/* Row 1: Key Performance Indicators - Apple HIG Design */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Payment Distribution - Clean Design */}
-                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
-                      <CardTitle className="text-xl font-medium text-gray-900 tracking-tight flex items-center justify-between">
-                        <span>Efectivo/Fiscal</span>
-                        {includeVAT && (
-                          <Badge variant="outline" className="text-xs border-gray-200 text-gray-600 bg-gray-50/50">
-                            Con IVA
-                          </Badge>
-                        )}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 h-96">
-                      {typeof window !== 'undefined' && cashInvoiceChartSeries.length > 0 ? (
-                        <div className="h-full">
-                          <Chart
-                            options={{
-                              ...cashInvoiceChartOptions,
-                              colors: ['#10B981', '#3B82F6'],
-                              chart: {
-                                ...cashInvoiceChartOptions.chart,
-                                background: 'transparent',
-                                animations: { enabled: true, speed: 800 }
-                              }
-                            }}
-                            series={cashInvoiceChartSeries}
-                            type="donut"
-                            height="100%"
-                          />
-                        </div>
-                      ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <div className="text-center text-gray-500">
-                            <div className="text-lg font-semibold mb-2">No hay datos de facturación</div>
-                            <div className="text-sm">Selecciona un período con datos de ventas</div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  {/* Payment Distribution */}
+                  <PaymentDistributionChart
+                    cashAmount={includeVAT ? currentSummaryMetrics.cashAmountWithVAT : currentSummaryMetrics.cashAmount}
+                    invoiceAmount={includeVAT ? currentSummaryMetrics.invoiceAmountWithVAT : currentSummaryMetrics.invoiceAmount}
+                    includeVAT={includeVAT}
+                    loading={isLoadingSummary}
+                  />
 
-                  {/* Product Performance - Clean Design */}
-                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
-                      <CardTitle className="text-xl font-medium text-gray-900 tracking-tight">Rendimiento por Producto</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 h-96">
-                      {typeof window !== 'undefined' && productCodeChartSeries.length > 0 && productCodeChartSeries[0].data.length > 0 ? (
-                        <div className="h-full">
-                          <Chart 
-                            options={productCodeChartOptions}
-                            series={productCodeChartSeries}
-                            type="bar"
-                            height="100%"
-                          />
-                        </div>
-                      ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <div className="text-center text-gray-500">
-                            <div className="text-lg font-semibold mb-2">No hay datos de productos</div>
-                            <div className="text-sm">Selecciona un período con datos de ventas</div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  {/* Product Performance */}
+                  <ProductPerformanceChart
+                    data={(includeVAT ? productCodeAmountData : productCodeVolumeData).map(item => ({
+                      name: item.name,
+                      value: includeVAT ? item.amount : item.volume
+                    }))}
+                    includeVAT={includeVAT}
+                    loading={isLoadingSummary}
+                  />
                 </div>
 
-                {/* Row 2: Client Distribution - Clean Design */}
+                {/* Row 2: Client Distribution */}
                 <div className="grid grid-cols-1 gap-8">
-                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
-                      <CardTitle className="text-xl font-medium text-gray-900 tracking-tight">Distribución de Clientes</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 h-96">
-                      {typeof window !== 'undefined' && clientChartSeries.length > 0 ? (
-                        <div className="h-full">
-                          <Chart
-                            options={{
-                              ...clientChartOptions,
-                              legend: {
-                                ...clientChartOptions.legend,
-                                position: 'bottom',
-                                fontSize: '13px',
-                                          formatter: (seriesName: string, opts: any) => {
-                                  const value = opts.w.globals.series[opts.seriesIndex];
-                                  const formattedValue = includeVAT ? 
-                                    formatCurrency(value) : 
-                                    `${formatNumberWithUnits(value)} m³`;
-                                  return `${seriesName.length > 25 ? seriesName.substring(0, 25) + '...' : seriesName}: ${formattedValue}`;
-                                }
-                              }
-                            }}
-                            series={clientChartSeries}
-                            type="pie"
-                            height="100%"
-                          />
-                        </div>
-                      ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <div className="text-center text-gray-500">
-                            <div className="text-lg font-semibold mb-2">No hay datos de clientes</div>
-                            <div className="text-sm">Selecciona un período con datos de ventas</div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <ClientDistributionChart
+                    data={includeVAT ? clientAmountData : clientVolumeData}
+                    includeVAT={includeVAT}
+                    loading={isLoadingSummary}
+                  />
                 </div>
 
                 {/* Row 3: Comparative Table by Plant - Apple-like Design */}
