@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { format } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Loader2 } from 'lucide-react';
+import { Loader2, BarChart3 } from 'lucide-react';
 import { ScatterChart, ChartsReferenceLine } from '@mui/x-charts';
 import type { ScatterItemIdentifier } from '@mui/x-charts';
 import type { DatoGraficoResistencia } from '@/types/quality';
@@ -93,9 +93,26 @@ export function QualityChartSection({
       const age = parseInt(ageKey.replace('age_', ''));
       const colorIndex = index % ageColors.length;
 
+      // Get the first data point to check if it has original age unit info
+      const firstDataPoint = seriesBuckets[ageKey][0];
+      const hasOriginalAge = firstDataPoint?.edadOriginal !== undefined && firstDataPoint?.unidadEdad !== undefined;
+
+      // Generate label based on original unit if available
+      let label = age === 1 ? '1 día' : `${age} días`;
+      if (hasOriginalAge) {
+        const originalAge = firstDataPoint.edadOriginal!;
+        const unit = firstDataPoint.unidadEdad!;
+
+        if (unit === 'HORA' || unit === 'H') {
+          label = originalAge === 1 ? '1 hora' : `${originalAge} horas`;
+        } else if (unit === 'DÍA' || unit === 'D') {
+          label = originalAge === 1 ? '1 día' : `${originalAge} días`;
+        }
+      }
+
       return {
         id: ageKey,
-        label: age === 1 ? '1 día' : `${age} días`,
+        label,
         color: ageColors[colorIndex],
         markerSize: 5,
         data: seriesBuckets[ageKey].map(mapChartPoint)
@@ -120,14 +137,14 @@ export function QualityChartSection({
 
   if (loading) {
     return (
-      <Card className="bg-white/70 backdrop-blur-xl border border-slate-200/60 shadow-[0_8px_24px_rgba(2,6,23,0.06)] rounded-2xl">
-        <CardHeader>
-          <div className="h-6 w-[200px] bg-gray-200 rounded animate-pulse" />
+      <Card className="glass-thick rounded-2xl border border-white/20 shadow-lg overflow-hidden">
+        <CardHeader className="pb-4">
+          <div className="h-7 w-[280px] bg-slate-200/50 rounded-xl animate-pulse" />
         </CardHeader>
-        <CardContent className="h-[400px] flex items-center justify-center">
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p>Cargando datos del gráfico...</p>
+        <CardContent className="h-[450px] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <Loader2 className="h-12 w-12 animate-spin text-blue-600" />
+            <p className="text-base font-medium text-slate-600">Cargando datos del gráfico...</p>
           </div>
         </CardContent>
       </Card>
@@ -135,22 +152,32 @@ export function QualityChartSection({
   }
 
   return (
-    <Card className="bg-white/70 backdrop-blur-xl border border-slate-200/60 shadow-[0_8px_24px_rgba(2,6,23,0.06)] rounded-2xl">
-      <CardHeader className="pb-1">
-        <div className="flex items-end justify-between">
-          <CardTitle className="text-base md:text-lg font-medium text-slate-800">Cumplimiento de Resistencia por Fecha de Muestreo</CardTitle>
-          <div className="text-xs text-slate-500">Puntos: {datosGrafico.length}</div>
+    <Card className="glass-thick rounded-2xl border border-white/20 shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300">
+      <CardHeader className="pb-4">
+        <div className="flex items-start justify-between flex-wrap gap-4">
+          <div className="space-y-2">
+            <CardTitle className="text-xl md:text-2xl font-bold text-slate-800">
+              Cumplimiento de Resistencia
+            </CardTitle>
+            <p className="text-sm text-slate-600">
+              Por fecha de muestreo · {datosGrafico.length} punto{datosGrafico.length !== 1 ? 's' : ''}
+            </p>
+          </div>
         </div>
 
         {/* Age Information Display */}
         {soloEdadGarantia && datosGrafico.length > 0 && (
-          <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="text-xs text-blue-700">
-              <strong>Edad Garantía:</strong> Mostrando solo ensayos realizados en la edad de garantía especificada en la receta. Los puntos se grafican por fecha de muestreo.
+          <div className="mt-4 p-4 bg-blue-50/70 backdrop-blur border border-blue-200/60 rounded-xl">
+            <div className="text-sm text-blue-800 leading-relaxed">
+              <span className="font-semibold">Edad de Garantía:</span> Mostrando solo ensayos realizados en la edad de garantía especificada en la receta.
               {(() => {
                 const ages = Array.from(new Set(datosGrafico.map(d => d.edad))).sort((a, b) => a - b);
                 if (ages.length > 0) {
-                  return ` Edades encontradas: ${ages.join(', ')} días`;
+                  return (
+                    <span className="block mt-2">
+                      <span className="font-medium">Edades encontradas:</span> {ages.join(', ')} días
+                    </span>
+                  );
                 }
                 return '';
               })()}
@@ -310,8 +337,16 @@ export function QualityChartSection({
             )}
           </div>
         ) : (
-          <div className="text-center text-gray-500 py-8">
-            No hay datos suficientes para generar el gráfico
+          <div className="flex flex-col items-center justify-center py-16 px-4">
+            <div className="p-4 bg-slate-100 rounded-2xl mb-4">
+              <BarChart3 className="h-12 w-12 text-slate-400" />
+            </div>
+            <p className="text-lg font-semibold text-slate-700 mb-2">
+              No hay datos para mostrar
+            </p>
+            <p className="text-sm text-slate-500 text-center max-w-md">
+              Ajusta los filtros o el rango de fechas para visualizar datos en el gráfico
+            </p>
           </div>
         )}
       </CardContent>

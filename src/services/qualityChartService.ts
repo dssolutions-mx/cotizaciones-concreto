@@ -586,12 +586,14 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
           (muestreo.remision.recipe.recipe_code.includes('MR') ? 'MR' : 'FC')
           : 'FC',
         edad: (() => {
-          // Get the actual age from concrete_specs, prefer hours if available
+          // Get the actual age from concrete_specs
           const concreteSpecs = muestreo.concrete_specs;
           if (concreteSpecs?.valor_edad && concreteSpecs?.unidad_edad) {
             const { valor_edad, unidad_edad } = concreteSpecs;
-            // Convert to days for display
+            // Convert to days for grouping purposes
             if (unidad_edad === 'HORA' || unidad_edad === 'H') {
+              // For hours, round to nearest day for grouping
+              // But preserve original value for display
               return Math.round(valor_edad / 24);
             } else if (unidad_edad === 'DÍA' || unidad_edad === 'D') {
               return valor_edad;
@@ -599,6 +601,8 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
           }
           return 28; // Default fallback
         })(),
+        edadOriginal: muestreo.concrete_specs?.valor_edad,
+        unidadEdad: muestreo.concrete_specs?.unidad_edad,
         fecha_ensayo: firstEnsayo.fecha_ensayo, // Use first ensayo's date
         resistencia_calculada: avgResistance,
         muestra: firstEnsayo.muestra || {
