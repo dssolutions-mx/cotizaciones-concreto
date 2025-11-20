@@ -1015,11 +1015,13 @@ export default function VentasDashboard() {
 
   if (loading) {
     return (
-      <div className="container mx-auto p-6">
-        <div className="animate-pulse space-y-6">
-          <div className="h-8 bg-gray-200 rounded w-1/4"></div>
-          <div className="h-32 bg-gray-200 rounded"></div>
-          <div className="h-64 bg-gray-200 rounded"></div>
+      <div className="min-h-screen bg-background-primary">
+        <div className="container mx-auto px-6 py-12 max-w-7xl">
+          <div className="space-y-8">
+            <div className="glass-thick rounded-3xl h-12 animate-pulse" />
+            <div className="glass-thick rounded-3xl h-40 animate-pulse" />
+            <div className="glass-thick rounded-3xl h-96 animate-pulse" />
+          </div>
         </div>
       </div>
     );
@@ -1027,62 +1029,72 @@ export default function VentasDashboard() {
 
   if (error) {
     return (
-      <div className="container mx-auto p-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-red-600">Error al cargar los datos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-red-500">{error}</p>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-background-primary">
+        <div className="container mx-auto px-6 py-12 max-w-7xl">
+          <div className="glass-thick rounded-3xl p-8 border border-systemRed/20 bg-gradient-to-br from-systemRed/10 to-systemRed/5">
+            <h2 className="text-title-2 font-bold text-systemRed mb-4">Error al cargar los datos</h2>
+            <p className="text-body text-label-secondary">{error}</p>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto p-6">
-      {/* Layout Toggle and Debug Tool */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowDebugTool(!showDebugTool)}
-            className="flex items-center gap-2"
-          >
-            🔍 Debug Tool
-          </Button>
-          {showDebugTool && (
+    <div className="min-h-screen bg-background-primary">
+      <div className="container mx-auto px-6 py-8 max-w-7xl">
+        {/* Header with Layout Toggle and Debug Tool */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
+          {/* Debug Tool */}
+          <div className="flex items-center space-x-4">
             <Button
-              variant="default"
+              variant="outline"
               size="sm"
-              onClick={runDebugComparison}
-              disabled={debugLoading}
+              onClick={() => setShowDebugTool(!showDebugTool)}
               className="flex items-center gap-2"
             >
-              {debugLoading ? 'Comparando...' : 'Comparar Precios'}
+              🔍 Debug Tool
             </Button>
-          )}
+            {showDebugTool && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={runDebugComparison}
+                disabled={debugLoading}
+                className="flex items-center gap-2"
+              >
+                {debugLoading ? 'Comparando...' : 'Comparar Precios'}
+              </Button>
+            )}
+          </div>
+
+          {/* Layout Toggle - Apple HIG Style */}
+          <div className="glass-thick rounded-2xl px-4 py-2 border border-label-tertiary/10">
+            <div className="flex items-center space-x-3">
+              <span className="text-callout font-medium text-label-secondary">
+                Vista Actual
+              </span>
+              <Switch
+                id="layout-toggle"
+                checked={layoutType === 'powerbi'}
+                onCheckedChange={(checked) => setLayoutType(checked ? 'powerbi' : 'current')}
+              />
+              <span className="text-callout font-medium text-label-secondary">
+                Vista PowerBI
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <Label htmlFor="layout-toggle">Vista Actual</Label>
-          <Switch
-            id="layout-toggle"
-            checked={layoutType === 'powerbi'}
-            onCheckedChange={(checked) => setLayoutType(checked ? 'powerbi' : 'current')}
-          />
-          <Label htmlFor="layout-toggle">Vista PowerBI</Label>
-        </div>
-      </div>
 
       {layoutType === 'current' && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Reporte de Ventas Mensual</CardTitle>
-          <p className="text-sm text-muted-foreground">{dateRangeText}</p>
-            </CardHeader>
-            <CardContent>
+        <div className="space-y-8">
+          {/* Page Header */}
+          <div className="mb-8">
+            <h1 className="text-large-title font-bold text-label-primary mb-2">
+              Reporte de Ventas
+            </h1>
+            <p className="text-body text-label-secondary">{dateRangeText}</p>
+          </div>
           {/* Sales Filters Component - Only in current mode */}
           <SalesFilters
             currentPlant={currentPlant}
@@ -1145,140 +1157,130 @@ export default function VentasDashboard() {
               onExportToExcel={exportToExcel}
               pricingMap={pricingMap}
             />
-                        )}
-                      </CardContent>
-                    </Card>
+          )}
+        </div>
       )}
 
       {layoutType === 'powerbi' && (
-        <>
-          <Card className="mb-6">
-             <CardHeader className='pb-2'>
-                <div className='flex justify-between items-center'>
-                 <CardTitle className="text-xl font-semibold">REPORTE DE VENTAS MENSUAL</CardTitle>
-                 <span className='text-sm text-muted-foreground'>
-                    {format(new Date(), 'dd-MMM-yy hh:mm a', { locale: es })} {/* Adjust date format if needed */}
-                 </span>
-                </div>
-             </CardHeader>
-            <CardContent>
-                {/* Sales Filters - Also visible in PowerBI view */}
-                <div className="mb-4">
-                  <SalesFilters
-                    currentPlant={currentPlant}
-                    startDate={startDate}
-                    endDate={endDate}
-                    clientFilter={clientFilter}
-                    searchTerm={searchTerm}
-                    clients={clients}
-                    onDateRangeChange={handleDateRangeChange}
-                    onClientFilterChange={handleClientFilterChange}
-                    onSearchChange={handleSearchChange}
-                    layoutType={layoutType}
-                    resistanceFilter={resistanceFilter}
-                    efectivoFiscalFilter={efectivoFiscalFilter}
-                    tipoFilter={tipoFilter}
-                    codigoProductoFilter={codigoProductoFilter}
-                    resistances={resistances}
-                    tipos={tipos}
-                    productCodes={productCodes}
-                    onResistanceFilterChange={handleResistanceFilterChange}
-                    onEfectivoFiscalFilterChange={handleEfectivoFiscalFilterChange}
-                    onTipoFilterChange={handleTipoFilterChange}
-                    onCodigoProductoFilterChange={handleCodigoProductoFilterChange}
-                    includeVAT={includeVAT}
-                    onIncludeVATChange={handleIncludeVATChange}
-                  />
-                </div>
-                {streaming && (
-                  <div className="mb-4">
-                    <div className="w-full bg-gray-100 border rounded h-2 overflow-hidden">
-                      <div
-                        className="bg-blue-500 h-2"
-                        style={{ width: `${streamingPercent}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1 text-right">
-                      Cargando datos… {streamingPercent}%
-                    </div>
-                  </div>
+        <div className="space-y-8">
+          {/* Page Header */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+            <div>
+              <h1 className="text-large-title font-bold text-label-primary mb-2">
+                Reporte de Ventas
+              </h1>
+              <p className="text-body text-label-secondary">{dateRangeText}</p>
+            </div>
+            <span className='text-callout text-label-tertiary'>
+              {format(new Date(), 'dd-MMM-yy hh:mm a', { locale: es })}
+            </span>
+          </div>
+          {/* Sales Filters - Also visible in PowerBI view */}
+          <SalesFilters
+            currentPlant={currentPlant}
+            startDate={startDate}
+            endDate={endDate}
+            clientFilter={clientFilter}
+            searchTerm={searchTerm}
+            clients={clients}
+            onDateRangeChange={handleDateRangeChange}
+            onClientFilterChange={handleClientFilterChange}
+            onSearchChange={handleSearchChange}
+            layoutType={layoutType}
+            resistanceFilter={resistanceFilter}
+            efectivoFiscalFilter={efectivoFiscalFilter}
+            tipoFilter={tipoFilter}
+            codigoProductoFilter={codigoProductoFilter}
+            resistances={resistances}
+            tipos={tipos}
+            productCodes={productCodes}
+            onResistanceFilterChange={handleResistanceFilterChange}
+            onEfectivoFiscalFilterChange={handleEfectivoFiscalFilterChange}
+            onTipoFilterChange={handleTipoFilterChange}
+            onCodigoProductoFilterChange={handleCodigoProductoFilterChange}
+            includeVAT={includeVAT}
+            onIncludeVATChange={handleIncludeVATChange}
+          />
+
+          {/* Streaming Progress - Apple HIG Style */}
+          {streaming && (
+            <div className="glass-thick rounded-2xl p-4 border border-label-tertiary/10">
+              <div className="w-full bg-label-tertiary/10 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-systemBlue h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${streamingPercent}%` }}
+                />
+              </div>
+              <p className="text-caption text-label-tertiary mt-2 text-right">
+                Cargando datos… {streamingPercent}%
+              </p>
+            </div>
+          )}
+          {/* Top Summary Cards - Apple HIG Design */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Total de Ventas */}
+            <div className="glass-thick rounded-3xl p-6 border border-systemBlue/20 bg-gradient-to-br from-systemBlue/10 to-systemBlue/5 text-center">
+              <p className="text-title-1 font-bold text-label-primary mb-2 tabular-nums">
+                {includeVAT ? formatCurrency(currentSummaryMetrics.totalAmountWithVAT) : formatCurrency(currentSummaryMetrics.totalAmount)}
+              </p>
+              <p className="text-callout font-medium text-label-secondary">
+                Total de ventas {includeVAT ? '(Con IVA)' : '(Subtotal)'}
+              </p>
+            </div>
+
+            {/* Volumen Total */}
+            <div className="glass-thick rounded-3xl p-6 border border-systemGreen/20 bg-gradient-to-br from-systemGreen/10 to-systemGreen/5 text-center">
+              <p className="text-title-1 font-bold text-label-primary mb-2 tabular-nums">
+                {(currentSummaryMetrics.totalVolume + currentSummaryMetrics.emptyTruckVolume).toFixed(1)}
+              </p>
+              <p className="text-callout font-medium text-label-secondary">
+                Volumen Total (m³)
+              </p>
+              <p className="text-caption text-label-tertiary mt-2">
+                Concreto + Bombeo + Vacío de Olla
+              </p>
+            </div>
+
+            {/* Edad Promedio de Garantía */}
+            <div className="glass-thick rounded-3xl p-6 border border-systemOrange/20 bg-gradient-to-br from-systemOrange/10 to-systemOrange/5 text-center">
+              <p className="text-title-1 font-bold text-label-primary mb-2 tabular-nums">
+                {(filteredWeightedGuaranteeAge || 0).toFixed(1)}
+              </p>
+              <p className="text-callout font-medium text-label-secondary">
+                Edad de Garantía (días)
+              </p>
+              {gaStreaming && (
+                <p className="text-caption text-label-tertiary mt-2">
+                  Cargando {gaPercent}%
+                </p>
+              )}
+            </div>
+
+            {/* Resistencia Ponderada */}
+            <div className="glass-thick rounded-3xl p-6 border border-systemPurple/20 bg-gradient-to-br from-systemPurple/10 to-systemPurple/5 text-center relative">
+              <p className="text-title-1 font-bold text-label-primary mb-2 tabular-nums">
+                {currentSummaryMetrics.weightedResistance.toFixed(1)}
+                {currentSummaryMetrics.resistanceTooltip && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-label-tertiary absolute top-4 right-4 cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-caption max-w-xs">{currentSummaryMetrics.resistanceTooltip}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
-                 {/* Top Summary Cards - Professional Design */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    {/* Total de Ventas */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
-                        <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
-                                      {includeVAT ? formatCurrency(currentSummaryMetrics.totalAmountWithVAT) : formatCurrency(currentSummaryMetrics.totalAmount)}
-                         </CardTitle>
-                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
-                            Total de ventas {includeVAT ? '(Con IVA)' : '(Subtotal)'}
-                        </CardDescription>
-                    </CardHeader>
-                    </Card>
-
-                    {/* Volumen Total */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
-                         <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
-                                       {(currentSummaryMetrics.totalVolume + currentSummaryMetrics.emptyTruckVolume).toFixed(1)}
-                         </CardTitle>
-                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
-                            Volumen Total (m³)
-                        </CardDescription>
-                        <div className="text-center text-xs text-gray-500 mt-2">
-                            Concreto + Bombeo + Vacío de Olla
-                        </div>
-                    </CardHeader>
-                    </Card>
-
-                     {/* Edad Promedio de Garantía */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
-                            <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
-                                      {(filteredWeightedGuaranteeAge || 0).toFixed(1)}
-                            </CardTitle>
-                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
-                            Edad de Garantía (días)
-                            </CardDescription>
-                        <div className="text-center text-xs text-gray-500 mt-2">
-                            {/* volume-weighted over remisiones filtradas */}
-                            {gaStreaming && (
-                              <span className="ml-2">
-                                Cargando {gaPercent}%
-                              </span>
-                            )}
-                        </div>
-                        </CardHeader>
-                    </Card>
-
-                    {/* Resistencia Ponderada */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
-                            <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums relative">
-                                       {currentSummaryMetrics.weightedResistance.toFixed(1)}
-                                       {currentSummaryMetrics.resistanceTooltip && (
-                                          <TooltipProvider>
-                                              <Tooltip>
-                                                  <TooltipTrigger asChild>
-                                                      <Info className="h-4 w-4 text-gray-400 absolute top-0 right-0 cursor-help" />
-                                                  </TooltipTrigger>
-                                                  <TooltipContent>
-                                                      <p className="text-xs max-w-xs">{currentSummaryMetrics.resistanceTooltip}</p>
-                                                  </TooltipContent>
-                                              </Tooltip>
-                                          </TooltipProvider>
-                                      )}
-                            </CardTitle>
-                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
-                            Resistencia Ponderada
-                            </CardDescription>
-                        <div className="text-center text-xs text-gray-500 mt-2">
-                            kg/cm² promedio por volumen
-                        </div>
-                        </CardHeader>
-                    </Card>
-                </div>
+              </p>
+              <p className="text-callout font-medium text-label-secondary">
+                Resistencia Ponderada
+              </p>
+              <p className="text-caption text-label-tertiary mt-2">
+                kg/cm² promedio por volumen
+              </p>
+            </div>
+          </div>
 
                  {/* Product Breakdown Section - Professional Design */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -1771,9 +1773,7 @@ export default function VentasDashboard() {
                    </div>
                  </CardContent>
                </Card>
-              </CardContent>
-            </Card>
-        </>
+        </div>
       )}
 
       {/* Debug Tool */}
@@ -1922,6 +1922,7 @@ export default function VentasDashboard() {
           </CardContent>
         </Card>
       )}
+      </div>
     </div>
   );
 }
