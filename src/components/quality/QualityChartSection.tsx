@@ -137,14 +137,14 @@ export function QualityChartSection({
 
   if (loading) {
     return (
-      <Card className="bg-white border-slate-200 shadow-sm">
+      <Card className="glass-thick rounded-xl border border-slate-200">
         <CardHeader>
           <div className="h-6 w-[250px] bg-slate-200 rounded animate-pulse" />
         </CardHeader>
         <CardContent className="h-[400px] flex items-center justify-center">
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-            <p className="text-sm text-slate-500">Cargando datos del gráfico...</p>
+            <p className="text-footnote text-slate-500">Cargando datos del gráfico...</p>
           </div>
         </CardContent>
       </Card>
@@ -152,21 +152,21 @@ export function QualityChartSection({
   }
 
   return (
-    <Card className="bg-white border-slate-200 shadow-sm">
+    <Card className="glass-thick rounded-xl border border-slate-200">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-2xl font-semibold text-slate-900 tracking-tight">
+          <CardTitle className="text-title-2 font-semibold text-slate-900">
             Cumplimiento de Resistencia
           </CardTitle>
-          <span className="text-sm text-slate-500">
+          <span className="text-footnote text-slate-500">
             {datosGrafico.length} punto{datosGrafico.length !== 1 ? 's' : ''}
           </span>
         </div>
 
         {/* Age Information Display */}
         {soloEdadGarantia && datosGrafico.length > 0 && (
-          <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <div className="text-xs text-blue-700">
+          <div className="mt-3 p-3 glass-thin rounded-xl border border-systemBlue/20 bg-systemBlue/10">
+            <div className="text-footnote text-systemBlue">
               <strong>Edad de Garantía:</strong> Mostrando solo ensayos realizados en la edad de garantía especificada en la receta.
               {(() => {
                 const ages = Array.from(new Set(datosGrafico.map(d => d.edad))).sort((a, b) => a - b);
@@ -333,10 +333,10 @@ export function QualityChartSection({
         ) : (
           <div className="flex flex-col items-center justify-center py-12 px-4">
             <BarChart3 className="h-10 w-10 text-slate-300 mb-3" />
-            <p className="text-base font-medium text-slate-600 mb-1">
+            <p className="text-body font-medium text-slate-600 mb-1">
               No hay datos para mostrar
             </p>
-            <p className="text-sm text-slate-500 text-center max-w-md">
+            <p className="text-footnote text-slate-500 text-center max-w-md">
               Ajusta los filtros o el rango de fechas para visualizar datos en el gráfico
             </p>
           </div>

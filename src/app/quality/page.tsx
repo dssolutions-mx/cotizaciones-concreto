@@ -155,16 +155,16 @@ export default function QualityDashboardPage() {
         {/* Header Section */}
         <div className="mb-8">
           <div className="mb-6">
-            <h1 className="text-4xl font-bold text-slate-900 mb-2 tracking-tight">
+            <h1 className="text-title-1 font-bold text-slate-900 mb-2">
               Control de Calidad
             </h1>
-            <p className="text-lg text-slate-600">
+            <p className="text-body text-slate-600">
               Métricas y análisis de resistencia de concreto
             </p>
           </div>
 
           {/* Date Range Picker */}
-          <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm">
+          <div className="glass-thick rounded-xl p-4 border border-slate-200">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
               <div className="flex items-center gap-3 flex-1">
                 <span className="text-sm font-medium text-slate-700 whitespace-nowrap">Período de Muestreo</span>

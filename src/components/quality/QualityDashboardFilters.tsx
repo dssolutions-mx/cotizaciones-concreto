@@ -121,18 +121,18 @@ export function QualityDashboardFilters({
   return (
     <>
       {/* Filter Bar */}
-      <Card className="mb-6 bg-white border-slate-200 shadow-sm">
+      <Card className="mb-6 glass-thick rounded-xl border border-slate-200">
         <CardHeader className="pb-3">
-          <CardTitle className="text-xl font-semibold text-slate-900 tracking-tight">Filtros de Análisis</CardTitle>
+          <CardTitle className="text-title-2 font-semibold text-slate-900">Filtros de Análisis</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Client Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Cliente</Label>
+              <Label className="text-footnote font-medium text-slate-700">Cliente</Label>
               <Popover open={openClient} onOpenChange={setOpenClient}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full">
+                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
                     {selectedClient === 'all' ? 'Todos los clientes' : (clients.find(c => c.id === selectedClient)?.business_name || 'Cliente')}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -158,10 +158,10 @@ export function QualityDashboardFilters({
 
             {/* Construction Site Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Obra</Label>
+              <Label className="text-footnote font-medium text-slate-700">Obra</Label>
               <Popover open={openSite} onOpenChange={setOpenSite}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full">
+                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
                     {selectedConstructionSite === 'all' ? 'Todas las obras' : (getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || 'Obra')}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -187,10 +187,10 @@ export function QualityDashboardFilters({
 
             {/* Recipe Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Receta</Label>
+              <Label className="text-footnote font-medium text-slate-700">Receta</Label>
               <Popover open={openRecipe} onOpenChange={setOpenRecipe}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full">
+                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
                     {selectedRecipe === 'all' ? 'Todas las recetas' : selectedRecipe}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -216,10 +216,10 @@ export function QualityDashboardFilters({
 
             {/* Plant Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Planta</Label>
+              <Label className="text-footnote font-medium text-slate-700">Planta</Label>
               <Popover open={openPlant} onOpenChange={setOpenPlant}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full">
+                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
                     {selectedPlant === 'all' ? 'Todas las plantas' : selectedPlant}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -248,10 +248,10 @@ export function QualityDashboardFilters({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
             {/* Strength Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Resistencia</Label>
+              <Label className="text-footnote font-medium text-slate-700">Resistencia</Label>
               <Popover open={openFcValue} onOpenChange={setOpenFcValue}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full">
+                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
                     {selectedFcValue === 'all'
                       ? 'Todas las resistencias'
                       : (fcValues.find(f => f.value === selectedFcValue)?.label || `${selectedFcValue} kg/cm2`)}
@@ -282,13 +282,13 @@ export function QualityDashboardFilters({
 
             {/* Classification Toggle */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Clasificación</Label>
+              <Label className="text-footnote font-medium text-slate-700">Clasificación</Label>
               <div className="flex gap-2">
                 <Button
                   variant={selectedClasificacion === 'FC' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSelectedClasificacion(selectedClasificacion === 'FC' ? 'all' : 'FC')}
-                  className="flex-1"
+                  className="flex-1 glass-thin rounded-xl hover:glass-interactive"
                 >
                   FC
                 </Button>
@@ -296,7 +296,7 @@ export function QualityDashboardFilters({
                   variant={selectedClasificacion === 'MR' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSelectedClasificacion(selectedClasificacion === 'MR' ? 'all' : 'MR')}
-                  className="flex-1"
+                  className="flex-1 glass-thin rounded-xl hover:glass-interactive"
                 >
                   MR
                 </Button>
@@ -305,9 +305,9 @@ export function QualityDashboardFilters({
 
             {/* Specimen Type Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Tipo Probeta</Label>
+              <Label className="text-footnote font-medium text-slate-700">Tipo Probeta</Label>
               <Select value={selectedSpecimenType} onValueChange={(value: any) => setSelectedSpecimenType(value)}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full glass-thin rounded-xl">
                   <SelectValue placeholder="Todas" />
                 </SelectTrigger>
                 <SelectContent>
@@ -323,10 +323,10 @@ export function QualityDashboardFilters({
 
             {/* Age Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Edad Garantía</Label>
+              <Label className="text-footnote font-medium text-slate-700">Edad Garantía</Label>
               <Popover open={openAge} onOpenChange={setOpenAge}>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="justify-between w-full">
+                  <Button variant="outline" size="sm" className="justify-between w-full glass-thin rounded-xl hover:glass-interactive">
                     {selectedAge === 'all' ? 'Todas las edades' : (availableAges.find(a => a.value === selectedAge)?.label || selectedAge)}
                     <ChevronsUpDown className="ml-2 h-4 w-4 opacity-50" />
                   </Button>
@@ -369,14 +369,14 @@ export function QualityDashboardFilters({
 
             {/* Age Guarantee Toggle */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Edad Garantía</Label>
+              <Label className="text-footnote font-medium text-slate-700">Edad Garantía</Label>
               <div className="flex items-center space-x-2">
                 <Switch
                   id="age-guarantee"
                   checked={soloEdadGarantia}
                   onCheckedChange={setSoloEdadGarantia}
                 />
-                <Label htmlFor="age-guarantee" className="text-sm text-slate-600">
+                <Label htmlFor="age-guarantee" className="text-footnote text-slate-600">
                   {soloEdadGarantia ? 'Activado' : 'Desactivado'}
                 </Label>
               </div>
@@ -387,14 +387,14 @@ export function QualityDashboardFilters({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             {/* Outside Time Essays Toggle */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">Incluir Ensayos Fuera de Tiempo</Label>
+              <Label className="text-footnote font-medium text-slate-700">Incluir Ensayos Fuera de Tiempo</Label>
               <div className="flex items-center space-x-2">
                 <Switch
                   id="outside-time-essays"
                   checked={incluirEnsayosFueraTiempo}
                   onCheckedChange={setIncluirEnsayosFueraTiempo}
                 />
-                <Label htmlFor="outside-time-essays" className="text-sm text-slate-600">
+                <Label htmlFor="outside-time-essays" className="text-footnote text-slate-600">
                   {incluirEnsayosFueraTiempo ? 'Incluidos' : 'Excluidos'}
                 </Label>
               </div>
@@ -402,12 +402,12 @@ export function QualityDashboardFilters({
 
             {/* Reset Button */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-slate-700">&nbsp;</Label>
+              <Label className="text-footnote font-medium text-slate-700">&nbsp;</Label>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={resetAllFilters}
-                className="w-full"
+                className="w-full glass-thin rounded-xl hover:glass-interactive"
                 disabled={!hasActiveFilters}
               >
                 Limpiar Filtros
@@ -421,10 +421,10 @@ export function QualityDashboardFilters({
       {hasActiveFilters && (
         <div className="mb-6 flex flex-wrap gap-2">
           {selectedClient !== 'all' && (
-            <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemBlue">
               <span>Cliente: {clients.find(c => c.id === selectedClient)?.business_name || selectedClient}</span>
               <button
-                className="hover:bg-blue-100 rounded-full p-1"
+                className="hover:opacity-70 rounded-full p-1 transition-opacity"
                 onClick={() => setSelectedClient('all')}
               >
                 ×
@@ -433,10 +433,10 @@ export function QualityDashboardFilters({
           )}
 
           {selectedConstructionSite !== 'all' && (
-            <div className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemGreen">
               <span>Obra: {getFilteredConstructionSites().find(s => s.id === selectedConstructionSite)?.name || selectedConstructionSite}</span>
               <button
-                className="hover:bg-green-100 rounded-full p-1"
+                className="hover:opacity-70 rounded-full p-1 transition-opacity"
                 onClick={() => setSelectedConstructionSite('all')}
               >
                 ×
@@ -445,10 +445,10 @@ export function QualityDashboardFilters({
           )}
 
           {selectedRecipe !== 'all' && (
-            <div className="bg-purple-50 text-purple-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-purple-600">
               <span>Receta: {selectedRecipe}</span>
               <button
-                className="hover:bg-purple-100 rounded-full p-1"
+                className="hover:opacity-70 rounded-full p-1 transition-opacity"
                 onClick={() => setSelectedRecipe('all')}
               >
                 ×
@@ -457,45 +457,45 @@ export function QualityDashboardFilters({
           )}
 
           {selectedPlant !== 'all' && (
-            <div className="bg-cyan-50 text-cyan-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-cyan-600">
               <span>Planta: {selectedPlant}</span>
-              <button className="hover:bg-cyan-100 rounded-full p-1" onClick={() => setSelectedPlant('all')}>×</button>
+              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedPlant('all')}>×</button>
             </div>
           )}
 
           {selectedClasificacion !== 'all' && (
-            <div className="bg-rose-50 text-rose-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemRed">
               <span>Clasificación: {selectedClasificacion}</span>
-              <button className="hover:bg-rose-100 rounded-full p-1" onClick={() => setSelectedClasificacion('all')}>×</button>
+              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedClasificacion('all')}>×</button>
             </div>
           )}
 
           {selectedSpecimenType !== 'all' && (
-            <div className="bg-emerald-50 text-emerald-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemGreen">
               <span>Probeta: {selectedSpecimenType}</span>
-              <button className="hover:bg-emerald-100 rounded-full p-1" onClick={() => setSelectedSpecimenType('all')}>×</button>
+              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedSpecimenType('all')}>×</button>
             </div>
           )}
 
           {selectedFcValue !== 'all' && (
-            <div className="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemOrange">
               <span>Resistencia: {fcValues.find(f => f.value === selectedFcValue)?.label || `${selectedFcValue} kg/cm2`}</span>
-              <button className="hover:bg-amber-100 rounded-full p-1" onClick={() => setSelectedFcValue('all')}>×</button>
+              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedFcValue('all')}>×</button>
             </div>
           )}
 
           {selectedAge !== 'all' && (
-            <div className="bg-indigo-50 text-indigo-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-indigo-600">
               <span>Edad: {availableAges.find(a => a.value === selectedAge)?.label || selectedAge}</span>
-              <button className="hover:bg-indigo-100 rounded-full p-1" onClick={() => setSelectedAge('all')}>×</button>
+              <button className="hover:opacity-70 rounded-full p-1 transition-opacity" onClick={() => setSelectedAge('all')}>×</button>
             </div>
           )}
 
           {soloEdadGarantia && (
-            <div className="bg-amber-50 text-amber-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemOrange">
               <span>Solo edad garantía</span>
               <button
-                className="hover:bg-amber-100 rounded-full p-1"
+                className="hover:opacity-70 rounded-full p-1 transition-opacity"
                 onClick={() => setSoloEdadGarantia(false)}
               >
                 ×
@@ -504,10 +504,10 @@ export function QualityDashboardFilters({
           )}
 
           {incluirEnsayosFueraTiempo && (
-            <div className="bg-orange-50 text-orange-700 px-3 py-1 rounded-full text-sm flex items-center gap-1">
+            <div className="glass-thin rounded-full px-3 py-1 text-footnote flex items-center gap-1 border border-white/20 text-systemOrange">
               <span>Incluye ensayos fuera de tiempo</span>
               <button
-                className="hover:bg-orange-100 rounded-full p-1"
+                className="hover:opacity-70 rounded-full p-1 transition-opacity"
                 onClick={() => setIncluirEnsayosFueraTiempo(false)}
               >
                 ×
