@@ -129,7 +129,7 @@ export function QualityDashboardFilters({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Client Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Cliente</Label>
+              <Label className="text-sm font-medium text-slate-700">Cliente</Label>
               <Popover open={openClient} onOpenChange={setOpenClient}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="justify-between w-full">
@@ -158,7 +158,7 @@ export function QualityDashboardFilters({
 
             {/* Construction Site Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Obra</Label>
+              <Label className="text-sm font-medium text-slate-700">Obra</Label>
               <Popover open={openSite} onOpenChange={setOpenSite}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="justify-between w-full">
@@ -187,7 +187,7 @@ export function QualityDashboardFilters({
 
             {/* Recipe Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Receta</Label>
+              <Label className="text-sm font-medium text-slate-700">Receta</Label>
               <Popover open={openRecipe} onOpenChange={setOpenRecipe}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="justify-between w-full">
@@ -216,7 +216,7 @@ export function QualityDashboardFilters({
 
             {/* Plant Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Planta</Label>
+              <Label className="text-sm font-medium text-slate-700">Planta</Label>
               <Popover open={openPlant} onOpenChange={setOpenPlant}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="justify-between w-full">
@@ -248,7 +248,7 @@ export function QualityDashboardFilters({
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mt-4">
             {/* Strength Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Resistencia</Label>
+              <Label className="text-sm font-medium text-slate-700">Resistencia</Label>
               <Popover open={openFcValue} onOpenChange={setOpenFcValue}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="justify-between w-full">
@@ -266,8 +266,8 @@ export function QualityDashboardFilters({
                       <CommandGroup>
                         <CommandItem onSelect={() => { setSelectedFcValue('all'); setOpenFcValue(false); }}>Todas</CommandItem>
                         {fcValues.map((fc) => (
-                          <CommandItem 
-                            key={fc.value} 
+                          <CommandItem
+                            key={fc.value}
                             onSelect={() => { setSelectedFcValue(fc.value); setOpenFcValue(false); }}
                           >
                             {fc.label}
@@ -282,7 +282,7 @@ export function QualityDashboardFilters({
 
             {/* Classification Toggle */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Clasificación</Label>
+              <Label className="text-sm font-medium text-slate-700">Clasificación</Label>
               <div className="flex gap-2">
                 <Button
                   variant={selectedClasificacion === 'FC' ? 'default' : 'outline'}
@@ -305,7 +305,7 @@ export function QualityDashboardFilters({
 
             {/* Specimen Type Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Tipo Probeta</Label>
+              <Label className="text-sm font-medium text-slate-700">Tipo Probeta</Label>
               <Select value={selectedSpecimenType} onValueChange={(value: any) => setSelectedSpecimenType(value)}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Todas" />
@@ -323,7 +323,7 @@ export function QualityDashboardFilters({
 
             {/* Age Filter */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Edad Garantía</Label>
+              <Label className="text-sm font-medium text-slate-700">Edad Garantía</Label>
               <Popover open={openAge} onOpenChange={setOpenAge}>
                 <PopoverTrigger asChild>
                   <Button variant="outline" size="sm" className="justify-between w-full">
@@ -369,14 +369,14 @@ export function QualityDashboardFilters({
 
             {/* Age Guarantee Toggle */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Edad Garantía</Label>
+              <Label className="text-sm font-medium text-slate-700">Edad Garantía</Label>
               <div className="flex items-center space-x-2">
                 <Switch
                   id="age-guarantee"
                   checked={soloEdadGarantia}
                   onCheckedChange={setSoloEdadGarantia}
                 />
-                <Label htmlFor="age-guarantee" className="text-sm">
+                <Label htmlFor="age-guarantee" className="text-sm text-slate-600">
                   {soloEdadGarantia ? 'Activado' : 'Desactivado'}
                 </Label>
               </div>
@@ -387,14 +387,14 @@ export function QualityDashboardFilters({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             {/* Outside Time Essays Toggle */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">Incluir Ensayos Fuera de Tiempo</Label>
+              <Label className="text-sm font-medium text-slate-700">Incluir Ensayos Fuera de Tiempo</Label>
               <div className="flex items-center space-x-2">
                 <Switch
                   id="outside-time-essays"
                   checked={incluirEnsayosFueraTiempo}
                   onCheckedChange={setIncluirEnsayosFueraTiempo}
                 />
-                <Label htmlFor="outside-time-essays" className="text-sm">
+                <Label htmlFor="outside-time-essays" className="text-sm text-slate-600">
                   {incluirEnsayosFueraTiempo ? 'Incluidos' : 'Excluidos'}
                 </Label>
               </div>
@@ -402,12 +402,13 @@ export function QualityDashboardFilters({
 
             {/* Reset Button */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium text-gray-700">&nbsp;</Label>
+              <Label className="text-sm font-medium text-slate-700">&nbsp;</Label>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={resetAllFilters}
                 className="w-full"
+                disabled={!hasActiveFilters}
               >
                 Limpiar Filtros
               </Button>
