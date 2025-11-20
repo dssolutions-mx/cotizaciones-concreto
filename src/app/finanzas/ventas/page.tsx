@@ -35,6 +35,11 @@ import { SalesStatisticsCards } from '@/components/finanzas/SalesStatisticsCards
 import { SalesDataTable } from '@/components/finanzas/SalesDataTable';
 import { SalesCharts } from '@/components/finanzas/SalesCharts';
 import { SalesVATIndicators, SalesInfoGuide } from '@/components/finanzas/SalesVATIndicators';
+import { HistoricalVolumeChart } from '@/components/finanzas/HistoricalVolumeChart';
+import { SalesAgentRankingChart } from '@/components/finanzas/SalesAgentRankingChart';
+import { PaymentDistributionChart } from '@/components/finanzas/PaymentDistributionChart';
+import { ProductPerformanceChart } from '@/components/finanzas/ProductPerformanceChart';
+import { ClientDistributionChart } from '@/components/finanzas/ClientDistributionChart';
 
 // Import utilities
 import { exportSalesToExcel } from '@/utils/salesExport';
@@ -52,6 +57,8 @@ import {
 
 // Import hooks
 import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
+import { useHistoricalVolumeData } from '@/hooks/useHistoricalVolumeData';
+import { useSalesAgentData } from '@/hooks/useSalesAgentData';
 
 // Import quality service
 import { useProgressiveGuaranteeAge } from '@/hooks/useProgressiveGuaranteeAge';
@@ -185,7 +192,26 @@ export default function VentasDashboard() {
     loading: historicalLoading,
     error: historicalError
   } = useHistoricalSalesData(currentPlant);
-  
+
+  // Fetch historical volume data for charts (last 6 months)
+  const {
+    data: historicalVolumeData,
+    loading: historicalVolumeLoading
+  } = useHistoricalVolumeData({
+    monthsBack: 6,
+    plantIds: currentPlant ? [currentPlant.id] : undefined
+  });
+
+  // Fetch sales agent performance data
+  const {
+    data: salesAgentData,
+    loading: salesAgentLoading
+  } = useSalesAgentData({
+    startDate,
+    endDate,
+    plantId: currentPlant?.id
+  });
+
   // Filter remisiones by client and search term
   const filteredRemisiones = useMemo(() => {
     let filtered = [...remisionesData];
@@ -1015,11 +1041,13 @@ export default function VentasDashboard() {
 
   if (loading) {
     return (
-      <div className="container mx-auto p-6">
-        <div className="animate-pulse space-y-6">
-          <div className="h-8 bg-gray-200 rounded w-1/4"></div>
-          <div className="h-32 bg-gray-200 rounded"></div>
-          <div className="h-64 bg-gray-200 rounded"></div>
+      <div className="min-h-screen bg-background-primary">
+        <div className="container mx-auto px-6 py-12 max-w-7xl">
+          <div className="space-y-8">
+            <div className="glass-thick rounded-3xl h-12 animate-pulse" />
+            <div className="glass-thick rounded-3xl h-40 animate-pulse" />
+            <div className="glass-thick rounded-3xl h-96 animate-pulse" />
+          </div>
         </div>
       </div>
     );
@@ -1027,62 +1055,72 @@ export default function VentasDashboard() {
 
   if (error) {
     return (
-      <div className="container mx-auto p-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-red-600">Error al cargar los datos</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-red-500">{error}</p>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-background-primary">
+        <div className="container mx-auto px-6 py-12 max-w-7xl">
+          <div className="glass-thick rounded-3xl p-8 border border-systemRed/20 bg-gradient-to-br from-systemRed/10 to-systemRed/5">
+            <h2 className="text-title-2 font-bold text-systemRed mb-4">Error al cargar los datos</h2>
+            <p className="text-body text-label-secondary">{error}</p>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto p-6">
-      {/* Layout Toggle and Debug Tool */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center space-x-4">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowDebugTool(!showDebugTool)}
-            className="flex items-center gap-2"
-          >
-            🔍 Debug Tool
-          </Button>
-          {showDebugTool && (
+    <div className="min-h-screen bg-background-primary">
+      <div className="container mx-auto px-6 py-8 max-w-7xl">
+        {/* Header with Layout Toggle and Debug Tool */}
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
+          {/* Debug Tool */}
+          <div className="flex items-center space-x-4">
             <Button
-              variant="default"
+              variant="outline"
               size="sm"
-              onClick={runDebugComparison}
-              disabled={debugLoading}
+              onClick={() => setShowDebugTool(!showDebugTool)}
               className="flex items-center gap-2"
             >
-              {debugLoading ? 'Comparando...' : 'Comparar Precios'}
+              Debug Tool
             </Button>
-          )}
+            {showDebugTool && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={runDebugComparison}
+                disabled={debugLoading}
+                className="flex items-center gap-2"
+              >
+                {debugLoading ? 'Comparando...' : 'Comparar Precios'}
+              </Button>
+            )}
+          </div>
+
+          {/* Layout Toggle - Apple HIG Style */}
+          <div className="glass-thick rounded-2xl px-4 py-2 border border-label-tertiary/10">
+            <div className="flex items-center space-x-3">
+              <span className="text-callout font-medium text-label-secondary">
+                Vista Actual
+              </span>
+              <Switch
+                id="layout-toggle"
+                checked={layoutType === 'powerbi'}
+                onCheckedChange={(checked) => setLayoutType(checked ? 'powerbi' : 'current')}
+              />
+              <span className="text-callout font-medium text-label-secondary">
+                Vista PowerBI
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="flex items-center space-x-2">
-          <Label htmlFor="layout-toggle">Vista Actual</Label>
-          <Switch
-            id="layout-toggle"
-            checked={layoutType === 'powerbi'}
-            onCheckedChange={(checked) => setLayoutType(checked ? 'powerbi' : 'current')}
-          />
-          <Label htmlFor="layout-toggle">Vista PowerBI</Label>
-        </div>
-      </div>
 
       {layoutType === 'current' && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Reporte de Ventas Mensual</CardTitle>
-          <p className="text-sm text-muted-foreground">{dateRangeText}</p>
-            </CardHeader>
-            <CardContent>
+        <div className="space-y-8">
+          {/* Page Header */}
+          <div className="mb-8">
+            <h1 className="text-large-title font-bold text-label-primary mb-2">
+              Reporte de Ventas
+            </h1>
+            <p className="text-body text-label-secondary">{dateRangeText}</p>
+          </div>
           {/* Sales Filters Component - Only in current mode */}
           <SalesFilters
             currentPlant={currentPlant}
@@ -1145,237 +1183,149 @@ export default function VentasDashboard() {
               onExportToExcel={exportToExcel}
               pricingMap={pricingMap}
             />
-                        )}
-                      </CardContent>
-                    </Card>
+          )}
+        </div>
       )}
 
       {layoutType === 'powerbi' && (
-        <>
-          <Card className="mb-6">
-             <CardHeader className='pb-2'>
-                <div className='flex justify-between items-center'>
-                 <CardTitle className="text-xl font-semibold">REPORTE DE VENTAS MENSUAL</CardTitle>
-                 <span className='text-sm text-muted-foreground'>
-                    {format(new Date(), 'dd-MMM-yy hh:mm a', { locale: es })} {/* Adjust date format if needed */}
-                 </span>
-                </div>
-             </CardHeader>
-            <CardContent>
-                {/* Sales Filters - Also visible in PowerBI view */}
-                <div className="mb-4">
-                  <SalesFilters
-                    currentPlant={currentPlant}
-                    startDate={startDate}
-                    endDate={endDate}
-                    clientFilter={clientFilter}
-                    searchTerm={searchTerm}
-                    clients={clients}
-                    onDateRangeChange={handleDateRangeChange}
-                    onClientFilterChange={handleClientFilterChange}
-                    onSearchChange={handleSearchChange}
-                    layoutType={layoutType}
-                    resistanceFilter={resistanceFilter}
-                    efectivoFiscalFilter={efectivoFiscalFilter}
-                    tipoFilter={tipoFilter}
-                    codigoProductoFilter={codigoProductoFilter}
-                    resistances={resistances}
-                    tipos={tipos}
-                    productCodes={productCodes}
-                    onResistanceFilterChange={handleResistanceFilterChange}
-                    onEfectivoFiscalFilterChange={handleEfectivoFiscalFilterChange}
-                    onTipoFilterChange={handleTipoFilterChange}
-                    onCodigoProductoFilterChange={handleCodigoProductoFilterChange}
-                    includeVAT={includeVAT}
-                    onIncludeVATChange={handleIncludeVATChange}
-                  />
-                </div>
-                {streaming && (
-                  <div className="mb-4">
-                    <div className="w-full bg-gray-100 border rounded h-2 overflow-hidden">
-                      <div
-                        className="bg-blue-500 h-2"
-                        style={{ width: `${streamingPercent}%` }}
-                      />
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1 text-right">
-                      Cargando datos… {streamingPercent}%
-                    </div>
-                  </div>
+        <div className="space-y-8">
+          {/* Page Header */}
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+            <div>
+              <h1 className="text-large-title font-bold text-label-primary mb-2">
+                Reporte de Ventas
+              </h1>
+              <p className="text-body text-label-secondary">{dateRangeText}</p>
+            </div>
+            <span className='text-callout text-label-tertiary'>
+              {format(new Date(), 'dd-MMM-yy hh:mm a', { locale: es })}
+            </span>
+          </div>
+          {/* Sales Filters - Also visible in PowerBI view */}
+          <SalesFilters
+            currentPlant={currentPlant}
+            startDate={startDate}
+            endDate={endDate}
+            clientFilter={clientFilter}
+            searchTerm={searchTerm}
+            clients={clients}
+            onDateRangeChange={handleDateRangeChange}
+            onClientFilterChange={handleClientFilterChange}
+            onSearchChange={handleSearchChange}
+            layoutType={layoutType}
+            resistanceFilter={resistanceFilter}
+            efectivoFiscalFilter={efectivoFiscalFilter}
+            tipoFilter={tipoFilter}
+            codigoProductoFilter={codigoProductoFilter}
+            resistances={resistances}
+            tipos={tipos}
+            productCodes={productCodes}
+            onResistanceFilterChange={handleResistanceFilterChange}
+            onEfectivoFiscalFilterChange={handleEfectivoFiscalFilterChange}
+            onTipoFilterChange={handleTipoFilterChange}
+            onCodigoProductoFilterChange={handleCodigoProductoFilterChange}
+            includeVAT={includeVAT}
+            onIncludeVATChange={handleIncludeVATChange}
+          />
+
+          {/* Streaming Progress - Apple HIG Style */}
+          {streaming && (
+            <div className="glass-thick rounded-2xl p-4 border border-label-tertiary/10">
+              <div className="w-full bg-label-tertiary/10 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-systemBlue h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${streamingPercent}%` }}
+                />
+              </div>
+              <p className="text-caption text-label-tertiary mt-2 text-right">
+                Cargando datos… {streamingPercent}%
+              </p>
+            </div>
+          )}
+          {/* Top Summary Cards - Apple HIG Design */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Total de Ventas */}
+            <div className="glass-thick rounded-3xl p-6 border border-systemBlue/20 bg-gradient-to-br from-systemBlue/10 to-systemBlue/5 text-center">
+              <p className="text-title-1 font-bold text-label-primary mb-2 tabular-nums">
+                {includeVAT ? formatCurrency(currentSummaryMetrics.totalAmountWithVAT) : formatCurrency(currentSummaryMetrics.totalAmount)}
+              </p>
+              <p className="text-callout font-medium text-label-secondary">
+                Total de ventas {includeVAT ? '(Con IVA)' : '(Subtotal)'}
+              </p>
+            </div>
+
+            {/* Volumen Total */}
+            <div className="glass-thick rounded-3xl p-6 border border-systemGreen/20 bg-gradient-to-br from-systemGreen/10 to-systemGreen/5 text-center">
+              <p className="text-title-1 font-bold text-label-primary mb-2 tabular-nums">
+                {(currentSummaryMetrics.totalVolume + currentSummaryMetrics.emptyTruckVolume).toFixed(1)}
+              </p>
+              <p className="text-callout font-medium text-label-secondary">
+                Volumen Total (m³)
+              </p>
+              <p className="text-caption text-label-tertiary mt-2">
+                Concreto + Bombeo + Vacío de Olla
+              </p>
+            </div>
+
+            {/* Edad Promedio de Garantía */}
+            <div className="glass-thick rounded-3xl p-6 border border-systemOrange/20 bg-gradient-to-br from-systemOrange/10 to-systemOrange/5 text-center">
+              <p className="text-title-1 font-bold text-label-primary mb-2 tabular-nums">
+                {(filteredWeightedGuaranteeAge || 0).toFixed(1)}
+              </p>
+              <p className="text-callout font-medium text-label-secondary">
+                Edad de Garantía (días)
+              </p>
+              {gaStreaming && (
+                <p className="text-caption text-label-tertiary mt-2">
+                  Cargando {gaPercent}%
+                </p>
+              )}
+            </div>
+
+            {/* Resistencia Ponderada */}
+            <div className="glass-thick rounded-3xl p-6 border border-systemPurple/20 bg-gradient-to-br from-systemPurple/10 to-systemPurple/5 text-center relative">
+              <p className="text-title-1 font-bold text-label-primary mb-2 tabular-nums">
+                {currentSummaryMetrics.weightedResistance.toFixed(1)}
+                {currentSummaryMetrics.resistanceTooltip && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 text-label-tertiary absolute top-4 right-4 cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="text-caption max-w-xs">{currentSummaryMetrics.resistanceTooltip}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                 )}
-                 {/* Top Summary Cards - Professional Design */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    {/* Total de Ventas */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
-                        <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
-                                      {includeVAT ? formatCurrency(currentSummaryMetrics.totalAmountWithVAT) : formatCurrency(currentSummaryMetrics.totalAmount)}
-                         </CardTitle>
-                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
-                            Total de ventas {includeVAT ? '(Con IVA)' : '(Subtotal)'}
-                        </CardDescription>
-                    </CardHeader>
-                    </Card>
+              </p>
+              <p className="text-callout font-medium text-label-secondary">
+                Resistencia Ponderada
+              </p>
+              <p className="text-caption text-label-tertiary mt-2">
+                kg/cm² promedio por volumen
+              </p>
+            </div>
+          </div>
 
-                    {/* Volumen Total */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
-                         <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
-                                       {(currentSummaryMetrics.totalVolume + currentSummaryMetrics.emptyTruckVolume).toFixed(1)}
-                         </CardTitle>
-                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
-                            Volumen Total (m³)
-                        </CardDescription>
-                        <div className="text-center text-xs text-gray-500 mt-2">
-                            Concreto + Bombeo + Vacío de Olla
-                        </div>
-                    </CardHeader>
-                    </Card>
-
-                     {/* Edad Promedio de Garantía */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
-                            <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums">
-                                      {(filteredWeightedGuaranteeAge || 0).toFixed(1)}
-                            </CardTitle>
-                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
-                            Edad de Garantía (días)
-                            </CardDescription>
-                        <div className="text-center text-xs text-gray-500 mt-2">
-                            {/* volume-weighted over remisiones filtradas */}
-                            {gaStreaming && (
-                              <span className="ml-2">
-                                Cargando {gaPercent}%
-                              </span>
-                            )}
-                        </div>
-                        </CardHeader>
-                    </Card>
-
-                    {/* Resistencia Ponderada */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-6 py-5">
-                            <CardTitle className="text-center text-2xl font-semibold text-gray-900 tabular-nums relative">
-                                       {currentSummaryMetrics.weightedResistance.toFixed(1)}
-                                       {currentSummaryMetrics.resistanceTooltip && (
-                                          <TooltipProvider>
-                                              <Tooltip>
-                                                  <TooltipTrigger asChild>
-                                                      <Info className="h-4 w-4 text-gray-400 absolute top-0 right-0 cursor-help" />
-                                                  </TooltipTrigger>
-                                                  <TooltipContent>
-                                                      <p className="text-xs max-w-xs">{currentSummaryMetrics.resistanceTooltip}</p>
-                                                  </TooltipContent>
-                                              </Tooltip>
-                                          </TooltipProvider>
-                                      )}
-                            </CardTitle>
-                        <CardDescription className='text-center text-sm font-medium text-gray-600'>
-                            Resistencia Ponderada
-                            </CardDescription>
-                        <div className="text-center text-xs text-gray-500 mt-2">
-                            kg/cm² promedio por volumen
-                        </div>
-                        </CardHeader>
-                    </Card>
-                </div>
-
-                 {/* Product Breakdown Section - Professional Design */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    {/* Concrete */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                        <CardHeader className="border-b border-gray-200/80 bg-gray-50/80 rounded-t-xl px-4 py-3">
-                            <CardTitle className="text-sm font-semibold text-gray-800">Concreto Premezclado</CardTitle>
-                        </CardHeader>
-                         <CardContent className='p-4'>
-                             <div className="flex justify-between items-start mb-3">
-                                 <div>
-                                     <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                                   {currentSummaryMetrics.concreteVolume.toFixed(1)}
-                                     </div>
-                                    <p className="text-xs text-gray-500 font-medium">Volumen (m³)</p>
-                                </div>
-                                 <div>
-                                     <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                                   ${includeVAT ? currentSummaryMetrics.weightedConcretePriceWithVAT.toFixed(2) : currentSummaryMetrics.weightedConcretePrice.toFixed(2)}
-                                     </div>
-                                    <p className="text-xs text-gray-500 font-medium text-right">
-                                        Precio Ponderado {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex flex-wrap gap-1 mt-2 max-h-16 overflow-y-auto">
-                              {Object.entries(concreteByRecipe)
-                                .sort(([, a], [, b]) => b.volume - a.volume)
-                                .slice(0, 3)
-                                .map(([recipe, data], index) => (
-                                  <Badge key={`ventas-recipe-${index}-${recipe}`} variant="outline" className="bg-white text-gray-600 border-gray-300 text-xs">
-                                    {recipe}: {data.volume.toFixed(1)} m³
-                                  </Badge>
-                                ))}
-                              {Object.entries(concreteByRecipe).length > 3 && (
-                                <Badge variant="outline" className="bg-white text-gray-500 border-gray-300 text-xs">
-                                  +{Object.entries(concreteByRecipe).length - 3} más
-                                </Badge>
-                              )}
-                            </div>
-                        </CardContent>
-                     </Card>
-                     {/* Pumping */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                        <CardHeader className="border-b border-gray-200/80 bg-gray-50/80 rounded-t-xl px-4 py-3">
-                            <CardTitle className="text-sm font-semibold text-gray-800">Servicio de Bombeo</CardTitle>
-                        </CardHeader>
-                        <CardContent className='p-4 flex justify-between items-start'>
-                            <div>
-                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                              {currentSummaryMetrics.pumpVolume.toFixed(1)}
-                                </div>
-                                <p className="text-xs text-gray-500 font-medium">Volumen (m³)</p>
-                            </div>
-                            <div>
-                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                              ${includeVAT ? currentSummaryMetrics.weightedPumpPriceWithVAT.toFixed(2) : currentSummaryMetrics.weightedPumpPrice.toFixed(2)}
-                                </div>
-                                <p className="text-xs text-gray-500 font-medium text-right">
-                                    Precio Ponderado {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
-                                </p>
-                            </div>
-                         </CardContent>
-                    </Card>
-                     {/* Empty Truck */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                        <CardHeader className="border-b border-gray-200/80 bg-gray-50/80 rounded-t-xl px-4 py-3">
-                            <CardTitle className="text-sm font-semibold text-gray-800">Vacío de Olla</CardTitle>
-                        </CardHeader>
-                        <CardContent className='p-4 flex justify-between items-start'>
-                            <div>
-                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                               {currentSummaryMetrics.emptyTruckVolume.toFixed(1)}
-                                </div>
-                                <p className="text-xs text-gray-500 font-medium">Volumen (m³)</p>
-                            </div>
-                            <div>
-                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                               ${includeVAT ? currentSummaryMetrics.weightedEmptyTruckPriceWithVAT.toFixed(2) : currentSummaryMetrics.weightedEmptyTruckPrice.toFixed(2)}
-                                </div>
-                                <p className="text-xs text-gray-500 font-medium text-right">
-                                    Precio Ponderado {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
-                                </p>
-                            </div>
-                         </CardContent>
-                     </Card>
-
-                 </div>
+          {/* Sales Statistics Cards - Apple HIG Design */}
+          <SalesStatisticsCards
+            loading={false}
+            summaryMetrics={currentSummaryMetrics}
+            concreteByRecipe={concreteByRecipe}
+            includeVAT={includeVAT}
+            VAT_RATE={VAT_RATE}
+            formatNumberWithUnits={formatCurrency}
+          />
 
                  {/* Export Button for PowerBI Layout */}
               <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center space-x-4 text-xs text-muted-foreground">
+                <div className="flex items-center space-x-4">
                   <div className="flex items-center space-x-2">
-                    <span>
-                      {includeVAT ? 
-                        '💡 Mostrando montos con IVA (16%) aplicado a órdenes fiscales' : 
-                        '💡 Mostrando montos sin IVA (solo subtotales)'
+                    <span className="text-callout text-label-secondary">
+                      {includeVAT ?
+                        'Mostrando montos con IVA (16%) aplicado a órdenes fiscales' :
+                        'Mostrando montos sin IVA (solo subtotales)'
                       }
                     </span>
                     {includeVAT && (
@@ -1395,16 +1345,16 @@ export default function VentasDashboard() {
                     </span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-xs font-medium">
-                      📍 Planta: {currentPlant?.name || 'Todas'}
+                    <span className="text-caption font-medium text-label-secondary">
+                      Planta: {currentPlant?.name || 'Todas'}
                     </span>
                     {clientFilter !== 'all' && (
                       <span className="text-xs">
-                        👤 Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
+                        Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
                       </span>
                     )}
-                    <span className="text-xs">
-                      📊 {filteredRemisionesWithVacioDeOlla.length} elementos
+                    <span className="text-caption text-label-tertiary">
+                      {filteredRemisionesWithVacioDeOlla.length} elementos
                     </span>
                   </div>
                 </div>
@@ -1449,117 +1399,35 @@ export default function VentasDashboard() {
                   </div>
                 </div>
               ) : (
-              <div className="space-y-12 mt-12">
-                {/* Row 1: Key Performance Indicators - Apple-like Design */}
+              <div className="space-y-8 mt-12">
+                {/* Row 1: Key Performance Indicators - Apple HIG Design */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                  {/* Payment Distribution - Clean Design */}
-                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
-                      <CardTitle className="text-xl font-medium text-gray-900 tracking-tight flex items-center justify-between">
-                        <span>Efectivo/Fiscal</span>
-                        {includeVAT && (
-                          <Badge variant="outline" className="text-xs border-gray-200 text-gray-600 bg-gray-50/50">
-                            Con IVA
-                          </Badge>
-                        )}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 h-96">
-                      {typeof window !== 'undefined' && cashInvoiceChartSeries.length > 0 ? (
-                        <div className="h-full">
-                          <Chart
-                            options={{
-                              ...cashInvoiceChartOptions,
-                              colors: ['#10B981', '#3B82F6'],
-                              chart: {
-                                ...cashInvoiceChartOptions.chart,
-                                background: 'transparent',
-                                animations: { enabled: true, speed: 800 }
-                              }
-                            }}
-                            series={cashInvoiceChartSeries}
-                            type="donut"
-                            height="100%"
-                          />
-                        </div>
-                      ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <div className="text-center text-gray-500">
-                            <div className="text-lg font-semibold mb-2">No hay datos de facturación</div>
-                            <div className="text-sm">Selecciona un período con datos de ventas</div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  {/* Payment Distribution */}
+                  <PaymentDistributionChart
+                    cashAmount={includeVAT ? currentSummaryMetrics.cashAmountWithVAT : currentSummaryMetrics.cashAmount}
+                    invoiceAmount={includeVAT ? currentSummaryMetrics.invoiceAmountWithVAT : currentSummaryMetrics.invoiceAmount}
+                    includeVAT={includeVAT}
+                    loading={loading || streaming}
+                  />
 
-                  {/* Product Performance - Clean Design */}
-                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
-                      <CardTitle className="text-xl font-medium text-gray-900 tracking-tight">Rendimiento por Producto</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 h-96">
-                      {typeof window !== 'undefined' && productCodeChartSeries.length > 0 && productCodeChartSeries[0].data.length > 0 ? (
-                        <div className="h-full">
-                          <Chart 
-                            options={productCodeChartOptions}
-                            series={productCodeChartSeries}
-                            type="bar"
-                            height="100%"
-                          />
-                        </div>
-                      ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <div className="text-center text-gray-500">
-                            <div className="text-lg font-semibold mb-2">No hay datos de productos</div>
-                            <div className="text-sm">Selecciona un período con datos de ventas</div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  {/* Product Performance */}
+                  <ProductPerformanceChart
+                    data={(includeVAT ? productCodeAmountData : productCodeVolumeData).map(item => ({
+                      name: item.name,
+                      value: includeVAT ? item.amount : item.volume
+                    }))}
+                    includeVAT={includeVAT}
+                    loading={loading || streaming}
+                  />
                 </div>
 
-                {/* Row 2: Client Distribution - Clean Design */}
+                {/* Row 2: Client Distribution */}
                 <div className="grid grid-cols-1 gap-8">
-                  <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                    <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
-                      <CardTitle className="text-xl font-medium text-gray-900 tracking-tight">Distribución de Clientes</CardTitle>
-                    </CardHeader>
-                    <CardContent className="p-6 h-96">
-                      {typeof window !== 'undefined' && clientChartSeries.length > 0 ? (
-                        <div className="h-full">
-                          <Chart
-                            options={{
-                              ...clientChartOptions,
-                              legend: {
-                                ...clientChartOptions.legend,
-                                position: 'bottom',
-                                fontSize: '13px',
-                                          formatter: (seriesName: string, opts: any) => {
-                                  const value = opts.w.globals.series[opts.seriesIndex];
-                                  const formattedValue = includeVAT ? 
-                                    formatCurrency(value) : 
-                                    `${formatNumberWithUnits(value)} m³`;
-                                  return `${seriesName.length > 25 ? seriesName.substring(0, 25) + '...' : seriesName}: ${formattedValue}`;
-                                }
-                              }
-                            }}
-                            series={clientChartSeries}
-                            type="pie"
-                            height="100%"
-                          />
-                        </div>
-                      ) : (
-                        <div className="h-full flex items-center justify-center">
-                          <div className="text-center text-gray-500">
-                            <div className="text-lg font-semibold mb-2">No hay datos de clientes</div>
-                            <div className="text-sm">Selecciona un período con datos de ventas</div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                  <ClientDistributionChart
+                    data={includeVAT ? clientAmountData : clientVolumeData}
+                    includeVAT={includeVAT}
+                    loading={loading || streaming}
+                  />
                 </div>
 
                 {/* Row 3: Comparative Table by Plant - Apple-like Design */}
@@ -1706,6 +1574,23 @@ export default function VentasDashboard() {
               </div>
               )}
 
+              {/* New Executive Charts - Historical Volume and Agent Ranking */}
+              <div className="space-y-8 mt-8">
+                {/* Historical Volume Chart */}
+                <HistoricalVolumeChart
+                  data={historicalVolumeData}
+                  availablePlants={availablePlants}
+                  loading={historicalVolumeLoading}
+                />
+
+                {/* Sales Agent Ranking */}
+                <SalesAgentRankingChart
+                  data={salesAgentData}
+                  loading={salesAgentLoading}
+                  selectedMonth={startDate ? format(startDate, 'MMMM yyyy', { locale: es }) : undefined}
+                />
+              </div>
+
                {/* Información Contextual y Guía de Interpretación */}
                <Card className="mt-8 border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
                  <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
@@ -1721,7 +1606,7 @@ export default function VentasDashboard() {
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                      <div className="space-y-4">
                        <div>
-                         <h4 className="font-semibold text-gray-800 mb-2">📊 Métricas de Ventas</h4>
+                         <h4 className="text-title-3 font-semibold text-label-primary mb-2">Métricas de Ventas</h4>
                          <ul className="text-sm text-gray-600 space-y-1">
                            <li><strong>Total de Ventas:</strong> Monto total facturado en el período seleccionado</li>
                            <li><strong>Volumen Total:</strong> Cantidad total de concreto vendido en m³</li>
@@ -1730,7 +1615,7 @@ export default function VentasDashboard() {
                          </ul>
                        </div>
                        <div>
-                         <h4 className="font-semibold text-gray-800 mb-2">💰 Análisis de Facturación</h4>
+                         <h4 className="text-title-3 font-semibold text-label-primary mb-2">Análisis de Facturación</h4>
                          <ul className="text-sm text-gray-600 space-y-1">
                            <li><strong>Efectivo:</strong> Órdenes pagadas al contado (sin IVA)</li>
                            <li><strong>Fiscal:</strong> Órdenes con factura (incluyen 16% IVA)</li>
@@ -1740,7 +1625,7 @@ export default function VentasDashboard() {
                      </div>
                      <div className="space-y-4">
                        <div>
-                         <h4 className="font-semibold text-gray-800 mb-2">📈 Análisis Histórico</h4>
+                         <h4 className="text-title-3 font-semibold text-label-primary mb-2">Análisis Histórico</h4>
                          <ul className="text-sm text-gray-600 space-y-1">
                            <li><strong>Tendencia de Ventas:</strong> Evolución mensual de ventas y volumen</li>
                            <li><strong>Clientes Activos:</strong> Número de clientes únicos por mes</li>
@@ -1749,7 +1634,7 @@ export default function VentasDashboard() {
                          </ul>
                        </div>
                        <div>
-                         <h4 className="font-semibold text-gray-800 mb-2">🎯 KPIs Comerciales</h4>
+                         <h4 className="text-title-3 font-semibold text-label-primary mb-2">KPIs Comerciales</h4>
                          <ul className="text-sm text-gray-600 space-y-1">
                            <li><strong>Tasa de Cobro:</strong> Eficiencia en la recuperación de facturación</li>
                            <li><strong>Clientes Activos:</strong> Retención y crecimiento de cartera</li>
@@ -1761,7 +1646,7 @@ export default function VentasDashboard() {
                    </div>
                    
                    <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                     <h5 className="font-semibold text-blue-800 mb-2">💡 Insights para la Gestión</h5>
+                     <h5 className="text-title-3 font-semibold text-systemBlue mb-2">Insights para la Gestión</h5>
                      <div className="text-sm text-blue-700 space-y-1">
                        <p><strong>• Eficiencia Operativa:</strong> Monitoree la tendencia de ventas para identificar patrones estacionales</p>
                        <p><strong>• Gestión de Cartera:</strong> Analice la concentración de clientes para diversificar riesgos</p>
@@ -1771,9 +1656,7 @@ export default function VentasDashboard() {
                    </div>
                  </CardContent>
                </Card>
-              </CardContent>
-            </Card>
-        </>
+        </div>
       )}
 
       {/* Debug Tool */}
@@ -1922,6 +1805,7 @@ export default function VentasDashboard() {
           </CardContent>
         </Card>
       )}
+      </div>
     </div>
   );
 }

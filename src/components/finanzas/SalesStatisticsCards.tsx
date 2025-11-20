@@ -5,8 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Info } from "lucide-react";
+import { Info, DollarSign, TrendingUp, Package, Truck, Droplet } from "lucide-react";
 import { formatCurrency } from '@/lib/utils';
+import { motion } from 'framer-motion';
 
 interface SummaryMetrics {
   concreteVolume: number;
@@ -58,9 +59,9 @@ export const SalesStatisticsCards: React.FC<SalesStatisticsCardsProps> = ({
 }) => {
   if (loading) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {[...Array(3)].map((_, i) => (
-          <Skeleton key={i} className="h-32 w-full" />
+          <div key={i} className="glass-thick rounded-3xl h-40 animate-pulse" />
         ))}
       </div>
     );
@@ -68,138 +69,253 @@ export const SalesStatisticsCards: React.FC<SalesStatisticsCardsProps> = ({
 
   return (
     <>
-      {/* Total Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      {/* Total Summary Cards - Apple HIG Style */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {/* Cash Amount */}
-        <Card className="bg-green-50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg text-green-800">Efectivo</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-green-700">
-              {includeVAT ? formatCurrency(summaryMetrics.cashAmountWithVAT) : formatCurrency(summaryMetrics.cashAmount)}
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ delay: 0.1, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+          whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
+          className="glass-thick rounded-3xl p-6 border border-systemGreen/20 bg-gradient-to-br from-systemGreen/10 to-systemGreen/5 hover:shadow-lg transition-shadow duration-200 relative overflow-hidden"
+        >
+          {/* Subtle gradient overlay */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/5 to-transparent rounded-full blur-2xl" />
+
+          <div className="relative">
+            {/* Header with icon */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="p-3 rounded-2xl glass-thin text-systemGreen">
+                <DollarSign className="w-6 h-6" />
+              </div>
             </div>
+
+            {/* Value */}
+            <div className="mb-2">
+              <h3 className="text-title-1 font-bold text-label-primary mb-1">
+                {includeVAT ? formatCurrency(summaryMetrics.cashAmountWithVAT) : formatCurrency(summaryMetrics.cashAmount)}
+              </h3>
+              <p className="text-callout font-medium text-label-secondary">
+                Efectivo
+              </p>
+            </div>
+
+            {/* Subtitle */}
             {includeVAT && (
-              <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+              <p className="text-footnote text-label-tertiary">
+                Con IVA
+              </p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </motion.div>
 
         {/* Invoice Amount */}
-        <Card className="bg-blue-50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg text-blue-800">Fiscal</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-blue-700">
-              {includeVAT ? formatCurrency(summaryMetrics.invoiceAmountWithVAT) : formatCurrency(summaryMetrics.invoiceAmount)}
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ delay: 0.2, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+          whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
+          className="glass-thick rounded-3xl p-6 border border-systemBlue/20 bg-gradient-to-br from-systemBlue/10 to-systemBlue/5 hover:shadow-lg transition-shadow duration-200 relative overflow-hidden"
+        >
+          {/* Subtle gradient overlay */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/5 to-transparent rounded-full blur-2xl" />
+
+          <div className="relative">
+            {/* Header with icon */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="p-3 rounded-2xl glass-thin text-systemBlue">
+                <TrendingUp className="w-6 h-6" />
+              </div>
             </div>
+
+            {/* Value */}
+            <div className="mb-2">
+              <h3 className="text-title-1 font-bold text-label-primary mb-1">
+                {includeVAT ? formatCurrency(summaryMetrics.invoiceAmountWithVAT) : formatCurrency(summaryMetrics.invoiceAmount)}
+              </h3>
+              <p className="text-callout font-medium text-label-secondary">
+                Fiscal
+              </p>
+            </div>
+
+            {/* Subtitle */}
             {includeVAT && (
-              <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
+              <p className="text-footnote text-label-tertiary">
+                Con IVA
+              </p>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </motion.div>
 
         {/* Total Amount */}
-        <Card className="bg-gray-50">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg text-gray-800">Total</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-gray-700">
-              {includeVAT ? formatCurrency(summaryMetrics.totalAmountWithVAT) : formatCurrency(summaryMetrics.totalAmount)}
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ delay: 0.3, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+          whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
+          className="glass-thick rounded-3xl p-6 border border-label-tertiary/20 bg-gradient-to-br from-label-tertiary/5 to-transparent hover:shadow-lg transition-shadow duration-200 relative overflow-hidden"
+        >
+          {/* Subtle gradient overlay */}
+          <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-white/5 to-transparent rounded-full blur-2xl" />
+
+          <div className="relative">
+            {/* Header with icon */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="p-3 rounded-2xl glass-thin text-label-primary">
+                <Package className="w-6 h-6" />
+              </div>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
+
+            {/* Value */}
+            <div className="mb-2">
+              <h3 className="text-title-1 font-bold text-label-primary mb-1">
+                {includeVAT ? formatCurrency(summaryMetrics.totalAmountWithVAT) : formatCurrency(summaryMetrics.totalAmount)}
+              </h3>
+              <p className="text-callout font-medium text-label-secondary">
+                Total
+              </p>
+            </div>
+
+            {/* Subtitle */}
+            <p className="text-footnote text-label-tertiary">
               {includeVAT ? 'Con IVA' : 'Sin IVA'}
             </p>
-          </CardContent>
-        </Card>
+          </div>
+        </motion.div>
       </div>
 
-      {/* Product Type Breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      {/* Product Type Breakdown - Apple HIG Style */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         {/* Concrete */}
-        <Card className="overflow-hidden border-0 shadow-md">
-          <CardHeader className="p-3 pb-1 bg-gradient-to-r from-blue-50 to-blue-100 border-b">
-            <CardTitle className="text-sm font-semibold text-blue-700">CONCRETO PREMEZCLADO</CardTitle>
-          </CardHeader>
-          <CardContent className="p-3">
-            <div className="flex justify-between items-start mb-2">
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ delay: 0.4, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+          whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
+          className="glass-thick rounded-3xl overflow-hidden border border-systemBlue/20 bg-gradient-to-br from-systemBlue/10 to-systemBlue/5 hover:shadow-lg transition-shadow duration-200"
+        >
+          <div className="p-6">
+            {/* Header with icon */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 rounded-2xl glass-thin text-systemBlue">
+                <Droplet className="w-6 h-6" />
+              </div>
+              <h3 className="text-callout font-semibold text-label-primary uppercase tracking-wide">
+                Concreto Premezclado
+              </h3>
+            </div>
+
+            {/* Metrics */}
+            <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
-                <div className="text-2xl font-bold text-slate-800">
-                  {summaryMetrics.concreteVolume.toFixed(1)}
-                </div>
-                <p className="text-xs text-slate-500 font-medium">Volumen (m³)</p>
+                <p className="text-footnote text-label-tertiary mb-1">Volumen</p>
+                <p className="text-title-2 font-bold text-label-primary">
+                  {summaryMetrics.concreteVolume.toFixed(1)} m³
+                </p>
               </div>
               <div>
-                <div className="text-2xl font-bold text-slate-800">
+                <p className="text-footnote text-label-tertiary mb-1">
+                  Precio Ponderado {includeVAT ? '(IVA)' : ''}
+                </p>
+                <p className="text-title-3 font-semibold text-label-primary">
                   ${includeVAT ? summaryMetrics.weightedConcretePriceWithVAT.toFixed(2) : summaryMetrics.weightedConcretePrice.toFixed(2)}
-                </div>
-                <p className="text-xs text-slate-500 font-medium text-right">
-                  PRECIO PONDERADO {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-1 mt-1 max-h-16 overflow-y-auto">
+
+            {/* Recipe badges */}
+            <div className="flex flex-wrap gap-2 max-h-20 overflow-y-auto">
               {Object.entries(concreteByRecipe)
                 .sort(([, a], [, b]) => b.volume - a.volume)
                 .map(([recipe, data], index) => (
-                  <Badge key={`ventas-recipe-${index}-${recipe}`} variant="outline" className="bg-blue-50 text-xs">
+                  <span
+                    key={`ventas-recipe-${index}-${recipe}`}
+                    className="px-2 py-1 glass-thin rounded-xl text-caption font-medium text-label-secondary border border-systemBlue/20"
+                  >
                     {recipe}: {data.volume.toFixed(1)} m³
-                  </Badge>
+                  </span>
                 ))}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </motion.div>
 
         {/* Pumping */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">SERVICIO DE BOMBEO</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-3xl font-bold mb-2">
-              {summaryMetrics.pumpVolume.toFixed(1)}
-            </div>
-            <p className="text-sm text-muted-foreground">Volumen (m³)</p>
-          </CardContent>
-          <CardFooter className="pt-0 border-t">
-            <div className="w-full">
-              <span className="text-sm text-muted-foreground">SubTotal</span>
-              <div className="text-lg font-semibold">
-                ${formatNumberWithUnits(includeVAT ? summaryMetrics.pumpAmount * (1 + VAT_RATE) : summaryMetrics.pumpAmount)}
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ delay: 0.5, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+          whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
+          className="glass-thick rounded-3xl overflow-hidden border border-systemPurple/20 bg-gradient-to-br from-systemPurple/10 to-systemPurple/5 hover:shadow-lg transition-shadow duration-200"
+        >
+          <div className="p-6">
+            {/* Header with icon */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 rounded-2xl glass-thin text-systemPurple">
+                <Truck className="w-6 h-6" />
               </div>
-              {includeVAT && (
-                <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
-              )}
+              <h3 className="text-callout font-semibold text-label-primary uppercase tracking-wide">
+                Servicio de Bombeo
+              </h3>
             </div>
-          </CardFooter>
-        </Card>
+
+            {/* Metrics */}
+            <div className="mb-4">
+              <p className="text-footnote text-label-tertiary mb-1">Volumen</p>
+              <p className="text-title-1 font-bold text-label-primary mb-4">
+                {summaryMetrics.pumpVolume.toFixed(1)} m³
+              </p>
+
+              <div className="pt-4 border-t border-label-tertiary/10">
+                <p className="text-footnote text-label-tertiary mb-1">SubTotal</p>
+                <p className="text-title-3 font-semibold text-label-primary">
+                  ${formatNumberWithUnits(includeVAT ? summaryMetrics.pumpAmount * (1 + VAT_RATE) : summaryMetrics.pumpAmount)}
+                </p>
+                {includeVAT && (
+                  <p className="text-caption text-label-tertiary mt-1">Con IVA</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </motion.div>
 
         {/* Empty Truck */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">VACIO DE OLLA</CardTitle>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="text-3xl font-bold mb-2">
-              {summaryMetrics.emptyTruckVolume.toFixed(1)}
-            </div>
-            <p className="text-sm text-muted-foreground">Volumen (m³)</p>
-          </CardContent>
-          <CardFooter className="pt-0 border-t">
-            <div className="w-full">
-              <span className="text-sm text-muted-foreground">SubTotal</span>
-              <div className="text-lg font-semibold">
-                ${formatNumberWithUnits(includeVAT ? summaryMetrics.emptyTruckAmount * (1 + VAT_RATE) : summaryMetrics.emptyTruckAmount)}
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ delay: 0.6, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+          whileHover={{ y: -4, scale: 1.02, transition: { duration: 0.2 } }}
+          className="glass-thick rounded-3xl overflow-hidden border border-systemOrange/20 bg-gradient-to-br from-systemOrange/10 to-systemOrange/5 hover:shadow-lg transition-shadow duration-200"
+        >
+          <div className="p-6">
+            {/* Header with icon */}
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 rounded-2xl glass-thin text-systemOrange">
+                <Package className="w-6 h-6" />
               </div>
-              {includeVAT && (
-                <p className="text-xs text-muted-foreground mt-1">Con IVA</p>
-              )}
+              <h3 className="text-callout font-semibold text-label-primary uppercase tracking-wide">
+                Vacío de Olla
+              </h3>
             </div>
-          </CardFooter>
-        </Card>
 
+            {/* Metrics */}
+            <div className="mb-4">
+              <p className="text-footnote text-label-tertiary mb-1">Volumen</p>
+              <p className="text-title-1 font-bold text-label-primary mb-4">
+                {summaryMetrics.emptyTruckVolume.toFixed(1)} m³
+              </p>
+
+              <div className="pt-4 border-t border-label-tertiary/10">
+                <p className="text-footnote text-label-tertiary mb-1">SubTotal</p>
+                <p className="text-title-3 font-semibold text-label-primary">
+                  ${formatNumberWithUnits(includeVAT ? summaryMetrics.emptyTruckAmount * (1 + VAT_RATE) : summaryMetrics.emptyTruckAmount)}
+                </p>
+                {includeVAT && (
+                  <p className="text-caption text-label-tertiary mt-1">Con IVA</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </motion.div>
       </div>
     </>
   );

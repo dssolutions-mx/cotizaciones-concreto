@@ -7,12 +7,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { X } from "lucide-react";
+import { X, Search } from "lucide-react";
+import ModernPlantSelector from '@/components/plants/ModernPlantSelector';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-with-presets";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { motion } from 'framer-motion';
 import {
   Popover,
   PopoverContent,
@@ -174,27 +176,27 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
           </div>
         )}
 
-      {/* PowerBI Filters Section */}
+      {/* PowerBI Filters Section - Apple HIG Style */}
       {layoutType === 'powerbi' && (
-        <Card className='border-gray-300'>
-          <CardHeader className='pb-2 pt-2'>
-            <CardTitle className='text-sm font-medium'>FILTROS AVANZADOS</CardTitle>
-          </CardHeader>
-          <CardContent className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 pb-4'>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+          className="glass-thick rounded-3xl p-8 border border-label-tertiary/10"
+        >
+          <h2 className="text-title-3 font-semibold text-label-primary mb-6">
+            Filtros Avanzados
+          </h2>
+          <div className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6'>
             {/* Plant Context Display */}
-            <div className="flex flex-col space-y-1">
-              <Label className="text-xs font-semibold">PLANTA</Label>
-              <PlantContextDisplay showLabel={false} />
-              {currentPlant && (
-                <div className="text-xs text-muted-foreground">
-                  Filtrando por: {currentPlant.name}
-                </div>
-              )}
+            <div className="flex flex-col space-y-2">
+              <Label className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Planta</Label>
+              <ModernPlantSelector showLabel={false} compact={true} />
             </div>
 
             {/* Date Range Picker */}
-            <div className="flex flex-col space-y-1 lg:col-span-2">
-              <Label htmlFor="dateRange" className="text-xs font-semibold">RANGO DE FECHA</Label>
+            <div className="flex flex-col space-y-2 lg:col-span-2">
+              <Label htmlFor="dateRange" className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Rango de Fecha</Label>
               <DateRangePickerWithPresets
                 dateRange={{
                   from: startDate || new Date(),
@@ -206,8 +208,8 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             </div>
 
             {/* Resistencia Filter */}
-            <div className="flex flex-col space-y-1">
-              <Label htmlFor="resistenciaFilter" className="text-xs font-semibold">RESISTENCIA</Label>
+            <div className="flex flex-col space-y-2">
+              <Label htmlFor="resistenciaFilter" className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Resistencia</Label>
               <Select value={resistanceFilter} onValueChange={onResistanceFilterChange}>
                 <SelectTrigger id="resistenciaFilter" className="w-full h-8">
                   <SelectValue placeholder="Todas" />
@@ -220,8 +222,8 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             </div>
 
             {/* Cliente Filter */}
-            <div className="flex flex-col space-y-1">
-              <Label htmlFor="clientFilterPowerBI" className="text-xs font-semibold">CLIENTE</Label>
+            <div className="flex flex-col space-y-2">
+              <Label htmlFor="clientFilterPowerBI" className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Cliente</Label>
               <Select value={clientFilter} onValueChange={onClientFilterChange}>
                 <SelectTrigger id="clientFilterPowerBI" className="w-full h-8">
                   <SelectValue placeholder="All" />
@@ -238,8 +240,8 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             </div>
 
             {/* Efectivo/Fiscal Filter */}
-            <div className="flex flex-col space-y-1">
-              <Label htmlFor="efectivoFiscalFilter" className="text-xs font-semibold">EFECTIVO/FISCAL</Label>
+            <div className="flex flex-col space-y-2">
+              <Label htmlFor="efectivoFiscalFilter" className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Efectivo/Fiscal</Label>
               <Select value={efectivoFiscalFilter} onValueChange={onEfectivoFiscalFilterChange}>
                 <SelectTrigger id="efectivoFiscalFilter" className="w-full h-8">
                   <SelectValue placeholder="Todos" />
@@ -253,8 +255,8 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             </div>
 
             {/* Tipo Filter - Multi-select */}
-            <div className="flex flex-col space-y-1">
-              <Label className="text-xs font-semibold">TIPO</Label>
+            <div className="flex flex-col space-y-2">
+              <Label className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Tipo</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button 
@@ -335,8 +337,8 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             </div>
 
             {/* Codigo Producto Filter - Multi-select */}
-            <div className="flex flex-col space-y-1">
-              <Label className="text-xs font-semibold">CODIGO PRODUCTO</Label>
+            <div className="flex flex-col space-y-2">
+              <Label className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Código Producto</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button 
@@ -417,8 +419,8 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             </div>
 
             {/* VAT Toggle */}
-            <div className="flex flex-col space-y-1">
-              <Label className="text-xs font-semibold">INCLUIR IVA</Label>
+            <div className="flex flex-col space-y-2">
+              <Label className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Incluir IVA</Label>
               <div className="flex items-center space-x-2 h-8">
                 <Switch
                   id="vat-toggle"
@@ -430,8 +432,8 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
                 </Label>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </motion.div>
       )}
     </div>
   );
