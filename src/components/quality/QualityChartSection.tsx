@@ -48,18 +48,15 @@ export function QualityChartSection({
   }, [datosGrafico]);
 
     const mapChartPoint = (item: DatoGraficoResistencia, idx: number) => {
-    const dateObj = new Date(item.x);
-    const formattedDate = format(dateObj, 'dd/MM/yyyy');
-
-    // For MUI X Charts, we need a simpler data structure
-    // The chart expects basic x, y coordinates plus any additional data for tooltips
+    // For MUI X Charts, we need Date objects for x-axis and numeric values for y-axis
+    // Store additional data for tooltip display
     return {
       id: idx,
-      x: item.x, // Timestamp for x-axis
-      y: item.y, // Compliance percentage for y-axis
-      fecha_muestreo: formattedDate,
-      fecha_ensayo: item.fecha_ensayo,
-      cumplimiento: `${item.y.toFixed(2)}%`,
+      x: new Date(item.x), // Date object for x-axis (time scale)
+      y: Number(item.y.toFixed(2)), // Compliance percentage rounded to 2 decimals
+      fecha_muestreo: format(new Date(item.x), 'dd/MM/yyyy'),
+      fecha_ensayo: item.fecha_ensayo || 'N/A',
+      cumplimiento: item.y.toFixed(2),
       resistencia_real: item.resistencia_calculada,
       clasificacion: item.clasificacion,
       edad: item.edad,
@@ -120,20 +117,6 @@ export function QualityChartSection({
     });
   }, [seriesBuckets]);
 
-  // Custom tooltip formatter for MUI X Charts
-  const formatTooltipContent = (params: any) => {
-    if (!params || !params.datum) return '';
-
-    const muestreoDate = params.datum.fecha_muestreo || format(new Date(params.datum.x), 'dd/MM/yyyy');
-    const ensayoDate = params.datum.fecha_ensayo || 'N/A';
-    const compliance = params.datum.cumplimiento || `${params.datum.y.toFixed(2)}%`;
-
-    return `<div style="padding: 2px">
-      <div><b>Fecha Muestreo:</b> ${muestreoDate}</div>
-      <div><b>Fecha Ensayo:</b> ${ensayoDate}</div>
-      <div><b>Cumplimiento:</b> ${compliance}</div>
-    </div>`;
-  };
 
   if (loading) {
     return (
@@ -187,14 +170,19 @@ export function QualityChartSection({
                 series={chartSeries}
                 xAxis={[{
                   scaleType: 'time',
-                  data: datosGrafico.map(d => new Date(d.x)),
-                  valueFormatter: (value) => format(new Date(value), 'dd/MM'),
+                  valueFormatter: (value) => {
+                    if (value instanceof Date) {
+                      return format(value, 'dd/MM');
+                    }
+                    return format(new Date(value), 'dd/MM');
+                  },
                   tickNumber: Math.min(7, datosGrafico.length),
                   tickMinStep: 24 * 3600 * 1000, // 1 day minimum interval
                   tickLabelStyle: {
                     angle: 0,
                     textAnchor: 'middle',
-                    fontSize: 12
+                    fontSize: 12,
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                   }
                 }]}
                 yAxis={[{
@@ -202,8 +190,10 @@ export function QualityChartSection({
                   max: Math.max(110, ...datosGrafico.map(d => d.y)) + 10,
                   scaleType: 'linear',
                   label: 'Porcentaje de Cumplimiento (%)',
+                  valueFormatter: (value) => `${Number(value).toFixed(2)}%`,
                   tickLabelStyle: {
-                    fontSize: 12
+                    fontSize: 12,
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                   }
                 }]}
                 height={400}
@@ -231,31 +221,42 @@ export function QualityChartSection({
                 }}
                 slotProps={{
                   tooltip: {
+                    valueFormatter: (value) => {
+                      // Format y-axis values (percentages) to 2 decimals
+                      return `${Number(value).toFixed(2)}%`;
+                    },
+                    axisContent: ({ axisValue }) => {
+                      // Format x-axis (date) in tooltip header
+                      if (axisValue instanceof Date) {
+                        return format(axisValue, 'dd/MM/yyyy');
+                      }
+                      if (typeof axisValue === 'number') {
+                        return format(new Date(axisValue), 'dd/MM/yyyy');
+                      }
+                      return format(new Date(axisValue), 'dd/MM/yyyy');
+                    },
                     sx: {
                       zIndex: 100,
                       boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
                       backgroundColor: 'rgba(255,255,255,0.95)',
-                      backdropFilter: 'blur(8px)',
+                      backdropFilter: 'blur(20px) saturate(180%)',
                       border: '1px solid rgba(229,231,235,0.8)',
                       borderRadius: '12px',
                       padding: '16px',
                       minWidth: '280px',
-                      // Enhanced tooltip styling
+                      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                       '& .MuiChartsTooltip-table': {
                         padding: '0',
                         fontSize: '13px',
                         margin: 0,
-                        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
                         width: '100%'
                       },
-                      // Hide marker and series cells for cleaner look
                       '& .MuiChartsTooltip-markCell': {
                         display: 'none'
                       },
                       '& .MuiChartsTooltip-seriesCell': {
                         display: 'none'
                       },
-                      // Enhanced cell styling
                       '& .MuiChartsTooltip-cell': {
                         padding: '8px 0',
                         borderBottom: '1px solid rgba(229,231,235,0.5)',
@@ -272,7 +273,6 @@ export function QualityChartSection({
                         color: '#6b7280',
                         textAlign: 'left'
                       },
-                      // Header styling
                       '& .MuiChartsTooltip-header': {
                         backgroundColor: 'rgba(59,130,246,0.1)',
                         borderBottom: '2px solid rgba(59,130,246,0.2)',
@@ -280,7 +280,8 @@ export function QualityChartSection({
                         margin: '-16px -16px 16px -16px',
                         borderRadius: '12px 12px 0 0',
                         color: '#1e40af',
-                        fontWeight: '600'
+                        fontWeight: '600',
+                        fontSize: '13px'
                       }
                     }
                   }
@@ -296,27 +297,32 @@ export function QualityChartSection({
                   lineStyle={{
                     stroke: '#94a3b8',
                     strokeWidth: 1,
-                    strokeDasharray: '4 4'
+                    strokeDasharray: '4 4',
+                    opacity: 0.6
                   }}
                   label="90%"
                   labelAlign="end"
                   labelStyle={{
                     fill: '#64748b',
-                    fontSize: 11
+                    fontSize: 11,
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                   }}
                 />
                 <ChartsReferenceLine
                   y={100}
                   lineStyle={{
-                    stroke: '#FF4560',
+                    stroke: '#FF3B30',
                     strokeWidth: 1.5,
-                    strokeDasharray: '5 5'
+                    strokeDasharray: '5 5',
+                    opacity: 0.8
                   }}
                   label="100% Cumplimiento"
                   labelAlign="end"
                   labelStyle={{
-                    fill: '#FF4560',
-                    fontSize: 12
+                    fill: '#FF3B30',
+                    fontSize: 12,
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                    fontWeight: '600'
                   }}
                 />
               </ScatterChart>

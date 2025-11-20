@@ -65,7 +65,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
 
   if (loading) {
     return (
-      <div className={`mt-6 p-6 border border-slate-200 rounded-lg bg-white shadow-sm ${className}`}>
+      <div className={`mt-6 glass-thick rounded-xl border border-slate-200 p-6 ${className}`}>
         <div className="flex items-center justify-between mb-4">
           <Skeleton className="h-5 w-48" />
           <Skeleton className="h-8 w-20" />
@@ -81,18 +81,18 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
 
   if (error || !analysisData) {
     return (
-      <div className={`mt-6 p-6 border border-red-200 rounded-lg bg-red-50 shadow-sm ${className}`}>
+      <div className={`mt-6 glass-thick rounded-xl border border-systemRed/20 bg-systemRed/10 p-6 ${className}`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-600" />
-            <h3 className="text-base font-semibold text-red-800">Error en el Análisis</h3>
+            <AlertTriangle className="w-4 h-4 text-systemRed" />
+            <h3 className="text-body font-semibold text-systemRed">Error en el Análisis</h3>
           </div>
-          <Button size="sm" variant="ghost" onClick={onClose}>
+          <Button size="sm" variant="ghost" onClick={onClose} className="glass-thin rounded-xl">
             <X className="w-4 h-4" />
           </Button>
         </div>
-        <p className="text-sm text-red-700 mb-4">{error || 'No se pudieron cargar los datos'}</p>
-        <Button size="sm" variant="outline" onClick={onClose}>
+        <p className="text-footnote text-systemRed mb-4">{error || 'No se pudieron cargar los datos'}</p>
+        <Button size="sm" variant="outline" onClick={onClose} className="glass-thin rounded-xl">
           Cerrar
         </Button>
       </div>
@@ -138,15 +138,15 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
   return (
     <div className={`mt-6 space-y-4 ${className}`}>
       {/* Header Section */}
-      <Card className="bg-white border-slate-200 shadow-sm">
+      <Card className="glass-thick rounded-xl border border-slate-200">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CardTitle className="text-2xl font-semibold text-slate-900 tracking-tight">
+              <CardTitle className="text-title-2 font-semibold text-slate-900">
                 Análisis Detallado del Punto
               </CardTitle>
               {point.isAggregated && (
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="text-footnote glass-thin rounded-full">
                   Promedio de {point.aggregatedCount || 2} muestras
                 </Badge>
               )}
@@ -155,6 +155,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
               size="sm"
               variant="ghost"
               onClick={onClose}
+              className="glass-thin rounded-xl"
             >
               <X className="w-4 h-4" />
             </Button>
@@ -164,95 +165,95 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
         <CardContent>
           {/* Quick Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+            <div className="text-center p-4 glass-thin rounded-xl border border-slate-200">
               <div className="mb-3">
                 <Target className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-                <span className="text-xs font-medium text-slate-600 block">Cumplimiento</span>
+                <span className="text-footnote font-medium text-slate-600 block">Cumplimiento</span>
               </div>
-              <p className="text-3xl font-semibold text-slate-900 mb-2">
+              <p className="text-title-1 font-bold text-slate-900 mb-2">
                 {point.y.toFixed(1)}%
               </p>
               <Badge
                 variant={complianceStatus.status === 'success' ? 'default' :
                          complianceStatus.status === 'warning' ? 'secondary' : 'destructive'}
-                className="text-xs"
+                className="text-footnote glass-thin rounded-full"
               >
                 {complianceStatus.text}
               </Badge>
             </div>
 
-            <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+            <div className="text-center p-4 glass-thin rounded-xl border border-slate-200">
               <div className="mb-3">
                 <Zap className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-                <span className="text-xs font-medium text-slate-600 block">Resistencia</span>
+                <span className="text-footnote font-medium text-slate-600 block">Resistencia</span>
               </div>
-              <p className="text-3xl font-semibold text-slate-900 mb-1">
+              <p className="text-title-1 font-bold text-slate-900 mb-1">
                 {point.resistencia_calculada ?
                   `${typeof point.resistencia_calculada === 'number' ? point.resistencia_calculada.toFixed(1) : point.resistencia_calculada}` :
                   'N/A'
                 }
               </p>
-              <p className="text-xs text-slate-500">kg/cm²</p>
+              <p className="text-footnote text-slate-500">kg/cm²</p>
             </div>
 
-            <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+            <div className="text-center p-4 glass-thin rounded-xl border border-slate-200">
               <div className="mb-3">
                 <Calendar className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-                <span className="text-xs font-medium text-slate-600 block">Edad</span>
+                <span className="text-footnote font-medium text-slate-600 block">Edad</span>
               </div>
-              <p className="text-3xl font-semibold text-slate-900 mb-1">
+              <p className="text-title-1 font-bold text-slate-900 mb-1">
                 {point.edad}
               </p>
-              <p className="text-xs text-slate-500">días</p>
+              <p className="text-footnote text-slate-500">días</p>
             </div>
 
-            <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+            <div className="text-center p-4 glass-thin rounded-xl border border-slate-200">
               <div className="mb-3">
                 <Beaker className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-                <span className="text-xs font-medium text-slate-600 block">Muestras</span>
+                <span className="text-footnote font-medium text-slate-600 block">Muestras</span>
               </div>
-              <p className="text-3xl font-semibold text-slate-900 mb-1">
+              <p className="text-title-1 font-bold text-slate-900 mb-1">
                 {analysisData.muestras.length}
               </p>
-              <p className="text-xs text-slate-500">total</p>
+              <p className="text-footnote text-slate-500">total</p>
             </div>
             {/* Rendimiento Volumétrico */}
             {typeof analysisData.rendimientoVolumetrico === 'number' && analysisData.rendimientoVolumetrico > 0 && (
-              <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+              <div className="text-center p-4 glass-thin rounded-xl border border-slate-200">
                 <div className="mb-3">
                   <TrendingUp className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-                  <span className="text-xs font-medium text-slate-600 block">Rendimiento</span>
+                  <span className="text-footnote font-medium text-slate-600 block">Rendimiento</span>
                 </div>
-                <p className="text-3xl font-semibold text-slate-900 mb-1">
+                <p className="text-title-1 font-bold text-slate-900 mb-1">
                   {analysisData.rendimientoVolumetrico.toFixed(2)}%
                 </p>
-                <p className="text-xs text-slate-500">volumen real vs. registrado</p>
+                <p className="text-footnote text-slate-500">volumen real vs. registrado</p>
               </div>
             )}
             {/* Consumo Real de Cemento */}
             {typeof analysisData.consumoCementoReal === 'number' && analysisData.consumoCementoReal > 0 && (
-              <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+              <div className="text-center p-4 glass-thin rounded-xl border border-slate-200">
                 <div className="mb-3">
                   <Beaker className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-                  <span className="text-xs font-medium text-slate-600 block">Consumo Real</span>
+                  <span className="text-footnote font-medium text-slate-600 block">Consumo Real</span>
                 </div>
-                <p className="text-3xl font-semibold text-slate-900 mb-1">
+                <p className="text-title-1 font-bold text-slate-900 mb-1">
                   {analysisData.consumoCementoReal.toFixed(2)}
                 </p>
-                <p className="text-xs text-slate-500">kg/m³ cemento</p>
+                <p className="text-footnote text-slate-500">kg/m³ cemento</p>
               </div>
             )}
             {/* Eficiencia Real */}
             {typeof analysisData.eficiencia === 'number' && analysisData.eficiencia > 0 && (
-              <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+              <div className="text-center p-4 glass-thin rounded-xl border border-slate-200">
                 <div className="mb-3">
                   <Activity className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-                  <span className="text-xs font-medium text-slate-600 block">Eficiencia</span>
+                  <span className="text-footnote font-medium text-slate-600 block">Eficiencia</span>
                 </div>
-                <p className="text-3xl font-semibold text-slate-900 mb-1">
+                <p className="text-title-1 font-bold text-slate-900 mb-1">
                   {analysisData.eficiencia.toFixed(3)}
                 </p>
-                <p className="text-xs text-slate-500">kg/cm² por kg de cemento</p>
+                <p className="text-footnote text-slate-500">kg/cm² por kg de cemento</p>
               </div>
             )}
           </div>
@@ -261,7 +262,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
 
       {/* Detailed Analysis Tabs */}
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid w-full grid-cols-4 bg-white border-slate-200">
+        <TabsList className="grid w-full grid-cols-4 glass-thick rounded-xl border border-slate-200">
           <TabsTrigger value="overview">
             <Activity className="w-4 h-4 mr-2" />
             Resumen
@@ -284,9 +285,9 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
         <TabsContent value="overview" className="mt-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Technical Specifications */}
-            <Card className="bg-white border-slate-200 shadow-sm">
+            <Card className="glass-thick rounded-xl border border-slate-200">
               <CardHeader className="pb-3">
-                <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+                <CardTitle className="text-title-3 font-semibold text-slate-900 flex items-center gap-2">
                   <Target className="w-5 h-5 text-slate-400" />
                   Especificaciones Técnicas
                 </CardTitle>
@@ -294,34 +295,34 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <p className="text-sm text-slate-600">Resistencia Objetivo:</p>
-                    <p className="font-semibold text-lg text-blue-600">
+                    <p className="text-footnote text-slate-600">Resistencia Objetivo:</p>
+                    <p className="text-title-3 font-semibold text-systemBlue">
                       {analysisData.recipe.strength_fc} kg/cm²
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-sm text-slate-600">Revenimiento:</p>
-                    <p className="font-semibold text-lg text-green-600">
+                    <p className="text-footnote text-slate-600">Revenimiento:</p>
+                    <p className="text-title-3 font-semibold text-systemGreen">
                       {analysisData.recipe.slump} cm
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-sm text-slate-600">Edad de Diseño:</p>
-                    <p className="font-semibold text-lg text-purple-600">
+                    <p className="text-footnote text-slate-600">Edad de Diseño:</p>
+                    <p className="text-title-3 font-semibold text-purple-600">
                       {analysisData.recipe.age_days} días
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-sm text-slate-600">Clasificación:</p>
-                    <p className="font-semibold text-lg text-orange-600">
+                    <p className="text-footnote text-slate-600">Clasificación:</p>
+                    <p className="text-title-3 font-semibold text-systemOrange">
                       {analysisData.muestreo.concrete_specs?.clasificacion || 'FC'}
                     </p>
                   </div>
                 </div>
                 
                 <div className="pt-4 border-t border-slate-200">
-                  <p className="text-sm text-slate-600 mb-2">Código de Receta:</p>
-                  <Badge variant="outline" className="text-sm font-mono bg-slate-50">
+                  <p className="text-footnote text-slate-600 mb-2">Código de Receta:</p>
+                  <Badge variant="outline" className="text-footnote font-mono glass-thin rounded-full">
                     {analysisData.recipe.recipe_code}
                   </Badge>
                 </div>
@@ -329,9 +330,9 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             </Card>
 
             {/* Muestreo Conditions */}
-            <Card className="bg-white border-slate-200 shadow-sm">
+            <Card className="glass-thick rounded-xl border border-slate-200">
               <CardHeader className="pb-3">
-                <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+                <CardTitle className="text-title-3 font-semibold text-slate-900 flex items-center gap-2">
                   <Thermometer className="w-5 h-5 text-slate-400" />
                   Condiciones del Muestreo
                 </CardTitle>
@@ -339,34 +340,34 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <p className="text-sm text-slate-600">Temperatura Ambiente:</p>
-                    <p className="font-semibold text-lg text-blue-600">
+                    <p className="text-footnote text-slate-600">Temperatura Ambiente:</p>
+                    <p className="text-title-3 font-semibold text-systemBlue">
                       {analysisData.muestreo.temperatura_ambiente}°C
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-sm text-slate-600">Temperatura Concreto:</p>
-                    <p className="font-semibold text-lg text-green-600">
+                    <p className="text-footnote text-slate-600">Temperatura Concreto:</p>
+                    <p className="text-title-3 font-semibold text-systemGreen">
                       {analysisData.muestreo.temperatura_concreto}°C
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-sm text-slate-600">Revenimiento Sitio:</p>
-                    <p className="font-semibold text-lg text-purple-600">
+                    <p className="text-footnote text-slate-600">Revenimiento Sitio:</p>
+                    <p className="text-title-3 font-semibold text-purple-600">
                       {analysisData.muestreo.revenimiento_sitio} cm
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <p className="text-sm text-slate-600">Masa Unitaria:</p>
-                    <p className="font-semibold text-lg text-orange-600">
+                    <p className="text-footnote text-slate-600">Masa Unitaria:</p>
+                    <p className="text-title-3 font-semibold text-systemOrange">
                       {analysisData.muestreo.masa_unitaria} kg/m³
                     </p>
                   </div>
                 </div>
                 
                 <div className="pt-4 border-t border-slate-200">
-                  <p className="text-sm text-slate-600 mb-2">Fecha de Muestreo:</p>
-                  <p className="font-semibold text-slate-800">
+                  <p className="text-footnote text-slate-600 mb-2">Fecha de Muestreo:</p>
+                  <p className="text-body font-semibold text-slate-800">
                     {analysisData.muestreo.fecha_muestreo_ts 
                       ? formatDateTime(analysisData.muestreo.fecha_muestreo_ts, analysisData.muestreo.event_timezone)
                       : formatDate(analysisData.muestreo.fecha_muestreo)
@@ -384,39 +385,39 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
           
           {/* Fallback information if no evolution data */}
           {analysisData.resistanceEvolution.length === 0 && (
-            <Card className="bg-amber-50 border-amber-200 mt-4">
+            <Card className="glass-thick rounded-xl border border-systemOrange/20 bg-systemOrange/10 mt-4">
               <CardContent className="pt-6">
                 <div className="text-center">
-                  <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-amber-500" />
-                  <h4 className="text-lg font-semibold text-amber-800 mb-2">
+                  <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-systemOrange" />
+                  <h4 className="text-title-3 font-semibold text-systemOrange mb-2">
                     Información Limitada de Evolución
                   </h4>
-                  <p className="text-amber-700 mb-4">
+                  <p className="text-body text-systemOrange mb-4">
                     Solo se encontraron datos para una fecha de ensayo.
                     Para ver la evolución completa, se necesitan ensayos en diferentes fechas para mostrar el progreso de la resistencia a través del tiempo.
                   </p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="text-center p-3 bg-amber-100 rounded-lg">
-                      <p className="text-sm font-medium text-amber-800">Fecha Muestreo</p>
-                      <p className="text-lg font-bold text-amber-900">
+                    <div className="text-center p-3 glass-thin rounded-xl border border-systemOrange/20">
+                      <p className="text-footnote font-medium text-systemOrange">Fecha Muestreo</p>
+                      <p className="text-title-3 font-bold text-systemOrange">
                         {new Date(analysisData.muestreo.fecha_muestreo).toLocaleDateString('es-ES')}
                       </p>
                     </div>
-                    <div className="text-center p-3 bg-amber-100 rounded-lg">
-                      <p className="text-sm font-medium text-amber-800">Muestras</p>
-                      <p className="text-lg font-bold text-amber-900">
+                    <div className="text-center p-3 glass-thin rounded-xl border border-systemOrange/20">
+                      <p className="text-footnote font-medium text-systemOrange">Muestras</p>
+                      <p className="text-title-3 font-bold text-systemOrange">
                         {analysisData.muestras.length}
                       </p>
                     </div>
-                    <div className="text-center p-3 bg-amber-100 rounded-lg">
-                      <p className="text-sm font-medium text-amber-800">Ensayos</p>
-                      <p className="text-lg font-bold text-amber-900">
+                    <div className="text-center p-3 glass-thin rounded-xl border border-systemOrange/20">
+                      <p className="text-footnote font-medium text-systemOrange">Ensayos</p>
+                      <p className="text-title-3 font-bold text-systemOrange">
                         {analysisData.muestras.reduce((sum, m) => sum + m.ensayos.length, 0)}
                       </p>
                     </div>
-                    <div className="text-center p-3 bg-amber-100 rounded-lg">
-                      <p className="text-sm font-medium text-amber-800">Estado</p>
-                      <p className="text-sm font-medium text-amber-900">
+                    <div className="text-center p-3 glass-thin rounded-xl border border-systemOrange/20">
+                      <p className="text-footnote font-medium text-systemOrange">Estado</p>
+                      <p className="text-footnote font-medium text-systemOrange">
                         {analysisData.muestras.some(m => m.estado === 'ENSAYADO') ? 'Ensayado' : 'Pendiente'}
                       </p>
                     </div>
@@ -429,9 +430,9 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
 
         {/* Samples Tab */}
         <TabsContent value="samples" className="mt-4">
-          <Card className="bg-white border-slate-200 shadow-sm">
+          <Card className="glass-thick rounded-xl border border-slate-200">
             <CardHeader className="pb-3">
-              <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+              <CardTitle className="text-title-3 font-semibold text-slate-900 flex items-center gap-2">
                 <Beaker className="w-5 h-5 text-slate-400" />
                 Detalle de Muestras y Ensayos
               </CardTitle>
@@ -439,19 +440,20 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             <CardContent>
               <div className="space-y-4">
                 {analysisData.muestras.map((muestra, index) => (
-                  <div key={muestra.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50/50">
+                  <div key={muestra.id} className="glass-thin rounded-xl border border-slate-200 p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
-                        <Badge variant="outline" className="bg-blue-50 text-blue-700">
+                        <Badge variant="outline" className="glass-thin rounded-full text-footnote text-systemBlue">
                           {muestra.tipo_muestra}
                         </Badge>
-                        <span className="font-medium text-slate-800">
+                        <span className="text-body font-medium text-slate-800">
                           {muestra.identificacion}
                         </span>
                       </div>
                       <Badge 
                         variant={muestra.estado === 'ENSAYADO' ? 'default' : 
                                  muestra.estado === 'PENDIENTE' ? 'secondary' : 'destructive'}
+                        className="glass-thin rounded-full text-footnote"
                       >
                         {muestra.estado}
                       </Badge>
@@ -459,20 +461,20 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <p className="text-sm text-slate-600">Fecha Programada:</p>
-                        <p className="font-medium text-slate-800">
+                        <p className="text-footnote text-slate-600">Fecha Programada:</p>
+                        <p className="text-body font-medium text-slate-800">
                           {formatDate(muestra.fecha_programada_ensayo)}
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-slate-600">Ensayos Realizados:</p>
-                        <p className="font-medium text-slate-800">
+                        <p className="text-footnote text-slate-600">Ensayos Realizados:</p>
+                        <p className="text-body font-medium text-slate-800">
                           {muestra.ensayos.length}
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-slate-600">Estado:</p>
-                        <p className="font-medium text-slate-800">
+                        <p className="text-footnote text-slate-600">Estado:</p>
+                        <p className="text-body font-medium text-slate-800">
                           {muestra.estado}
                         </p>
                       </div>
@@ -480,14 +482,14 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                     
                     {muestra.ensayos.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-slate-200">
-                        <h4 className="font-medium text-slate-700 mb-3">Resultados de Ensayos:</h4>
+                        <h4 className="text-body font-medium text-slate-700 mb-3">Resultados de Ensayos:</h4>
                         <div className="space-y-2">
                           {muestra.ensayos.map((ensayo) => (
-                            <div key={ensayo.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-slate-200">
+                            <div key={ensayo.id} className="flex items-center justify-between p-3 glass-thin rounded-xl border border-slate-200">
                               <div className="flex items-center gap-4">
                                 <div>
-                                  <p className="text-sm text-slate-600">Fecha:</p>
-                                  <p className="font-medium text-slate-800">
+                                  <p className="text-footnote text-slate-600">Fecha:</p>
+                                  <p className="text-body font-medium text-slate-800">
                                     {ensayo.fecha_ensayo_ts 
                                       ? formatDateTime(ensayo.fecha_ensayo_ts, ensayo.event_timezone)
                                       : formatDate(ensayo.fecha_ensayo)
@@ -495,14 +497,14 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                                   </p>
                                 </div>
                                 <div>
-                                  <p className="text-sm text-slate-600">Carga:</p>
-                                  <p className="font-medium text-slate-800">
+                                  <p className="text-footnote text-slate-600">Carga:</p>
+                                  <p className="text-body font-medium text-slate-800">
                                     {ensayo.carga_kg.toFixed(1)} kg
                                   </p>
                                 </div>
                                 <div>
-                                  <p className="text-sm text-slate-600">Resistencia:</p>
-                                  <p className="font-medium text-slate-800">
+                                  <p className="text-footnote text-slate-600">Resistencia:</p>
+                                  <p className="text-body font-medium text-slate-800">
                                     {ensayo.resistencia_calculada.toFixed(1)} kg/cm²
                                   </p>
                                 </div>
@@ -511,6 +513,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                                 <Badge 
                                   variant={ensayo.porcentaje_cumplimiento >= 100 ? 'default' : 
                                            ensayo.porcentaje_cumplimiento >= 90 ? 'secondary' : 'destructive'}
+                                  className="glass-thin rounded-full text-footnote"
                                 >
                                   {ensayo.porcentaje_cumplimiento.toFixed(1)}%
                                 </Badge>
@@ -531,9 +534,9 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
         <TabsContent value="project" className="mt-4">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Project Information */}
-            <Card className="bg-white border-slate-200 shadow-sm">
+            <Card className="glass-thick rounded-xl border border-slate-200">
               <CardHeader className="pb-3">
-                <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+                <CardTitle className="text-title-3 font-semibold text-slate-900 flex items-center gap-2">
                   <Building2 className="w-5 h-5 text-slate-400" />
                   Información del Proyecto
                 </CardTitle>
@@ -543,8 +546,8 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                   <div className="flex items-center gap-3">
                     <Building2 className="w-4 h-4 text-slate-500" />
                     <div>
-                      <p className="text-sm text-slate-600">Cliente:</p>
-                      <p className="font-medium text-slate-800">
+                      <p className="text-footnote text-slate-600">Cliente:</p>
+                      <p className="text-body font-medium text-slate-800">
                         {analysisData.project.client_name}
                       </p>
                     </div>
@@ -553,8 +556,8 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                   <div className="flex items-center gap-3">
                     <MapPin className="w-4 h-4 text-slate-500" />
                     <div>
-                      <p className="text-sm text-slate-600">Obra:</p>
-                      <p className="font-medium text-slate-800">
+                      <p className="text-footnote text-slate-600">Obra:</p>
+                      <p className="text-body font-medium text-slate-800">
                         {analysisData.project.construction_site}
                       </p>
                     </div>
@@ -563,8 +566,8 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                   <div className="flex items-center gap-3">
                     <FileText className="w-4 h-4 text-slate-500" />
                     <div>
-                      <p className="text-sm text-slate-600">Orden:</p>
-                      <p className="font-medium text-slate-800">
+                      <p className="text-footnote text-slate-600">Orden:</p>
+                      <p className="text-body font-medium text-slate-800">
                         {analysisData.project.order_number}
                       </p>
                     </div>
@@ -574,9 +577,9 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             </Card>
 
             {/* Plant Information */}
-            <Card className="bg-white border-slate-200 shadow-sm">
+            <Card className="glass-thick rounded-xl border border-slate-200">
               <CardHeader className="pb-3">
-                <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+                <CardTitle className="text-title-3 font-semibold text-slate-900 flex items-center gap-2">
                   <Droplets className="w-5 h-5 text-slate-400" />
                   Información de la Planta
                 </CardTitle>
@@ -584,15 +587,15 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
               <CardContent className="space-y-4">
                 <div className="space-y-3">
                   <div>
-                    <p className="text-sm text-slate-600">Planta:</p>
-                    <Badge variant="outline" className="text-sm bg-slate-50">
+                    <p className="text-footnote text-slate-600">Planta:</p>
+                    <Badge variant="outline" className="text-footnote glass-thin rounded-full">
                       {analysisData.muestreo.planta}
                     </Badge>
                   </div>
                   
                   <div>
-                    <p className="text-sm text-slate-600">Fecha de Muestreo:</p>
-                    <p className="font-medium text-slate-800">
+                    <p className="text-footnote text-slate-600">Fecha de Muestreo:</p>
+                    <p className="text-body font-medium text-slate-800">
                       {analysisData.muestreo.fecha_muestreo_ts 
                         ? formatDateTime(analysisData.muestreo.fecha_muestreo_ts, analysisData.muestreo.event_timezone)
                         : formatDate(analysisData.muestreo.fecha_muestreo)
@@ -601,8 +604,8 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
                   </div>
                   
                   <div>
-                    <p className="text-sm text-slate-600">Clasificación:</p>
-                    <p className="font-medium text-slate-800">
+                    <p className="text-footnote text-slate-600">Clasificación:</p>
+                    <p className="text-body font-medium text-slate-800">
                       {analysisData.muestreo.concrete_specs?.clasificacion || 'No especificada'}
                     </p>
                   </div>
@@ -614,13 +617,13 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
       </Tabs>
 
       {/* Action Buttons */}
-      <Card className="bg-white border-slate-200 shadow-sm">
+      <Card className="glass-thick rounded-xl border border-slate-200">
         <CardContent className="pt-6">
           <div className="flex flex-wrap gap-3 justify-center">
             <Button 
               size="sm" 
               variant="default"
-              className="bg-blue-600 hover:bg-blue-700"
+              className="glass-interactive rounded-xl"
               onClick={() => {
                 const params = new URLSearchParams();
                 if (analysisData.project.client_name !== 'No disponible') {
@@ -644,7 +647,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
               <Button 
                 size="sm" 
                 variant="default"
-                className="bg-green-600 hover:bg-green-700"
+                className="glass-interactive rounded-xl"
                 onClick={() => {
                   window.open(`/quality/muestreos/${analysisData.muestreo.id}`, '_blank');
                 }}
@@ -657,6 +660,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             <Button 
               size="sm" 
               variant="outline"
+              className="glass-thin rounded-xl hover:glass-interactive"
               onClick={() => {
                 const params = new URLSearchParams();
                 if (analysisData.muestreo.planta) {
@@ -676,6 +680,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             <Button 
               size="sm" 
               variant="outline"
+              className="glass-thin rounded-xl hover:glass-interactive"
               onClick={() => {
                 const params = new URLSearchParams();
                 if (analysisData.muestreo.id) {
