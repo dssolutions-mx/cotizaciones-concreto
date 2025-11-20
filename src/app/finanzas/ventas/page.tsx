@@ -1407,7 +1407,7 @@ export default function VentasDashboard() {
                     cashAmount={includeVAT ? currentSummaryMetrics.cashAmountWithVAT : currentSummaryMetrics.cashAmount}
                     invoiceAmount={includeVAT ? currentSummaryMetrics.invoiceAmountWithVAT : currentSummaryMetrics.invoiceAmount}
                     includeVAT={includeVAT}
-                    loading={isLoadingSummary}
+                    loading={loading || streaming}
                   />
 
                   {/* Product Performance */}
@@ -1417,7 +1417,7 @@ export default function VentasDashboard() {
                       value: includeVAT ? item.amount : item.volume
                     }))}
                     includeVAT={includeVAT}
-                    loading={isLoadingSummary}
+                    loading={loading || streaming}
                   />
                 </div>
 
@@ -1426,7 +1426,7 @@ export default function VentasDashboard() {
                   <ClientDistributionChart
                     data={includeVAT ? clientAmountData : clientVolumeData}
                     includeVAT={includeVAT}
-                    loading={isLoadingSummary}
+                    loading={loading || streaming}
                   />
                 </div>
 

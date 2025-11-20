@@ -48,7 +48,13 @@ export function useHistoricalVolumeData({
 
         // Filter by plant IDs if provided
         if (plantIds && plantIds.length > 0) {
-          query = query.in('plant_id', plantIds);
+          if (plantIds.length === 1) {
+            // Use .eq() for single plant (more reliable)
+            query = query.eq('plant_id', plantIds[0]);
+          } else {
+            // Use .in() for multiple plants
+            query = query.in('plant_id', plantIds);
+          }
         }
 
         const { data: remisiones, error: fetchError } = await query;
