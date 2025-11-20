@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { subMonths, startOfMonth, endOfMonth, format } from 'date-fns';
+import { subMonths, startOfMonth, endOfMonth, format, addMonths } from 'date-fns';
 
 interface HistoricalDataPoint {
   month: string;
@@ -30,89 +30,124 @@ export function useHistoricalVolumeData({
         setLoading(true);
         setError(null);
 
-        // Calculate date range - last N months
+        // Calculate monthly slices - same pattern as useSalesData but monthly
         const endDate = endOfMonth(new Date());
         const startDate = startOfMonth(subMonths(endDate, monthsBack - 1));
 
-        const startDateStr = format(startDate, 'yyyy-MM-dd');
-        const endDateStr = format(endDate, 'yyyy-MM-dd');
+        console.log('[HistoricalVolume] Fetching from:', format(startDate, 'yyyy-MM-dd'), 'to:', format(endDate, 'yyyy-MM-dd'));
 
-        console.log('[HistoricalVolume] Fetching data from:', startDateStr, 'to:', endDateStr);
-
-        // Fetch remisiones with orders for the date range
-        // Note: Using fecha (not fecha_remision) based on how useSalesData does it
-        let query = supabase
-          .from('remisiones')
-          .select(`
-            volumen_fabricado,
-            tipo_remision,
-            fecha,
-            plant_id,
-            order_id,
-            plants!inner(name),
-            orders!inner(total_amount)
-          `)
-          .gte('fecha', startDateStr)
-          .lte('fecha', endDateStr)
-          .not('order_id', 'is', null);
-
-        // Filter by plant IDs if provided
-        if (plantIds && plantIds.length > 0) {
-          query = query.in('plant_id', plantIds);
+        // Build monthly slices from oldest to newest
+        const slices: { from: Date; to: Date; monthKey: string }[] = [];
+        let currentMonth = startDate;
+        while (currentMonth <= endDate) {
+          const monthStart = startOfMonth(currentMonth);
+          const monthEnd = endOfMonth(currentMonth);
+          slices.push({
+            from: monthStart,
+            to: monthEnd,
+            monthKey: format(monthStart, 'yyyy-MM')
+          });
+          currentMonth = addMonths(currentMonth, 1);
         }
 
-        const { data: remisiones, error: fetchError } = await query;
+        console.log('[HistoricalVolume] Processing', slices.length, 'monthly slices');
 
-        if (fetchError) {
-          console.error('[HistoricalVolume] Fetch error:', fetchError);
-          throw fetchError;
-        }
-
-        console.log('[HistoricalVolume] Fetched remisiones:', remisiones?.length || 0);
-        if (remisiones && remisiones.length > 0) {
-          console.log('[HistoricalVolume] Sample remision:', remisiones[0]);
-        }
-
-        // Group data by month and plant
+        // Accumulate data by month and plant
         const monthlyData: Map<string, Map<string, {
           concreteVolume: number;
           pumpVolume: number;
           totalRevenue: number;
           plantName: string;
+          orderIds: Set<string>; // Track unique orders per month to avoid double-counting
         }>> = new Map();
 
-        remisiones?.forEach((remision: any) => {
-          const monthKey = format(new Date(remision.fecha), 'yyyy-MM');
-          const plantId = String(remision.plant_id);
-          const plantName = remision.plants?.name || 'Desconocida';
+        // Fetch remisiones for each monthly slice
+        for (const slice of slices) {
+          const formattedStart = format(slice.from, 'yyyy-MM-dd');
+          const formattedEnd = format(slice.to, 'yyyy-MM-dd');
 
-          if (!monthlyData.has(monthKey)) {
-            monthlyData.set(monthKey, new Map());
+          console.log('[HistoricalVolume] Fetching slice:', slice.monthKey, formattedStart, 'to', formattedEnd);
+
+          // Fetch remisiones with nested order data - SAME PATTERN AS useSalesData
+          let remisionesQuery = supabase
+            .from('remisiones')
+            .select(`
+              id,
+              volumen_fabricado,
+              tipo_remision,
+              fecha,
+              plant_id,
+              order_id,
+              plants!inner(name),
+              order:orders(
+                id,
+                total_amount,
+                requires_invoice
+              )
+            `)
+            .gte('fecha', formattedStart)
+            .lte('fecha', formattedEnd);
+
+          // Filter by plant IDs if provided
+          if (plantIds && plantIds.length > 0) {
+            remisionesQuery = remisionesQuery.in('plant_id', plantIds);
           }
 
-          const monthMap = monthlyData.get(monthKey)!;
-          if (!monthMap.has(plantId)) {
-            monthMap.set(plantId, {
-              concreteVolume: 0,
-              pumpVolume: 0,
-              totalRevenue: 0,
-              plantName
+          const { data: sliceRemisiones, error: remErr } = await remisionesQuery;
+
+          if (remErr) {
+            console.error('[HistoricalVolume] Error fetching slice:', slice.monthKey, remErr);
+            throw remErr;
+          }
+
+          console.log('[HistoricalVolume] Fetched', sliceRemisiones?.length || 0, 'remisiones for', slice.monthKey);
+
+          // Process remisiones for this slice
+          if (sliceRemisiones && sliceRemisiones.length > 0) {
+            // Initialize month map if not exists
+            if (!monthlyData.has(slice.monthKey)) {
+              monthlyData.set(slice.monthKey, new Map());
+            }
+
+            const monthMap = monthlyData.get(slice.monthKey)!;
+
+            sliceRemisiones.forEach((remision: any) => {
+              const plantId = String(remision.plant_id);
+              const plantName = remision.plants?.name || 'Desconocida';
+
+              // Initialize plant data if not exists
+              if (!monthMap.has(plantId)) {
+                monthMap.set(plantId, {
+                  concreteVolume: 0,
+                  pumpVolume: 0,
+                  totalRevenue: 0,
+                  plantName,
+                  orderIds: new Set<string>()
+                });
+              }
+
+              const plantData = monthMap.get(plantId)!;
+              const volume = Number(remision.volumen_fabricado) || 0;
+
+              // Accumulate volume by type
+              if (remision.tipo_remision === 'CONCRETO') {
+                plantData.concreteVolume += volume;
+              } else if (remision.tipo_remision === 'BOMBEO') {
+                plantData.pumpVolume += volume;
+              }
+
+              // Accumulate revenue from order (but only count each order once per month/plant)
+              if (remision.order && remision.order_id) {
+                const orderId = String(remision.order_id);
+                if (!plantData.orderIds.has(orderId)) {
+                  plantData.orderIds.add(orderId);
+                  const orderRevenue = Number(remision.order.total_amount) || 0;
+                  plantData.totalRevenue += orderRevenue;
+                }
+              }
             });
           }
-
-          const plantData = monthMap.get(plantId)!;
-          const volume = Number(remision.volumen_fabricado) || 0;
-          // Access orders (not order) as per the select query
-          const revenue = Number(remision.orders?.total_amount) || 0;
-
-          if (remision.tipo_remision === 'CONCRETO') {
-            plantData.concreteVolume += volume;
-          } else if (remision.tipo_remision === 'BOMBEO') {
-            plantData.pumpVolume += volume;
-          }
-
-          plantData.totalRevenue += revenue;
-        });
+        }
 
         // Convert to array format
         const result: HistoricalDataPoint[] = [];
@@ -132,15 +167,15 @@ export function useHistoricalVolumeData({
         // Sort by month
         result.sort((a, b) => a.month.localeCompare(b.month));
 
-        console.log('[HistoricalVolume] Processed data points:', result.length);
+        console.log('[HistoricalVolume] ✅ Processed', result.length, 'data points');
+        console.log('[HistoricalVolume] Months covered:', [...new Set(result.map(r => r.month))]);
         if (result.length > 0) {
-          console.log('[HistoricalVolume] Sample result:', result[0]);
-          console.log('[HistoricalVolume] Months covered:', result.map(r => r.month).filter((v, i, a) => a.indexOf(v) === i));
+          console.log('[HistoricalVolume] Sample data point:', result[0]);
         }
 
         setData(result);
       } catch (err) {
-        console.error('[HistoricalVolume] Error:', err);
+        console.error('[HistoricalVolume] ❌ Error:', err);
         setError(err instanceof Error ? err.message : 'Error desconocido');
       } finally {
         setLoading(false);
