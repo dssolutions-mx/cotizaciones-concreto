@@ -298,32 +298,57 @@ function buildConstructionSites(ordersData: any[]) {
  * Builds available ages from concrete specs
  */
 function buildAvailableAges(muestreosData: any[]) {
-  const ageSet = new Set<number>();
+  // Use a Map to track unique age combinations (value + unit)
+  const ageMap = new Map<string, { originalValue: number; unit: string; sortKey: number }>();
 
   muestreosData.forEach(muestreo => {
     const concreteSpecs = muestreo.concrete_specs;
     if (concreteSpecs?.valor_edad && concreteSpecs?.unidad_edad) {
       const { valor_edad, unidad_edad } = concreteSpecs;
-      let ageInDays: number;
-      
+
+      // Create a unique key for this age
+      const key = `${valor_edad}_${unidad_edad}`;
+
+      // Calculate sort key in days for proper ordering
+      let sortKey: number;
       if (unidad_edad === 'HORA' || unidad_edad === 'H') {
-        ageInDays = Math.round(valor_edad / 24);
+        sortKey = valor_edad / 24;
       } else if (unidad_edad === 'DÍA' || unidad_edad === 'D') {
-        ageInDays = valor_edad;
+        sortKey = valor_edad;
       } else {
-        ageInDays = 28; // Default fallback
+        sortKey = 28; // Default fallback
       }
-      
-      ageSet.add(ageInDays);
+
+      if (!ageMap.has(key)) {
+        ageMap.set(key, {
+          originalValue: valor_edad,
+          unit: unidad_edad,
+          sortKey
+        });
+      }
     }
   });
 
-  return Array.from(ageSet)
-    .sort((a, b) => a - b)
-    .map(age => ({
-      value: age.toString(),
-      label: age === 1 ? '1 día' : `${age} días`
-    }));
+  return Array.from(ageMap.values())
+    .sort((a, b) => a.sortKey - b.sortKey)
+    .map(age => {
+      const { originalValue, unit } = age;
+      let label: string;
+
+      if (unit === 'HORA' || unit === 'H') {
+        label = originalValue === 1 ? '1 hora' : `${originalValue} horas`;
+      } else if (unit === 'DÍA' || unit === 'D') {
+        label = originalValue === 1 ? '1 día' : `${originalValue} días`;
+      } else {
+        label = `${originalValue} ${unit}`;
+      }
+
+      // Value is originalValue_unit for filtering
+      return {
+        value: `${originalValue}_${unit}`,
+        label
+      };
+    });
 }
 
 /**
@@ -578,22 +603,23 @@ export async function getFilteredMuestreos(
     // Filter by age guarantee (from concrete_specs)
     if (currentSelections.selectedAge && currentSelections.selectedAge !== 'all') {
       console.log('🔍 Filtering by age guarantee:', currentSelections.selectedAge);
-      const targetAge = parseInt(currentSelections.selectedAge);
+
+      // Parse the selectedAge which is now in format "value_unit" (e.g., "12_HORA", "28_DÍA")
+      const [targetValue, targetUnit] = currentSelections.selectedAge.split('_');
+      const targetAgeValue = parseInt(targetValue);
+
       filteredMuestreos = filteredMuestreos.filter(m => {
         const concreteSpecs = m.concrete_specs;
         if (concreteSpecs?.valor_edad && concreteSpecs?.unidad_edad) {
           const { valor_edad, unidad_edad } = concreteSpecs;
-          let ageInDays: number;
-          
-          if (unidad_edad === 'HORA' || unidad_edad === 'H') {
-            ageInDays = Math.round(valor_edad / 24);
-          } else if (unidad_edad === 'DÍA' || unidad_edad === 'D') {
-            ageInDays = valor_edad;
-          } else {
-            ageInDays = 28; // Default fallback
-          }
-          
-          return ageInDays === targetAge;
+
+          // Match by exact value and unit
+          return valor_edad === targetAgeValue &&
+                 (unidad_edad === targetUnit ||
+                  (unidad_edad === 'H' && targetUnit === 'HORA') ||
+                  (unidad_edad === 'HORA' && targetUnit === 'H') ||
+                  (unidad_edad === 'D' && targetUnit === 'DÍA') ||
+                  (unidad_edad === 'DÍA' && targetUnit === 'D'));
         }
         return false;
       });

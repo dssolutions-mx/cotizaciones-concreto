@@ -229,6 +229,8 @@ export type DatoGraficoResistencia = {
   y: number;
   clasificacion: 'FC' | 'MR';
   edad: number;
+  edadOriginal?: number; // Original age value before conversion
+  unidadEdad?: 'DÍA' | 'HORA' | 'D' | 'H' | string; // Age unit
   fecha_ensayo: string;
   resistencia_calculada?: number;
   muestra?: any;
