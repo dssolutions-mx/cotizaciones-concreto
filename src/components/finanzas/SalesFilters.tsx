@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { X, Search } from "lucide-react";
 import ModernPlantSelector from '@/components/plants/ModernPlantSelector';
+import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-with-presets";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
