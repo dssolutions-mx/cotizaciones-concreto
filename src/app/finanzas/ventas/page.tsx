@@ -1305,93 +1305,15 @@ export default function VentasDashboard() {
             </div>
           </div>
 
-                 {/* Product Breakdown Section - Professional Design */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    {/* Concrete */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                        <CardHeader className="border-b border-gray-200/80 bg-gray-50/80 rounded-t-xl px-4 py-3">
-                            <CardTitle className="text-sm font-semibold text-gray-800">Concreto Premezclado</CardTitle>
-                        </CardHeader>
-                         <CardContent className='p-4'>
-                             <div className="flex justify-between items-start mb-3">
-                                 <div>
-                                     <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                                   {currentSummaryMetrics.concreteVolume.toFixed(1)}
-                                     </div>
-                                    <p className="text-xs text-gray-500 font-medium">Volumen (m³)</p>
-                                </div>
-                                 <div>
-                                     <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                                   ${includeVAT ? currentSummaryMetrics.weightedConcretePriceWithVAT.toFixed(2) : currentSummaryMetrics.weightedConcretePrice.toFixed(2)}
-                                     </div>
-                                    <p className="text-xs text-gray-500 font-medium text-right">
-                                        Precio Ponderado {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
-                                    </p>
-                                </div>
-                            </div>
-                            <div className="flex flex-wrap gap-1 mt-2 max-h-16 overflow-y-auto">
-                              {Object.entries(concreteByRecipe)
-                                .sort(([, a], [, b]) => b.volume - a.volume)
-                                .slice(0, 3)
-                                .map(([recipe, data], index) => (
-                                  <Badge key={`ventas-recipe-${index}-${recipe}`} variant="outline" className="bg-white text-gray-600 border-gray-300 text-xs">
-                                    {recipe}: {data.volume.toFixed(1)} m³
-                                  </Badge>
-                                ))}
-                              {Object.entries(concreteByRecipe).length > 3 && (
-                                <Badge variant="outline" className="bg-white text-gray-500 border-gray-300 text-xs">
-                                  +{Object.entries(concreteByRecipe).length - 3} más
-                                </Badge>
-                              )}
-                            </div>
-                        </CardContent>
-                     </Card>
-                     {/* Pumping */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                        <CardHeader className="border-b border-gray-200/80 bg-gray-50/80 rounded-t-xl px-4 py-3">
-                            <CardTitle className="text-sm font-semibold text-gray-800">Servicio de Bombeo</CardTitle>
-                        </CardHeader>
-                        <CardContent className='p-4 flex justify-between items-start'>
-                            <div>
-                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                              {currentSummaryMetrics.pumpVolume.toFixed(1)}
-                                </div>
-                                <p className="text-xs text-gray-500 font-medium">Volumen (m³)</p>
-                            </div>
-                            <div>
-                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                              ${includeVAT ? currentSummaryMetrics.weightedPumpPriceWithVAT.toFixed(2) : currentSummaryMetrics.weightedPumpPrice.toFixed(2)}
-                                </div>
-                                <p className="text-xs text-gray-500 font-medium text-right">
-                                    Precio Ponderado {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
-                                </p>
-                            </div>
-                         </CardContent>
-                    </Card>
-                     {/* Empty Truck */}
-                    <Card className="border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
-                        <CardHeader className="border-b border-gray-200/80 bg-gray-50/80 rounded-t-xl px-4 py-3">
-                            <CardTitle className="text-sm font-semibold text-gray-800">Vacío de Olla</CardTitle>
-                        </CardHeader>
-                        <CardContent className='p-4 flex justify-between items-start'>
-                            <div>
-                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                               {currentSummaryMetrics.emptyTruckVolume.toFixed(1)}
-                                </div>
-                                <p className="text-xs text-gray-500 font-medium">Volumen (m³)</p>
-                            </div>
-                            <div>
-                                <div className="text-xl font-semibold text-gray-900 tabular-nums">
-                                               ${includeVAT ? currentSummaryMetrics.weightedEmptyTruckPriceWithVAT.toFixed(2) : currentSummaryMetrics.weightedEmptyTruckPrice.toFixed(2)}
-                                </div>
-                                <p className="text-xs text-gray-500 font-medium text-right">
-                                    Precio Ponderado {includeVAT ? '(Con IVA)' : '(Sin IVA)'}
-                                </p>
-                            </div>
-                         </CardContent>
-                     </Card>
-
-                 </div>
+          {/* Sales Statistics Cards - Apple HIG Design */}
+          <SalesStatisticsCards
+            loading={false}
+            summaryMetrics={currentSummaryMetrics}
+            concreteByRecipe={concreteByRecipe}
+            includeVAT={includeVAT}
+            VAT_RATE={VAT_RATE}
+            formatNumberWithUnits={formatCurrency}
+          />
 
                  {/* Export Button for PowerBI Layout */}
               <div className="flex justify-between items-center mb-4">
