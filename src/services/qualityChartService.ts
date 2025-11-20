@@ -435,6 +435,45 @@ export async function fetchDatosGraficoResistencia(
         }
       }
 
+      // Filter by selected age if specified
+      if (age_guarantee && age_guarantee !== 'all') {
+        const muestreo = item.muestra?.muestreo;
+        const concreteSpecs = muestreo?.concrete_specs;
+        
+        if (!concreteSpecs?.valor_edad || !concreteSpecs?.unidad_edad) {
+          // If no concrete_specs, exclude this item when age filter is active
+          console.log('🔍 Age filter: Excluding item - no concrete_specs', {
+            ensayoId: item.id,
+            hasMuestreo: !!muestreo,
+            hasConcreteSpecs: !!concreteSpecs
+          });
+          return false;
+        }
+
+        // Parse the selectedAge which is in format "value_unit" (e.g., "28_DÍA", "20_HORA")
+        const [targetValue, targetUnit] = age_guarantee.split('_');
+        const targetAgeValue = parseInt(targetValue);
+        const { valor_edad, unidad_edad } = concreteSpecs;
+
+        // Match by exact value and unit (handle unit variations)
+        const matchesAge = valor_edad === targetAgeValue &&
+          (unidad_edad === targetUnit ||
+            (unidad_edad === 'H' && targetUnit === 'HORA') ||
+            (unidad_edad === 'HORA' && targetUnit === 'H') ||
+            (unidad_edad === 'D' && targetUnit === 'DÍA') ||
+            (unidad_edad === 'DÍA' && targetUnit === 'D'));
+
+        if (!matchesAge) {
+          console.log('🔍 Age filter: Excluding item - age mismatch', {
+            ensayoId: item.id,
+            selectedAge: age_guarantee,
+            muestreoAge: `${valor_edad}_${unidad_edad}`,
+            matchesAge
+          });
+          return false;
+        }
+      }
+
       // Only include ensayos with valid resistencia_calculada
       if (!item.resistencia_calculada || item.resistencia_calculada <= 0) {
         return false;
@@ -454,7 +493,30 @@ export async function fetchDatosGraficoResistencia(
     });
 
     // Process the chart data
+    console.log('🔍 Chart - Before processChartData:', {
+      totalEnsayos: filteredEnsayos.length,
+      sampleEnsayo: filteredEnsayos[0] ? {
+        id: filteredEnsayos[0].id,
+        muestreoId: filteredEnsayos[0].muestra?.muestreo?.id || filteredEnsayos[0].muestreo_id,
+        porcentaje_cumplimiento: filteredEnsayos[0].porcentaje_cumplimiento
+      } : null
+    });
+
     const processedData = processChartData(filteredEnsayos);
+
+    console.log('✅ Chart - After processChartData:', {
+      totalEnsayosInput: filteredEnsayos.length,
+      totalMuestreosOutput: processedData.length,
+      aggregationRatio: filteredEnsayos.length > 0 ? (processedData.length / filteredEnsayos.length).toFixed(2) : 'N/A',
+      sampleDataPoint: processedData[0] ? {
+        muestreoId: processedData[0].muestra?.muestreo?.id,
+        edadOriginal: processedData[0].edadOriginal,
+        unidadEdad: processedData[0].unidadEdad,
+        edad: processedData[0].edad,
+        aggregatedCount: processedData[0].aggregatedCount,
+        y: processedData[0].y
+      } : null
+    });
 
     return processedData;
   } catch (error) {
@@ -512,6 +574,13 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
     const muestreoId = item.muestra?.muestreo?.id || item.muestreo_id;
 
     if (!muestreoId) {
+      console.warn('⚠️ Chart - Skipping item without muestreo_id:', {
+        ensayoId: item.id,
+        hasMuestra: !!item.muestra,
+        hasMuestreoInMuestra: !!item.muestra?.muestreo,
+        muestreoIdFromMuestra: item.muestra?.muestreo?.id,
+        muestreoIdDirect: item.muestreo_id
+      });
       return;
     }
 
@@ -519,6 +588,16 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
       muestreoGroups.set(muestreoId, []);
     }
     muestreoGroups.get(muestreoId)!.push(item);
+  });
+
+  console.log('📊 Chart - Grouping results:', {
+    totalEnsayos: validData.length,
+    uniqueMuestreos: muestreoGroups.size,
+    averageEnsayosPerMuestreo: muestreoGroups.size > 0 ? (validData.length / muestreoGroups.size).toFixed(2) : 'N/A',
+    sampleGroup: Array.from(muestreoGroups.entries())[0] ? {
+      muestreoId: Array.from(muestreoGroups.entries())[0][0],
+      ensayosCount: Array.from(muestreoGroups.entries())[0][1].length
+    } : null
   });
 
   const processedData = Array.from(muestreoGroups.entries()).map(([muestreoId, ensayos]) => {

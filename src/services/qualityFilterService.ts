@@ -838,37 +838,17 @@ export async function fetchFilterOptionsForType(
       case 'availableAges':
         // For ages, we need to get ALL available ages, not just from filtered muestreos
         // This prevents the circular dependency where selecting an age filters out other ages
+        // IMPORTANT: Don't apply soloEdadGarantia or incluirEnsayosFueraTiempo here
+        // because we want to show all ages that exist in the data, not just those that pass those filters
         const allMuestreosForAge = await getFilteredMuestreos(dateRange, {
           ...currentSelections,
           selectedAge: 'all' // Exclude age from filtering to get all available ages
-        });
+        }, false, true); // soloEdadGarantia=false, incluirEnsayosFueraTiempo=true to get all ages
         
-        const ageSet = new Set<number>();
-        allMuestreosForAge.forEach(muestreo => {
-          const concreteSpecs = muestreo.concrete_specs;
-          if (concreteSpecs?.valor_edad && concreteSpecs?.unidad_edad) {
-            const { valor_edad, unidad_edad } = concreteSpecs;
-            let ageInDays: number;
-            
-            if (unidad_edad === 'HORA' || unidad_edad === 'H') {
-              ageInDays = Math.round(valor_edad / 24);
-            } else if (unidad_edad === 'DÍA' || unidad_edad === 'D') {
-              ageInDays = valor_edad;
-            } else {
-              ageInDays = 28; // Default fallback
-            }
-            
-            ageSet.add(ageInDays);
-          }
-        });
-        const ages = Array.from(ageSet)
-          .sort((a, b) => a - b)
-          .map(age => ({
-            value: age.toString(),
-            label: age === 1 ? '1 día' : `${age} días`
-          }));
-        console.log(`🔍 Fetched ${ages.length} available ages (excluding age filter to prevent circular dependency)`);
-        return ages;
+        // Use buildAvailableAges to get ages in the correct format (valor_edad_unidad_edad)
+        const availableAges = buildAvailableAges(allMuestreosForAge);
+        console.log(`🔍 Fetched ${availableAges.length} available ages:`, availableAges.map(a => a.label));
+        return availableAges;
 
       case 'fcValues':
         // Get FC values directly from recipes to avoid circular dependency

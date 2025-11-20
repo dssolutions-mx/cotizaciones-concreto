@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { subMonths } from 'date-fns';
 import type { DateRange } from "react-day-picker";
 import { Loader2, AlertTriangle } from 'lucide-react';
@@ -9,6 +9,7 @@ import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle } from 'lucide-react';
+import type { DatoGraficoResistencia } from '@/types/quality';
 
 // Custom hooks
 import { useQualityDashboard } from '@/hooks/useQualityDashboard';
@@ -113,6 +114,153 @@ export default function QualityDashboardPage() {
   // Use advanced metrics hook
   const { advancedMetrics, calculating } = useAdvancedMetrics(datosGrafico);
 
+  // State to store unfiltered chart data (without age filter) for building available ages
+  const [unfilteredChartData, setUnfilteredChartData] = useState<DatoGraficoResistencia[]>([]);
+
+  // Fetch unfiltered chart data (without age filter) to build available ages
+  React.useEffect(() => {
+    if (!dateRange?.from || !dateRange?.to) {
+      setUnfilteredChartData([]);
+      return;
+    }
+
+    let isCancelled = false;
+
+    const fetchUnfilteredData = async () => {
+      try {
+        const { format } = await import('date-fns');
+        const { fetchDatosGraficoResistencia } = await import('@/services/qualityChartService');
+        
+        const fromDate = format(dateRange.from!, 'yyyy-MM-dd');
+        const toDate = format(dateRange.to!, 'yyyy-MM-dd');
+
+        console.log('🔍 Fetching unfiltered chart data for available ages:', {
+          fromDate,
+          toDate,
+          selectedClient,
+          selectedConstructionSite,
+          selectedRecipe,
+          selectedPlant,
+          selectedClasificacion,
+          selectedSpecimenType,
+          selectedFcValue,
+          soloEdadGarantia,
+          incluirEnsayosFueraTiempo
+        });
+
+        // Fetch chart data with all filters EXCEPT age filter
+        const unfilteredData = await fetchDatosGraficoResistencia(
+          fromDate,
+          toDate,
+          selectedClient === 'all' ? undefined : selectedClient,
+          selectedConstructionSite === 'all' ? undefined : selectedConstructionSite,
+          selectedRecipe === 'all' ? undefined : selectedRecipe,
+          selectedPlant === 'all' ? undefined : selectedPlant,
+          selectedClasificacion === 'all' ? undefined : selectedClasificacion,
+          selectedSpecimenType === 'all' ? undefined : selectedSpecimenType,
+          selectedFcValue === 'all' ? undefined : selectedFcValue,
+          undefined, // No age filter - this is the key difference
+          soloEdadGarantia,
+          incluirEnsayosFueraTiempo
+        );
+
+        if (!isCancelled) {
+          console.log('✅ Received unfiltered chart data for ages:', {
+            dataLength: unfilteredData.length,
+            ages: unfilteredData.map(d => `${d.edadOriginal}_${d.unidadEdad}`).filter((v, i, a) => a.indexOf(v) === i)
+          });
+          setUnfilteredChartData(unfilteredData);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          console.error('Error fetching unfiltered chart data for ages:', error);
+          setUnfilteredChartData([]);
+        }
+      }
+    };
+
+    fetchUnfilteredData();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [dateRange, selectedClient, selectedConstructionSite, selectedRecipe, selectedPlant, selectedClasificacion, selectedSpecimenType, selectedFcValue, soloEdadGarantia, incluirEnsayosFueraTiempo]);
+
+  // Build availableAges from unfiltered chart data (without age filter) to show all available ages
+  const availableAgesFromChart = useMemo(() => {
+    // Always prefer unfiltered chart data (without age filter) to show all available ages
+    // Only fallback to datosGrafico if unfiltered data is not yet loaded
+    const dataToUse = unfilteredChartData.length > 0 ? unfilteredChartData : (datosGrafico.length > 0 && selectedAge === 'all' ? datosGrafico : []);
+    
+    if (!dataToUse || dataToUse.length === 0) {
+      // Only use filter-based ages as fallback if we're still loading or have no data
+      if (loading && unfilteredChartData.length === 0) {
+        return availableAges; // Still loading, use filter-based ages temporarily
+      }
+      // If we have datosGrafico but it's empty and we're not loading, return empty array
+      if (!loading && unfilteredChartData.length === 0 && datosGrafico.length === 0) {
+        return [];
+      }
+      return availableAges; // Fallback to filter-based ages
+    }
+
+    // Build ages from chart data using edadOriginal and unidadEdad
+    const ageMap = new Map<string, { originalValue: number; unit: string; sortKey: number }>();
+
+    dataToUse.forEach((point: DatoGraficoResistencia) => {
+      if (point.edadOriginal !== undefined && point.unidadEdad) {
+        const key = `${point.edadOriginal}_${point.unidadEdad}`;
+        
+        if (!ageMap.has(key)) {
+          let sortKey: number;
+          if (point.unidadEdad === 'HORA' || point.unidadEdad === 'H') {
+            sortKey = point.edadOriginal / 24;
+          } else if (point.unidadEdad === 'DÍA' || point.unidadEdad === 'D') {
+            sortKey = point.edadOriginal;
+          } else {
+            sortKey = 28; // Default fallback
+          }
+
+          ageMap.set(key, {
+            originalValue: point.edadOriginal,
+            unit: point.unidadEdad,
+            sortKey
+          });
+        }
+      }
+    });
+
+    const chartAges = Array.from(ageMap.values())
+      .sort((a, b) => a.sortKey - b.sortKey)
+      .map(age => {
+        const { originalValue, unit } = age;
+        let label: string;
+
+        if (unit === 'HORA' || unit === 'H') {
+          label = originalValue === 1 ? '1 hora' : `${originalValue} horas`;
+        } else if (unit === 'DÍA' || unit === 'D') {
+          label = originalValue === 1 ? '1 día' : `${originalValue} días`;
+        } else {
+          label = `${originalValue} ${unit}`;
+        }
+
+        return {
+          value: `${originalValue}_${unit}`,
+          label
+        };
+      });
+
+    console.log('🔍 Built available ages from chart data:', {
+      source: unfilteredChartData.length > 0 ? 'unfiltered' : 'filtered',
+      dataPoints: dataToUse.length,
+      ages: chartAges.map(a => a.label),
+      selectedAge
+    });
+
+    // Return chart-based ages if available, otherwise fallback to filter-based
+    return chartAges.length > 0 ? chartAges : availableAges;
+  }, [unfilteredChartData, datosGrafico, availableAges, loading, selectedAge]);
+
   // Handle date range changes
   const handleDateRangeChange = (range: DateRange | undefined) => {
     if (range?.from && range?.to) {
@@ -177,7 +325,7 @@ export default function QualityDashboardPage() {
               {/* Check DB Data Button - Hidden in production */}
               {process.env.NODE_ENV === 'development' && (
                 <Button
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   onClick={handleCheckDatabaseContent}
                 >
@@ -194,7 +342,7 @@ export default function QualityDashboardPage() {
         constructionSites={constructionSites}
         recipes={recipes}
         plants={plants}
-        availableAges={availableAges}
+        availableAges={availableAgesFromChart}
         fcValues={fcValues}
         specimenTypes={specimenTypes}
         selectedClient={selectedClient}
@@ -241,7 +389,7 @@ export default function QualityDashboardPage() {
             <AlertDescription className="mt-2">{error}</AlertDescription>
             <Button
               className="mt-4"
-              variant="outline"
+              variant="secondary"
               size="sm"
               onClick={retryLoadData}
             >
