@@ -155,8 +155,8 @@ export function QualityChartSection({
     <Card className="bg-white border-slate-200 shadow-sm">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-semibold text-slate-900">
-            Cumplimiento de Resistencia por Fecha de Muestreo
+          <CardTitle className="text-2xl font-semibold text-slate-900 tracking-tight">
+            Cumplimiento de Resistencia
           </CardTitle>
           <span className="text-sm text-slate-500">
             {datosGrafico.length} punto{datosGrafico.length !== 1 ? 's' : ''}

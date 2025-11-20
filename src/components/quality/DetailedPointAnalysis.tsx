@@ -142,7 +142,7 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <CardTitle className="text-lg font-semibold text-slate-900">
+              <CardTitle className="text-2xl font-semibold text-slate-900 tracking-tight">
                 Análisis Detallado del Punto
               </CardTitle>
               {point.isAggregated && (
@@ -164,95 +164,95 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
         <CardContent>
           {/* Quick Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="text-center p-3 bg-blue-50 rounded-lg border border-blue-100">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <Target className="w-4 h-4 text-blue-600" />
-                <span className="text-xs font-medium text-blue-700">Cumplimiento</span>
+            <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+              <div className="mb-3">
+                <Target className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+                <span className="text-xs font-medium text-slate-600 block">Cumplimiento</span>
               </div>
-              <p className="text-2xl font-bold text-blue-600">
+              <p className="text-3xl font-semibold text-slate-900 mb-2">
                 {point.y.toFixed(1)}%
               </p>
-              <Badge 
-                variant={complianceStatus.status === 'success' ? 'default' : 
+              <Badge
+                variant={complianceStatus.status === 'success' ? 'default' :
                          complianceStatus.status === 'warning' ? 'secondary' : 'destructive'}
-                className="text-xs mt-1"
+                className="text-xs"
               >
                 {complianceStatus.text}
               </Badge>
             </div>
-            
-            <div className="text-center p-3 bg-green-50 rounded-lg border border-green-100">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <Zap className="w-4 h-4 text-green-600" />
-                <span className="text-xs font-medium text-green-700">Resistencia</span>
+
+            <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+              <div className="mb-3">
+                <Zap className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+                <span className="text-xs font-medium text-slate-600 block">Resistencia</span>
               </div>
-              <p className="text-2xl font-bold text-green-600">
-                {point.resistencia_calculada ? 
+              <p className="text-3xl font-semibold text-slate-900 mb-1">
+                {point.resistencia_calculada ?
                   `${typeof point.resistencia_calculada === 'number' ? point.resistencia_calculada.toFixed(1) : point.resistencia_calculada}` :
                   'N/A'
                 }
               </p>
-              <p className="text-xs text-green-700 mt-1">kg/cm²</p>
+              <p className="text-xs text-slate-500">kg/cm²</p>
             </div>
-            
-            <div className="text-center p-3 bg-purple-50 rounded-lg border border-purple-100">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <Calendar className="w-4 h-4 text-purple-600" />
-                <span className="text-xs font-medium text-purple-700">Edad</span>
+
+            <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+              <div className="mb-3">
+                <Calendar className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+                <span className="text-xs font-medium text-slate-600 block">Edad</span>
               </div>
-              <p className="text-2xl font-bold text-purple-600">
+              <p className="text-3xl font-semibold text-slate-900 mb-1">
                 {point.edad}
               </p>
-              <p className="text-xs text-purple-700 mt-1">días</p>
+              <p className="text-xs text-slate-500">días</p>
             </div>
-            
-            <div className="text-center p-3 bg-orange-50 rounded-lg border border-orange-100">
-              <div className="flex items-center justify-center gap-2 mb-2">
-                <Beaker className="w-4 h-4 text-orange-600" />
-                <span className="text-xs font-medium text-orange-700">Muestras</span>
+
+            <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+              <div className="mb-3">
+                <Beaker className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+                <span className="text-xs font-medium text-slate-600 block">Muestras</span>
               </div>
-              <p className="text-2xl font-bold text-orange-600">
+              <p className="text-3xl font-semibold text-slate-900 mb-1">
                 {analysisData.muestras.length}
               </p>
-              <p className="text-xs text-orange-700 mt-1">total</p>
+              <p className="text-xs text-slate-500">total</p>
             </div>
             {/* Rendimiento Volumétrico */}
             {typeof analysisData.rendimientoVolumetrico === 'number' && analysisData.rendimientoVolumetrico > 0 && (
-              <div className="text-center p-3 bg-cyan-50 rounded-lg border border-cyan-100">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <TrendingUp className="w-4 h-4 text-cyan-600" />
-                  <span className="text-xs font-medium text-cyan-700">Rendimiento</span>
+              <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+                <div className="mb-3">
+                  <TrendingUp className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+                  <span className="text-xs font-medium text-slate-600 block">Rendimiento</span>
                 </div>
-                <p className="text-2xl font-bold text-cyan-600">
+                <p className="text-3xl font-semibold text-slate-900 mb-1">
                   {analysisData.rendimientoVolumetrico.toFixed(2)}%
                 </p>
-                <p className="text-xs text-cyan-700 mt-1">volumen real vs. registrado</p>
+                <p className="text-xs text-slate-500">volumen real vs. registrado</p>
               </div>
             )}
             {/* Consumo Real de Cemento */}
             {typeof analysisData.consumoCementoReal === 'number' && analysisData.consumoCementoReal > 0 && (
-              <div className="text-center p-3 bg-teal-50 rounded-lg border border-teal-100">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <Beaker className="w-4 h-4 text-teal-600" />
-                  <span className="text-xs font-medium text-teal-700">Consumo Real</span>
+              <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+                <div className="mb-3">
+                  <Beaker className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+                  <span className="text-xs font-medium text-slate-600 block">Consumo Real</span>
                 </div>
-                <p className="text-2xl font-bold text-teal-600">
-                  {analysisData.consumoCementoReal.toFixed(2)} kg/m³
+                <p className="text-3xl font-semibold text-slate-900 mb-1">
+                  {analysisData.consumoCementoReal.toFixed(2)}
                 </p>
-                <p className="text-xs text-teal-700 mt-1">cemento</p>
+                <p className="text-xs text-slate-500">kg/m³ cemento</p>
               </div>
             )}
             {/* Eficiencia Real */}
             {typeof analysisData.eficiencia === 'number' && analysisData.eficiencia > 0 && (
-              <div className="text-center p-3 bg-emerald-50 rounded-lg border border-emerald-100">
-                <div className="flex items-center justify-center gap-2 mb-2">
-                  <Activity className="w-4 h-4 text-emerald-600" />
-                  <span className="text-xs font-medium text-emerald-700">Eficiencia</span>
+              <div className="text-center p-4 bg-white rounded-lg border border-slate-200">
+                <div className="mb-3">
+                  <Activity className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+                  <span className="text-xs font-medium text-slate-600 block">Eficiencia</span>
                 </div>
-                <p className="text-2xl font-bold text-emerald-600">
+                <p className="text-3xl font-semibold text-slate-900 mb-1">
                   {analysisData.eficiencia.toFixed(3)}
                 </p>
-                <p className="text-xs text-emerald-700 mt-1">kg/cm² por kg de cemento</p>
+                <p className="text-xs text-slate-500">kg/cm² por kg de cemento</p>
               </div>
             )}
           </div>
@@ -286,8 +286,8 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             {/* Technical Specifications */}
             <Card className="bg-white border-slate-200 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <Target className="w-5 h-5 text-slate-600" />
+                <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+                  <Target className="w-5 h-5 text-slate-400" />
                   Especificaciones Técnicas
                 </CardTitle>
               </CardHeader>
@@ -331,8 +331,8 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             {/* Muestreo Conditions */}
             <Card className="bg-white border-slate-200 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <Thermometer className="w-5 h-5 text-slate-600" />
+                <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+                  <Thermometer className="w-5 h-5 text-slate-400" />
                   Condiciones del Muestreo
                 </CardTitle>
               </CardHeader>
@@ -431,8 +431,8 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
         <TabsContent value="samples" className="mt-4">
           <Card className="bg-white border-slate-200 shadow-sm">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                <Beaker className="w-5 h-5 text-slate-600" />
+              <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+                <Beaker className="w-5 h-5 text-slate-400" />
                 Detalle de Muestras y Ensayos
               </CardTitle>
             </CardHeader>
@@ -533,8 +533,8 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             {/* Project Information */}
             <Card className="bg-white border-slate-200 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-slate-600" />
+                <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+                  <Building2 className="w-5 h-5 text-slate-400" />
                   Información del Proyecto
                 </CardTitle>
               </CardHeader>
@@ -576,8 +576,8 @@ export default function DetailedPointAnalysis({ point, onClose, className = '' }
             {/* Plant Information */}
             <Card className="bg-white border-slate-200 shadow-sm">
               <CardHeader className="pb-3">
-                <CardTitle className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <Droplets className="w-5 h-5 text-slate-600" />
+                <CardTitle className="text-xl font-semibold text-slate-900 flex items-center gap-2 tracking-tight">
+                  <Droplets className="w-5 h-5 text-slate-400" />
                   Información de la Planta
                 </CardTitle>
               </CardHeader>

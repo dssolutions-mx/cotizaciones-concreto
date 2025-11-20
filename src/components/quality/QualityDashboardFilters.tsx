@@ -123,7 +123,7 @@ export function QualityDashboardFilters({
       {/* Filter Bar */}
       <Card className="mb-6 bg-white border-slate-200 shadow-sm">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold text-slate-900">Filtros de Análisis</CardTitle>
+          <CardTitle className="text-xl font-semibold text-slate-900 tracking-tight">Filtros de Análisis</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

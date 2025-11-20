@@ -155,10 +155,10 @@ export default function QualityDashboardPage() {
         {/* Header Section */}
         <div className="mb-8">
           <div className="mb-6">
-            <h1 className="text-3xl font-semibold text-slate-900 mb-2">
-              Dashboard de Control de Calidad
+            <h1 className="text-4xl font-bold text-slate-900 mb-2 tracking-tight">
+              Control de Calidad
             </h1>
-            <p className="text-base text-slate-600">
+            <p className="text-lg text-slate-600">
               Métricas y análisis de resistencia de concreto
             </p>
           </div>
