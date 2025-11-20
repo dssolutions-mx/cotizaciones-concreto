@@ -687,12 +687,14 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
               <Text style={styles.metadataLabel}>ID de la Muestra:</Text>
               <Text style={styles.metadataValue}>{estudio.alta_estudio.id.slice(0, 8).toUpperCase()}</Text>
             </View>
-            {estudio.alta_estudio.numero_arena && (
-              <View style={styles.metadataCell}>
-                <Text style={styles.metadataLabel}>No. de Folio:</Text>
-                <Text style={styles.metadataValue}>{estudio.alta_estudio.numero_arena}</Text>
-              </View>
-            )}
+            <View style={styles.metadataCell}>
+              {estudio.alta_estudio.numero_arena ? (
+                <>
+                  <Text style={styles.metadataLabel}>No. de Folio:</Text>
+                  <Text style={styles.metadataValue}>{estudio.alta_estudio.numero_arena}</Text>
+                </>
+              ) : null}
+            </View>
           </View>
         </View>
 
