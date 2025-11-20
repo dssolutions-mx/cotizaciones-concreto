@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { X, Search } from "lucide-react";
-import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
+import ModernPlantSelector from '@/components/plants/ModernPlantSelector';
 import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-with-presets";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -190,12 +190,7 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
             {/* Plant Context Display */}
             <div className="flex flex-col space-y-2">
               <Label className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Planta</Label>
-              <PlantContextDisplay showLabel={false} />
-              {currentPlant && (
-                <p className="text-caption text-label-tertiary">
-                  {currentPlant.name}
-                </p>
-              )}
+              <ModernPlantSelector showLabel={false} />
             </div>
 
             {/* Date Range Picker */}

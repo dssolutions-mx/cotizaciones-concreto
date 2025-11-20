@@ -35,6 +35,8 @@ import { SalesStatisticsCards } from '@/components/finanzas/SalesStatisticsCards
 import { SalesDataTable } from '@/components/finanzas/SalesDataTable';
 import { SalesCharts } from '@/components/finanzas/SalesCharts';
 import { SalesVATIndicators, SalesInfoGuide } from '@/components/finanzas/SalesVATIndicators';
+import { HistoricalVolumeChart } from '@/components/finanzas/HistoricalVolumeChart';
+import { SalesAgentRankingChart } from '@/components/finanzas/SalesAgentRankingChart';
 
 // Import utilities
 import { exportSalesToExcel } from '@/utils/salesExport';
@@ -52,6 +54,8 @@ import {
 
 // Import hooks
 import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
+import { useHistoricalVolumeData } from '@/hooks/useHistoricalVolumeData';
+import { useSalesAgentData } from '@/hooks/useSalesAgentData';
 
 // Import quality service
 import { useProgressiveGuaranteeAge } from '@/hooks/useProgressiveGuaranteeAge';
@@ -185,7 +189,26 @@ export default function VentasDashboard() {
     loading: historicalLoading,
     error: historicalError
   } = useHistoricalSalesData(currentPlant);
-  
+
+  // Fetch historical volume data for charts (last 6 months)
+  const {
+    data: historicalVolumeData,
+    loading: historicalVolumeLoading
+  } = useHistoricalVolumeData({
+    monthsBack: 6,
+    plantIds: currentPlant ? [currentPlant.id] : undefined
+  });
+
+  // Fetch sales agent performance data
+  const {
+    data: salesAgentData,
+    loading: salesAgentLoading
+  } = useSalesAgentData({
+    startDate,
+    endDate,
+    plantId: currentPlant?.id
+  });
+
   // Filter remisiones by client and search term
   const filteredRemisiones = useMemo(() => {
     let filtered = [...remisionesData];
@@ -1053,7 +1076,7 @@ export default function VentasDashboard() {
               onClick={() => setShowDebugTool(!showDebugTool)}
               className="flex items-center gap-2"
             >
-              🔍 Debug Tool
+              Debug Tool
             </Button>
             {showDebugTool && (
               <Button
@@ -1372,12 +1395,12 @@ export default function VentasDashboard() {
 
                  {/* Export Button for PowerBI Layout */}
               <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center space-x-4 text-xs text-muted-foreground">
+                <div className="flex items-center space-x-4">
                   <div className="flex items-center space-x-2">
-                    <span>
-                      {includeVAT ? 
-                        '💡 Mostrando montos con IVA (16%) aplicado a órdenes fiscales' : 
-                        '💡 Mostrando montos sin IVA (solo subtotales)'
+                    <span className="text-callout text-label-secondary">
+                      {includeVAT ?
+                        'Mostrando montos con IVA (16%) aplicado a órdenes fiscales' :
+                        'Mostrando montos sin IVA (solo subtotales)'
                       }
                     </span>
                     {includeVAT && (
@@ -1397,16 +1420,16 @@ export default function VentasDashboard() {
                     </span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-xs font-medium">
-                      📍 Planta: {currentPlant?.name || 'Todas'}
+                    <span className="text-caption font-medium text-label-secondary">
+                      Planta: {currentPlant?.name || 'Todas'}
                     </span>
                     {clientFilter !== 'all' && (
                       <span className="text-xs">
-                        👤 Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
+                        Cliente: {clients.find(c => c.id === clientFilter)?.name || 'N/A'}
                       </span>
                     )}
-                    <span className="text-xs">
-                      📊 {filteredRemisionesWithVacioDeOlla.length} elementos
+                    <span className="text-caption text-label-tertiary">
+                      {filteredRemisionesWithVacioDeOlla.length} elementos
                     </span>
                   </div>
                 </div>
@@ -1708,6 +1731,23 @@ export default function VentasDashboard() {
               </div>
               )}
 
+              {/* New Executive Charts - Historical Volume and Agent Ranking */}
+              <div className="space-y-8 mt-8">
+                {/* Historical Volume Chart */}
+                <HistoricalVolumeChart
+                  data={historicalVolumeData}
+                  availablePlants={availablePlants}
+                  loading={historicalVolumeLoading}
+                />
+
+                {/* Sales Agent Ranking */}
+                <SalesAgentRankingChart
+                  data={salesAgentData}
+                  loading={salesAgentLoading}
+                  selectedMonth={startDate ? format(startDate, 'MMMM yyyy', { locale: es }) : undefined}
+                />
+              </div>
+
                {/* Información Contextual y Guía de Interpretación */}
                <Card className="mt-8 border border-gray-200/60 bg-white/95 backdrop-blur-sm shadow-sm rounded-xl">
                  <CardHeader className="border-b border-gray-100/80 bg-white/50 rounded-t-xl px-8 py-6">
@@ -1723,7 +1763,7 @@ export default function VentasDashboard() {
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                      <div className="space-y-4">
                        <div>
-                         <h4 className="font-semibold text-gray-800 mb-2">📊 Métricas de Ventas</h4>
+                         <h4 className="text-title-3 font-semibold text-label-primary mb-2">Métricas de Ventas</h4>
                          <ul className="text-sm text-gray-600 space-y-1">
                            <li><strong>Total de Ventas:</strong> Monto total facturado en el período seleccionado</li>
                            <li><strong>Volumen Total:</strong> Cantidad total de concreto vendido en m³</li>
@@ -1732,7 +1772,7 @@ export default function VentasDashboard() {
                          </ul>
                        </div>
                        <div>
-                         <h4 className="font-semibold text-gray-800 mb-2">💰 Análisis de Facturación</h4>
+                         <h4 className="text-title-3 font-semibold text-label-primary mb-2">Análisis de Facturación</h4>
                          <ul className="text-sm text-gray-600 space-y-1">
                            <li><strong>Efectivo:</strong> Órdenes pagadas al contado (sin IVA)</li>
                            <li><strong>Fiscal:</strong> Órdenes con factura (incluyen 16% IVA)</li>
@@ -1742,7 +1782,7 @@ export default function VentasDashboard() {
                      </div>
                      <div className="space-y-4">
                        <div>
-                         <h4 className="font-semibold text-gray-800 mb-2">📈 Análisis Histórico</h4>
+                         <h4 className="text-title-3 font-semibold text-label-primary mb-2">Análisis Histórico</h4>
                          <ul className="text-sm text-gray-600 space-y-1">
                            <li><strong>Tendencia de Ventas:</strong> Evolución mensual de ventas y volumen</li>
                            <li><strong>Clientes Activos:</strong> Número de clientes únicos por mes</li>
@@ -1751,7 +1791,7 @@ export default function VentasDashboard() {
                          </ul>
                        </div>
                        <div>
-                         <h4 className="font-semibold text-gray-800 mb-2">🎯 KPIs Comerciales</h4>
+                         <h4 className="text-title-3 font-semibold text-label-primary mb-2">KPIs Comerciales</h4>
                          <ul className="text-sm text-gray-600 space-y-1">
                            <li><strong>Tasa de Cobro:</strong> Eficiencia en la recuperación de facturación</li>
                            <li><strong>Clientes Activos:</strong> Retención y crecimiento de cartera</li>
@@ -1763,7 +1803,7 @@ export default function VentasDashboard() {
                    </div>
                    
                    <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                     <h5 className="font-semibold text-blue-800 mb-2">💡 Insights para la Gestión</h5>
+                     <h5 className="text-title-3 font-semibold text-systemBlue mb-2">Insights para la Gestión</h5>
                      <div className="text-sm text-blue-700 space-y-1">
                        <p><strong>• Eficiencia Operativa:</strong> Monitoree la tendencia de ventas para identificar patrones estacionales</p>
                        <p><strong>• Gestión de Cartera:</strong> Analice la concentración de clientes para diversificar riesgos</p>
