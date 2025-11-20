@@ -7,9 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { X, Search } from "lucide-react";
-import ModernPlantSelector from '@/components/plants/ModernPlantSelector';
-import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
+import { X, Search, Building2, MapPin, Check, ChevronDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { DateRangePickerWithPresets } from "@/components/ui/date-range-picker-with-presets";
 import { DateRange } from "react-day-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,8 +20,266 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 
+// Enhanced Plant Multi-Selector Component
+interface PlantMultiSelectorProps {
+  availablePlants: any[];
+  businessUnits?: any[];
+  selectedPlantIds: string[];
+  onPlantsChange: (plantIds: string[]) => void;
+}
+
+const PlantMultiSelector: React.FC<PlantMultiSelectorProps> = ({
+  availablePlants,
+  businessUnits = [],
+  selectedPlantIds,
+  onPlantsChange,
+}) => {
+  const [buFilter, setBuFilter] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Filter plants by business unit and search term
+  const filteredPlants = availablePlants.filter((plant) => {
+    const matchesBU = !buFilter || plant.business_unit_id === buFilter;
+    const matchesSearch = !searchTerm || 
+      plant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      plant.code?.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesBU && matchesSearch;
+  });
+
+  // Group plants by business unit for better organization
+  const plantsByBU = filteredPlants.reduce((acc, plant) => {
+    const buId = plant.business_unit_id || 'none';
+    if (!acc[buId]) {
+      acc[buId] = [];
+    }
+    acc[buId].push(plant);
+    return acc;
+  }, {} as Record<string, any[]>);
+
+  const handlePlantToggle = (plantId: string) => {
+    if (selectedPlantIds.includes(plantId)) {
+      onPlantsChange(selectedPlantIds.filter(id => id !== plantId));
+    } else {
+      onPlantsChange([...selectedPlantIds, plantId]);
+    }
+  };
+
+  const handleSelectAll = () => {
+    if (selectedPlantIds.length === filteredPlants.length) {
+      onPlantsChange([]);
+    } else {
+      onPlantsChange(filteredPlants.map(p => p.id));
+    }
+  };
+
+  const handleSelectBU = (buId: string) => {
+    const buPlants = filteredPlants.filter(p => p.business_unit_id === buId);
+    const buPlantIds = buPlants.map(p => p.id);
+    const allSelected = buPlantIds.every(id => selectedPlantIds.includes(id));
+    
+    if (allSelected) {
+      // Deselect all plants from this BU
+      onPlantsChange(selectedPlantIds.filter(id => !buPlantIds.includes(id)));
+    } else {
+      // Select all plants from this BU
+      const newSelection = [...selectedPlantIds];
+      buPlantIds.forEach(id => {
+        if (!newSelection.includes(id)) {
+          newSelection.push(id);
+        }
+      });
+      onPlantsChange(newSelection);
+    }
+  };
+
+  const getDisplayText = () => {
+    if (selectedPlantIds.length === 0) {
+      return "Todas las plantas";
+    }
+    if (selectedPlantIds.length === 1) {
+      const plant = availablePlants.find(p => p.id === selectedPlantIds[0]);
+      return plant?.name || "1 planta seleccionada";
+    }
+    return `${selectedPlantIds.length} plantas seleccionadas`;
+  };
+
+  return (
+    <div className="space-y-2">
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button 
+            variant="outline" 
+            className="w-full h-10 justify-between text-sm font-normal glass-thick rounded-2xl border border-label-tertiary/10 hover:border-systemBlue/30"
+          >
+            <div className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-systemBlue" />
+              <span>{getDisplayText()}</span>
+            </div>
+            <ChevronDown className="h-4 w-4 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-80 p-0 z-[9999]" align="start">
+          <div className="p-3 space-y-3">
+            {/* Header with search and clear */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-label-primary">Seleccionar Plantas</span>
+                {selectedPlantIds.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs"
+                    onClick={() => onPlantsChange([])}
+                  >
+                    Limpiar
+                  </Button>
+                )}
+              </div>
+              
+              {/* Search input */}
+              <div className="relative">
+                <Search className="absolute left-2 top-2.5 h-4 w-4 text-label-tertiary" />
+                <Input
+                  placeholder="Buscar planta..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-8 h-8 text-sm"
+                />
+              </div>
+
+              {/* Business Unit Filter */}
+              {businessUnits.length > 0 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Button
+                    variant={buFilter === null ? "default" : "outline"}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setBuFilter(null)}
+                  >
+                    Todas
+                  </Button>
+                  {businessUnits.map((bu) => (
+                    <Button
+                      key={bu.id}
+                      variant={buFilter === bu.id ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setBuFilter(bu.id)}
+                    >
+                      <Building2 className="h-3 w-3 mr-1" />
+                      {bu.name}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Select All */}
+            {filteredPlants.length > 0 && (
+              <div className="flex items-center space-x-2 pb-2 border-b">
+                <Checkbox
+                  checked={selectedPlantIds.length === filteredPlants.length && filteredPlants.length > 0}
+                  onCheckedChange={handleSelectAll}
+                />
+                <label className="text-sm font-medium cursor-pointer flex-1">
+                  Seleccionar todas ({filteredPlants.length})
+                </label>
+              </div>
+            )}
+
+            {/* Plants List */}
+            <div className="max-h-64 overflow-y-auto space-y-2">
+              {Object.entries(plantsByBU).map(([buId, plants]) => {
+                const bu = businessUnits.find(b => b.id === buId);
+                const buPlantIds = plants.map(p => p.id);
+                const allBuSelected = buPlantIds.length > 0 && buPlantIds.every(id => selectedPlantIds.includes(id));
+                
+                return (
+                  <div key={buId} className="space-y-1">
+                    {/* Business Unit Header */}
+                    {bu && (
+                      <div className="flex items-center space-x-2 px-2 py-1 bg-label-tertiary/5 rounded">
+                        <Checkbox
+                          checked={allBuSelected}
+                          onCheckedChange={() => handleSelectBU(buId)}
+                        />
+                        <Building2 className="h-3 w-3 text-label-tertiary" />
+                        <span className="text-xs font-semibold text-label-secondary">{bu.name}</span>
+                        <span className="text-xs text-label-tertiary ml-auto">
+                          ({plants.length})
+                        </span>
+                      </div>
+                    )}
+                    
+                    {/* Plants in this BU */}
+                    {plants.map((plant) => (
+                      <div key={plant.id} className="flex items-center space-x-2 px-2 py-1.5 hover:bg-label-tertiary/5 rounded">
+                        <Checkbox
+                          checked={selectedPlantIds.includes(plant.id)}
+                          onCheckedChange={() => handlePlantToggle(plant.id)}
+                        />
+                        <MapPin className="h-3 w-3 text-label-tertiary" />
+                        <label className="text-sm cursor-pointer flex-1">
+                          {plant.name}
+                          {plant.code && (
+                            <span className="text-xs text-label-tertiary ml-1">({plant.code})</span>
+                          )}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+              
+              {filteredPlants.length === 0 && (
+                <div className="text-center py-4 text-sm text-label-tertiary">
+                  No se encontraron plantas
+                </div>
+              )}
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      {/* Selected Plants Badges */}
+      {selectedPlantIds.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {selectedPlantIds.slice(0, 3).map((plantId) => {
+            const plant = availablePlants.find(p => p.id === plantId);
+            if (!plant) return null;
+            return (
+              <Badge
+                key={plantId}
+                variant="secondary"
+                className="text-xs px-2 py-0.5 h-6 bg-systemBlue/10 text-systemBlue border-systemBlue/20"
+              >
+                <MapPin className="h-3 w-3 mr-1" />
+                {plant.name}
+                <X
+                  className="ml-1.5 h-3 w-3 cursor-pointer hover:text-red-500"
+                  onClick={() => handlePlantToggle(plantId)}
+                />
+              </Badge>
+            );
+          })}
+          {selectedPlantIds.length > 3 && (
+            <Badge variant="secondary" className="text-xs px-2 py-0.5 h-6">
+              +{selectedPlantIds.length - 3} más
+            </Badge>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface SalesFiltersProps {
   currentPlant: any;
+  availablePlants: any[];
+  businessUnits?: any[];
+  selectedPlantIds?: string[];
+  onPlantChange?: (plantId: string | null) => void;
+  onPlantsChange?: (plantIds: string[]) => void;
   startDate: Date | undefined;
   endDate: Date | undefined;
   clientFilter: string;
@@ -53,6 +310,11 @@ interface SalesFiltersProps {
 
 export const SalesFilters: React.FC<SalesFiltersProps> = ({
   currentPlant,
+  availablePlants,
+  businessUnits = [],
+  selectedPlantIds = [],
+  onPlantChange,
+  onPlantsChange,
   startDate,
   endDate,
   clientFilter,
@@ -89,15 +351,22 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
         {/* Current Layout Filters - Only show when layoutType is 'current' */}
         {layoutType === 'current' && (
           <div className="flex flex-col md:flex-row gap-4">
-            {/* Plant Context Display */}
+            {/* Enhanced Plant Selector - Multi-select */}
             <div className="flex flex-col">
               <Label className="mb-1">Planta</Label>
-              <PlantContextDisplay showLabel={false} />
-              {currentPlant && (
-                <div className="mt-1 text-xs text-muted-foreground">
-                  Filtrando por: {currentPlant.name}
-                </div>
-              )}
+              <PlantMultiSelector
+                availablePlants={availablePlants}
+                businessUnits={businessUnits}
+                selectedPlantIds={selectedPlantIds.length > 0 ? selectedPlantIds : (currentPlant?.id ? [currentPlant.id] : [])}
+                onPlantsChange={(ids) => {
+                  if (onPlantsChange) {
+                    onPlantsChange(ids);
+                  } else if (onPlantChange) {
+                    // Fallback to single selection mode
+                    onPlantChange(ids.length > 0 ? ids[0] : null);
+                  }
+                }}
+              />
             </div>
 
             {/* Date Range Picker */}
@@ -182,16 +451,28 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
-          className="glass-thick rounded-3xl p-8 border border-label-tertiary/10"
+          className="glass-thick rounded-3xl p-8 border border-label-tertiary/10 relative"
         >
           <h2 className="text-title-3 font-semibold text-label-primary mb-6">
             Filtros Avanzados
           </h2>
-          <div className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6'>
-            {/* Plant Context Display */}
-            <div className="flex flex-col space-y-2">
+          <div className='grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6 relative'>
+            {/* Enhanced Plant Selector - Multi-select with Business Unit filter */}
+            <div className="flex flex-col space-y-2 relative">
               <Label className="text-caption font-semibold text-label-secondary uppercase tracking-wide">Planta</Label>
-              <ModernPlantSelector showLabel={false} compact={true} />
+              <PlantMultiSelector
+                availablePlants={availablePlants}
+                businessUnits={businessUnits}
+                selectedPlantIds={selectedPlantIds.length > 0 ? selectedPlantIds : (currentPlant?.id ? [currentPlant.id] : [])}
+                onPlantsChange={(ids) => {
+                  if (onPlantsChange) {
+                    onPlantsChange(ids);
+                  } else if (onPlantChange) {
+                    // Fallback to single selection mode
+                    onPlantChange(ids.length > 0 ? ids[0] : null);
+                  }
+                }}
+              />
             </div>
 
             {/* Date Range Picker */}
@@ -272,7 +553,7 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
                     )}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-64 p-2" align="start">
+                <PopoverContent className="w-64 p-2 z-[9999]" align="start">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between pb-2 border-b">
                       <span className="text-xs font-semibold">Seleccionar Tipos</span>
@@ -354,7 +635,7 @@ export const SalesFilters: React.FC<SalesFiltersProps> = ({
                     )}
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-64 p-2" align="start">
+                <PopoverContent className="w-64 p-2 z-[9999]" align="start">
                   <div className="space-y-2 max-h-64 overflow-y-auto">
                     <div className="flex items-center justify-between pb-2 border-b">
                       <span className="text-xs font-semibold">Seleccionar Productos</span>

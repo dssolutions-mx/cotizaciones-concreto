@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { subMonths, startOfMonth, endOfMonth, format } from 'date-fns';
+import { subMonths, startOfMonth, endOfMonth, format, parseISO } from 'date-fns';
 
 interface HistoricalDataPoint {
   month: string;
@@ -37,14 +37,14 @@ export function useHistoricalVolumeData({
         const startDateStr = format(startDate, 'yyyy-MM-dd');
         const endDateStr = format(endDate, 'yyyy-MM-dd');
 
-        console.log('[HistoricalVolume] 📅 Fetching from:', startDateStr, 'to:', endDateStr);
+        console.log('[HistoricalVolume] 📅 Fetching from unified view:', startDateStr, 'to:', endDateStr);
 
-        // Fetch from remisiones table directly (like useSalesData does)
+        // Fetch from vw_plant_financial_analysis_unified view for concrete volume and revenue
         let query = supabase
-          .from('remisiones')
-          .select('id, fecha, plant_id, tipo_remision, volumen_fabricado, plants!inner(id, name)')
-          .gte('fecha', startDateStr)
-          .lte('fecha', endDateStr);
+          .from('vw_plant_financial_analysis_unified')
+          .select('plant_id, plant_code, plant_name, volumen_concreto_m3, ventas_total_concreto, period_start, period_end, data_source')
+          .gte('period_start', startDateStr)
+          .lte('period_end', endDateStr);
 
         // Filter by plant IDs if provided
         if (plantIds && plantIds.length > 0) {
@@ -55,39 +55,43 @@ export function useHistoricalVolumeData({
           }
         }
 
-        const { data: remisiones, error: fetchError } = await query;
+        const { data: viewData, error: fetchError } = await query;
 
         if (fetchError) {
           console.error('[HistoricalVolume] ❌ Fetch error:', fetchError);
           throw fetchError;
         }
 
-        console.log('[HistoricalVolume] ✅ Fetched', remisiones?.length || 0, 'remisiones');
+        console.log('[HistoricalVolume] ✅ Fetched', viewData?.length || 0, 'periods from unified view');
 
-        if (!remisiones || remisiones.length === 0) {
+        // Fetch pump volume from remisiones (unified view doesn't have pump volume)
+        let pumpQuery = supabase
+          .from('remisiones')
+          .select('fecha, plant_id, volumen_fabricado, plants!inner(id, name)')
+          .eq('tipo_remision', 'BOMBEO')
+          .gte('fecha', startDateStr)
+          .lte('fecha', endDateStr);
+
+        if (plantIds && plantIds.length > 0) {
+          if (plantIds.length === 1) {
+            pumpQuery = pumpQuery.eq('plant_id', plantIds[0]);
+          } else {
+            pumpQuery = pumpQuery.in('plant_id', plantIds);
+          }
+        }
+
+        const { data: pumpRemisiones, error: pumpError } = await pumpQuery;
+
+        if (pumpError) {
+          console.warn('[HistoricalVolume] ⚠️ Pump volume fetch error:', pumpError);
+        }
+
+        console.log('[HistoricalVolume] ✅ Fetched', pumpRemisiones?.length || 0, 'pump remisiones');
+
+        if (!viewData || viewData.length === 0) {
           console.log('[HistoricalVolume] ⚠️ No data found in date range');
           setData([]);
           return;
-        }
-
-        // Try to fetch pricing data from remisiones_with_pricing view
-        const remisionIds = remisiones.map(r => r.id);
-        let pricingMap = new Map<string, number>();
-
-        try {
-          const { data: pricingData, error: pricingError } = await supabase
-            .from('remisiones_with_pricing')
-            .select('remision_id, subtotal_amount')
-            .in('remision_id', remisionIds.map(id => String(id)));
-
-          if (!pricingError && pricingData) {
-            pricingData.forEach((item: any) => {
-              pricingMap.set(String(item.remision_id), Number(item.subtotal_amount) || 0);
-            });
-            console.log('[HistoricalVolume] ✅ Loaded pricing data for', pricingMap.size, 'remisiones');
-          }
-        } catch (pricingError) {
-          console.warn('[HistoricalVolume] ⚠️ Pricing data not available, using 0 for revenue');
         }
 
         // Group by month + plant
@@ -98,8 +102,50 @@ export function useHistoricalVolumeData({
           plantName: string;
         }>> = new Map();
 
-        remisiones.forEach((remision: any) => {
-          const monthKey = format(new Date(remision.fecha), 'yyyy-MM');
+        // Process concrete volume and revenue from unified view
+        viewData.forEach((item: any) => {
+          // Extract month from period_start - use parseISO to avoid timezone issues
+          const periodDate = typeof item.period_start === 'string' 
+            ? parseISO(item.period_start) 
+            : new Date(item.period_start);
+          const monthKey = format(periodDate, 'yyyy-MM');
+          const plantId = String(item.plant_id);
+          const plantName = item.plant_name || 'Desconocida';
+
+          // Initialize month if not exists
+          if (!monthlyData.has(monthKey)) {
+            monthlyData.set(monthKey, new Map());
+          }
+
+          const monthMap = monthlyData.get(monthKey)!;
+
+          // Initialize plant if not exists
+          if (!monthMap.has(plantId)) {
+            monthMap.set(plantId, {
+              concreteVolume: 0,
+              pumpVolume: 0,
+              totalRevenue: 0,
+              plantName
+            });
+          }
+
+          const plantData = monthMap.get(plantId)!;
+          
+          // Map view columns to our data structure
+          const concreteVolume = Number(item.volumen_concreto_m3) || 0;
+          const totalRevenue = Number(item.ventas_total_concreto) || 0;
+
+          plantData.concreteVolume += concreteVolume;
+          plantData.totalRevenue += totalRevenue;
+        });
+
+        // Process pump volume from remisiones
+        (pumpRemisiones || []).forEach((remision: any) => {
+          // Use parseISO to avoid timezone issues with date strings
+          const fechaDate = typeof remision.fecha === 'string'
+            ? parseISO(remision.fecha)
+            : new Date(remision.fecha);
+          const monthKey = format(fechaDate, 'yyyy-MM');
           const plantId = String(remision.plant_id);
           const plantName = remision.plants?.name || 'Desconocida';
 
@@ -121,17 +167,8 @@ export function useHistoricalVolumeData({
           }
 
           const plantData = monthMap.get(plantId)!;
-          const volume = Number(remision.volumen_fabricado) || 0;
-          const revenue = pricingMap.get(String(remision.id)) || 0;
-
-          // Accumulate by type
-          if (remision.tipo_remision === 'CONCRETO') {
-            plantData.concreteVolume += volume;
-            plantData.totalRevenue += revenue;
-          } else if (remision.tipo_remision === 'BOMBEO') {
-            plantData.pumpVolume += volume;
-            plantData.totalRevenue += revenue;
-          }
+          const pumpVolume = Number(remision.volumen_fabricado) || 0;
+          plantData.pumpVolume += pumpVolume;
         });
 
         // Convert to array

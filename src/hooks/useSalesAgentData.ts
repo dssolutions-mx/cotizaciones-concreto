@@ -39,12 +39,13 @@ export function useSalesAgentData({
         const end = endDate || endOfMonth(new Date());
         const monthKey = format(start, 'MMMM yyyy', { locale: es });
 
-        const startDateStr = format(start, 'yyyy-MM-dd');
-        const endDateStr = format(end, 'yyyy-MM-dd');
+        // Calculate date range for remision fecha (matching report flow)
+        const startDateStr = format(startOfMonth(start), 'yyyy-MM-dd');
+        const endDateStr = format(endOfMonth(end), 'yyyy-MM-dd');
 
-        console.log('[SalesAgent] 📅 Fetching from:', startDateStr, 'to:', endDateStr, 'plant:', plantId || 'all');
+        console.log('[SalesAgent] 📅 Fetching remisiones from:', startDateStr, 'to:', endDateStr, 'plant:', plantId || 'all');
 
-        // Step 1: Fetch remisiones (no nested joins to avoid 400 errors)
+        // Step 1: Fetch remisiones filtered by fecha (matching report flow: remisiones → order items → order)
         let remisionesQuery = supabase
           .from('remisiones')
           .select('id, order_id, volumen_fabricado, tipo_remision, plant_id, fecha')
@@ -71,7 +72,7 @@ export function useSalesAgentData({
           return;
         }
 
-        // Step 2: Get unique order IDs and fetch orders with user info
+        // Step 2: Get unique order IDs from remisiones
         const orderIds = Array.from(new Set(remisiones.map(r => r.order_id).filter(Boolean)));
 
         if (orderIds.length === 0) {
@@ -80,12 +81,14 @@ export function useSalesAgentData({
           return;
         }
 
-        console.log('[SalesAgent] 📦 Fetching', orderIds.length, 'unique orders');
+        console.log('[SalesAgent] 📦 Fetching orders for', orderIds.length, 'order IDs');
 
+        // Step 3: Fetch orders to get created_by (for agent identification)
         const { data: orders, error: ordersError } = await supabase
           .from('orders')
-          .select('id, total_amount, created_by')
-          .in('id', orderIds);
+          .select('id, total_amount, created_by, plant_id')
+          .in('id', orderIds)
+          .not('order_status', 'eq', 'CANCELLED');
 
         if (ordersError) {
           console.error('[SalesAgent] ❌ Orders fetch error:', ordersError);
@@ -100,35 +103,35 @@ export function useSalesAgentData({
           return;
         }
 
-        // Step 3: Try to get user info (optional - may not exist in schema)
+        // Step 4: Fetch user profiles for created_by users
         const userIds = Array.from(new Set(orders.map(o => o.created_by).filter(Boolean)));
         let users: any[] = [];
 
         console.log('[SalesAgent] 👥 Attempting to fetch', userIds.length, 'users');
 
         try {
-          // Try fetching from users table (may not exist)
+          // Fetch from user_profiles table
           const { data: usersData, error: usersError } = await supabase
-            .from('users')
-            .select('id, name, email')
+            .from('user_profiles')
+            .select('id, first_name, last_name, email')
             .in('id', userIds);
 
           if (usersError) {
-            console.warn('[SalesAgent] ⚠️ Users table not available:', usersError.message);
+            console.warn('[SalesAgent] ⚠️ User profiles table not available:', usersError.message);
             console.log('[SalesAgent] ℹ️ Will use user IDs as agent names');
           } else {
             users = usersData || [];
-            console.log('[SalesAgent] ✅ Fetched', users.length, 'users');
+            console.log('[SalesAgent] ✅ Fetched', users.length, 'user profiles');
           }
         } catch (err) {
-          console.warn('[SalesAgent] ⚠️ Could not fetch users, using IDs instead');
+          console.warn('[SalesAgent] ⚠️ Could not fetch user profiles, using IDs instead');
         }
 
         // Create lookup maps
         const orderMap = new Map(orders.map(o => [String(o.id), o]));
         const userMap = new Map(users.map(u => [u.id, u]));
 
-        // Group by agent (created_by)
+        // Group by agent (created_by) - using remisiones fecha for month grouping
         const agentMap: Map<string, {
           agentName: string;
           totalVolume: number;
@@ -136,7 +139,8 @@ export function useSalesAgentData({
           orderIds: Set<string>;
         }> = new Map();
 
-        remisiones.forEach((remision: any) => {
+        // Process remisiones and group by agent (matching report calculation)
+        (remisiones || []).forEach((remision: any) => {
           const order = orderMap.get(String(remision.order_id));
           if (!order || !order.created_by) {
             return;
@@ -144,8 +148,12 @@ export function useSalesAgentData({
 
           const agentId = order.created_by;
           const user = userMap.get(agentId);
-          // Use user name/email if available, otherwise use a shortened ID
-          const agentName = user?.name || user?.email || `Agente ${String(agentId).substring(0, 8)}`;
+          // Construct agent name from first_name + last_name, or fallback to email or shortened ID
+          const agentName = user 
+            ? (user.first_name && user.last_name 
+                ? `${user.first_name} ${user.last_name}`.trim()
+                : user.first_name || user.last_name || user.email || `Agente ${String(agentId).substring(0, 8)}`)
+            : `Agente ${String(agentId).substring(0, 8)}`;
 
           // Initialize agent if not exists
           if (!agentMap.has(agentId)) {
@@ -159,13 +167,18 @@ export function useSalesAgentData({
 
           const agentData = agentMap.get(agentId)!;
 
-          // Add volume (CONCRETO and BOMBEO only)
-          if (remision.tipo_remision === 'CONCRETO' || remision.tipo_remision === 'BOMBEO') {
-            const volume = Number(remision.volumen_fabricado) || 0;
+          // Calculate volumes exactly like SalesDataProcessor (matching report)
+          const volume = Number(remision.volumen_fabricado) || 0;
+          
+          // Add volume for CONCRETO and BOMBEO (matching report logic)
+          if (remision.tipo_remision === 'CONCRETO') {
+            agentData.totalVolume += volume;
+          } else if (remision.tipo_remision === 'BOMBEO') {
             agentData.totalVolume += volume;
           }
+          // Note: VACÍO DE OLLA is excluded from volume (matching report)
 
-          // Add revenue (only once per unique order)
+          // Add revenue (only once per unique order) - use order total_amount
           const orderId = String(order.id);
           if (!agentData.orderIds.has(orderId)) {
             agentData.orderIds.add(orderId);

@@ -97,6 +97,17 @@ const loadCachedFilters = () => {
       parsed.codigoProductoFilter = [];
     }
     
+    // Migrate selectedPlantId to selectedPlantIds
+    if (parsed && parsed.selectedPlantId && !parsed.selectedPlantIds) {
+      parsed.selectedPlantIds = [parsed.selectedPlantId];
+      delete parsed.selectedPlantId;
+    }
+    
+    // Ensure selectedPlantIds is always an array
+    if (parsed && !Array.isArray(parsed.selectedPlantIds)) {
+      parsed.selectedPlantIds = [];
+    }
+    
     return parsed;
   } catch (e) {
     console.error('Failed to load cached filters:', e);
@@ -115,10 +126,16 @@ const saveCachedFilters = (filters: any) => {
 };
 
 export default function VentasDashboard() {
-  const { currentPlant, availablePlants } = usePlantContext();
+  const { availablePlants, businessUnits } = usePlantContext(); // Only use for availablePlants and businessUnits list, not for filtering
   
   // Load cached filters on mount
   const cachedFilters = loadCachedFilters();
+  
+  // Local plant selection state (independent from PlantContext)
+  const [selectedPlantIds, setSelectedPlantIds] = useState<string[]>(
+    cachedFilters?.selectedPlantIds || (cachedFilters?.selectedPlantId ? [cachedFilters.selectedPlantId] : [])
+  );
+  const selectedPlant = selectedPlantIds.length === 1 ? availablePlants.find(p => p.id === selectedPlantIds[0]) : null;
   
   const [startDate, setStartDate] = useState<Date | undefined>(startOfMonth(new Date()));
   const [endDate, setEndDate] = useState<Date | undefined>(endOfMonth(new Date()));
@@ -154,6 +171,7 @@ export default function VentasDashboard() {
   // Cache filters whenever they change
   useEffect(() => {
     const filters = {
+      selectedPlantIds,
       clientFilter,
       layoutType,
       resistanceFilter,
@@ -163,7 +181,7 @@ export default function VentasDashboard() {
       includeVAT
     };
     saveCachedFilters(filters);
-  }, [clientFilter, layoutType, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, includeVAT]);
+  }, [selectedPlantIds, clientFilter, layoutType, resistanceFilter, efectivoFiscalFilter, tipoFilter, codigoProductoFilter, includeVAT]);
 
   // Use custom hook for data fetching
   const {
@@ -182,7 +200,7 @@ export default function VentasDashboard() {
   } = useSalesData({
     startDate,
     endDate,
-    currentPlant
+    currentPlant: selectedPlant // Use local selected plant, not context
   });
 
   // Use historical data hook for trend analysis (independent of date filters)
@@ -191,7 +209,7 @@ export default function VentasDashboard() {
     historicalRemisiones,
     loading: historicalLoading,
     error: historicalError
-  } = useHistoricalSalesData(currentPlant);
+  } = useHistoricalSalesData(selectedPlant);
 
   // Fetch historical volume data for charts (last 6 months)
   const {
@@ -199,7 +217,7 @@ export default function VentasDashboard() {
     loading: historicalVolumeLoading
   } = useHistoricalVolumeData({
     monthsBack: 6,
-    plantIds: currentPlant ? [currentPlant.id] : undefined
+    plantIds: selectedPlantIds.length > 0 ? selectedPlantIds : undefined
   });
 
   // Fetch sales agent performance data
@@ -209,7 +227,7 @@ export default function VentasDashboard() {
   } = useSalesAgentData({
     startDate,
     endDate,
-    plantId: currentPlant?.id
+    plantId: selectedPlantIds.length === 1 ? selectedPlantIds[0] : undefined
   });
 
   // Filter remisiones by client and search term
@@ -604,7 +622,7 @@ export default function VentasDashboard() {
   const { data: progressiveGuarantee, streaming: gaStreaming, progress: gaProgress } = useProgressiveGuaranteeAge(
     startDate,
     endDate,
-    currentPlant?.id,
+    selectedPlantIds.length > 0 ? selectedPlantIds[0] : undefined,
     { newestFirst: true }
   );
 
@@ -730,7 +748,7 @@ export default function VentasDashboard() {
       // Calculate metrics with order items
       // Prefer hook orderItems when this row matches the currently selected plant,
       // to ensure parity with main KPI calculations; otherwise use this plant's items
-      const itemsForPricing = (currentPlant && plantInfo?.code === currentPlant.code)
+      const itemsForPricing = (selectedPlant && plantInfo?.code === selectedPlant.code)
         ? orderItems
         : plantOrderItems;
 
@@ -912,7 +930,7 @@ export default function VentasDashboard() {
 
   // Debug tool function to compare sales report vs view pricing
   const runDebugComparison = async () => {
-    if (!startDate || !endDate || !currentPlant) return;
+    if (!startDate || !endDate) return;
     
     setDebugLoading(true);
     try {
@@ -923,7 +941,7 @@ export default function VentasDashboard() {
       const { data: viewData, error: viewError } = await supabase
         .from('remisiones_with_pricing')
         .select('*')
-        .eq('plant_id', currentPlant.id)
+        .in('plant_id', selectedPlantIds.length > 0 ? selectedPlantIds : availablePlants.map(p => p.id))
         .gte('fecha', from)
         .lte('fecha', to)
         .order('fecha', { ascending: false });
@@ -1123,7 +1141,12 @@ export default function VentasDashboard() {
           </div>
           {/* Sales Filters Component - Only in current mode */}
           <SalesFilters
-            currentPlant={currentPlant}
+            currentPlant={selectedPlant}
+            availablePlants={availablePlants}
+            businessUnits={businessUnits}
+            selectedPlantIds={selectedPlantIds}
+            onPlantsChange={setSelectedPlantIds}
+            onPlantChange={(id) => setSelectedPlantIds(id ? [id] : [])}
             startDate={startDate}
             endDate={endDate}
             clientFilter={clientFilter}
@@ -1152,7 +1175,7 @@ export default function VentasDashboard() {
           <SalesVATIndicators
             layoutType={layoutType}
             includeVAT={includeVAT}
-            currentPlant={currentPlant}
+            currentPlant={selectedPlant}
             clientFilter={clientFilter}
             clients={clients}
             filteredRemisionesWithVacioDeOlla={filteredRemisionesWithVacioDeOlla}
@@ -1203,7 +1226,12 @@ export default function VentasDashboard() {
           </div>
           {/* Sales Filters - Also visible in PowerBI view */}
           <SalesFilters
-            currentPlant={currentPlant}
+            currentPlant={selectedPlant}
+            availablePlants={availablePlants}
+            businessUnits={businessUnits}
+            selectedPlantIds={selectedPlantIds}
+            onPlantsChange={setSelectedPlantIds}
+            onPlantChange={(id) => setSelectedPlantIds(id ? [id] : [])}
             startDate={startDate}
             endDate={endDate}
             clientFilter={clientFilter}
@@ -1346,7 +1374,7 @@ export default function VentasDashboard() {
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className="text-caption font-medium text-label-secondary">
-                      Planta: {currentPlant?.name || 'Todas'}
+                      Planta: {selectedPlant?.name || 'Todas'}
                     </span>
                     {clientFilter !== 'all' && (
                       <span className="text-xs">

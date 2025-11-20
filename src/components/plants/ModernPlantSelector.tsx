@@ -80,28 +80,60 @@ export default function ModernPlantSelector({
 
   const accessibleBusinessUnits = getAccessibleBusinessUnits();
   const accessiblePlants = getAccessiblePlants();
+  
+  // Sync selectedBUFilter with current plant's business unit
+  useEffect(() => {
+    if (currentPlant?.business_unit_id) {
+      // If current plant has a business unit, sync the filter
+      if (selectedBUFilter !== currentPlant.business_unit_id) {
+        setSelectedBUFilter(currentPlant.business_unit_id);
+      }
+    } else if (selectedBUFilter && !currentPlant) {
+      // Clear filter if no plant selected
+      setSelectedBUFilter(null);
+    }
+  }, [currentPlant?.business_unit_id, selectedBUFilter]);
+  
   const selectedBusinessUnit = selectedBUFilter
     ? businessUnits.find(bu => bu.id === selectedBUFilter)
-    : null;
+    : (currentPlant?.business_unit_id ? businessUnits.find(bu => bu.id === currentPlant.business_unit_id) : null);
 
   const handleBusinessUnitSelect = (businessUnitId: string | null) => {
-    setSelectedBUFilter(businessUnitId);
     setIsBusinessUnitOpen(false);
 
-    // If a specific business unit is selected and switchBusinessUnit exists, use it
-    if (businessUnitId && switchBusinessUnit) {
-      switchBusinessUnit(businessUnitId);
-    } else if (businessUnitId) {
-      // Otherwise, switch to the first plant in that business unit
+    if (businessUnitId) {
+      // Update local filter state
+      setSelectedBUFilter(businessUnitId);
+      
+      // Switch to first plant in that business unit (this will update context)
       const plantsInBU = availablePlants.filter(p => p.business_unit_id === businessUnitId);
       if (plantsInBU.length > 0) {
         switchPlant(plantsInBU[0].id);
+      }
+      
+      // If switchBusinessUnit exists, also update business unit context
+      if (switchBusinessUnit) {
+        switchBusinessUnit(businessUnitId);
+      }
+    } else {
+      // Clear filter - show all plants
+      setSelectedBUFilter(null);
+      // Switch to first available plant
+      if (availablePlants.length > 0) {
+        switchPlant(availablePlants[0].id);
       }
     }
   };
 
   const handlePlantSelect = (plantId: string) => {
-    switchPlant(plantId);
+    const selectedPlant = accessiblePlants.find(p => p.id === plantId);
+    if (selectedPlant) {
+      // Update business unit filter to match selected plant's BU
+      if (selectedPlant.business_unit_id) {
+        setSelectedBUFilter(selectedPlant.business_unit_id);
+      }
+      switchPlant(plantId);
+    }
     setIsOpen(false);
   };
 
@@ -157,7 +189,7 @@ export default function ModernPlantSelector({
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
                 transition={{ duration: 0.15, ease: [0.25, 0.1, 0.25, 1.0] }}
-                className="absolute z-[100] mt-2 w-full min-w-[280px] glass-thick rounded-2xl border border-label-tertiary/10 shadow-2xl overflow-hidden"
+                className="absolute z-[9999] mt-2 w-full min-w-[280px] glass-thick rounded-2xl border border-label-tertiary/10 shadow-2xl overflow-hidden"
               >
                 <div className="max-h-[400px] overflow-y-auto p-2">
                   {/* "All Business Units" option */}
@@ -239,7 +271,7 @@ export default function ModernPlantSelector({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.95 }}
               transition={{ duration: 0.15, ease: [0.25, 0.1, 0.25, 1.0] }}
-              className="absolute z-[100] mt-2 w-full min-w-[320px] glass-thick rounded-2xl border border-label-tertiary/10 shadow-2xl overflow-hidden"
+              className="absolute z-[9999] mt-2 w-full min-w-[320px] glass-thick rounded-2xl border border-label-tertiary/10 shadow-2xl overflow-hidden"
             >
               <div className="max-h-[400px] overflow-y-auto p-2">
                 {accessiblePlants.map((plant) => (

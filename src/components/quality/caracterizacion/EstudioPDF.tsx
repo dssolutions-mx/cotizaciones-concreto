@@ -57,27 +57,31 @@ const styles = StyleSheet.create({
   metadataCell: {
     flex: 1,
     flexDirection: 'row',
+    paddingRight: 4,
   },
   metadataLabel: {
     fontSize: 7,
     fontFamily: 'Helvetica-Bold',
     color: '#4B5563',
     marginRight: 3,
+    flexShrink: 0,
   },
   metadataValue: {
     fontSize: 7,
     color: '#1F2937',
+    flex: 1,
   },
   // Two-column layout
   twoColumnContainer: {
     flexDirection: 'row',
-    gap: 10,
+    width: '100%',
   },
   leftColumn: {
-    width: '48%',
+    width: '49%',
+    marginRight: '2%',
   },
   rightColumn: {
-    width: '48%',
+    width: '49%',
   },
   // Card styles
   card: {
@@ -86,6 +90,7 @@ const styles = StyleSheet.create({
     borderColor: '#D1D5DB',
     borderRadius: 4,
     backgroundColor: 'white',
+    width: '100%',
   },
   cardHeader: {
     backgroundColor: '#0C1F28',
@@ -183,6 +188,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
   },
   footerText: {
     fontSize: 7,
@@ -916,7 +922,7 @@ export function EstudioPDF({ estudio }: EstudioPDFProps) {
         <View style={styles.footer}>
           <Text style={styles.footerText}>+52 618 159 1481</Text>
           <Text style={styles.footerText}>alejandrodiaz@dcconcretos.com.mx</Text>
-          <Text style={styles.footerText}>GERENTE DE CALIDAD - Alejandro Diaz Fernandez de Cevallos</Text>
+          <Text style={styles.footerText}>GERENCIA DE CALIDAD</Text>
         </View>
       </Page>
     </Document>
