@@ -100,6 +100,68 @@ export async function GET(request: Request) {
       }
     } else {
       console.log(`[Quality API] Details retrieved (${remisionesData?.length || 0} remisiones) in ${Date.now() - detailsStartTime}ms`);
+      
+      // Fetch order_id and elemento for remisiones that have order_number
+      if (remisionesData && remisionesData.length > 0) {
+        const orderNumbers = remisionesData
+          .map((r: any) => r.order_number)
+          .filter(Boolean);
+        
+        if (orderNumbers.length > 0) {
+          const { data: ordersData } = await supabase
+            .from('orders')
+            .select('id, order_number, elemento')
+            .in('order_number', orderNumbers);
+          
+          if (ordersData) {
+            const orderMap = new Map(ordersData.map((o: any) => [o.order_number, o]));
+            remisionesData = remisionesData.map((r: any) => ({
+              ...r,
+              order_id: orderMap.get(r.order_number)?.id || null,
+              elemento: orderMap.get(r.order_number)?.elemento || null
+            }));
+          }
+        }
+        
+        // CRITICAL FIX: Fetch concrete_specs for all muestreos since RPC doesn't include it
+        // Collect all muestreo IDs from all remisiones
+        const allMuestreoIds: string[] = [];
+        remisionesData.forEach((r: any) => {
+          if (r.muestreos && Array.isArray(r.muestreos)) {
+            r.muestreos.forEach((m: any) => {
+              if (m.id) {
+                allMuestreoIds.push(m.id);
+              }
+            });
+          }
+        });
+        
+        if (allMuestreoIds.length > 0) {
+          console.log(`[Quality API] Fetching concrete_specs for ${allMuestreoIds.length} muestreos`);
+          const { data: muestreosData, error: muestreosError } = await supabase
+            .from('muestreos')
+            .select('id, concrete_specs')
+            .in('id', allMuestreoIds);
+          
+          if (muestreosError) {
+            console.error('[Quality API] Error fetching concrete_specs:', muestreosError);
+          } else if (muestreosData) {
+            // Create a map of muestreo_id -> concrete_specs
+            const concreteSpecsMap = new Map(muestreosData.map((m: any) => [m.id, m.concrete_specs]));
+            
+            // Merge concrete_specs into remisionesData
+            remisionesData = remisionesData.map((r: any) => ({
+              ...r,
+              muestreos: (r.muestreos || []).map((m: any) => ({
+                ...m,
+                concrete_specs: concreteSpecsMap.get(m.id) || m.concrete_specs || null
+              }))
+            }));
+            
+            console.log(`[Quality API] Merged concrete_specs for ${concreteSpecsMap.size} muestreos`);
+          }
+        }
+      }
     }
 
     // Step 6: Get per-recipe CV breakdown
@@ -274,10 +336,69 @@ export async function GET(request: Request) {
       });
     }
 
+    // Helper function to parse concrete_specs - enhanced to handle more formats
+    const parseConcreteSpecs = (specs: any): any => {
+      if (!specs) return null;
+      
+      // If already an object, return as-is
+      if (typeof specs === 'object' && specs !== null) {
+        // Ensure it has the expected structure
+        if (specs.valor_edad !== undefined || specs.unidad_edad !== undefined) {
+          return specs;
+        }
+        // Try to extract from common field names
+        const valorEdad = specs.valor_edad ?? specs.valorEdad ?? specs.age_hours ?? specs.age_days;
+        const unidadEdad = specs.unidad_edad ?? specs.unidadEdad;
+        if (valorEdad !== undefined) {
+          return {
+            valor_edad: typeof valorEdad === 'number' ? valorEdad : parseInt(String(valorEdad)),
+            unidad_edad: unidadEdad || (specs.age_hours ? 'HORA' : 'DÍA')
+          };
+        }
+        return specs;
+      }
+      
+      // If string, try to parse
+      if (typeof specs === 'string') {
+        try {
+          const parsed = JSON.parse(specs);
+          if (typeof parsed === 'object' && parsed !== null) {
+            return parseConcreteSpecs(parsed); // Recursively parse if needed
+          }
+        } catch (_e) {
+          // Try pattern matching for formats like "14h", "16 horas", "28d", "28 días"
+          const trimmed = specs.trim();
+          const lower = trimmed.toLowerCase();
+          
+          // Match hours: "14h", "14 h", "14 horas", "14 HORAS", "14H"
+          const hourMatch = lower.match(/^(\d+)\s*(h|horas?|hour|hours?)$/i);
+          if (hourMatch) {
+            const hours = parseInt(hourMatch[1]);
+            return { valor_edad: hours, unidad_edad: 'HORA' };
+          }
+          
+          // Match days: "28d", "28 d", "28 días", "28 DÍAS", "28D"
+          const dayMatch = lower.match(/^(\d+)\s*(d|días?|days?|dia|dias?)$/i);
+          if (dayMatch) {
+            const days = parseInt(dayMatch[1]);
+            return { valor_edad: days, unidad_edad: 'DÍA' };
+          }
+          
+          // Match plain number (assume days)
+          if (/^\d+$/.test(trimmed)) {
+            const days = parseInt(trimmed);
+            return { valor_edad: days, unidad_edad: 'DÍA' };
+          }
+        }
+      }
+      
+      return null;
+    };
+
     // Transform remisiones data
     const remisiones: ClientQualityRemisionData[] = (remisionesData || []).map((r: any) => ({
       id: r.remision_id,
-      orderId: null, // Not included in RPC response, can be added if needed
+      orderId: r.order_id || null, // Include order_id from lookup
       remisionNumber: r.remision_number,
       fecha: r.remision_date,
       volume: Number(r.volume) || 0,
@@ -287,7 +408,45 @@ export async function GET(request: Request) {
       rendimientoVolumetrico: Number(r.rendimiento_volumetrico) || 0,
       totalMaterialQuantity: 0, // Can be calculated if needed
       materiales: [], // Not included in optimized view
-      muestreos: r.muestreos || [],
+      elemento: r.elemento || null, // Include elemento from order lookup
+      muestreos: (r.muestreos || []).map((m: any, idx: number) => {
+        // ALWAYS log to see what we're getting from RPC - UNCONDITIONAL
+        console.log(`[Quality API] Raw muestreo [${idx}]:`, {
+          muestreoId: m.id,
+          remisionNumber: r.remision_number,
+          hasConcreteSpecs: !!m.concrete_specs,
+          concrete_specs_raw: m.concrete_specs,
+          concrete_specs_type: typeof m.concrete_specs,
+          concrete_specs_stringified: JSON.stringify(m.concrete_specs),
+          allKeys: m.concrete_specs && typeof m.concrete_specs === 'object' ? Object.keys(m.concrete_specs) : []
+        });
+        
+        const parsedSpecs = parseConcreteSpecs(m.concrete_specs);
+        
+        // ALWAYS log parsed result - UNCONDITIONAL
+        console.log(`[Quality API] Parsed concrete_specs [${idx}]:`, {
+          muestreoId: m.id,
+          remisionNumber: r.remision_number,
+          parsed: parsedSpecs,
+          parsedType: typeof parsedSpecs,
+          parsedStringified: JSON.stringify(parsedSpecs),
+          valor_edad: parsedSpecs?.valor_edad,
+          unidad_edad: parsedSpecs?.unidad_edad,
+          hasValidAge: typeof parsedSpecs?.valor_edad === 'number' && parsedSpecs?.valor_edad > 0 && parsedSpecs?.unidad_edad
+        });
+        
+        return {
+          ...m,
+          concrete_specs: parsedSpecs,
+          // Ensure remision data is available in muestreo for point analysis
+          remisionNumber: r.remision_number,
+          recipeCode: r.recipe_code,
+          recipeFc: Number(r.strength_fc) || 0,
+          constructionSite: r.construction_site,
+          orderId: r.order_id || null,
+          elemento: r.elemento || null
+        };
+      }),
       siteChecks: r.site_checks || [],
       complianceStatus: r.compliance_status,
       avgResistencia: Number(r.avg_resistencia) || 0,

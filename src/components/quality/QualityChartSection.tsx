@@ -5,6 +5,7 @@ import { Loader2, BarChart3 } from 'lucide-react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer, Legend } from 'recharts';
 import type { DatoGraficoResistencia } from '@/types/quality';
 import DetailedPointAnalysis from './DetailedPointAnalysis';
+import ClientPointAnalysis from '@/components/client-portal/quality/ClientPointAnalysis';
 
 // Custom shape for scatter points - Apple HIG styling
 // Per Apple HIG: Data points should be clearly visible with appropriate size
@@ -33,13 +34,15 @@ interface QualityChartSectionProps {
   loading: boolean;
   soloEdadGarantia: boolean;
   constructionSites: any[];
+  useClientPortalAnalysis?: boolean; // Use client portal point analysis instead of internal one
 }
 
 export function QualityChartSection({
   datosGrafico,
   loading,
   soloEdadGarantia,
-  constructionSites
+  constructionSites,
+  useClientPortalAnalysis = false
 }: QualityChartSectionProps) {
   const [selectedPoint, setSelectedPoint] = useState<DatoGraficoResistencia | null>(null);
 
@@ -500,10 +503,17 @@ export function QualityChartSection({
 
             {/* Enhanced Point Information Panel */}
             {selectedPoint && (
-              <DetailedPointAnalysis
-                point={selectedPoint}
-                onClose={() => setSelectedPoint(null)}
-              />
+              useClientPortalAnalysis ? (
+                <ClientPointAnalysis
+                  point={selectedPoint}
+                  onClose={() => setSelectedPoint(null)}
+                />
+              ) : (
+                <DetailedPointAnalysis
+                  point={selectedPoint}
+                  onClose={() => setSelectedPoint(null)}
+                />
+              )
             )}
           </div>
         ) : (

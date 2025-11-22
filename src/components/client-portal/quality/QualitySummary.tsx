@@ -68,21 +68,66 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
             (ensayo.porcentajeCumplimiento || 0) > 0
           )
           .map(ensayo => {
-            const specs = muestreo.concrete_specs || {};
-            const edad = typeof specs.valor_edad === 'number' && specs.valor_edad > 0
-              ? specs.valor_edad
+            // Parse concrete_specs if it's a string
+            let specs = muestreo.concrete_specs;
+            
+            // Aggressive logging to debug concrete_specs
+            console.log('[QualitySummary] Processing ensayo:', {
+              remisionNumber: remision.remisionNumber,
+              muestreoId: muestreo.id,
+              concrete_specs_raw: muestreo.concrete_specs,
+              concrete_specs_type: typeof muestreo.concrete_specs,
+              concrete_specs_stringified: JSON.stringify(muestreo.concrete_specs)
+            });
+            
+            if (typeof specs === 'string') {
+              try {
+                specs = JSON.parse(specs);
+                console.log('[QualitySummary] Parsed string concrete_specs:', specs);
+              } catch (e) {
+                console.error('[QualitySummary] Failed to parse concrete_specs string:', e, specs);
+                specs = {};
+              }
+            }
+            specs = specs || {};
+            
+            const valorEdad = specs.valor_edad;
+            const unidadEdad = specs.unidad_edad;
+            
+            console.log('[QualitySummary] Extracted age values:', {
+              specs,
+              valorEdad,
+              unidadEdad,
+              valorEdadType: typeof valorEdad,
+              unidadEdadType: typeof unidadEdad,
+              hasValidAge: typeof valorEdad === 'number' && valorEdad > 0 && unidadEdad
+            });
+            
+            // Use raw valor_edad for edad field (same as internal dashboard ClientMuestreosCharts.tsx)
+            // QualityChartSection groups by edadOriginal + unidadEdad, not by converted edad
+            const edad = typeof valorEdad === 'number' && valorEdad > 0
+              ? valorEdad
               : 28;
+            
             const clasificacion = (specs.clasificacion as 'FC' | 'MR') || 'FC';
+            
+            console.log('[QualitySummary] Final data point:', {
+              edad,
+              edadOriginal: valorEdad,
+              unidadEdad,
+              willUseDefault: edad === 28
+            });
+            
             return {
               x: new Date(muestreo.fechaMuestreo || muestreo.fecha_muestreo || Date.now()).getTime(),
               y: ensayo.porcentajeCumplimiento || 0,
               clasificacion,
-              edad,
-              edadOriginal: specs.valor_edad,
-              unidadEdad: specs.unidad_edad,
+              edad, // Raw valor_edad value (not converted)
+              edadOriginal: valorEdad, // REQUIRED for QualityChartSection grouping
+              unidadEdad: unidadEdad, // REQUIRED for QualityChartSection grouping
               fecha_ensayo: ensayo.fechaEnsayo || ensayo.fecha_ensayo,
               resistencia_calculada: ensayo.resistenciaCalculada,
-              muestra: { muestreo, muestra, ensayo }
+              muestra: { muestreo, muestra, ensayo, remision }
             } as DatoGraficoResistencia;
           })
       )
@@ -271,6 +316,7 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
             loading={false} 
             soloEdadGarantia={true} 
             constructionSites={constructionSites}
+            useClientPortalAnalysis={true}
           />
         </motion.div>
       )}

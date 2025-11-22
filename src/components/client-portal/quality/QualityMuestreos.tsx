@@ -87,21 +87,43 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
           (ensayo.porcentajeCumplimiento || ensayo.porcentajeCumplimientoAjustado || 0) > 0
         )
         .map((ensayo: any) => {
-          const specs = muestreo.concrete_specs || {};
-          const edad = typeof specs.valor_edad === 'number' && specs.valor_edad > 0
-            ? specs.valor_edad
+          // Parse concrete_specs if it's a string
+          let specs = muestreo.concrete_specs;
+          if (typeof specs === 'string') {
+            try {
+              specs = JSON.parse(specs);
+            } catch {
+              specs = {};
+            }
+          }
+          specs = specs || {};
+          
+          const valorEdad = specs.valor_edad;
+          const unidadEdad = specs.unidad_edad;
+          
+          // Use raw valor_edad for edad field (same as internal dashboard ClientMuestreosCharts.tsx)
+          // QualityChartSection groups by edadOriginal + unidadEdad, not by converted edad
+          const edad = typeof valorEdad === 'number' && valorEdad > 0
+            ? valorEdad
             : 28;
+          
           const clasificacion = (specs.clasificacion as 'FC' | 'MR') || 'FC';
+          
+          // Find the remision this muestreo belongs to
+          const remision = data.remisiones.find(r => 
+            r.muestreos.some(m => m.id === muestreo.id)
+          );
+          
           return {
             x: new Date(muestreo.fechaMuestreo || muestreo.fecha_muestreo || muestreo.fecha || Date.now()).getTime(),
             y: ensayo.porcentajeCumplimientoAjustado || ensayo.porcentajeCumplimiento || 0,
             clasificacion,
-            edad,
-            edadOriginal: specs.valor_edad,
-            unidadEdad: specs.unidad_edad,
+            edad, // Raw valor_edad value (not converted)
+            edadOriginal: valorEdad, // REQUIRED for QualityChartSection grouping
+            unidadEdad: unidadEdad, // REQUIRED for QualityChartSection grouping
             fecha_ensayo: ensayo.fechaEnsayo || ensayo.fecha_ensayo,
             resistencia_calculada: ensayo.resistenciaCalculadaAjustada || ensayo.resistenciaCalculada,
-            muestra: { muestreo, muestra, ensayo }
+            muestra: { muestreo, muestra, ensayo, remision }
           } as DatoGraficoResistencia;
         })
     )
@@ -343,6 +365,7 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
               loading={false} 
               soloEdadGarantia={true} 
               constructionSites={constructionSites}
+              useClientPortalAnalysis={true}
             />
           ) : (
             <div className="glass-thick rounded-3xl p-12 text-center">
