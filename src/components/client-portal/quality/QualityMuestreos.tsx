@@ -4,9 +4,10 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { List, BarChart3, Download, FileSpreadsheet } from 'lucide-react';
 import MuestreoCard from './MuestreoCard';
-import QualityChart from './QualityChart';
+import { QualityChartSection } from '@/components/quality/QualityChartSection';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 import { hasEnsayos, calculateDailyAverage, processMuestreosForChart, adjustEnsayoResistencia, recomputeEnsayoCompliance } from '@/lib/qualityHelpers';
+import type { DatoGraficoResistencia } from '@/types/quality';
 import * as XLSX from 'xlsx';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -74,6 +75,40 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
   const totalPages = Math.max(1, Math.ceil(allMuestreos.length / pageSize));
   const start = (page - 1) * pageSize;
   const visibleMuestreos = allMuestreos.slice(start, start + pageSize);
+
+  // Prepare scatter chart data
+  const datosGrafico: DatoGraficoResistencia[] = allMuestreos.flatMap((muestreo: any) =>
+    (muestreo.muestras || []).flatMap((muestra: any) =>
+      (muestra.ensayos || [])
+        .filter((ensayo: any) => 
+          ensayo.isEdadGarantia && 
+          !ensayo.isEnsayoFueraTiempo && 
+          (ensayo.resistenciaCalculada || ensayo.resistenciaCalculadaAjustada || 0) > 0 && 
+          (ensayo.porcentajeCumplimiento || ensayo.porcentajeCumplimientoAjustado || 0) > 0
+        )
+        .map((ensayo: any) => {
+          const specs = muestreo.concrete_specs || {};
+          const edad = typeof specs.valor_edad === 'number' && specs.valor_edad > 0
+            ? specs.valor_edad
+            : 28;
+          const clasificacion = (specs.clasificacion as 'FC' | 'MR') || 'FC';
+          return {
+            x: new Date(muestreo.fechaMuestreo || muestreo.fecha_muestreo || muestreo.fecha || Date.now()).getTime(),
+            y: ensayo.porcentajeCumplimientoAjustado || ensayo.porcentajeCumplimiento || 0,
+            clasificacion,
+            edad,
+            edadOriginal: specs.valor_edad,
+            unidadEdad: specs.unidad_edad,
+            fecha_ensayo: ensayo.fechaEnsayo || ensayo.fecha_ensayo,
+            resistencia_calculada: ensayo.resistenciaCalculadaAjustada || ensayo.resistenciaCalculada,
+            muestra: { muestreo, muestra, ensayo }
+          } as DatoGraficoResistencia;
+        })
+    )
+  );
+
+  // Extract unique construction sites
+  const constructionSites = [...new Set(data.remisiones.map(r => r.constructionSite).filter(Boolean))];
 
   // Función para exportar a Excel
   const exportToExcel = async () => {
@@ -301,16 +336,17 @@ export function QualityMuestreos({ data, summary }: QualityMuestreosProps) {
           </div>
         )
       ) : (
-        <div className="glass-thick rounded-3xl p-6">
-          {chartData.length > 0 ? (
-            <QualityChart
-              type="muestreos-timeline"
-              data={chartData}
-              height={400}
+        <div>
+          {datosGrafico.length > 0 ? (
+            <QualityChartSection 
+              datosGrafico={datosGrafico} 
+              loading={false} 
+              soloEdadGarantia={true} 
+              constructionSites={constructionSites}
             />
           ) : (
-            <div className="flex items-center justify-center h-96 text-label-tertiary">
-              <p>Sin datos suficientes para el gráfico</p>
+            <div className="glass-thick rounded-3xl p-12 text-center">
+              <p className="text-label-tertiary">Sin datos suficientes para el gráfico</p>
             </div>
           )}
         </div>

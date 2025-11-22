@@ -9,9 +9,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import CvDetailsModal from '@/components/client-portal/quality/CvDetailsModal';
-import { Target, Award, TrendingUp, Activity, AlertTriangle, XCircle } from 'lucide-react';
+import { Target, Award, TrendingUp, Activity } from 'lucide-react';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 import { processVolumetricTrend, processResistanceTrend, ENSAYO_ADJUSTMENT_FACTOR } from '@/lib/qualityHelpers';
+import { QualityChartSection } from '@/components/quality/QualityChartSection';
+import type { DatoGraficoResistencia } from '@/types/quality';
 
 interface QualitySummaryProps {
   data: ClientQualityData;
@@ -53,6 +55,42 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
     const weightedSum = tempCvByRecipe.reduce((sum, r) => sum + (r.coefficientVariation * r.muestreoCount), 0);
     return weightedSum / totalWeight;
   })() : summary.averages.coefficientVariation;
+
+  // Prepare scatter chart data
+  const datosGrafico: DatoGraficoResistencia[] = data.remisiones.flatMap(remision =>
+    remision.muestreos.flatMap(muestreo =>
+      (muestreo.muestras || []).flatMap(muestra =>
+        (muestra.ensayos || [])
+          .filter(ensayo => 
+            ensayo.isEdadGarantia && 
+            !ensayo.isEnsayoFueraTiempo && 
+            (ensayo.resistenciaCalculada || 0) > 0 && 
+            (ensayo.porcentajeCumplimiento || 0) > 0
+          )
+          .map(ensayo => {
+            const specs = muestreo.concrete_specs || {};
+            const edad = typeof specs.valor_edad === 'number' && specs.valor_edad > 0
+              ? specs.valor_edad
+              : 28;
+            const clasificacion = (specs.clasificacion as 'FC' | 'MR') || 'FC';
+            return {
+              x: new Date(muestreo.fechaMuestreo || muestreo.fecha_muestreo || Date.now()).getTime(),
+              y: ensayo.porcentajeCumplimiento || 0,
+              clasificacion,
+              edad,
+              edadOriginal: specs.valor_edad,
+              unidadEdad: specs.unidad_edad,
+              fecha_ensayo: ensayo.fechaEnsayo || ensayo.fecha_ensayo,
+              resistencia_calculada: ensayo.resistenciaCalculada,
+              muestra: { muestreo, muestra, ensayo }
+            } as DatoGraficoResistencia;
+          })
+      )
+    )
+  );
+
+  // Extract unique construction sites
+  const constructionSites = [...new Set(data.remisiones.map(r => r.constructionSite).filter(Boolean))];
 
   return (
     <div className="space-y-6">
@@ -221,45 +259,19 @@ export function QualitySummary({ data, summary }: QualitySummaryProps) {
         </motion.div>
       </div>
 
-      {/* Alerts */}
-      {summary.alerts && summary.alerts.length > 0 && (
+      {/* Scatter Chart */}
+      {datosGrafico.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
-          className="glass-thick rounded-3xl p-6"
         >
-          <h3 className="text-title-3 font-semibold text-label-primary mb-4">
-            Alertas y Notificaciones
-          </h3>
-          <div className="space-y-3">
-            {summary.alerts.map((alert, idx) => (
-              <div
-                key={idx}
-                className={`flex items-start gap-3 p-4 rounded-xl transition-all ${
-                  alert.type === 'error'
-                    ? 'bg-red-500/10 border border-red-500/20'
-                    : alert.type === 'warning'
-                    ? 'bg-yellow-500/10 border border-yellow-500/20'
-                    : 'bg-blue-500/10 border border-blue-500/20'
-                }`}
-              >
-                {alert.type === 'error' ? (
-                  <XCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-                ) : (
-                  <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                )}
-                <div>
-                  <p className="text-callout font-medium text-label-primary mb-1">
-                    {alert.metric}
-                  </p>
-                  <p className="text-footnote text-label-secondary">
-                    {alert.message}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
+          <QualityChartSection 
+            datosGrafico={datosGrafico} 
+            loading={false} 
+            soloEdadGarantia={true} 
+            constructionSites={constructionSites}
+          />
         </motion.div>
       )}
 
