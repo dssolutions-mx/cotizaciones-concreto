@@ -126,11 +126,19 @@ export async function GET(request: Request) {
         // CRITICAL FIX: Fetch concrete_specs for all muestreos since RPC doesn't include it
         // Collect all muestreo IDs from all remisiones
         const allMuestreoIds: string[] = [];
+        const allMuestraIds: string[] = [];
         remisionesData.forEach((r: any) => {
           if (r.muestreos && Array.isArray(r.muestreos)) {
             r.muestreos.forEach((m: any) => {
               if (m.id) {
                 allMuestreoIds.push(m.id);
+              }
+              if (m.muestras && Array.isArray(m.muestras)) {
+                m.muestras.forEach((mu: any) => {
+                  if (mu.id) {
+                    allMuestraIds.push(mu.id);
+                  }
+                });
               }
             });
           }
@@ -140,25 +148,80 @@ export async function GET(request: Request) {
           console.log(`[Quality API] Fetching concrete_specs for ${allMuestreoIds.length} muestreos`);
           const { data: muestreosData, error: muestreosError } = await supabase
             .from('muestreos')
-            .select('id, concrete_specs')
+            .select('id, concrete_specs, fecha_muestreo_ts')
             .in('id', allMuestreoIds);
           
           if (muestreosError) {
             console.error('[Quality API] Error fetching concrete_specs:', muestreosError);
           } else if (muestreosData) {
-            // Create a map of muestreo_id -> concrete_specs
-            const concreteSpecsMap = new Map(muestreosData.map((m: any) => [m.id, m.concrete_specs]));
+            // Create a map of muestreo_id -> concrete_specs and fecha_muestreo_ts
+            const muestreosMap = new Map(muestreosData.map((m: any) => [m.id, { 
+              concrete_specs: m.concrete_specs,
+              fecha_muestreo_ts: m.fecha_muestreo_ts
+            }]));
             
-            // Merge concrete_specs into remisionesData
+            // Merge concrete_specs and fecha_muestreo_ts into remisionesData
+            remisionesData = remisionesData.map((r: any) => ({
+              ...r,
+              muestreos: (r.muestreos || []).map((m: any) => {
+                const muestreoData = muestreosMap.get(m.id);
+                return {
+                  ...m,
+                  concrete_specs: muestreoData?.concrete_specs || m.concrete_specs || null,
+                  fecha_muestreo_ts: muestreoData?.fecha_muestreo_ts || m.fecha_muestreo_ts || null
+                };
+              })
+            }));
+            
+            console.log(`[Quality API] Merged concrete_specs and fecha_muestreo_ts for ${muestreosMap.size} muestreos`);
+          }
+        }
+        
+        // CRITICAL FIX: Fetch fecha_ensayo_ts for all ensayos since RPC might not include it
+        if (allMuestraIds.length > 0) {
+          console.log(`[Quality API] Fetching fecha_ensayo_ts for ensayos from ${allMuestraIds.length} muestras`);
+          const { data: ensayosData, error: ensayosError } = await supabase
+            .from('ensayos')
+            .select('id, muestra_id, fecha_ensayo_ts, hora_ensayo, fecha_ensayo')
+            .in('muestra_id', allMuestraIds);
+          
+          if (ensayosError) {
+            console.error('[Quality API] Error fetching fecha_ensayo_ts:', ensayosError);
+          } else if (ensayosData) {
+            // Create a map of muestra_id -> array of ensayos with timestamps
+            const ensayosByMuestraMap = new Map<string, any[]>();
+            ensayosData.forEach((e: any) => {
+              if (!ensayosByMuestraMap.has(e.muestra_id)) {
+                ensayosByMuestraMap.set(e.muestra_id, []);
+              }
+              ensayosByMuestraMap.get(e.muestra_id)!.push(e);
+            });
+            
+            // Merge fecha_ensayo_ts into remisionesData
             remisionesData = remisionesData.map((r: any) => ({
               ...r,
               muestreos: (r.muestreos || []).map((m: any) => ({
                 ...m,
-                concrete_specs: concreteSpecsMap.get(m.id) || m.concrete_specs || null
+                muestras: (m.muestras || []).map((mu: any) => {
+                  const ensayosWithTs = ensayosByMuestraMap.get(mu.id) || [];
+                  const ensayosMap = new Map(ensayosWithTs.map((e: any) => [e.id, e]));
+                  
+                  return {
+                    ...mu,
+                    ensayos: (mu.ensayos || []).map((e: any) => {
+                      const ensayoWithTs = ensayosMap.get(e.id);
+                      return {
+                        ...e,
+                        fecha_ensayo_ts: ensayoWithTs?.fecha_ensayo_ts || e.fecha_ensayo_ts || null,
+                        hora_ensayo: ensayoWithTs?.hora_ensayo || e.hora_ensayo || null
+                      };
+                    })
+                  };
+                })
               }))
             }));
             
-            console.log(`[Quality API] Merged concrete_specs for ${concreteSpecsMap.size} muestreos`);
+            console.log(`[Quality API] Merged fecha_ensayo_ts for ${ensayosData.length} ensayos`);
           }
         }
       }

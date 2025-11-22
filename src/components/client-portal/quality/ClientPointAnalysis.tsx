@@ -7,7 +7,8 @@ import { DatoGraficoResistencia } from '@/types/quality';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ResponsiveContainer, ComposedChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Legend } from 'recharts';
+import { Badge } from '@/components/ui/badge';
+import { ResponsiveContainer, ComposedChart, Line, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Legend } from 'recharts';
 
 interface ClientPointAnalysisProps {
   point: DatoGraficoResistencia;
@@ -59,10 +60,17 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
     if (!remision || !remision.muestreos) return [];
     
     // Get the muestreo date for age calculation (use the current muestreo's date as reference)
-    const muestreoDateStr = muestreo?.fechaMuestreo || muestreo?.fecha_muestreo;
-    if (!muestreoDateStr) return [];
+    // Prefer timestamp for precision, fallback to date string
+    let muestreoDate: Date | null = null;
+    if (muestreo?.fecha_muestreo_ts) {
+      muestreoDate = new Date(muestreo.fecha_muestreo_ts);
+    } else if (muestreo?.fechaMuestreo || muestreo?.fecha_muestreo) {
+      const muestreoDateStr = muestreo.fechaMuestreo || muestreo.fecha_muestreo;
+      const horaMuestreo = muestreo.hora_muestreo || '12:00:00';
+      muestreoDate = new Date(`${muestreoDateStr}T${horaMuestreo}`);
+    }
     
-    const muestreoDate = new Date(muestreoDateStr);
+    if (!muestreoDate || isNaN(muestreoDate.getTime())) return [];
     const targetFc = muestreo?.recipeFc || remision?.recipeFc || 0;
     
     // Collect ALL ensayos from ALL muestreos in the remision (like qualityPointAnalysisService.ts lines 130-144)
@@ -74,29 +82,42 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
       ensayo: any;
     }>>();
     
+    // Helper function to process ensayos with proper timestamp handling
+    const processEnsayos = (muestraItem: any) => {
+      (muestraItem.ensayos || []).forEach((ensayoItem: any) => {
+        const resistencia = ensayoItem.resistenciaCalculadaAjustada || ensayoItem.resistenciaCalculada;
+        const fechaEnsayo = ensayoItem.fechaEnsayo || ensayoItem.fecha_ensayo;
+        // Prefer timestamp, fallback to combining fecha_ensayo + hora_ensayo, then just fecha_ensayo
+        let fechaEnsayoTs: string | null = null;
+        if (ensayoItem.fecha_ensayo_ts) {
+          fechaEnsayoTs = ensayoItem.fecha_ensayo_ts;
+        } else if (fechaEnsayo && ensayoItem.hora_ensayo) {
+          fechaEnsayoTs = `${fechaEnsayo}T${ensayoItem.hora_ensayo}`;
+        } else if (fechaEnsayo) {
+          fechaEnsayoTs = `${fechaEnsayo}T12:00:00`;
+        }
+        
+        if (resistencia && resistencia > 0 && fechaEnsayoTs) {
+          // Use timestamp as key for grouping (like original)
+          const testDateKey = fechaEnsayoTs;
+          if (!evolutionMap.has(testDateKey)) {
+            evolutionMap.set(testDateKey, []);
+          }
+          evolutionMap.get(testDateKey)!.push({
+            resistencia,
+            fecha: fechaEnsayo || fechaEnsayoTs,
+            fecha_ts: fechaEnsayoTs,
+            muestra_id: muestraItem.id || '',
+            ensayo: ensayoItem
+          });
+        }
+      });
+    };
+    
     // First, add ensayos from the current muestreo
     if (muestreo?.muestras) {
       muestreo.muestras.forEach((muestraItem: any) => {
-        (muestraItem.ensayos || []).forEach((ensayoItem: any) => {
-          const resistencia = ensayoItem.resistenciaCalculadaAjustada || ensayoItem.resistenciaCalculada;
-          const fechaEnsayo = ensayoItem.fechaEnsayo || ensayoItem.fecha_ensayo;
-          const fechaEnsayoTs = ensayoItem.fecha_ensayo_ts || fechaEnsayo;
-          
-          if (resistencia && resistencia > 0 && fechaEnsayo) {
-            // Use timestamp as key for grouping (like original)
-            const testDateKey = fechaEnsayoTs || fechaEnsayo;
-            if (!evolutionMap.has(testDateKey)) {
-              evolutionMap.set(testDateKey, []);
-            }
-            evolutionMap.get(testDateKey)!.push({
-              resistencia,
-              fecha: fechaEnsayo,
-              fecha_ts: fechaEnsayoTs || fechaEnsayo,
-              muestra_id: muestraItem.id || '',
-              ensayo: ensayoItem
-            });
-          }
-        });
+        processEnsayos(muestraItem);
       });
     }
     
@@ -106,26 +127,7 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
       if (m.id === muestreo?.id) return;
       
       (m.muestras || []).forEach((muestraItem: any) => {
-        (muestraItem.ensayos || []).forEach((ensayoItem: any) => {
-          const resistencia = ensayoItem.resistenciaCalculadaAjustada || ensayoItem.resistenciaCalculada;
-          const fechaEnsayo = ensayoItem.fechaEnsayo || ensayoItem.fecha_ensayo;
-          const fechaEnsayoTs = ensayoItem.fecha_ensayo_ts || fechaEnsayo;
-          
-          if (resistencia && resistencia > 0 && fechaEnsayo) {
-            // Use timestamp as key for grouping (like original)
-            const testDateKey = fechaEnsayoTs || fechaEnsayo;
-            if (!evolutionMap.has(testDateKey)) {
-              evolutionMap.set(testDateKey, []);
-            }
-            evolutionMap.get(testDateKey)!.push({
-              resistencia,
-              fecha: fechaEnsayo,
-              fecha_ts: fechaEnsayoTs || fechaEnsayo,
-              muestra_id: muestraItem.id || '',
-              ensayo: ensayoItem
-            });
-          }
-        });
+        processEnsayos(muestraItem);
       });
     });
     
@@ -160,6 +162,7 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
         individualPoints: ensayos.map(e => ({
           resistencia: e.resistencia,
           edad: Number(ageInDaysFloat.toFixed(3)),
+          edad_horas: ageInHours < 24 ? Number(ageInHours.toFixed(2)) : undefined,
           fecha: e.fecha,
           fecha_ts: e.fecha_ts,
           muestra_id: e.muestra_id,
@@ -174,6 +177,10 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
     });
     
     // Add day 0 point at muestreo date (like ResistanceEvolutionChart.tsx lines 45-55)
+    const muestreoDateStr = muestreo?.fecha_muestreo_ts || 
+                            (muestreo?.fechaMuestreo || muestreo?.fecha_muestreo 
+                              ? `${muestreo.fechaMuestreo || muestreo.fecha_muestreo}T${muestreo.hora_muestreo || '12:00:00'}` 
+                              : muestreoDate.toISOString());
     const dayZeroPoint = {
       edad_dias: 0,
       edad: 0,
@@ -195,6 +202,21 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
   // Flatten individual points for scatter overlay
   const allIndividualPoints = useMemo(() => {
     return evolutionData.flatMap(point => point.individualPoints || []);
+  }, [evolutionData]);
+  
+  // Get unique ages for X-axis ticks (like original)
+  const uniqueAges = useMemo(() => {
+    const ages = evolutionData.map(p => p.edad).filter(age => age >= 0);
+    // Round to avoid too many ticks
+    const rounded = ages.map(age => {
+      if (age < 1) {
+        // Round hours to nearest hour
+        return Math.round(age * 24) / 24;
+      }
+      // Round days to nearest 0.1
+      return Math.round(age * 10) / 10;
+    });
+    return Array.from(new Set(rounded)).sort((a, b) => a - b);
   }, [evolutionData]);
 
   // Format age display
@@ -424,6 +446,89 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
           </div>
         )}
 
+        {/* All Ensayos for this Muestreo */}
+        {muestreo && muestreo.muestras && (
+          <div className="glass-thin rounded-2xl p-4 border border-white/10">
+            <h4 className="text-callout font-semibold text-label-primary mb-3 flex items-center gap-2">
+              <Beaker className="w-4 h-4" />
+              Todos los Ensayos del Muestreo
+            </h4>
+            <div className="space-y-3">
+              {muestreo.muestras.flatMap((muestraItem: any, muestraIdx: number) =>
+                (muestraItem.ensayos || []).map((ensayoItem: any, ensayoIdx: number) => {
+                  const resistencia = ensayoItem.resistenciaCalculadaAjustada || ensayoItem.resistenciaCalculada || 0;
+                  const cumplimiento = ensayoItem.porcentajeCumplimientoAjustado || ensayoItem.porcentajeCumplimiento || 0;
+                  const fechaEnsayo = ensayoItem.fechaEnsayo || ensayoItem.fecha_ensayo;
+                  
+                  // Calculate age from muestreo date
+                  const muestreoDate = new Date(muestreo.fechaMuestreo || muestreo.fecha_muestreo);
+                  const ensayoDate = fechaEnsayo ? new Date(fechaEnsayo) : null;
+                  const ageHours = ensayoDate ? (ensayoDate.getTime() - muestreoDate.getTime()) / (1000 * 60 * 60) : null;
+                  const ageDays = ageHours ? ageHours / 24 : null;
+                  
+                  return (
+                    <div 
+                      key={`${muestraIdx}-${ensayoIdx}`}
+                      className={`p-3 rounded-xl border ${
+                        ensayoItem.id === ensayo?.id 
+                          ? 'border-systemBlue bg-systemBlue/10' 
+                          : 'border-white/10 bg-white/5'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-footnote">
+                            {muestraItem.tipoMuestra || muestraItem.tipo_muestra || 'N/A'}
+                          </Badge>
+                          <span className="text-footnote text-label-secondary">
+                            {muestraItem.identificacion || muestraItem.id}
+                          </span>
+                        </div>
+                        {ageHours !== null && (
+                          <span className="text-footnote text-label-tertiary">
+                            {ageHours < 24 
+                              ? `${Math.round(ageHours)} horas`
+                              : `${ageDays?.toFixed(1)} días`}
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-3 gap-3 mt-2">
+                        <div>
+                          <p className="text-footnote text-label-secondary mb-1">Fecha</p>
+                          <p className="text-body font-medium text-label-primary">
+                            {fechaEnsayo ? formatDate(fechaEnsayo) : 'N/A'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-footnote text-label-secondary mb-1">Resistencia</p>
+                          <p className="text-body font-medium text-label-primary">
+                            {resistencia > 0 ? resistencia.toFixed(0) : 'N/A'} kg/cm²
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-footnote text-label-secondary mb-1">Cumplimiento</p>
+                          <p className={`text-body font-medium ${
+                            cumplimiento >= 100 ? 'text-systemGreen' :
+                            cumplimiento >= 90 ? 'text-systemOrange' :
+                            'text-systemRed'
+                          }`}>
+                            {cumplimiento > 0 ? `${cumplimiento.toFixed(1)}%` : 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              {muestreo.muestras.every((m: any) => !m.ensayos || m.ensayos.length === 0) && (
+                <p className="text-body text-label-secondary text-center py-4">
+                  No hay ensayos disponibles para este muestreo
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
           {/* Performance Indicator */}
           <div className={`glass-thin rounded-2xl p-4 border ${
             point.y >= 100 ? 'border-systemGreen/30 bg-systemGreen/10' :
@@ -464,7 +569,7 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
               </h4>
               <div className="h-96 w-full">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={evolutionData} margin={{ top: 20, right: 30, left: 40, bottom: 40 }}>
+                  <ComposedChart data={evolutionData as any} margin={{ top: 20, right: 30, left: 40, bottom: 40 }}>
                     <CartesianGrid strokeDasharray="1 1" stroke="#F1F5F9" strokeWidth={0.5} />
                     <XAxis 
                       type="number"
@@ -476,6 +581,16 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
                       axisLine={{ stroke: '#E2E8F0', strokeWidth: 1 }}
                       tick={{ fill: '#64748B', fontSize: 11 }}
                       domain={[0, 'dataMax']}
+                      ticks={uniqueAges.length > 0 ? uniqueAges : undefined}
+                      tickFormatter={(value) => {
+                        if (value === 0) return '0';
+                        if (value < 1) {
+                          const hours = Math.round(value * 24);
+                          return `${hours}h`;
+                        }
+                        const days = Math.round(value);
+                        return `${days}d`;
+                      }}
                       label={{ 
                         value: 'Edad (días, horas si < 1 día)', 
                         position: 'insideBottom', 
@@ -499,79 +614,75 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
                     />
                     <Tooltip 
                       content={({ active, payload, label }) => {
-                        if (active && payload && payload.length) {
-                          const data = payload[0].payload;
-                          const isIndividual = data.isIndividual;
-                          
-                          if (isIndividual) {
-                            return (
-                              <div className="glass-thick rounded-xl p-4 border border-white/20 shadow-lg">
-                                <div className="mb-3">
-                                  <p className="text-body font-bold text-label-primary text-center">
-                                    {label < 1 ? `${(label * 24).toFixed(1)} horas desde muestreo` : `Día ${Number(label).toFixed(2)} desde muestreo`}
-                                  </p>
-                                  <p className="text-footnote text-label-secondary text-center mt-1">
-                                    {data.fecha ? formatDate(data.fecha) : 'N/A'}
-                                  </p>
-                                </div>
-                                <div className="bg-blue-50 rounded-lg p-2 text-center">
-                                  <p className="text-footnote text-blue-600 font-medium">Resistencia Individual</p>
-                                  <p className="text-title-2 font-bold text-blue-800">
-                                    {data.resistencia ? data.resistencia.toFixed(1) : 'N/A'} kg/cm²
-                                  </p>
-                                </div>
-                              </div>
-                            );
+                        if (!active || !payload || !payload.length) return null;
+                        
+                        // Find the payload with actual data (prefer aggregated over individual)
+                        let data: any = null;
+                        let isIndividual = false;
+                        
+                        // First, try to find aggregated data (has muestras field)
+                        for (const p of payload) {
+                          if (p.payload && !p.payload.isIndividual && p.payload.muestras !== undefined) {
+                            data = p.payload;
+                            isIndividual = false;
+                            break;
                           }
-                          
-                          const isDayZero = data.edad === 0;
-                          return (
-                            <div className="glass-thick rounded-xl p-4 border border-white/20 shadow-lg">
-                              <div className="mb-3">
-                                <p className="text-body font-bold text-label-primary text-center">
-                                  {isDayZero
-                                    ? 'Día 0 (Muestreo)'
-                                    : label < 1
-                                      ? `${(label * 24).toFixed(1)} horas desde muestreo`
-                                      : `Día ${Number(label).toFixed(2)} desde muestreo`}
-                                </p>
-                                <p className="text-footnote text-label-secondary text-center mt-1">
-                                  {data.fecha ? formatDate(data.fecha) : 'N/A'}
-                                </p>
-                              </div>
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="bg-blue-50 rounded-lg p-2 text-center">
-                                  <p className="text-footnote text-blue-600 font-medium">Resistencia Promedio</p>
-                                  <p className="text-title-2 font-bold text-blue-800">
-                                    {data.resistencia ? data.resistencia.toFixed(1) : 'N/A'} kg/cm²
-                                  </p>
-                                </div>
-                                <div className="bg-green-50 rounded-lg p-2 text-center">
-                                  <p className="text-footnote text-green-600 font-medium">Cumplimiento</p>
-                                  <p className="text-title-2 font-bold text-green-800">
-                                    {data.cumplimiento ? `${data.cumplimiento.toFixed(0)}%` : 'N/A'}
-                                  </p>
-                                </div>
-                                <div className="bg-purple-50 rounded-lg p-2 text-center">
-                                  <p className="text-footnote text-purple-600 font-medium">Muestras</p>
-                                  <p className="text-title-2 font-bold text-purple-800">
-                                    {data.muestras ? data.muestras : 'N/A'}
-                                  </p>
-                                </div>
-                                <div className="bg-orange-50 rounded-lg p-2 text-center">
-                                  <p className="text-footnote text-orange-600 font-medium">Rango</p>
-                                  <p className="text-footnote font-bold text-orange-800">
-                                    {!isDayZero && data.resistencia_min && data.resistencia_max ? 
-                                      `${data.resistencia_min.toFixed(1)} - ${data.resistencia_max.toFixed(1)}` : 
-                                      'N/A'}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          );
                         }
-                        return null;
+                        
+                        // If no aggregated data found, use the first payload
+                        if (!data && payload[0]?.payload) {
+                          data = payload[0].payload;
+                          isIndividual = data.isIndividual || false;
+                        }
+                        
+                        if (!data) return null;
+                        
+                        // Use actual age from data point, not label (label might be rounded)
+                        const ageValue = data.edad !== undefined ? data.edad : Number(label);
+                        const ageHours = data.edad_horas !== undefined ? data.edad_horas : (ageValue < 1 ? ageValue * 24 : null);
+                        
+                        // Format age display - use hours if available and < 24, otherwise use days
+                        let ageLabel: string;
+                        if (ageValue === 0) {
+                          ageLabel = 'Día 0 (Muestreo)';
+                        } else if (ageHours !== null && ageHours < 24) {
+                          // Show hours when < 24 hours
+                          ageLabel = `${Math.round(ageHours)} horas`;
+                        } else {
+                          // Show days with decimal precision
+                          ageLabel = `Día ${ageValue.toFixed(1)}`;
+                        }
+                        
+                        // Simple, consistent tooltip for all points
+                        const isDayZero = ageValue === 0;
+                        const resistencia = data.resistencia || data.value || 0;
+                        const cumplimiento = data.cumplimiento;
+                        const muestras = data.muestras || data.numero_muestras || 0;
+                        
+                        return (
+                          <div className="bg-white rounded-lg p-3 border border-gray-200 shadow-lg">
+                            <p className="text-sm font-semibold text-gray-800 mb-1">{ageLabel}</p>
+                            <p className="text-lg font-bold text-blue-600">
+                              {resistencia?.toFixed(0) || 'N/A'} kg/cm²
+                            </p>
+                            {!isIndividual && !isDayZero && (
+                              <div className="mt-2 pt-2 border-t border-gray-200">
+                                <p className="text-xs text-gray-600">
+                                  {cumplimiento !== undefined && (
+                                    <>Cumplimiento: {cumplimiento.toFixed(0)}%</>
+                                  )}
+                                  {muestras > 0 && (
+                                    <>{cumplimiento !== undefined && ' • '}{muestras} muestra{muestras > 1 ? 's' : ''}</>
+                                  )}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        );
                       }}
+                      allowEscapeViewBox={{ x: true, y: true }}
+                      position={{ x: 'auto', y: 'auto' }}
+                      shared={false}
                     />
                     {muestreo?.recipeFc && (
                       <ReferenceLine 
@@ -589,38 +700,43 @@ export default function ClientPointAnalysis({ point, onClose, className = '' }: 
                       />
                     )}
                     {/* Individual scatter points */}
-                    <Line
-                      type="linear"
-                      dataKey="resistencia"
-                      data={allIndividualPoints as any}
-                      stroke="transparent"
-                      dot={{ r: 3, fill: '#60A5FA', stroke: '#FFFFFF', strokeWidth: 1.5 }}
-                      activeDot={{ r: 5, fill: '#60A5FA', stroke: '#1D4ED8' }}
-                      isAnimationActive={false}
-                      connectNulls
+                    <Scatter
+                      name="Individual"
+                      data={allIndividualPoints.map((p: any) => ({
+                        ...p,
+                        x: p.edad,
+                        y: p.resistencia,
+                        isIndividual: true
+                      }))}
+                      fill="#60A5FA"
+                      shape={(props: any) => {
+                        const { cx, cy } = props;
+                        return (
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={3}
+                            fill="#60A5FA"
+                            stroke="#FFFFFF"
+                            strokeWidth={1.5}
+                          />
+                        );
+                      }}
                     />
                     {/* Main resistance line (average) */}
                     <Line
+                      name="Promedio"
                       type="monotone"
                       dataKey="resistencia"
                       stroke="#B45309"
                       strokeWidth={2.5}
-                      dot={false}
+                      dot={{ r: 4, fill: '#B45309', stroke: '#FFFFFF', strokeWidth: 2 }}
                       activeDot={{ 
                         r: 5, 
                         stroke: '#B45309', 
                         strokeWidth: 2,
                         fill: '#FFFFFF',
                       }}
-                    />
-                    {/* Average points on the line */}
-                    <Line
-                      type="linear"
-                      dataKey="resistencia"
-                      data={evolutionData as any}
-                      stroke="transparent"
-                      dot={{ r: 4, fill: '#B45309', stroke: '#FFFFFF', strokeWidth: 2 }}
-                      isAnimationActive={false}
                     />
                     <Legend 
                       wrapperStyle={{ fontSize: 12, paddingTop: 20 }}
