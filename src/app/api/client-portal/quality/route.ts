@@ -73,7 +73,10 @@ export async function GET(request: Request) {
 
     // Step 5: Call RPC function for details (single query with pagination)
     const detailsStartTime = Date.now();
-    const { data: remisionesData, error: detailsError } = await supabase
+    let remisionesData: any[] | null = null;
+    let detailsError: any = null;
+    
+    const { data: detailsData, error: detailsErr } = await supabase
       .rpc('get_client_quality_details', {
         p_client_id: clientId,
         p_from_date: fromDate,
@@ -82,12 +85,22 @@ export async function GET(request: Request) {
         p_offset: offset
       });
 
+    remisionesData = detailsData;
+    detailsError = detailsErr;
+
     if (detailsError) {
       console.error('[Quality API] Details error:', detailsError);
-      return NextResponse.json({ error: 'Error al obtener detalles de calidad' }, { status: 500 });
+      // If details query fails (e.g., timeout), return summary with empty remisiones
+      // This allows the page to still load with summary metrics
+      remisionesData = [];
+      
+      // Add alert about details not being available
+      if (detailsError.code === '57014' || detailsError.message?.includes('timeout')) {
+        console.warn('[Quality API] Details query timed out - returning summary only');
+      }
+    } else {
+      console.log(`[Quality API] Details retrieved (${remisionesData?.length || 0} remisiones) in ${Date.now() - detailsStartTime}ms`);
     }
-
-    console.log(`[Quality API] Details retrieved (${remisionesData?.length || 0} remisiones) in ${Date.now() - detailsStartTime}ms`);
 
     // Step 6: Get per-recipe CV breakdown
     const cvStartTime = Date.now();
@@ -246,6 +259,17 @@ export async function GET(request: Request) {
       summary.alerts.push({
         type: 'info',
         message: 'Iniciando registro de datos de calidad para el período',
+        metric: 'data'
+      });
+    }
+    
+    // Add alert if details query failed (e.g., timeout)
+    if (detailsError) {
+      summary.alerts.push({
+        type: 'warning',
+        message: detailsError.code === '57014' || detailsError.message?.includes('timeout')
+          ? 'Los detalles están tardando demasiado. Intente con un rango de fechas más corto o contacte al soporte.'
+          : 'No se pudieron cargar los detalles. Los datos del resumen están disponibles.',
         metric: 'data'
       });
     }
