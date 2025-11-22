@@ -134,20 +134,6 @@ export default function QualityDashboardPage() {
         const fromDate = format(dateRange.from!, 'yyyy-MM-dd');
         const toDate = format(dateRange.to!, 'yyyy-MM-dd');
 
-        console.log('🔍 Fetching unfiltered chart data for available ages:', {
-          fromDate,
-          toDate,
-          selectedClient,
-          selectedConstructionSite,
-          selectedRecipe,
-          selectedPlant,
-          selectedClasificacion,
-          selectedSpecimenType,
-          selectedFcValue,
-          soloEdadGarantia,
-          incluirEnsayosFueraTiempo
-        });
-
         // Fetch chart data with all filters EXCEPT age filter
         const unfilteredData = await fetchDatosGraficoResistencia(
           fromDate,
@@ -165,10 +151,6 @@ export default function QualityDashboardPage() {
         );
 
         if (!isCancelled) {
-          console.log('✅ Received unfiltered chart data for ages:', {
-            dataLength: unfilteredData.length,
-            ages: unfilteredData.map(d => `${d.edadOriginal}_${d.unidadEdad}`).filter((v, i, a) => a.indexOf(v) === i)
-          });
           setUnfilteredChartData(unfilteredData);
         }
       } catch (error) {
@@ -249,13 +231,6 @@ export default function QualityDashboardPage() {
           label
         };
       });
-
-    console.log('🔍 Built available ages from chart data:', {
-      source: unfilteredChartData.length > 0 ? 'unfiltered' : 'filtered',
-      dataPoints: dataToUse.length,
-      ages: chartAges.map(a => a.label),
-      selectedAge
-    });
 
     // Return chart-based ages if available, otherwise fallback to filter-based
     return chartAges.length > 0 ? chartAges : availableAges;

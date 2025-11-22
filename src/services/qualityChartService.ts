@@ -272,16 +272,6 @@ export async function fetchDatosGraficoResistencia(
       ? (typeof fechaHasta === 'string' ? fechaHasta : format(fechaHasta, 'yyyy-MM-dd'))
       : undefined;
 
-    // Use cascading filtering to get filtered muestreos
-    console.log('🎯 Chart - Using cascading filtering:', {
-      client_id: !!client_id,
-      construction_site_id: !!construction_site_id,
-      recipe_code: !!recipe_code,
-      plant_code,
-      plant_code_type: typeof plant_code,
-      plant_code_length: plant_code ? plant_code.length : 0
-    });
-
     // Create date range for cascading filtering
     const dateRange: DateRange | undefined = formattedFechaDesde && formattedFechaHasta ? {
       from: new Date(formattedFechaDesde),
@@ -304,19 +294,11 @@ export async function fetchDatosGraficoResistencia(
     const filteredMuestreos = await getFilteredMuestreos(dateRange, filterSelections, soloEdadGarantia, incluirEnsayosFueraTiempo);
 
     if (!filteredMuestreos || filteredMuestreos.length === 0) {
-      console.log('📊 No muestreos found after cascading filtering for chart');
       return [];
     }
 
-    console.log(`📊 Found ${filteredMuestreos.length} muestreos after cascading filtering for chart`);
-
     // Now fetch the full data for these filtered muestreos
     const muestreoIds = filteredMuestreos.map((m: any) => m.id);
-    
-    console.log('🔍 Chart - Fetching data with ensayos filtering conditions:', {
-      soloEdadGarantia,
-      incluirEnsayosFueraTiempo
-    });
 
     const { data, error } = await supabase
       .from('muestreos')
@@ -363,20 +345,6 @@ export async function fetchDatosGraficoResistencia(
 
     const filteredData = data || [];
 
-    console.log('🔍 Chart - Processing filtered data:', {
-      filteredDataLength: filteredData.length,
-      sampleMuestreo: filteredData[0] ? {
-        id: filteredData[0].id,
-        hasMuestras: !!filteredData[0].muestras,
-        muestrasCount: filteredData[0].muestras?.length || 0,
-        firstMuestra: filteredData[0].muestras?.[0] ? {
-          id: filteredData[0].muestras[0].id,
-          hasEnsayos: !!filteredData[0].muestras[0].ensayos,
-          ensayosCount: filteredData[0].muestras[0].ensayos?.length || 0
-        } : null
-      } : null
-    });
-
     // Flatten the data structure: extract all ensayos from the muestreos
     const allEnsayos: any[] = [];
 
@@ -399,23 +367,8 @@ export async function fetchDatosGraficoResistencia(
       }
     });
 
-    console.log('🔍 Chart - Flattened ensayos:', {
-      totalEnsayos: allEnsayos.length,
-      sampleEnsayo: allEnsayos[0] ? {
-        id: allEnsayos[0].id,
-        resistencia_calculada: allEnsayos[0].resistencia_calculada,
-        fecha_ensayo: allEnsayos[0].fecha_ensayo
-      } : null
-    });
-
     // Start with flattened data
     let filteredEnsayos = allEnsayos;
-
-    console.log('🔍 Chart - Initial ensayos before filtering:', {
-      totalEnsayos: filteredEnsayos.length,
-      soloEdadGarantia,
-      incluirEnsayosFueraTiempo
-    });
 
     // Apply comprehensive filtering based on current conditions
     filteredEnsayos = filteredEnsayos.filter((item: any) => {
@@ -442,11 +395,6 @@ export async function fetchDatosGraficoResistencia(
         
         if (!concreteSpecs?.valor_edad || !concreteSpecs?.unidad_edad) {
           // If no concrete_specs, exclude this item when age filter is active
-          console.log('🔍 Age filter: Excluding item - no concrete_specs', {
-            ensayoId: item.id,
-            hasMuestreo: !!muestreo,
-            hasConcreteSpecs: !!concreteSpecs
-          });
           return false;
         }
 
@@ -464,12 +412,6 @@ export async function fetchDatosGraficoResistencia(
             (unidad_edad === 'DÍA' && targetUnit === 'D'));
 
         if (!matchesAge) {
-          console.log('🔍 Age filter: Excluding item - age mismatch', {
-            ensayoId: item.id,
-            selectedAge: age_guarantee,
-            muestreoAge: `${valor_edad}_${unidad_edad}`,
-            matchesAge
-          });
           return false;
         }
       }
@@ -482,41 +424,8 @@ export async function fetchDatosGraficoResistencia(
       return true;
     });
 
-    console.log('🔍 Chart - Final ensayos after filtering:', {
-      totalEnsayos: filteredEnsayos.length,
-      sampleEnsayo: filteredEnsayos[0] ? {
-        id: filteredEnsayos[0].id,
-        resistencia_calculada: filteredEnsayos[0].resistencia_calculada,
-        is_edad_garantia: filteredEnsayos[0].is_edad_garantia,
-        is_ensayo_fuera_tiempo: filteredEnsayos[0].is_ensayo_fuera_tiempo
-      } : null
-    });
-
     // Process the chart data
-    console.log('🔍 Chart - Before processChartData:', {
-      totalEnsayos: filteredEnsayos.length,
-      sampleEnsayo: filteredEnsayos[0] ? {
-        id: filteredEnsayos[0].id,
-        muestreoId: filteredEnsayos[0].muestra?.muestreo?.id || filteredEnsayos[0].muestreo_id,
-        porcentaje_cumplimiento: filteredEnsayos[0].porcentaje_cumplimiento
-      } : null
-    });
-
     const processedData = processChartData(filteredEnsayos);
-
-    console.log('✅ Chart - After processChartData:', {
-      totalEnsayosInput: filteredEnsayos.length,
-      totalMuestreosOutput: processedData.length,
-      aggregationRatio: filteredEnsayos.length > 0 ? (processedData.length / filteredEnsayos.length).toFixed(2) : 'N/A',
-      sampleDataPoint: processedData[0] ? {
-        muestreoId: processedData[0].muestra?.muestreo?.id,
-        edadOriginal: processedData[0].edadOriginal,
-        unidadEdad: processedData[0].unidadEdad,
-        edad: processedData[0].edad,
-        aggregatedCount: processedData[0].aggregatedCount,
-        y: processedData[0].y
-      } : null
-    });
 
     return processedData;
   } catch (error) {
@@ -574,13 +483,6 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
     const muestreoId = item.muestra?.muestreo?.id || item.muestreo_id;
 
     if (!muestreoId) {
-      console.warn('⚠️ Chart - Skipping item without muestreo_id:', {
-        ensayoId: item.id,
-        hasMuestra: !!item.muestra,
-        hasMuestreoInMuestra: !!item.muestra?.muestreo,
-        muestreoIdFromMuestra: item.muestra?.muestreo?.id,
-        muestreoIdDirect: item.muestreo_id
-      });
       return;
     }
 
@@ -588,16 +490,6 @@ const processChartData = (data: any[]): DatoGraficoResistencia[] => {
       muestreoGroups.set(muestreoId, []);
     }
     muestreoGroups.get(muestreoId)!.push(item);
-  });
-
-  console.log('📊 Chart - Grouping results:', {
-    totalEnsayos: validData.length,
-    uniqueMuestreos: muestreoGroups.size,
-    averageEnsayosPerMuestreo: muestreoGroups.size > 0 ? (validData.length / muestreoGroups.size).toFixed(2) : 'N/A',
-    sampleGroup: Array.from(muestreoGroups.entries())[0] ? {
-      muestreoId: Array.from(muestreoGroups.entries())[0][0],
-      ensayosCount: Array.from(muestreoGroups.entries())[0][1].length
-    } : null
   });
 
   const processedData = Array.from(muestreoGroups.entries()).map(([muestreoId, ensayos]) => {
