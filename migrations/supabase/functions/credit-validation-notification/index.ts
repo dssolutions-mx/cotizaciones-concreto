@@ -108,7 +108,10 @@ serve(async (req)=>{
       delivery_time,
       preliminary_amount,
       invoice_amount,
-      previous_client_balance
+      previous_client_balance,
+      client_approval_status,
+      client_approved_by,
+      client_approval_date
     `)
     .eq('id', record.id)
     .single();
@@ -154,6 +157,20 @@ serve(async (req)=>{
     });
   }
   
+  // Get client approver details if order was approved by client executive
+  let clientApprover = null;
+  if (notificationType === 'client_approved_order' && order.client_approved_by) {
+    const { data: approver, error: approverError } = await supabase
+      .from('user_profiles')
+      .select('email, first_name, last_name')
+      .eq('id', order.client_approved_by)
+      .single();
+    
+    if (!approverError) {
+      clientApprover = approver;
+    }
+  }
+  
   // Format the delivery date and time
   const formatDateStr = (dateStr) => {
     try {
@@ -175,8 +192,9 @@ serve(async (req)=>{
   
   // Determine recipient roles based on notification type
   let recipientRoles = [];
-  if (notificationType === 'new_order') {
+  if (notificationType === 'new_order' || notificationType === 'client_approved_order') {
     // Nuevas órdenes van a validadores de crédito
+    // client_approved_order: Order was approved by client executive, now needs credit validation
     recipientRoles = [
       'CREDIT_VALIDATOR'
     ];
@@ -322,7 +340,12 @@ serve(async (req)=>{
         </html>
       `;
     } else {
-      emailSubject = `Validación de crédito requerida - Pedido ${order.order_number}`;
+      // Handle both 'new_order' and 'client_approved_order' types
+      const isClientApproved = notificationType === 'client_approved_order';
+      emailSubject = isClientApproved 
+        ? `Validación de crédito requerida - Pedido ${order.order_number} (Aprobado por cliente)`
+        : `Validación de crédito requerida - Pedido ${order.order_number}`;
+      
       emailContent = `
         <html>
         <head>
@@ -333,6 +356,7 @@ serve(async (req)=>{
             <div class="header">
               <h1 class="title">Se requiere validación de crédito</h1>
               <h2 class="subtitle">Pedido: ${order.order_number}</h2>
+              ${isClientApproved ? '<p style="color: #22c55e; font-weight: bold; margin-top: 10px;">✓ Aprobado por cliente ejecutivo</p>' : ''}
             </div>
             
             <div class="info-box">
@@ -356,6 +380,12 @@ serve(async (req)=>{
                 <span class="info-label">Creado por:</span>
                 <span class="info-value">${creator.first_name} ${creator.last_name}</span>
               </div>
+              ${isClientApproved && clientApprover ? `
+              <div class="info-row">
+                <span class="info-label">Aprobado por cliente:</span>
+                <span class="info-value">${clientApprover.first_name} ${clientApprover.last_name}</span>
+              </div>
+              ` : ''}
             </div>
             
             <div class="financial-box">
@@ -428,9 +458,16 @@ serve(async (req)=>{
       console.error('Error sending email via SendGrid:', await response.text());
     } else {
       // Record notification in database
+      let notificationTypeDb = 'CREDIT_VALIDATION_REQUEST';
+      if (notificationType === 'rejected_by_validator') {
+        notificationTypeDb = 'CREDIT_REJECTION_REVIEW';
+      } else if (notificationType === 'client_approved_order') {
+        notificationTypeDb = 'CREDIT_VALIDATION_REQUEST_CLIENT_APPROVED';
+      }
+      
       await supabase.from('order_notifications').insert({
         order_id: order.id,
-        notification_type: notificationType === 'rejected_by_validator' ? 'CREDIT_REJECTION_REVIEW' : 'CREDIT_VALIDATION_REQUEST',
+        notification_type: notificationTypeDb,
         recipient: recipient.email,
         delivery_status: response.ok ? 'SENT' : 'FAILED'
       });
