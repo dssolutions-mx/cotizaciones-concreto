@@ -3,25 +3,42 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Home, Package, DollarSign, Beaker, LogOut, Menu, X } from 'lucide-react';
+import { Home, Package, DollarSign, Beaker, LogOut, Menu, X, Users, CheckCircle } from 'lucide-react';
 import { Branding } from '@/components/ui/Branding';
 import { ClientLogo } from '@/components/ui/ClientLogo';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
+import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
+import { usePendingApprovals } from '@/hooks/client-portal/usePendingApprovals';
 import { cn } from '@/lib/utils';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
 export default function ClientPortalNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { logout } = useAuthBridge();
+  const { isExecutive, isLoading: permissionsLoading } = useUserPermissions();
+  const { count: pendingCount } = usePendingApprovals();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const navItems = [
-    { href: '/client-portal', label: 'Dashboard', icon: Home },
-    { href: '/client-portal/orders', label: 'Pedidos', icon: Package },
-    { href: '/client-portal/balance', label: 'Balance', icon: DollarSign },
-    { href: '/client-portal/quality', label: 'Calidad', icon: Beaker },
-  ];
+  // Build navigation items dynamically based on user permissions
+  const navItems = useMemo(() => {
+    const baseItems = [
+      { href: '/client-portal', label: 'Dashboard', icon: Home },
+      { href: '/client-portal/orders', label: 'Pedidos', icon: Package },
+      { href: '/client-portal/balance', label: 'Balance', icon: DollarSign },
+      { href: '/client-portal/quality', label: 'Calidad', icon: Beaker },
+    ];
+
+    // Add executive-only items
+    if (!permissionsLoading && isExecutive) {
+      baseItems.push(
+        { href: '/client-portal/approvals', label: 'Aprobaciones', icon: CheckCircle, badge: pendingCount || 0 },
+        { href: '/client-portal/team', label: 'Equipo', icon: Users }
+      );
+    }
+
+    return baseItems;
+  }, [isExecutive, permissionsLoading, pendingCount]);
 
   const handleLogout = async () => {
     await logout();
@@ -53,9 +70,10 @@ export default function ClientPortalNav() {
             <div className="hidden md:flex items-center gap-2">
               {navItems.map((item) => {
                 const Icon = item.icon;
-                const isActive = pathname === item.href || 
+                const isActive = pathname === item.href ||
                   (item.href !== '/client-portal' && pathname.startsWith(item.href));
-                
+                const hasBadge = 'badge' in item && item.badge && item.badge > 0;
+
                 return (
                   <Link key={item.href} href={item.href}>
                     <motion.div
@@ -77,6 +95,11 @@ export default function ClientPortalNav() {
                       )}
                       <Icon className="w-5 h-5 relative z-10" />
                       <span className="relative z-10 text-callout">{item.label}</span>
+                      {hasBadge && (
+                        <span className="relative z-10 ml-1 px-2 py-0.5 text-xs font-semibold bg-amber-500 text-white rounded-full">
+                          {item.badge}
+                        </span>
+                      )}
                     </motion.div>
                   </Link>
                 );
@@ -125,7 +148,8 @@ export default function ClientPortalNav() {
               const Icon = item.icon;
               const isActive = pathname === item.href ||
                 (item.href !== '/client-portal' && pathname.startsWith(item.href));
-              
+              const hasBadge = 'badge' in item && item.badge && item.badge > 0;
+
               return (
                 <Link
                   key={item.href}
@@ -135,14 +159,21 @@ export default function ClientPortalNav() {
                   <motion.div
                     whileTap={{ scale: 0.98 }}
                     className={cn(
-                      'flex items-center gap-3 px-4 py-3 rounded-2xl transition-all',
+                      'flex items-center justify-between px-4 py-3 rounded-2xl transition-all',
                       isActive
                         ? 'glass-thick text-blue-600 font-semibold'
                         : 'text-gray-600 hover:glass-thin'
                     )}
                   >
-                    <Icon className="w-5 h-5" />
-                    <span className="text-body">{item.label}</span>
+                    <div className="flex items-center gap-3">
+                      <Icon className="w-5 h-5" />
+                      <span className="text-body">{item.label}</span>
+                    </div>
+                    {hasBadge && (
+                      <span className="px-2 py-0.5 text-xs font-semibold bg-amber-500 text-white rounded-full">
+                        {item.badge}
+                      </span>
+                    )}
                   </motion.div>
                 </Link>
               );
