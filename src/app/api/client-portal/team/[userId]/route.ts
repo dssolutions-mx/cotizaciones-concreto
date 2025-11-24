@@ -2,6 +2,8 @@ import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
+export const dynamic = 'force-dynamic';
+
 // Validation schema for updating role
 const updateRoleSchema = z.object({
   role: z.enum(['executive', 'user'], {

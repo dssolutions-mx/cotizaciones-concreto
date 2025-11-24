@@ -1,6 +1,8 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * GET /api/client-portal/orders/pending-approval
  * Gets all orders pending client approval for the current executive user
@@ -68,12 +70,6 @@ export async function GET(request: NextRequest) {
           business_name,
           client_code
         ),
-        user_profiles!orders_created_by_fkey (
-          id,
-          email,
-          first_name,
-          last_name
-        ),
         order_items (
           id,
           product_id,
@@ -97,9 +93,26 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Get unique creator IDs and fetch their profiles
+    const creatorIds = [...new Set(pendingOrders?.map((o: any) => o.created_by).filter(Boolean) || [])];
+    const creatorProfilesMap = new Map<string, any>();
+    
+    if (creatorIds.length > 0) {
+      const { data: creators, error: creatorsError } = await supabase
+        .from('user_profiles')
+        .select('id, email, first_name, last_name')
+        .in('id', creatorIds);
+      
+      if (!creatorsError && creators) {
+        creators.forEach((creator) => {
+          creatorProfilesMap.set(creator.id, creator);
+        });
+      }
+    }
+
     // Transform the data to a cleaner format
-    const formattedOrders = pendingOrders?.map((order) => {
-      const creator = order.user_profiles as any;
+    const formattedOrders = pendingOrders?.map((order: any) => {
+      const creator = creatorProfilesMap.get(order.created_by) || null;
       const client = order.clients as any;
       const items = order.order_items as any[];
 

@@ -1,21 +1,17 @@
 import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 
-// Validation schema for rejection
-const rejectOrderSchema = z.object({
-  reason: z.string().min(10, 'Rejection reason must be at least 10 characters'),
-});
+export const dynamic = 'force-dynamic';
 
 /**
- * POST /api/client-portal/orders/[orderId]/reject
- * Rejects an order that was pending client approval
+ * POST /api/client-portal/orders/[id]/approve
+ * Approves an order that was pending client approval
  * Only accessible by executive users
- * Requires a rejection reason
+ * This moves the order to credit validation stage
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: Promise<{ orderId: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
@@ -26,23 +22,7 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { orderId } = await params;
-
-    // Parse and validate request body
-    const body = await request.json();
-    const validation = rejectOrderSchema.safeParse(body);
-
-    if (!validation.success) {
-      return NextResponse.json(
-        {
-          error: 'Validation failed',
-          details: validation.error.flatten().fieldErrors
-        },
-        { status: 400 }
-      );
-    }
-
-    const { reason } = validation.data;
+    const { id: orderId } = await params;
 
     // Get the order to verify it exists and needs approval
     const { data: order, error: orderError } = await supabase
@@ -55,7 +35,8 @@ export async function POST(
         client_approval_status,
         clients!inner (
           id,
-          business_name
+          business_name,
+          requires_internal_approval
         )
       `)
       .eq('id', orderId)
@@ -91,19 +72,26 @@ export async function POST(
 
     if (assocError || !userAssociation) {
       return NextResponse.json(
-        { error: 'Access denied. Only executive users can reject orders.' },
+        { error: 'Access denied. Only executive users can approve orders.' },
         { status: 403 }
       );
     }
 
-    // Update the order to rejected status
+    // Prevent executives from approving their own orders (business rule)
+    if (order.created_by === user.id) {
+      return NextResponse.json(
+        { error: 'You cannot approve your own order. Ask another executive to approve it.' },
+        { status: 400 }
+      );
+    }
+
+    // Update the order to approved status
     const { data: updatedOrder, error: updateError } = await supabase
       .from('orders')
       .update({
-        client_approval_status: 'rejected_by_client',
-        client_approved_by: user.id, // Store who rejected it
+        client_approval_status: 'approved_by_client',
+        client_approved_by: user.id,
         client_approval_date: new Date().toISOString(),
-        client_rejection_reason: reason,
       })
       .eq('id', orderId)
       .select(`
@@ -111,15 +99,14 @@ export async function POST(
         order_number,
         client_approval_status,
         client_approved_by,
-        client_approval_date,
-        client_rejection_reason
+        client_approval_date
       `)
       .single();
 
     if (updateError) {
-      console.error('Error rejecting order:', updateError);
+      console.error('Error approving order:', updateError);
       return NextResponse.json(
-        { error: 'Failed to reject order' },
+        { error: 'Failed to approve order' },
         { status: 500 }
       );
     }
@@ -130,25 +117,25 @@ export async function POST(
       .insert({
         order_id: orderId,
         actioned_by: user.id,
-        action: 'rejected',
+        action: 'approved',
         approval_stage: 'client_internal',
-        rejection_reason: reason,
-        notes: `Order rejected by client executive: ${reason}`,
+        notes: 'Order approved by client executive',
       })
       .then(() => {})
       .catch((err) => {
         console.warn('Could not insert approval history (table may not exist):', err);
       });
 
-    // The database trigger will send notification to the order creator
+    // The database trigger will automatically send webhook notification
+    // to credit validators when client_approval_status changes to 'approved_by_client'
 
     return NextResponse.json({
       success: true,
       data: updatedOrder,
-      message: 'Order rejected successfully. The creator has been notified.',
+      message: 'Order approved successfully. It will now proceed to credit validation.',
     });
   } catch (error) {
-    console.error('Order rejection API error:', error);
+    console.error('Order approval API error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

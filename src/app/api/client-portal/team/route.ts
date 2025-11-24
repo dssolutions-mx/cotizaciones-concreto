@@ -2,6 +2,8 @@ import { createServerSupabaseClientFromRequest } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
+export const dynamic = 'force-dynamic';
+
 // Validation schema for inviting users
 const inviteUserSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -94,8 +96,7 @@ export async function GET(request: NextRequest) {
         user_profiles!client_portal_users_user_id_fkey (
           email,
           first_name,
-          last_name,
-          last_sign_in_at
+          last_name
         )
       `)
       .eq('client_id', executiveClient.client_id)
@@ -120,7 +121,7 @@ export async function GET(request: NextRequest) {
       permissions: member.permissions,
       is_active: member.is_active,
       invited_at: member.invited_at,
-      last_login: member.user_profiles?.last_sign_in_at || null,
+      last_login: null, // last_sign_in_at is in auth.users, not user_profiles
     })) || [];
 
     return NextResponse.json({

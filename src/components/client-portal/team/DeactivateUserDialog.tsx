@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { deactivateTeamMember, TeamMember } from '@/lib/client-portal/teamService';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
 
 interface DeactivateUserDialogProps {

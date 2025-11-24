@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/select';
 import { updateTeamMemberPermissions, TeamMember } from '@/lib/client-portal/teamService';
 import { PERMISSION_LABELS, PERMISSION_TEMPLATES, Permissions, PermissionKey } from '@/lib/client-portal/permissionTemplates';
-import { useToast } from '@/hooks/use-toast';
+import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
 
 interface EditPermissionsModalProps {
