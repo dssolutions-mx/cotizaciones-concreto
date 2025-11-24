@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { orderId: string } }
+  { params }: { params: Promise<{ orderId: string }> }
 ) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
@@ -20,7 +20,7 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const orderId = params.orderId;
+    const { orderId } = await params;
 
     // Get the order to verify it exists and needs approval
     const { data: order, error: orderError } = await supabase

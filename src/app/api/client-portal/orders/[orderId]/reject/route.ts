@@ -15,7 +15,7 @@ const rejectOrderSchema = z.object({
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { orderId: string } }
+  { params }: { params: Promise<{ orderId: string }> }
 ) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
@@ -26,7 +26,7 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const orderId = params.orderId;
+    const { orderId } = await params;
 
     // Parse and validate request body
     const body = await request.json();

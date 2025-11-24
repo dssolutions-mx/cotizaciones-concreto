@@ -17,7 +17,7 @@ const updatePermissionsSchema = z.object({
  */
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { userId: string } }
+  { params }: { params: Promise<{ userId: string }> }
 ) {
   try {
     const supabase = createServerSupabaseClientFromRequest(request);
@@ -28,7 +28,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const targetUserId = params.userId;
+    const { userId: targetUserId } = await params;
 
     // Parse and validate request body
     const body = await request.json();
