@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import RoleGuard from '@/components/auth/RoleGuard';
 import { Search, UserPlus } from 'lucide-react';
@@ -11,7 +11,7 @@ import { CreatePortalUserModal } from '@/components/admin/client-portal/CreatePo
 import { useToast } from '@/components/ui/use-toast';
 import type { PortalUser } from '@/lib/supabase/clientPortalAdmin';
 
-export default function ClientPortalUsersPage() {
+function ClientPortalUsersContent() {
   const searchParams = useSearchParams();
   const [users, setUsers] = useState<PortalUser[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<PortalUser[]>([]);
@@ -136,6 +136,21 @@ export default function ClientPortalUsersPage() {
         />
       </div>
     </RoleGuard>
+  );
+}
+
+export default function ClientPortalUsersPage() {
+  return (
+    <Suspense fallback={
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+          <span className="ml-2">Cargando...</span>
+        </div>
+      </div>
+    }>
+      <ClientPortalUsersContent />
+    </Suspense>
   );
 }
 
