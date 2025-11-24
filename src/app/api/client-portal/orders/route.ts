@@ -112,6 +112,9 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check bypass_executive_approval permission
+    const canBypassApproval = isExecutive || association?.permissions?.bypass_executive_approval === true;
+
     // Resolve client by portal user
     const clientId = association?.client_id;
     if (!clientId) {
@@ -204,7 +207,10 @@ export async function POST(request: Request) {
       // Default hidden site verification to green
       site_access_rating: 'green',
       // Set created_by to the portal user's ID
-      created_by: user.id
+      created_by: user.id,
+      // Set client_approval_status based on bypass_executive_approval permission
+      // If bypass is true, set to 'not_required', otherwise let trigger handle it
+      ...(canBypassApproval && { client_approval_status: 'not_required' })
     };
 
     const { data: created, error: insertError } = await supabase

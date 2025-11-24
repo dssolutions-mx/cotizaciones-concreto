@@ -67,7 +67,7 @@ export default function ClientPortalDashboard() {
   const router = useRouter();
   const { 
     canViewOrders, 
-    canViewBalance, 
+    canViewPrices, 
     canViewQualityData, 
     canCreateOrders 
   } = useUserPermissions();
@@ -189,20 +189,22 @@ export default function ClientPortalDashboard() {
                   onClick={() => router.push('/client-portal/orders')}
                 />
               </motion.div>
-              <motion.div
-                initial={{ opacity: 0, y: 20, scale: 0.9 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{ delay: 0.3, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
-              >
-                <MetricCard
-                  title="Balance Actual"
-                  value={`$${(metrics?.currentBalance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  subtitle="Saldo pendiente"
-                  icon={<DollarSign className="w-6 h-6" />}
-                  color="orange"
-                  onClick={() => router.push('/client-portal/balance')}
-                />
-              </motion.div>
+              {canViewPrices && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ delay: 0.3, duration: 0.5, ease: [0.25, 0.1, 0.25, 1.0] }}
+                >
+                  <MetricCard
+                    title="Balance Actual"
+                    value={`$${(metrics?.currentBalance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    subtitle="Saldo pendiente"
+                    icon={<DollarSign className="w-6 h-6" />}
+                    color="orange"
+                    onClick={() => router.push('/client-portal/balance')}
+                  />
+                </motion.div>
+              )}
               <motion.div
                 initial={{ opacity: 0, y: 20, scale: 0.9 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}

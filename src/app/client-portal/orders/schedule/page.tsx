@@ -72,7 +72,7 @@ function TimePicker({ value, onChange }: { value: string; onChange: (time: strin
 
 export default function ScheduleOrderPage() {
   const router = useRouter();
-  const { canCreateOrders, isLoading: permissionsLoading } = useUserPermissions();
+  const { canCreateOrders, canViewPrices, isLoading: permissionsLoading } = useUserPermissions();
   const [step, setStep] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(true);
   const [sites, setSites] = useState<Site[]>([]);
@@ -236,7 +236,40 @@ export default function ScheduleOrderPage() {
     }
   };
 
-  if (loading) return <ClientPortalLoader message="Cargando programador..." />;
+  if (loading || permissionsLoading) {
+    return <ClientPortalLoader message="Cargando programador..." />;
+  }
+
+  // Check permissions
+  if (!canCreateOrders) {
+    return (
+      <div className="min-h-screen bg-background-primary flex items-center justify-center">
+        <Container maxWidth="md" className="py-8">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              No tienes permiso para crear pedidos. Contacta al administrador de tu organización.
+            </AlertDescription>
+          </Alert>
+        </Container>
+      </div>
+    );
+  }
+
+  if (!canViewPrices) {
+    return (
+      <div className="min-h-screen bg-background-primary flex items-center justify-center">
+        <Container maxWidth="md" className="py-8">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              No tienes permiso para ver precios. Necesitas acceso a precios para crear pedidos. Contacta al administrador de tu organización.
+            </AlertDescription>
+          </Alert>
+        </Container>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background-primary">

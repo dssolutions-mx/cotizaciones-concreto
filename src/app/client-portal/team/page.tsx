@@ -159,7 +159,10 @@ export default function TeamManagementPage() {
             </TableHeader>
             <TableBody>
               {teamMembers.map((member) => {
-                const memberName = `${member.first_name} ${member.last_name}`.trim() || 'Usuario sin nombre';
+                const memberName = [member.first_name, member.last_name]
+                  .filter(Boolean)
+                  .join(' ')
+                  .trim() || 'Usuario sin nombre';
                 const lastLogin = member.last_login
                   ? new Date(member.last_login).toLocaleDateString('es-MX', {
                       month: 'short',

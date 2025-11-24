@@ -17,6 +17,39 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Check user permissions - require view_prices permission (needed for order creation)
+    const { data: association, error: assocError } = await supabase
+      .from('client_portal_users')
+      .select('role_within_client, permissions, client_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (assocError) {
+      console.error('Error fetching user permissions:', assocError);
+      return NextResponse.json({ error: 'Failed to verify permissions' }, { status: 500 });
+    }
+
+    if (!association) {
+      return NextResponse.json(
+        { error: 'No se encontró tu asociación con ningún cliente. Contacta al administrador.' },
+        { status: 404 }
+      );
+    }
+
+    // Executives always have permission, regular users need explicit permission
+    const isExecutive = association?.role_within_client === 'executive';
+    const hasViewPricesPermission = isExecutive || association?.permissions?.view_prices === true;
+
+    if (!hasViewPricesPermission) {
+      return NextResponse.json(
+        { error: 'No tienes permiso para ver precios. Contacta al administrador de tu organización.' },
+        { status: 403 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const plantId = searchParams.get('plant_id');
     const site = searchParams.get('site');
@@ -25,22 +58,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ products: [] });
     }
 
-    // Resolve client
-    const { data: client, error: clientError } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('portal_user_id', user.id)
-      .single();
-
-    if (clientError || !client) {
-      return NextResponse.json({ error: 'Client not found' }, { status: 404 });
-    }
+    const clientId = association.client_id;
 
     // 1. Fetch active product_prices (master-level) for this client/site
     const { data: activePrices, error: pricesError } = await supabase
       .from('product_prices')
       .select('quote_id, master_recipe_id, recipe_id, is_active')
-      .eq('client_id', client.id)
+      .eq('client_id', clientId)
       .eq('construction_site', site)
       .eq('is_active', true);
 

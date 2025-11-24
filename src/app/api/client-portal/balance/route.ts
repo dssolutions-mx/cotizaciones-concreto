@@ -31,30 +31,40 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get client_id from user profile
-    const { data: profile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('id')
-      .eq('id', user.id)
-      .eq('role', 'EXTERNAL_CLIENT')
-      .single();
+    // Check user permissions - require view_prices permission
+    const { data: association, error: assocError } = await supabase
+      .from('client_portal_users')
+      .select('role_within_client, permissions, client_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-    if (profileError || !profile) {
-      return NextResponse.json({ error: 'User profile not found' }, { status: 404 });
+    if (assocError) {
+      console.error('Error fetching user permissions:', assocError);
+      return NextResponse.json({ error: 'Failed to verify permissions' }, { status: 500 });
     }
 
-    // Get client record to find client_id
-    const { data: client, error: clientError } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('portal_user_id', user.id)
-      .single();
-
-    if (clientError || !client) {
-      return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+    if (!association) {
+      return NextResponse.json(
+        { error: 'No se encontró tu asociación con ningún cliente. Contacta al administrador.' },
+        { status: 404 }
+      );
     }
 
-    const clientId = client.id;
+    // Executives always have permission, regular users need explicit permission
+    const isExecutive = association?.role_within_client === 'executive';
+    const hasViewPricesPermission = isExecutive || association?.permissions?.view_prices === true;
+
+    if (!hasViewPricesPermission) {
+      return NextResponse.json(
+        { error: 'No tienes permiso para acceder a información financiera. Contacta al administrador de tu organización.' },
+        { status: 403 }
+      );
+    }
+
+    const clientId = association.client_id;
 
     // Fetch all client balances (general + sites) - RLS will filter automatically
     const { data: balances, error: balancesError } = await supabase

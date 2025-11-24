@@ -8,11 +8,9 @@
 export type PermissionKey =
   | 'create_orders'
   | 'view_orders'
-  | 'create_quotes'
-  | 'view_quotes'
-  | 'view_materials'
+  | 'view_prices'
   | 'view_quality_data'
-  | 'view_balance'
+  | 'bypass_executive_approval'
   | 'manage_team'
   | 'approve_orders';
 
@@ -25,59 +23,37 @@ export type Permissions = Record<PermissionKey, boolean>;
 export const FULL_ACCESS: Permissions = {
   create_orders: true,
   view_orders: true,
-  create_quotes: true,
-  view_quotes: true,
-  view_materials: true,
+  view_prices: true,
   view_quality_data: true,
-  view_balance: true,
+  bypass_executive_approval: true,
   manage_team: false, // Reserved for executives
   approve_orders: false, // Reserved for executives
 };
 
 /**
- * Order Manager - Can create and view orders, access materials
+ * Order Manager - Can create and view orders, see prices
  * Suitable for: Procurement team members, construction managers
  */
 export const ORDER_MANAGER: Permissions = {
   create_orders: true,
   view_orders: true,
-  create_quotes: false,
-  view_quotes: true,
-  view_materials: true,
+  view_prices: true,
   view_quality_data: false,
-  view_balance: true,
+  bypass_executive_approval: false,
   manage_team: false,
   approve_orders: false,
 };
 
 /**
- * View Only - Read access to orders, quotes, and materials
- * Suitable for: Stakeholders who need visibility without edit rights
+ * View Only - Read access to orders without prices
+ * Suitable for: Stakeholders who need visibility without edit rights or financial access
  */
 export const VIEW_ONLY: Permissions = {
   create_orders: false,
   view_orders: true,
-  create_quotes: false,
-  view_quotes: true,
-  view_materials: true,
+  view_prices: false,
   view_quality_data: false,
-  view_balance: false, // View-only users typically shouldn't see financial data
-  manage_team: false,
-  approve_orders: false,
-};
-
-/**
- * Quote Manager - Can create and view quotes
- * Suitable for: Estimators, pre-sales team
- */
-export const QUOTE_MANAGER: Permissions = {
-  create_orders: false,
-  view_orders: false,
-  create_quotes: true,
-  view_quotes: true,
-  view_materials: true,
-  view_quality_data: false,
-  view_balance: false,
+  bypass_executive_approval: false,
   manage_team: false,
   approve_orders: false,
 };
@@ -89,11 +65,9 @@ export const QUOTE_MANAGER: Permissions = {
 export const QUALITY_VIEWER: Permissions = {
   create_orders: false,
   view_orders: true,
-  create_quotes: false,
-  view_quotes: false,
-  view_materials: true,
+  view_prices: false,
   view_quality_data: true,
-  view_balance: false, // Quality viewers don't need financial access
+  bypass_executive_approval: false,
   manage_team: false,
   approve_orders: false,
 };
@@ -105,11 +79,9 @@ export const QUALITY_VIEWER: Permissions = {
 export const EXECUTIVE_PERMISSIONS: Permissions = {
   create_orders: true,
   view_orders: true,
-  create_quotes: true,
-  view_quotes: true,
-  view_materials: true,
+  view_prices: true,
   view_quality_data: true,
-  view_balance: true,
+  bypass_executive_approval: true,
   manage_team: true,
   approve_orders: true,
 };
@@ -126,21 +98,15 @@ export const PERMISSION_TEMPLATES = {
   },
   ORDER_MANAGER: {
     name: 'Gestor de Pedidos',
-    description: 'Crear y gestionar pedidos, ver materiales',
+    description: 'Crear y gestionar pedidos, ver precios y balance',
     permissions: ORDER_MANAGER,
     icon: 'Package',
   },
   VIEW_ONLY: {
     name: 'Solo Lectura',
-    description: 'Acceso de solo lectura a pedidos, cotizaciones y materiales',
+    description: 'Acceso de solo lectura a pedidos (sin precios ni información financiera)',
     permissions: VIEW_ONLY,
     icon: 'Eye',
-  },
-  QUOTE_MANAGER: {
-    name: 'Gestor de Cotizaciones',
-    description: 'Crear y gestionar cotizaciones',
-    permissions: QUOTE_MANAGER,
-    icon: 'FileText',
   },
   QUALITY_VIEWER: {
     name: 'Visualizador de Calidad',
@@ -156,31 +122,23 @@ export const PERMISSION_TEMPLATES = {
 export const PERMISSION_LABELS: Record<PermissionKey, { label: string; description: string }> = {
   create_orders: {
     label: 'Crear Pedidos',
-    description: 'Capacidad de crear nuevos pedidos de concreto desde cotizaciones existentes',
+    description: 'Capacidad de crear nuevos pedidos de concreto',
   },
   view_orders: {
     label: 'Ver Pedidos',
-    description: 'Ver historial y detalles de pedidos',
+    description: 'Ver historial y detalles de pedidos (los precios se muestran según el permiso "Ver Precios")',
   },
-  create_quotes: {
-    label: 'Crear Cotizaciones',
-    description: 'Crear nuevas cotizaciones de precios (funcionalidad futura)',
-  },
-  view_quotes: {
-    label: 'Ver Cotizaciones',
-    description: 'Ver cotizaciones disponibles para crear pedidos',
-  },
-  view_materials: {
-    label: 'Ver Materiales y Precios',
-    description: 'Acceder al catálogo de materiales e información de precios',
+  view_prices: {
+    label: 'Ver Precios',
+    description: 'Ver precios, totales y acceso a información financiera (incluye balance y precios en pedidos)',
   },
   view_quality_data: {
     label: 'Ver Datos de Calidad',
     description: 'Acceder a resultados de pruebas de calidad e informes',
   },
-  view_balance: {
-    label: 'Ver Balance Financiero',
-    description: 'Acceder a información financiera, saldos y pagos',
+  bypass_executive_approval: {
+    label: 'Crear Pedidos Sin Aprobación',
+    description: 'Los pedidos creados no requieren aprobación ejecutiva (solo aplica si tiene permiso para crear pedidos)',
   },
   manage_team: {
     label: 'Gestionar Equipo',
@@ -206,7 +164,7 @@ export function getEffectivePermissions(
 
   // Merge configured permissions with defaults
   return {
-    ...VIEW_ONLY, // Default to view-only (no balance, no quality, no order creation)
+    ...VIEW_ONLY, // Default to view-only (no prices, no quality, no order creation)
     ...configuredPermissions,
     // Always ensure these are false for non-executives
     manage_team: false,

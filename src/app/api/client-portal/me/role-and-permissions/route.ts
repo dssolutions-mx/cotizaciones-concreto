@@ -44,11 +44,9 @@ export async function GET(request: NextRequest) {
         permissions: {
           create_orders: false,
           view_orders: true,
-          create_quotes: false,
-          view_quotes: true,
-          view_materials: true,
+          view_prices: false,
           view_quality_data: false,
-          view_balance: false,
+          bypass_executive_approval: false,
           manage_team: false,
           approve_orders: false,
         },

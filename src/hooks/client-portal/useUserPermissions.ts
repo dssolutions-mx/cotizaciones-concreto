@@ -100,12 +100,12 @@ export function useUserPermissions() {
     // Convenience checks for common permissions
     canCreateOrders: hasPermissionCheck('create_orders'),
     canViewOrders: hasPermissionCheck('view_orders'),
-    canCreateQuotes: hasPermissionCheck('create_quotes'),
-    canViewQuotes: hasPermissionCheck('view_quotes'),
-    canViewMaterials: hasPermissionCheck('view_materials'),
+    canViewPrices: hasPermissionCheck('view_prices'),
     canViewQualityData: hasPermissionCheck('view_quality_data'),
-    canViewBalance: hasPermissionCheck('view_balance'),
+    canBypassApproval: hasPermissionCheck('bypass_executive_approval'),
     canManageTeam: hasPermissionCheck('manage_team'),
     canApproveOrders: hasPermissionCheck('approve_orders'),
+    // Legacy: map view_prices to view_balance for backward compatibility
+    canViewBalance: hasPermissionCheck('view_prices'),
   };
 }

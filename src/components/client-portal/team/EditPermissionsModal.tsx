@@ -109,12 +109,16 @@ export function EditPermissionsModal({ open, onOpenChange, member, onSuccess }: 
     }
   };
 
-  const userPermissionKeys: PermissionKey[] = [
+  // Order Creation Group
+  const orderCreationPermissions: PermissionKey[] = [
     'create_orders',
+    'bypass_executive_approval',
+  ];
+
+  // Viewing Group
+  const viewingPermissions: PermissionKey[] = [
     'view_orders',
-    'create_quotes',
-    'view_quotes',
-    'view_materials',
+    'view_prices',
     'view_quality_data',
   ];
 
@@ -147,26 +151,57 @@ export function EditPermissionsModal({ open, onOpenChange, member, onSuccess }: 
           </div>
 
           {/* Individual Permissions */}
-          <div className="space-y-4">
-            <Label className="text-base">Permisos Individuales</Label>
-            {userPermissionKeys.map((key) => {
-              const config = PERMISSION_LABELS[key];
-              return (
-                <div key={key} className="flex items-start justify-between space-x-4 rounded-lg border p-4">
-                  <div className="flex-1 space-y-1">
-                    <Label htmlFor={key} className="cursor-pointer">
-                      {config.label}
-                    </Label>
-                    <p className="text-xs text-gray-600">{config.description}</p>
+          <div className="space-y-6">
+            {/* Order Creation Group */}
+            <div className="space-y-4">
+              <Label className="text-base font-semibold">Creación de Pedidos</Label>
+              {orderCreationPermissions.map((key) => {
+                const config = PERMISSION_LABELS[key];
+                // Only show bypass_executive_approval if create_orders is enabled
+                if (key === 'bypass_executive_approval' && !permissions.create_orders) {
+                  return null;
+                }
+                return (
+                  <div key={key} className="flex items-start justify-between space-x-4 rounded-lg border p-4">
+                    <div className="flex-1 space-y-1">
+                      <Label htmlFor={key} className="cursor-pointer">
+                        {config.label}
+                      </Label>
+                      <p className="text-xs text-gray-600">{config.description}</p>
+                    </div>
+                    <Switch
+                      id={key}
+                      checked={permissions[key]}
+                      onCheckedChange={() => togglePermission(key)}
+                      disabled={key === 'bypass_executive_approval' && !permissions.create_orders}
+                    />
                   </div>
-                  <Switch
-                    id={key}
-                    checked={permissions[key]}
-                    onCheckedChange={() => togglePermission(key)}
-                  />
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+
+            {/* Viewing Group */}
+            <div className="space-y-4">
+              <Label className="text-base font-semibold">Visualización</Label>
+              {viewingPermissions.map((key) => {
+                const config = PERMISSION_LABELS[key];
+                return (
+                  <div key={key} className="flex items-start justify-between space-x-4 rounded-lg border p-4">
+                    <div className="flex-1 space-y-1">
+                      <Label htmlFor={key} className="cursor-pointer">
+                        {config.label}
+                      </Label>
+                      <p className="text-xs text-gray-600">{config.description}</p>
+                    </div>
+                    <Switch
+                      id={key}
+                      checked={permissions[key]}
+                      onCheckedChange={() => togglePermission(key)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
         <DialogFooter>

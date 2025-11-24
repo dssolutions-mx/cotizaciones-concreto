@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DataList } from '@/components/ui/DataList';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
+import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -85,6 +86,7 @@ interface OrderResponse {
 export default function OrderDetailPage() {
   const router = useRouter();
   const params = useParams();
+  const { canViewPrices } = useUserPermissions();
   const [orderData, setOrderData] = useState<OrderResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingStage, setLoadingStage] = useState<'order' | 'remisiones' | 'quality' | 'complete'>('order');
@@ -329,9 +331,15 @@ export default function OrderDetailPage() {
                       <p className="text-body font-semibold text-label-primary">
                         {item.product_type}
                       </p>
-                      <p className="text-title-3 font-bold text-label-primary">
-                        ${item.total_price.toLocaleString('es-MX')}
-                      </p>
+                      {canViewPrices ? (
+                        <p className="text-title-3 font-bold text-label-primary">
+                          ${item.total_price.toLocaleString('es-MX')}
+                        </p>
+                      ) : (
+                        <p className="text-title-3 font-bold text-label-tertiary">
+                          Precio no disponible
+                        </p>
+                      )}
                     </div>
                     <div className="grid grid-cols-2 gap-4 text-footnote">
                       <div>
@@ -340,13 +348,19 @@ export default function OrderDetailPage() {
                       </div>
                       <div>
                         <p className="text-label-tertiary">Precio Unitario</p>
-                        <p className="text-label-primary font-medium">${item.unit_price.toLocaleString('es-MX')}</p>
+                        {canViewPrices ? (
+                          <p className="text-label-primary font-medium">${item.unit_price.toLocaleString('es-MX')}</p>
+                        ) : (
+                          <p className="text-label-tertiary font-medium">No disponible</p>
+                        )}
                       </div>
                     </div>
                     {item.has_pump_service && (
                       <div className="mt-3 pt-3 border-t border-white/20">
                         <p className="text-caption text-label-secondary">
-                          Servicio de bombeo incluido • ${item.pump_price?.toLocaleString('es-MX')} • {item.pump_volume} m³
+                          Servicio de bombeo incluido
+                          {canViewPrices && ` • $${item.pump_price?.toLocaleString('es-MX')}`}
+                          {` • ${item.pump_volume} m³`}
                         </p>
                       </div>
                     )}

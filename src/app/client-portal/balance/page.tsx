@@ -87,12 +87,32 @@ const getDateRangeLabel = (range: DateRange): string => {
 
 export default function BalancePage() {
   const router = useRouter();
-  const { canViewBalance, isLoading: permissionsLoading } = useUserPermissions();
+  const { canViewPrices, isLoading: permissionsLoading } = useUserPermissions();
   const [data, setData] = useState<BalanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRange>('30');
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customDateRange, setCustomDateRange] = useState<{ from: Date; to: Date } | null>(null);
+
+  // Check permissions
+  if (permissionsLoading) {
+    return <ClientPortalLoader message="Verificando permisos..." />;
+  }
+
+  if (!canViewPrices) {
+    return (
+      <div className="min-h-screen bg-background-primary flex items-center justify-center">
+        <Container maxWidth="md" className="py-8">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>
+              No tienes permiso para acceder a la información financiera. Contacta al administrador de tu organización.
+            </AlertDescription>
+          </Alert>
+        </Container>
+      </div>
+    );
+  }
 
   useEffect(() => {
     async function fetchBalance() {

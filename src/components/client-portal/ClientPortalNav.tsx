@@ -20,7 +20,7 @@ export default function ClientPortalNav() {
     isExecutive, 
     isLoading: permissionsLoading,
     canViewOrders,
-    canViewBalance,
+    canViewPrices,
     canViewQualityData,
     canCreateOrders
   } = useUserPermissions();
@@ -39,8 +39,8 @@ export default function ClientPortalNav() {
       baseItems.push({ href: '/client-portal/orders', label: 'Pedidos', icon: Package });
     }
 
-    // Only show balance if user has permission
-    if (canViewBalance) {
+    // Only show balance if user has permission to view prices
+    if (canViewPrices) {
       baseItems.push({ href: '/client-portal/balance', label: 'Balance', icon: DollarSign });
     }
 

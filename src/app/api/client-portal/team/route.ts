@@ -7,8 +7,26 @@ export const dynamic = 'force-dynamic';
 // Validation schema for inviting users
 const inviteUserSchema = z.object({
   email: z.string().email('Invalid email address'),
-  firstName: z.string().min(1, 'First name is required').optional(),
-  lastName: z.string().min(1, 'Last name is required').optional(),
+  firstName: z.preprocess(
+    (val) => {
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        return trimmed || undefined;
+      }
+      return val;
+    },
+    z.string().optional()
+  ),
+  lastName: z.preprocess(
+    (val) => {
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        return trimmed || undefined;
+      }
+      return val;
+    },
+    z.string().optional()
+  ),
   role: z.enum(['executive', 'user'], {
     required_error: 'Role must be either executive or user',
   }),
@@ -170,6 +188,10 @@ export async function POST(request: NextRequest) {
     }
 
     const { email, firstName, lastName, role, permissions } = validation.data;
+    
+    // Names are already normalized by zod transform, but ensure they're not empty strings
+    const normalizedFirstName = firstName && firstName.trim() ? firstName.trim() : undefined;
+    const normalizedLastName = lastName && lastName.trim() ? lastName.trim() : undefined;
 
     // Get user's profile to check role
     const { data: profile, error: profileError } = await supabase
@@ -296,8 +318,8 @@ export async function POST(request: NextRequest) {
       {
         redirectTo,
         data: {
-          first_name: firstName,
-          last_name: lastName,
+          first_name: normalizedFirstName,
+          last_name: normalizedLastName,
           invited_by: user.id,
           invited_to_client: clientId,
           role: 'EXTERNAL_CLIENT',
@@ -360,8 +382,8 @@ export async function POST(request: NextRequest) {
         .insert({
           id: newUserId,
           email,
-          first_name: firstName || '',
-          last_name: lastName || '',
+          first_name: normalizedFirstName || null,
+          last_name: normalizedLastName || null,
           role: 'EXTERNAL_CLIENT',
           is_portal_user: true,
           is_active: true,
@@ -382,8 +404,9 @@ export async function POST(request: NextRequest) {
       const { error: profileUpdateError } = await supabaseAdmin
         .from('user_profiles')
         .update({
-          first_name: firstName || existingUser.first_name || '',
-          last_name: lastName || existingUser.last_name || '',
+          // Only update name fields if new values are provided, otherwise keep existing
+          first_name: normalizedFirstName !== undefined ? normalizedFirstName : existingUser.first_name,
+          last_name: normalizedLastName !== undefined ? normalizedLastName : existingUser.last_name,
           role: 'EXTERNAL_CLIENT', // Ensure role is set to EXTERNAL_CLIENT for portal users
           is_portal_user: true,
           is_active: true,
