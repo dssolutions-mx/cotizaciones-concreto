@@ -140,27 +140,6 @@ function AssignClientModalComponent({
     };
   }, []);
 
-  const loadClients = async () => {
-    try {
-      setLoadingClients(true);
-      const data = await clientService.getAllClients();
-      // Filter out already assigned clients
-      const availableClients = data.filter(
-        (client: any) => !existingClientIds.includes(client.id)
-      );
-      setClients(availableClients);
-    } catch (error: any) {
-      console.error('Error loading clients:', error);
-      toast({
-        title: 'Error',
-        description: 'Error al cargar clientes',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoadingClients(false);
-    }
-  };
-
   // Memoize submit handler
   const onSubmit = useCallback(async (data: AssignClientFormData) => {
     setIsSubmitting(true);

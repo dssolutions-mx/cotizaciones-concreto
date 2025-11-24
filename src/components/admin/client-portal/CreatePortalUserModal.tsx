@@ -159,23 +159,6 @@ function CreatePortalUserModalComponent({
     };
   }, []);
 
-  const loadClients = async () => {
-    try {
-      setLoadingClients(true);
-      const data = await clientService.getAllClients();
-      setClients(data);
-    } catch (error: any) {
-      console.error('Error loading clients:', error);
-      toast({
-        title: 'Error',
-        description: 'Error al cargar clientes',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoadingClients(false);
-    }
-  };
-
   // Memoize client toggle handler
   const handleClientToggle = useCallback((clientId: string) => {
     if (selectedClients.includes(clientId)) {
