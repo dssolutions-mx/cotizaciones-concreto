@@ -17,15 +17,27 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
+    console.log(`[Quality API] Authenticated user: ${user.id}, email: ${user.email}`);
+
     // Step 2: Get client_id from client_portal_users (multi-user system)
-    const { data: association } = await supabase
+    const { data: association, error: assocError } = await supabase
       .from('client_portal_users')
-      .select('client_id')
+      .select('client_id, role_within_client, is_active')
       .eq('user_id', user.id)
       .eq('is_active', true)
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle();
+    
+    if (assocError) {
+      console.error('[Quality API] Error fetching client association:', assocError);
+    } else {
+      console.log(`[Quality API] Client association:`, {
+        clientId: association?.client_id,
+        role: association?.role_within_client,
+        isActive: association?.is_active
+      });
+    }
 
     let clientId: string | null = null;
     let client: { id: string; business_name: string; client_code: string; rfc: string } | null = null;
@@ -61,6 +73,19 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 });
     }
     console.log(`[Quality API] Client: ${client.business_name} (${clientId})`);
+
+    // Diagnostic: Test RLS access by trying to query a single order
+    const { data: testOrder, error: testOrderError } = await supabase
+      .from('orders')
+      .select('id, order_number')
+      .eq('client_id', clientId)
+      .limit(1);
+    
+    console.log(`[Quality API] RLS Test - Orders query:`, {
+      found: testOrder?.length || 0,
+      error: testOrderError?.message || null,
+      canAccessOrders: !testOrderError && (testOrder?.length || 0) > 0
+    });
 
     // Step 3: Get date range (default last 30 days)
     const toDate = searchParams.get('to') || new Date().toISOString().split('T')[0];
@@ -150,6 +175,7 @@ export async function GET(request: Request) {
           .filter(Boolean);
         
         if (orderNumbers.length > 0) {
+          console.log(`[Quality API] Fetching orders data for ${orderNumbers.length} order numbers`);
           const { data: ordersData, error: ordersError } = await supabase
             .from('orders')
             .select('id, order_number, elemento')
@@ -164,15 +190,23 @@ export async function GET(request: Request) {
               hint: ordersError.hint,
               orderNumbers: orderNumbers.slice(0, 5) // Log first 5 for debugging
             });
+          } else {
+            console.log(`[Quality API] Orders query result: ${ordersData?.length || 0} orders found (expected ${orderNumbers.length})`);
+            // Check if RLS might be blocking - if we got fewer results than expected
+            if (ordersData && ordersData.length < orderNumbers.length) {
+              console.warn(`[Quality API] RLS WARNING: Expected ${orderNumbers.length} orders but got ${ordersData.length}. Some orders may be blocked by RLS.`);
+            }
           }
           
-          if (ordersData) {
+          if (ordersData && ordersData.length > 0) {
             const orderMap = new Map(ordersData.map((o: any) => [o.order_number, o]));
             remisionesData = remisionesData.map((r: any) => ({
               ...r,
               order_id: orderMap.get(r.order_number)?.id || null,
               elemento: orderMap.get(r.order_number)?.elemento || null
             }));
+          } else if (orderNumbers.length > 0) {
+            console.warn(`[Quality API] No orders data returned for ${orderNumbers.length} order numbers - RLS may be blocking access`);
           }
         }
         
@@ -213,7 +247,17 @@ export async function GET(request: Request) {
               hint: muestreosError.hint,
               muestreoIdsCount: allMuestreoIds.length
             });
-          } else if (muestreosData) {
+          } else {
+            console.log(`[Quality API] Muestreos query result: ${muestreosData?.length || 0} muestreos found (expected ${allMuestreoIds.length})`);
+            // Check if RLS might be blocking - if we got fewer results than expected
+            if (muestreosData && muestreosData.length < allMuestreoIds.length) {
+              console.warn(`[Quality API] RLS WARNING: Expected ${allMuestreoIds.length} muestreos but got ${muestreosData.length}. Some muestreos may be blocked by RLS.`);
+            } else if (!muestreosData || muestreosData.length === 0) {
+              console.warn(`[Quality API] No muestreos data returned for ${allMuestreoIds.length} muestreo IDs - RLS may be blocking access`);
+            }
+          }
+          
+          if (muestreosData && muestreosData.length > 0) {
             // Create a map of muestreo_id -> concrete_specs and fecha_muestreo_ts
             const muestreosMap = new Map(muestreosData.map((m: any) => [m.id, { 
               concrete_specs: m.concrete_specs,
@@ -254,7 +298,15 @@ export async function GET(request: Request) {
               hint: ensayosError.hint,
               muestraIdsCount: allMuestraIds.length
             });
-          } else if (ensayosData) {
+          } else {
+            console.log(`[Quality API] Ensayos query result: ${ensayosData?.length || 0} ensayos found for ${allMuestraIds.length} muestras`);
+            // Check if RLS might be blocking - if we got no results when we expect some
+            if (!ensayosData || ensayosData.length === 0) {
+              console.warn(`[Quality API] No ensayos data returned for ${allMuestraIds.length} muestra IDs - RLS may be blocking access`);
+            }
+          }
+          
+          if (ensayosData && ensayosData.length > 0) {
             // Create a map of muestra_id -> array of ensayos with timestamps
             const ensayosByMuestraMap = new Map<string, any[]>();
             ensayosData.forEach((e: any) => {
