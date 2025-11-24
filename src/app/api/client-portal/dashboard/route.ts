@@ -62,14 +62,30 @@ export async function GET(request: Request) {
 
     const currentBalance = balance?.current_balance || 0;
 
-    // Get client_id for RPC call
-    const { data: clientData } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('portal_user_id', user.id)
-      .single();
+    // Get client_id from client_portal_users (multi-user system)
+    const { data: association } = await supabase
+      .from('client_portal_users')
+      .select('client_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-    const clientId = clientData?.id;
+    let clientId: string | null = null;
+
+    if (association?.client_id) {
+      clientId = association.client_id;
+    } else {
+      // Fallback to legacy portal_user_id for backward compatibility
+      const { data: legacyClient } = await supabase
+        .from('clients')
+        .select('id')
+        .eq('portal_user_id', user.id)
+        .maybeSingle();
+      
+      clientId = legacyClient?.id || null;
+    }
 
     // Get quality score using the same RPC function as quality page
     let qualityScore = 0;

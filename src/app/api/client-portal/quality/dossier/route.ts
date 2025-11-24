@@ -16,11 +16,37 @@ export async function GET(request: Request) {
     }
 
     // Resolve client for naming the file (optional)
-    const { data: client } = await supabase
-      .from('clients')
-      .select('business_name, client_code')
-      .eq('portal_user_id', user.id)
+    // Get client_id from client_portal_users (multi-user system)
+    const { data: association } = await supabase
+      .from('client_portal_users')
+      .select('client_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
       .maybeSingle();
+
+    let client: { business_name: string; client_code: string } | null = null;
+
+    if (association?.client_id) {
+      // Fetch client details
+      const { data: clientData } = await supabase
+        .from('clients')
+        .select('business_name, client_code')
+        .eq('id', association.client_id)
+        .maybeSingle();
+      
+      client = clientData;
+    } else {
+      // Fallback to legacy portal_user_id for backward compatibility
+      const { data: legacyClient } = await supabase
+        .from('clients')
+        .select('business_name, client_code')
+        .eq('portal_user_id', user.id)
+        .maybeSingle();
+      
+      client = legacyClient;
+    }
 
     const today = new Date();
     const y = String(today.getFullYear());

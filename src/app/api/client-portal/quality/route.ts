@@ -17,19 +17,49 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
 
-    // Step 2: Get client_id from authenticated user
-    const { data: client, error: clientError } = await supabase
-      .from('clients')
-      .select('id, business_name, client_code, rfc')
-      .eq('portal_user_id', user.id)
-      .single();
+    // Step 2: Get client_id from client_portal_users (multi-user system)
+    const { data: association } = await supabase
+      .from('client_portal_users')
+      .select('client_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-    if (clientError || !client) {
-      console.error('[Quality API] Client not found:', clientError);
-      return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 });
+    let clientId: string | null = null;
+    let client: { id: string; business_name: string; client_code: string; rfc: string } | null = null;
+
+    if (association?.client_id) {
+      clientId = association.client_id;
+      // Fetch client details
+      const { data: clientData } = await supabase
+        .from('clients')
+        .select('id, business_name, client_code, rfc')
+        .eq('id', clientId)
+        .maybeSingle();
+      
+      if (clientData) {
+        client = clientData;
+      }
+    } else {
+      // Fallback to legacy portal_user_id for backward compatibility
+      const { data: legacyClient } = await supabase
+        .from('clients')
+        .select('id, business_name, client_code, rfc')
+        .eq('portal_user_id', user.id)
+        .maybeSingle();
+      
+      if (legacyClient) {
+        clientId = legacyClient.id;
+        client = legacyClient;
+      }
     }
 
-    const clientId = client.id;
+    if (!client || !clientId) {
+      console.error('[Quality API] Client not found for user:', user.id);
+      return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 });
+    }
     console.log(`[Quality API] Client: ${client.business_name} (${clientId})`);
 
     // Step 3: Get date range (default last 30 days)
