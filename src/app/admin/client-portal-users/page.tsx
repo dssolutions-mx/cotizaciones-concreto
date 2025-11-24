@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import RoleGuard from '@/components/auth/RoleGuard';
 import { Search, UserPlus } from 'lucide-react';
@@ -9,23 +9,127 @@ import { Input } from '@/components/ui/input';
 import { PortalUsersTable } from '@/components/admin/client-portal/PortalUsersTable';
 import { CreatePortalUserModal } from '@/components/admin/client-portal/CreatePortalUserModal';
 import { useToast } from '@/components/ui/use-toast';
+import { useDebounce } from '@/hooks/useDebounce';
+import { ErrorBoundary } from '@/components/admin/client-portal/ErrorBoundary';
 import type { PortalUser } from '@/lib/supabase/clientPortalAdmin';
 
 function ClientPortalUsersContent() {
   const searchParams = useSearchParams();
   const [users, setUsers] = useState<PortalUser[]>([]);
-  const [filteredUsers, setFilteredUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const { toast } = useToast();
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const fetchingRef = useRef(false);
 
-  useEffect(() => {
-    fetchUsers();
+  // Debounce search term to prevent excessive filtering
+  const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
+  // Retry logic helper
+  const retryFetch = useCallback(async (
+    url: string,
+    options: RequestInit,
+    maxRetries = 3,
+    delay = 1000
+  ): Promise<Response> => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await fetch(url, options);
+        if (response.ok) {
+          return response;
+        }
+        // If not the last attempt and not aborted, retry
+        if (attempt < maxRetries && !options.signal?.aborted) {
+          await new Promise(resolve => setTimeout(resolve, delay * attempt));
+          continue;
+        }
+        return response;
+      } catch (error: any) {
+        // Don't retry if aborted
+        if (error?.name === 'AbortError') {
+          throw error;
+        }
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        // Don't retry if aborted
+        if (options.signal?.aborted) {
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, delay * attempt));
+      }
+    }
+    throw new Error('Failed to fetch after retries');
   }, []);
 
+  // Memoize fetchUsers to prevent recreation on every render
+  const fetchUsers = useCallback(async (forceRefresh = false) => {
+    // Prevent duplicate requests
+    if (fetchingRef.current && !forceRefresh) {
+      return;
+    }
+
+    try {
+      fetchingRef.current = true;
+      
+      // Cancel previous request if exists
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      // Create new abort controller
+      abortControllerRef.current = new AbortController();
+
+      setLoading(true);
+      setError(null);
+      
+      const response = await retryFetch('/api/admin/client-portal-users', {
+        signal: abortControllerRef.current.signal,
+      }, 3, 1000);
+      
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Error al cargar usuarios');
+      }
+
+      setUsers(result.data || []);
+    } catch (err: unknown) {
+      // Don't set error if request was aborted
+      if (err instanceof Error && err.name === 'AbortError') {
+        return;
+      }
+
+      console.error('Error loading portal users:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Error al cargar usuarios del portal';
+      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+      fetchingRef.current = false;
+    }
+  }, [toast, retryFetch]);
+
+  // Load users on mount
   useEffect(() => {
+    fetchUsers();
+
+    // Cleanup: abort request on unmount
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, [fetchUsers]);
+
+  // Memoize filtered users to prevent unnecessary recalculations
+  const filteredUsers = useMemo(() => {
     let filtered = users;
     const clientFilter = searchParams.get('clientId');
 
@@ -36,9 +140,9 @@ function ClientPortalUsersContent() {
       );
     }
 
-    // Apply search filter
-    if (searchTerm.trim() !== '') {
-      const term = searchTerm.toLowerCase();
+    // Apply search filter (using debounced term)
+    if (debouncedSearchTerm.trim() !== '') {
+      const term = debouncedSearchTerm.toLowerCase();
       filtered = filtered.filter(
         (user) =>
           user.email.toLowerCase().includes(term) ||
@@ -52,38 +156,27 @@ function ClientPortalUsersContent() {
       );
     }
 
-    setFilteredUsers(filtered);
-  }, [searchTerm, users, searchParams]);
+    return filtered;
+  }, [users, debouncedSearchTerm, searchParams]);
 
-  const fetchUsers = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await fetch('/api/admin/client-portal-users');
-      const result = await response.json();
+  // Memoize refresh handler
+  const handleRefresh = useCallback(() => {
+    fetchUsers(true);
+  }, [fetchUsers]);
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Error al cargar usuarios');
-      }
+  // Memoize modal handlers
+  const handleCreateModalOpenChange = useCallback((open: boolean) => {
+    setCreateModalOpen(open);
+  }, []);
 
-      setUsers(result.data || []);
-    } catch (err: unknown) {
-      console.error('Error loading portal users:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Error al cargar usuarios del portal';
-      setError(errorMessage);
-      toast({
-        title: 'Error',
-        description: errorMessage,
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleCreateSuccess = useCallback(() => {
+    handleRefresh();
+  }, [handleRefresh]);
 
   return (
     <RoleGuard allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']} redirectTo="/access-denied">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
+      <ErrorBoundary>
+        <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold">Usuarios del Portal de Cliente</h1>
@@ -126,15 +219,16 @@ function ClientPortalUsersContent() {
         <PortalUsersTable
           users={filteredUsers}
           loading={loading}
-          onRefresh={fetchUsers}
+          onRefresh={handleRefresh}
         />
 
         <CreatePortalUserModal
           open={createModalOpen}
-          onOpenChange={setCreateModalOpen}
-          onSuccess={fetchUsers}
+          onOpenChange={handleCreateModalOpenChange}
+          onSuccess={handleCreateSuccess}
         />
-      </div>
+        </div>
+      </ErrorBoundary>
     </RoleGuard>
   );
 }

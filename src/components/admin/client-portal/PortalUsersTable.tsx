@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   Table,
   TableBody,
@@ -21,6 +21,7 @@ import {
 import { UserRoleBadge } from '@/components/client-portal/shared/UserRoleBadge';
 import { ClientAssociationsList } from './ClientAssociationsList';
 import { AssignClientModal } from './AssignClientModal';
+import { useToast } from '@/components/ui/use-toast';
 import type { PortalUser } from '@/lib/supabase/clientPortalAdmin';
 
 interface PortalUsersTableProps {
@@ -32,7 +33,9 @@ interface PortalUsersTableProps {
   onDeactivate?: (userId: string) => void;
 }
 
-export function PortalUsersTable({
+const EXPANDED_USERS_STORAGE_KEY = 'portal-users-expanded';
+
+function PortalUsersTableComponent({
   users,
   loading = false,
   onRefresh,
@@ -40,31 +43,64 @@ export function PortalUsersTable({
   onRemoveClient,
   onDeactivate,
 }: PortalUsersTableProps) {
-  const [expandedUsers, setExpandedUsers] = useState<Set<string>>(new Set());
+  const { toast } = useToast();
+  const [expandedUsers, setExpandedUsers] = useState<Set<string>>(() => {
+    // Load persisted expanded state from sessionStorage
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = sessionStorage.getItem(EXPANDED_USERS_STORAGE_KEY);
+        if (stored) {
+          return new Set(JSON.parse(stored));
+        }
+      } catch (error) {
+        console.warn('Failed to load expanded users state:', error);
+      }
+    }
+    return new Set();
+  });
   const [assignModalOpen, setAssignModalOpen] = useState(false);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [removingClientId, setRemovingClientId] = useState<string | null>(null);
+  const [deactivatingUserId, setDeactivatingUserId] = useState<string | null>(null);
 
-  const toggleExpand = (userId: string) => {
-    const newExpanded = new Set(expandedUsers);
-    if (newExpanded.has(userId)) {
-      newExpanded.delete(userId);
-    } else {
-      newExpanded.add(userId);
+  // Persist expanded state to sessionStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem(EXPANDED_USERS_STORAGE_KEY, JSON.stringify(Array.from(expandedUsers)));
+      } catch (error) {
+        console.warn('Failed to save expanded users state:', error);
+      }
     }
-    setExpandedUsers(newExpanded);
-  };
+  }, [expandedUsers]);
 
-  const handleAssignClient = (userId: string) => {
+  // Memoize toggle expand handler
+  const toggleExpand = useCallback((userId: string) => {
+    setExpandedUsers((prev) => {
+      const newExpanded = new Set(prev);
+      if (newExpanded.has(userId)) {
+        newExpanded.delete(userId);
+      } else {
+        newExpanded.add(userId);
+      }
+      return newExpanded;
+    });
+  }, []);
+
+  // Memoize assign client handler
+  const handleAssignClient = useCallback((userId: string) => {
     setSelectedUserId(userId);
     setAssignModalOpen(true);
-  };
+  }, []);
 
-  const handleRemoveClient = async (userId: string, clientId: string) => {
+  // Memoize remove client handler
+  const handleRemoveClient = useCallback(async (userId: string, clientId: string) => {
     if (!confirm('¿Estás seguro de eliminar esta asociación?')) {
       return;
     }
 
     try {
+      setRemovingClientId(clientId);
       const response = await fetch(
         `/api/admin/client-portal-users/${userId}/clients?clientId=${clientId}`,
         {
@@ -77,18 +113,31 @@ export function PortalUsersTable({
         throw new Error(result.error || 'Error al eliminar asociación');
       }
 
+      toast({
+        title: 'Asociación eliminada',
+        description: 'La asociación ha sido eliminada exitosamente',
+      });
+
       onRefresh?.();
     } catch (error: any) {
-      alert(`Error: ${error.message}`);
+      toast({
+        title: 'Error',
+        description: error.message || 'Error al eliminar asociación',
+        variant: 'destructive',
+      });
+    } finally {
+      setRemovingClientId(null);
     }
-  };
+  }, [onRefresh, toast]);
 
-  const handleDeactivate = async (userId: string) => {
+  // Memoize deactivate handler
+  const handleDeactivate = useCallback(async (userId: string) => {
     if (!confirm('¿Estás seguro de desactivar este usuario?')) {
       return;
     }
 
     try {
+      setDeactivatingUserId(userId);
       const response = await fetch(`/api/admin/client-portal-users/${userId}`, {
         method: 'DELETE',
       });
@@ -98,11 +147,48 @@ export function PortalUsersTable({
         throw new Error(result.error || 'Error al desactivar usuario');
       }
 
+      toast({
+        title: 'Usuario desactivado',
+        description: 'El usuario ha sido desactivado exitosamente',
+      });
+
       onRefresh?.();
     } catch (error: any) {
-      alert(`Error: ${error.message}`);
+      toast({
+        title: 'Error',
+        description: error.message || 'Error al desactivar usuario',
+        variant: 'destructive',
+      });
+    } finally {
+      setDeactivatingUserId(null);
     }
-  };
+  }, [onRefresh, toast]);
+
+  // Memoize modal handlers
+  const handleAssignModalClose = useCallback(() => {
+    setAssignModalOpen(false);
+    setSelectedUserId(null);
+  }, []);
+
+  const handleAssignSuccess = useCallback(() => {
+    handleAssignModalClose();
+    onRefresh?.();
+  }, [handleAssignModalClose, onRefresh]);
+
+  // Memoize processed user data
+  const processedUsers = useMemo(() => {
+    return users.map((user) => {
+      const userName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Sin nombre';
+      const activeAssociations = user.client_associations.filter(a => a.is_active);
+      const inactiveAssociations = user.client_associations.filter(a => !a.is_active);
+      return {
+        ...user,
+        userName,
+        activeAssociations,
+        inactiveAssociations,
+      };
+    });
+  }, [users]);
 
   if (loading) {
     return (
@@ -121,6 +207,12 @@ export function PortalUsersTable({
     );
   }
 
+  // Memoize existing client IDs for selected user
+  const existingClientIds = useMemo(() => {
+    if (!selectedUserId) return [];
+    return users.find(u => u.id === selectedUserId)?.client_associations.map(a => a.client_id) || [];
+  }, [selectedUserId, users]);
+
   return (
     <>
       <div className="border rounded-lg overflow-hidden">
@@ -137,11 +229,10 @@ export function PortalUsersTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {users.map((user) => {
+            {processedUsers.map((user) => {
               const isExpanded = expandedUsers.has(user.id);
-              const userName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Sin nombre';
-              const activeAssociations = user.client_associations.filter(a => a.is_active);
-              const inactiveAssociations = user.client_associations.filter(a => !a.is_active);
+              const isRemoving = removingClientId !== null;
+              const isDeactivating = deactivatingUserId === user.id;
 
               return (
                 <React.Fragment key={user.id}>
@@ -153,6 +244,7 @@ export function PortalUsersTable({
                           size="sm"
                           onClick={() => toggleExpand(user.id)}
                           className="h-6 w-6 p-0"
+                          disabled={isRemoving}
                         >
                           {isExpanded ? (
                             <ChevronDown className="h-4 w-4" />
@@ -162,16 +254,16 @@ export function PortalUsersTable({
                         </Button>
                       )}
                     </TableCell>
-                    <TableCell className="font-medium">{userName}</TableCell>
+                    <TableCell className="font-medium">{user.userName}</TableCell>
                     <TableCell className="text-gray-600">{user.email}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Building2 className="h-4 w-4 text-gray-400" />
                         <span className="text-sm">
-                          {activeAssociations.length} activo{activeAssociations.length !== 1 ? 's' : ''}
-                          {inactiveAssociations.length > 0 && (
+                          {user.activeAssociations.length} activo{user.activeAssociations.length !== 1 ? 's' : ''}
+                          {user.inactiveAssociations.length > 0 && (
                             <span className="text-gray-500">
-                              {' '}/ {inactiveAssociations.length} inactivo{inactiveAssociations.length !== 1 ? 's' : ''}
+                              {' '}/ {user.inactiveAssociations.length} inactivo{user.inactiveAssociations.length !== 1 ? 's' : ''}
                             </span>
                           )}
                         </span>
@@ -198,12 +290,12 @@ export function PortalUsersTable({
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
+                          <Button variant="ghost" size="sm" disabled={isRemoving || isDeactivating}>
                             <MoreVertical className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleAssignClient(user.id)}>
+                          <DropdownMenuItem onClick={() => handleAssignClient(user.id)} disabled={isRemoving || isDeactivating}>
                             <Plus className="h-4 w-4 mr-2" />
                             Asignar Cliente
                           </DropdownMenuItem>
@@ -211,9 +303,10 @@ export function PortalUsersTable({
                             <DropdownMenuItem
                               onClick={() => handleDeactivate(user.id)}
                               className="text-red-600"
+                              disabled={isRemoving || isDeactivating}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
-                              Desactivar
+                              {isDeactivating ? 'Desactivando...' : 'Desactivar'}
                             </DropdownMenuItem>
                           )}
                         </DropdownMenuContent>
@@ -244,19 +337,16 @@ export function PortalUsersTable({
       {selectedUserId && (
         <AssignClientModal
           open={assignModalOpen}
-          onOpenChange={setAssignModalOpen}
+          onOpenChange={handleAssignModalClose}
           userId={selectedUserId}
-          existingClientIds={
-            users.find(u => u.id === selectedUserId)?.client_associations.map(a => a.client_id) || []
-          }
-          onSuccess={() => {
-            setAssignModalOpen(false);
-            setSelectedUserId(null);
-            onRefresh?.();
-          }}
+          existingClientIds={existingClientIds}
+          onSuccess={handleAssignSuccess}
         />
       )}
     </>
   );
 }
+
+// Memoize the component to prevent unnecessary re-renders
+export const PortalUsersTable = React.memo(PortalUsersTableComponent);
 

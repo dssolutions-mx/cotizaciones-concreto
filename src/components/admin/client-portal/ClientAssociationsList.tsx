@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useCallback } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { UserRoleBadge } from '@/components/client-portal/shared/UserRoleBadge';
 import { Building2, X } from 'lucide-react';
@@ -13,11 +13,15 @@ interface ClientAssociationsListProps {
   showActions?: boolean;
 }
 
-export function ClientAssociationsList({
+function ClientAssociationsListComponent({
   associations,
   onRemove,
   showActions = false,
 }: ClientAssociationsListProps) {
+  // Memoize remove handler
+  const handleRemove = useCallback((clientId: string) => {
+    onRemove?.(clientId);
+  }, [onRemove]);
   if (!associations || associations.length === 0) {
     return (
       <div className="text-sm text-gray-500 py-2">
@@ -58,7 +62,7 @@ export function ClientAssociationsList({
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => onRemove(assoc.client_id)}
+              onClick={() => handleRemove(assoc.client_id)}
               className="text-red-600 hover:text-red-700 hover:bg-red-50"
             >
               <X className="h-4 w-4" />
@@ -69,4 +73,7 @@ export function ClientAssociationsList({
     </div>
   );
 }
+
+// Memoize the component to prevent unnecessary re-renders
+export const ClientAssociationsList = React.memo(ClientAssociationsListComponent);
 

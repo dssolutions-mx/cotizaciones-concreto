@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -49,20 +49,29 @@ interface CreatePortalUserModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSuccess?: () => void;
+  defaultClientIds?: string[];
 }
 
-export function CreatePortalUserModal({
+// Cache clients list outside component to persist across modal opens/closes
+let cachedClients: Array<{ id: string; business_name: string; client_code: string }> | null = null;
+let clientsCacheTimestamp: number = 0;
+const CLIENTS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function CreatePortalUserModalComponent({
   open,
   onOpenChange,
   onSuccess,
   defaultClientIds = [],
 }: CreatePortalUserModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [clients, setClients] = useState<Array<{ id: string; business_name: string; client_code: string }>>([]);
-  const [loadingClients, setLoadingClients] = useState(true);
+  const [clients, setClients] = useState<Array<{ id: string; business_name: string; client_code: string }>>(
+    cachedClients || []
+  );
+  const [loadingClients, setLoadingClients] = useState(false);
   const [selectedClients, setSelectedClients] = useState<string[]>([]);
   const [clientRoles, setClientRoles] = useState<Record<string, 'executive' | 'user'>>({});
   const { toast } = useToast();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const form = useForm<CreatePortalUserFormData>({
     resolver: zodResolver(createPortalUserSchema),
@@ -72,9 +81,50 @@ export function CreatePortalUserModal({
     },
   });
 
+  // Memoize loadClients function
+  const loadClients = useCallback(async () => {
+    // Use cached clients if available and not expired
+    const now = Date.now();
+    if (cachedClients && (now - clientsCacheTimestamp) < CLIENTS_CACHE_TTL) {
+      setClients(cachedClients);
+      setLoadingClients(false);
+      return;
+    }
+
+    try {
+      setLoadingClients(true);
+      
+      // Cancel previous request if exists
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      abortControllerRef.current = new AbortController();
+
+      const data = await clientService.getAllClients();
+      
+      // Update cache
+      cachedClients = data;
+      clientsCacheTimestamp = now;
+      
+      setClients(data);
+    } catch (error: any) {
+      console.error('Error loading clients:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al cargar clientes',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingClients(false);
+    }
+  }, [toast]);
+
+  // Load clients when modal opens
   useEffect(() => {
     if (open) {
       loadClients();
+      
       // Pre-select default clients if provided
       if (defaultClientIds.length > 0) {
         setSelectedClients(defaultClientIds);
@@ -87,11 +137,27 @@ export function CreatePortalUserModal({
         form.setValue('roles', defaultRoles);
       }
     } else {
-      form.reset();
+      // Reset form and state when modal closes
+      form.reset({
+        email: '',
+        firstName: '',
+        lastName: '',
+        clientIds: [],
+        roles: {},
+      });
       setSelectedClients([]);
       setClientRoles({});
     }
-  }, [open, defaultClientIds]);
+  }, [open, defaultClientIds, form, loadClients]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const loadClients = async () => {
     try {
@@ -110,13 +176,15 @@ export function CreatePortalUserModal({
     }
   };
 
-  const handleClientToggle = (clientId: string) => {
+  // Memoize client toggle handler
+  const handleClientToggle = useCallback((clientId: string) => {
     if (selectedClients.includes(clientId)) {
-      setSelectedClients(selectedClients.filter(id => id !== clientId));
+      const newSelected = selectedClients.filter(id => id !== clientId);
+      setSelectedClients(newSelected);
       const newRoles = { ...clientRoles };
       delete newRoles[clientId];
       setClientRoles(newRoles);
-      form.setValue('clientIds', selectedClients.filter(id => id !== clientId));
+      form.setValue('clientIds', newSelected);
       form.setValue('roles', newRoles);
     } else {
       const newSelected = [...selectedClients, clientId];
@@ -126,15 +194,17 @@ export function CreatePortalUserModal({
       form.setValue('clientIds', newSelected);
       form.setValue('roles', newRoles);
     }
-  };
+  }, [selectedClients, clientRoles, form]);
 
-  const handleRoleChange = (clientId: string, role: 'executive' | 'user') => {
+  // Memoize role change handler
+  const handleRoleChange = useCallback((clientId: string, role: 'executive' | 'user') => {
     const newRoles = { ...clientRoles, [clientId]: role };
     setClientRoles(newRoles);
     form.setValue('roles', newRoles);
-  };
+  }, [clientRoles, form]);
 
-  const onSubmit = async (data: CreatePortalUserFormData) => {
+  // Memoize submit handler
+  const onSubmit = useCallback(async (data: CreatePortalUserFormData) => {
     setIsSubmitting(true);
     try {
       const response = await fetch('/api/admin/client-portal-users', {
@@ -162,7 +232,14 @@ export function CreatePortalUserModal({
         description: 'El usuario del portal ha sido creado exitosamente',
       });
 
-      form.reset();
+      // Reset form and state
+      form.reset({
+        email: '',
+        firstName: '',
+        lastName: '',
+        clientIds: [],
+        roles: {},
+      });
       setSelectedClients([]);
       setClientRoles({});
       onOpenChange(false);
@@ -176,10 +253,15 @@ export function CreatePortalUserModal({
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [form, toast, onOpenChange, onSuccess]);
+
+  // Memoize modal close handler
+  const handleClose = useCallback(() => {
+    onOpenChange(false);
+  }, [onOpenChange]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Crear Usuario del Portal</DialogTitle>
@@ -306,7 +388,7 @@ export function CreatePortalUserModal({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => onOpenChange(false)}
+                onClick={handleClose}
                 disabled={isSubmitting}
               >
                 Cancelar
@@ -322,4 +404,7 @@ export function CreatePortalUserModal({
     </Dialog>
   );
 }
+
+// Memoize the component to prevent unnecessary re-renders
+export const CreatePortalUserModal = React.memo(CreatePortalUserModalComponent);
 

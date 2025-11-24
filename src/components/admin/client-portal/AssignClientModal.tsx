@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -52,7 +52,12 @@ interface AssignClientModalProps {
   onSuccess?: () => void;
 }
 
-export function AssignClientModal({
+// Cache clients list outside component to persist across modal opens/closes
+let cachedClientsForAssign: Array<{ id: string; business_name: string; client_code: string }> | null = null;
+let clientsCacheTimestampForAssign: number = 0;
+const CLIENTS_CACHE_TTL_FOR_ASSIGN = 5 * 60 * 1000; // 5 minutes
+
+function AssignClientModalComponent({
   open,
   onOpenChange,
   userId,
@@ -60,9 +65,12 @@ export function AssignClientModal({
   onSuccess,
 }: AssignClientModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [clients, setClients] = useState<Array<{ id: string; business_name: string; client_code: string }>>([]);
-  const [loadingClients, setLoadingClients] = useState(true);
+  const [clients, setClients] = useState<Array<{ id: string; business_name: string; client_code: string }>>(
+    cachedClientsForAssign || []
+  );
+  const [loadingClients, setLoadingClients] = useState(false);
   const { toast } = useToast();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const form = useForm<AssignClientFormData>({
     resolver: zodResolver(assignClientSchema),
@@ -71,11 +79,66 @@ export function AssignClientModal({
     },
   });
 
+  // Memoize loadClients function
+  const loadClients = useCallback(async () => {
+    // Use cached clients if available and not expired
+    const now = Date.now();
+    if (cachedClientsForAssign && (now - clientsCacheTimestampForAssign) < CLIENTS_CACHE_TTL_FOR_ASSIGN) {
+      setClients(cachedClientsForAssign);
+      setLoadingClients(false);
+      return;
+    }
+
+    try {
+      setLoadingClients(true);
+      
+      // Cancel previous request if exists
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      abortControllerRef.current = new AbortController();
+
+      const data = await clientService.getAllClients();
+      
+      // Update cache
+      cachedClientsForAssign = data;
+      clientsCacheTimestampForAssign = now;
+      
+      setClients(data);
+    } catch (error: any) {
+      console.error('Error loading clients:', error);
+      toast({
+        title: 'Error',
+        description: 'Error al cargar clientes',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoadingClients(false);
+    }
+  }, [toast]);
+
+  // Load clients when modal opens
   useEffect(() => {
     if (open) {
       loadClients();
+    } else {
+      // Reset form when modal closes
+      form.reset({
+        clientId: '',
+        role: 'user',
+      });
     }
-  }, [open]);
+  }, [open, form, loadClients]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
   const loadClients = async () => {
     try {
@@ -98,7 +161,8 @@ export function AssignClientModal({
     }
   };
 
-  const onSubmit = async (data: AssignClientFormData) => {
+  // Memoize submit handler
+  const onSubmit = useCallback(async (data: AssignClientFormData) => {
     setIsSubmitting(true);
     try {
       const response = await fetch(`/api/admin/client-portal-users/${userId}/clients`, {
@@ -123,7 +187,10 @@ export function AssignClientModal({
         description: 'El cliente ha sido asignado exitosamente al usuario',
       });
 
-      form.reset();
+      form.reset({
+        clientId: '',
+        role: 'user',
+      });
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
@@ -135,14 +202,22 @@ export function AssignClientModal({
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [userId, form, toast, onOpenChange, onSuccess]);
 
-  const availableClients = clients.filter(
-    (client) => !existingClientIds.includes(client.id)
-  );
+  // Memoize available clients
+  const availableClients = useMemo(() => {
+    return clients.filter(
+      (client) => !existingClientIds.includes(client.id)
+    );
+  }, [clients, existingClientIds]);
+
+  // Memoize modal close handler
+  const handleClose = useCallback(() => {
+    onOpenChange(false);
+  }, [onOpenChange]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Asignar Cliente</DialogTitle>
@@ -237,7 +312,7 @@ export function AssignClientModal({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => onOpenChange(false)}
+                onClick={handleClose}
                 disabled={isSubmitting}
               >
                 Cancelar
@@ -253,4 +328,7 @@ export function AssignClientModal({
     </Dialog>
   );
 }
+
+// Memoize the component to prevent unnecessary re-renders
+export const AssignClientModal = React.memo(AssignClientModalComponent);
 
