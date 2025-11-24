@@ -61,30 +61,37 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background-primary p-4">
+      <div className="w-full max-w-md p-8 space-y-8 glass-thick rounded-3xl border border-white/30 shadow-2xl">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">Recuperar Contraseña</h1>
-          <p className="mt-2 text-sm text-gray-600">
+          <div className="mb-4">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
+              <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            </div>
+          </div>
+          <h1 className="text-title-1 font-bold text-label-primary">Recuperar Contraseña</h1>
+          <p className="mt-2 text-callout text-label-secondary">
             Ingresa tu correo para recibir instrucciones de recuperación
           </p>
         </div>
 
         {error && (
-          <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded-md">
-            {error}
+          <div className="p-4 glass-thin rounded-2xl border border-red-200/50 bg-red-50/50">
+            <p className="text-callout text-red-700 font-medium">{error}</p>
           </div>
         )}
 
         {message && (
-          <div className="p-3 bg-green-100 border border-green-400 text-green-700 rounded-md">
-            {message}
+          <div className="p-4 glass-thin rounded-2xl border border-green-200/50 bg-green-50/50">
+            <p className="text-callout text-green-700 font-medium">{message}</p>
           </div>
         )}
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="email" className="block text-callout font-medium text-label-primary mb-2">
               Correo Electrónico
             </label>
             <input
@@ -95,8 +102,10 @@ export default function ResetPasswordPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
-                         focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-4 py-3 glass-thin rounded-2xl border border-white/20 
+                         text-body text-label-primary placeholder:text-label-tertiary
+                         focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-blue-600
+                         transition-all"
             />
           </div>
 
@@ -104,10 +113,10 @@ export default function ResetPasswordPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md 
-                         shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 
-                         focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500
-                         disabled:opacity-75 disabled:cursor-not-allowed"
+              className="w-full flex justify-center py-3 px-6 rounded-2xl 
+                         text-callout font-semibold text-white bg-blue-600 hover:bg-blue-700 
+                         focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-600
+                         disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
             >
               {loading ? 'Enviando...' : 'Enviar Instrucciones'}
             </button>
@@ -116,7 +125,7 @@ export default function ResetPasswordPage() {
           <div className="text-center">
             <Link
               href="/login"
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+              className="text-callout font-medium text-blue-600 hover:text-blue-700 transition-colors"
             >
               Volver a Iniciar Sesión
             </Link>

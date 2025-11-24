@@ -672,16 +672,16 @@ function UpdatePasswordForm() {
   // Show loading state while authentication data is being processed
   if (!authReady) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
-        <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background-primary">
+        <div className="w-full max-w-md p-8 space-y-8 glass-thick rounded-3xl border border-white/30">
           <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900">Verificando sesión</h1>
-            <p className="mt-2 text-sm text-gray-600">
+            <h1 className="text-title-1 font-bold text-label-primary">Verificando sesión</h1>
+            <p className="mt-2 text-callout text-label-secondary">
               Por favor espera mientras verificamos tu sesión...
             </p>
           </div>
           <div className="flex justify-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
           </div>
         </div>
       </div>
@@ -689,8 +689,8 @@ function UpdatePasswordForm() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
-      <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
+    <div className="flex min-h-screen flex-col items-center justify-center bg-background-primary p-4">
+      <div className="w-full max-w-md p-8 space-y-8 glass-thick rounded-3xl border border-white/30 shadow-2xl">
         <div className="text-center">
           <div className="mb-4">
             {isClientPortalUser ? (
@@ -707,12 +707,12 @@ function UpdatePasswordForm() {
               </div>
             )}
           </div>
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className="text-title-1 font-bold text-label-primary">
             {invitationFlow 
               ? (isClientPortalUser ? 'Bienvenido al Portal de Cliente' : 'Configura tu Contraseña')
               : 'Actualizar Contraseña'}
           </h1>
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-callout text-label-secondary">
             {invitationFlow 
               ? (isClientPortalUser 
                   ? 'Crea una contraseña para acceder al portal de cliente y gestionar tus pedidos'
@@ -720,19 +720,19 @@ function UpdatePasswordForm() {
               : 'Crea una nueva contraseña para tu cuenta'}
           </p>
           {userName && (
-            <p className="mt-2 text-base font-semibold text-gray-800">
+            <p className="mt-2 text-body font-semibold text-label-primary">
               {userName}
             </p>
           )}
           {inviteEmail && (
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-footnote text-label-tertiary">
               {inviteEmail}
             </p>
           )}
           {isClientPortalUser && invitationFlow && (
-            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-left">
-              <p className="text-xs text-blue-800">
-                <strong>Portal de Cliente:</strong> Podrás ver tus pedidos, cotizaciones, datos de calidad y más información relevante de tu cuenta.
+            <div className="mt-4 p-4 glass-thin rounded-2xl border border-white/20 text-left">
+              <p className="text-footnote text-label-secondary">
+                <strong className="text-label-primary">Portal de Cliente:</strong> Podrás ver tus pedidos, cotizaciones, datos de calidad y más información relevante de tu cuenta.
               </p>
             </div>
           )}
@@ -766,23 +766,23 @@ function UpdatePasswordForm() {
         </div>
 
         {error && (
-          <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded-md">
-            {error}
+          <div className="p-4 glass-thin rounded-2xl border border-red-200/50 bg-red-50/50">
+            <p className="text-callout text-red-700 font-medium">{error}</p>
           </div>
         )}
 
         {message && (
-          <div className="p-3 bg-green-100 border border-green-400 text-green-700 rounded-md">
-            <p>{message}</p>
+          <div className="p-4 glass-thin rounded-2xl border border-green-200/50 bg-green-50/50">
+            <p className="text-callout text-green-700 font-medium">{message}</p>
             {countdown !== null && (
-              <p className="mt-2 font-medium">
+              <p className="mt-2 text-body font-semibold text-green-800">
                 Redirigiendo en {countdown} segundo{countdown !== 1 ? 's' : ''}...
               </p>
             )}
             <div className="mt-4 text-center">
               <Link
                 href="/login?force_logout=true"
-                className="inline-block px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700"
+                className="inline-block px-6 py-3 text-callout font-medium text-white bg-blue-600 rounded-2xl hover:bg-blue-700 transition-all shadow-lg"
               >
                 Ir a Iniciar Sesión Ahora
               </Link>
@@ -792,7 +792,7 @@ function UpdatePasswordForm() {
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="password" className="block text-callout font-medium text-label-primary mb-2">
               Nueva Contraseña
             </label>
             <input
@@ -803,14 +803,16 @@ function UpdatePasswordForm() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
-                         focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-4 py-3 glass-thin rounded-2xl border border-white/20 
+                         text-body text-label-primary placeholder:text-label-tertiary
+                         focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-blue-600
+                         transition-all disabled:opacity-50"
               disabled={countdown !== null || loading}
             />
           </div>
 
           <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="confirmPassword" className="block text-callout font-medium text-label-primary mb-2">
               Confirmar Contraseña
             </label>
             <input
@@ -821,8 +823,10 @@ function UpdatePasswordForm() {
               required
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
-                         focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-4 py-3 glass-thin rounded-2xl border border-white/20 
+                         text-body text-label-primary placeholder:text-label-tertiary
+                         focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-blue-600
+                         transition-all disabled:opacity-50"
               disabled={countdown !== null || loading}
             />
           </div>
@@ -831,10 +835,10 @@ function UpdatePasswordForm() {
             <button
               type="submit"
               disabled={loading || countdown !== null}
-              className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md 
-                         shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 
-                         focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500
-                         disabled:opacity-75 disabled:cursor-not-allowed"
+              className="w-full flex justify-center py-3 px-6 rounded-2xl 
+                         text-callout font-semibold text-white bg-blue-600 hover:bg-blue-700 
+                         focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-600
+                         disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
             >
               {loading ? 'Actualizando...' : 'Actualizar Contraseña'}
             </button>
@@ -843,7 +847,7 @@ function UpdatePasswordForm() {
           <div className="text-center">
             <Link
               href="/login?force_logout=true"
-              className="text-sm font-medium text-indigo-600 hover:text-indigo-500"
+              className="text-callout font-medium text-blue-600 hover:text-blue-700 transition-colors"
             >
               Volver a Iniciar Sesión
             </Link>

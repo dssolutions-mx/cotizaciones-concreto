@@ -185,80 +185,86 @@ export async function POST(request: NextRequest) {
     // Check if user already exists
     const { data: existingUser } = await supabase
       .from('user_profiles')
-      .select('id, email')
+      .select('id, email, first_name, last_name')
       .eq('email', email)
-      .single();
+      .maybeSingle();
 
     let userId: string;
 
+    // Check if user exists and validate role
     if (existingUser) {
-      // User exists, check if already EXTERNAL_CLIENT
-      if (existingUser.email === email) {
-        const { data: existingProfile } = await supabase
-          .from('user_profiles')
-          .select('role')
-          .eq('id', existingUser.id)
-          .single();
+      const { data: existingProfile } = await supabase
+        .from('user_profiles')
+        .select('role')
+        .eq('id', existingUser.id)
+        .single();
 
-        if (existingProfile?.role === 'EXTERNAL_CLIENT') {
-          userId = existingUser.id;
-        } else {
-          return NextResponse.json(
-            { error: 'El usuario existe pero no es un usuario del portal' },
-            { status: 400 }
-          );
-        }
-      } else {
-        userId = existingUser.id;
-      }
-    } else {
-      // Create new user via Supabase Admin API
-      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-      if (!serviceRoleKey || !supabaseUrl) {
+      if (existingProfile?.role && existingProfile.role !== 'EXTERNAL_CLIENT') {
         return NextResponse.json(
-          { error: 'Error de configuración del servidor' },
-          { status: 500 }
+          { error: 'El usuario existe pero no es un usuario del portal' },
+          { status: 400 }
         );
       }
+      userId = existingUser.id;
+    }
 
-      const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      });
+    // Always attempt to send invitation email, even for existing users
+    // Supabase will handle resending if needed or skip if user is already confirmed
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-      // Get redirect URL for invitation
-      const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app';
-      const redirectTo = `${origin}/auth/callback`;
-
-      // Invite user by email (this sends the invitation email)
-      const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
-        email,
-        {
-          redirectTo,
-          data: {
-            first_name: firstName,
-            last_name: lastName,
-            role: 'EXTERNAL_CLIENT',
-            invited_by: user.id,
-          },
-        }
+    if (!serviceRoleKey || !supabaseUrl) {
+      return NextResponse.json(
+        { error: 'Error de configuración del servidor' },
+        { status: 500 }
       );
+    }
 
-      if (inviteError || !inviteData?.user) {
-        console.error('Error inviting user:', inviteError);
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    // Get redirect URL for invitation
+    const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app';
+    const redirectTo = `${origin}/auth/callback`;
+
+    // Invite user by email (this sends the invitation email)
+    // For existing users, this will resend the invitation if they haven't confirmed yet
+    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      email,
+      {
+        redirectTo,
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          role: 'EXTERNAL_CLIENT',
+          invited_by: user.id,
+        },
+      }
+    );
+
+    if (inviteError) {
+      console.error('Error inviting user:', inviteError);
+      // Don't fail if user already exists and is confirmed - that's expected
+      if (!inviteError.message?.includes('already registered') && !inviteError.message?.includes('already exists')) {
         return NextResponse.json(
-          { error: inviteError?.message || 'Error al enviar invitación' },
+          { error: inviteError.message || 'Error al enviar invitación' },
           { status: 500 }
         );
       }
-
+      // If user exists, continue with the existing user ID
+      console.log('User already exists, continuing with existing user:', userId);
+    } else if (inviteData?.user) {
+      // If invitation succeeded, use the returned user ID (might be new or existing)
       userId = inviteData.user.id;
+    }
 
-      // Create user profile
+    // Ensure user profile exists (create if new user, update if existing)
+    if (!existingUser) {
+      // Create user profile for new users
       const { error: profileError } = await supabaseAdmin
         .from('user_profiles')
         .insert({
@@ -273,10 +279,29 @@ export async function POST(request: NextRequest) {
 
       if (profileError) {
         console.error('Error creating user profile:', profileError);
-        return NextResponse.json(
-          { error: 'Error al crear perfil de usuario' },
-          { status: 500 }
-        );
+        // Check if profile already exists (race condition)
+        if (!profileError.message?.includes('duplicate') && !profileError.code?.includes('23505')) {
+          return NextResponse.json(
+            { error: 'Error al crear perfil de usuario' },
+            { status: 500 }
+          );
+        }
+      }
+    } else {
+      // Update existing user profile to ensure it's marked as portal user
+      const { error: profileUpdateError } = await supabaseAdmin
+        .from('user_profiles')
+        .update({
+          first_name: firstName || existingUser.first_name || '',
+          last_name: lastName || existingUser.last_name || '',
+          is_portal_user: true,
+          is_active: true,
+        })
+        .eq('id', userId);
+
+      if (profileUpdateError) {
+        console.error('Error updating user profile:', profileUpdateError);
+        // Non-critical error, continue
       }
     }
 

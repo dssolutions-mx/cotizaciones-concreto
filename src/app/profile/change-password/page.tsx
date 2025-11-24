@@ -5,9 +5,10 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useRouter } from 'next/navigation';
+import { Container } from '@/components/ui/Container';
 
 export default function ChangePasswordPage() {
-  const { session, isLoading: authLoading, signOut } = useAuthBridge();
+  const { session, isLoading: authLoading, signOut, profile } = useAuthBridge();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,6 +17,7 @@ export default function ChangePasswordPage() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [passwordUpdateAttempted, setPasswordUpdateAttempted] = useState(false);
   const router = useRouter();
+  const isClientPortalUser = profile?.role === 'EXTERNAL_CLIENT';
 
   // Listen for auth state changes to detect when password is updated
   useEffect(() => {
@@ -143,113 +145,144 @@ export default function ChangePasswordPage() {
   // Show loading state while authentication status is being checked
   if (authLoading) {
     return (
-      <div className="flex justify-center items-center min-h-[50vh]">
-        <div className="animate-pulse text-center">
-          <div className="h-12 w-48 bg-gray-200 rounded-md mx-auto mb-4"></div>
-          <div className="h-4 w-64 bg-gray-200 rounded-md mx-auto"></div>
+      <Container>
+        <div className="flex justify-center items-center min-h-[50vh]">
+          <div className="animate-pulse text-center">
+            <div className="h-12 w-48 bg-gray-200 rounded-2xl mx-auto mb-4"></div>
+            <div className="h-4 w-64 bg-gray-200 rounded-xl mx-auto"></div>
+          </div>
         </div>
-      </div>
+      </Container>
     );
   }
 
   // Redirect unauthenticated users
   if (!session && !authLoading) {
-    // This should automatically redirect via the AuthProvider, but just in case:
     return (
-      <div className="text-center py-12">
-        <h1 className="text-2xl font-bold text-red-600 mb-2">
-          Acceso no autorizado
-        </h1>
-        <p className="text-gray-600 mb-4">
-          Debes iniciar sesión para acceder a esta página.
-        </p>
-        <Link
-          href="/login"
-          className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700"
-        >
-          Ir al inicio de sesión
-        </Link>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-md mx-auto p-6 bg-white rounded-lg shadow-md">
-      <h1 className="text-2xl font-bold mb-6 text-gray-800">Cambiar Contraseña</h1>
-
-      {message && (
-        <div className="mb-6 p-4 bg-green-100 border border-green-400 text-green-700 rounded-md">
-          <p className="font-medium">{message}</p>
-          {countdown !== null && (
-            <p className="font-medium mt-2">
-              Cerrando sesión en {countdown} segundo{countdown !== 1 ? 's' : ''}...
+      <Container>
+        <div className="text-center py-12">
+          <div className="glass-thick rounded-3xl p-8 max-w-md mx-auto">
+            <h1 className="text-title-1 font-bold text-red-600 mb-2">
+              Acceso no autorizado
+            </h1>
+            <p className="text-body text-label-secondary mb-4">
+              Debes iniciar sesión para acceder a esta página.
             </p>
-          )}
-          <div className="mt-4 flex justify-center">
             <Link
               href="/login"
-              className="px-4 py-2 bg-indigo-600 text-white text-center font-medium rounded hover:bg-indigo-700"
+              className="inline-block px-6 py-3 text-callout font-semibold text-white bg-blue-600 rounded-2xl hover:bg-blue-700 transition-all shadow-lg"
             >
-              Ir a Iniciar Sesión
+              Ir al inicio de sesión
             </Link>
           </div>
         </div>
-      )}
+      </Container>
+    );
+  }
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md">
-          {error}
-        </div>
-      )}
+  const backLink = isClientPortalUser ? '/client-portal' : '/profile';
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="newPassword">
-            Nueva Contraseña
-          </label>
-          <input
-            id="newPassword"
-            type="password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-hidden focus:shadow-outline"
-            required
-            disabled={countdown !== null || loading}
-          />
-        </div>
-
-        <div>
-          <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="confirmPassword">
-            Confirmar Nueva Contraseña
-          </label>
-          <input
-            id="confirmPassword"
-            type="password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            className="shadow-sm appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-hidden focus:shadow-outline"
-            required
-            disabled={countdown !== null || loading}
-          />
+  return (
+    <Container maxWidth="md">
+      <div className="glass-thick rounded-3xl p-8 border border-white/30 shadow-2xl">
+        <div className="text-center mb-8">
+          <div className="mb-4">
+            <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full ${isClientPortalUser ? 'bg-blue-100' : 'bg-indigo-100'} mb-4`}>
+              <svg className={`w-8 h-8 ${isClientPortalUser ? 'text-blue-600' : 'text-indigo-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+          </div>
+          <h1 className="text-title-1 font-bold text-label-primary">Cambiar Contraseña</h1>
+          {isClientPortalUser && (
+            <p className="mt-2 text-callout text-label-secondary">
+              Actualiza tu contraseña para mantener tu cuenta segura
+            </p>
+          )}
         </div>
 
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center space-y-3 sm:space-y-0 sm:space-x-3 mt-6">
-          <Link
-            href="/profile"
-            className="text-indigo-600 hover:text-indigo-800 text-sm font-medium"
-          >
-            Volver al Perfil
-          </Link>
-          
-          <button
-            type="submit"
-            disabled={loading || countdown !== null}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded focus:outline-hidden focus:shadow-outline disabled:opacity-50"
-          >
-            {loading ? 'Actualizando...' : 'Cambiar Contraseña'}
-          </button>
-        </div>
-      </form>
-    </div>
+        {message && (
+          <div className="mb-6 p-4 glass-thin rounded-2xl border border-green-200/50 bg-green-50/50">
+            <p className="text-callout text-green-700 font-medium">{message}</p>
+            {countdown !== null && (
+              <p className="text-body font-semibold text-green-800 mt-2">
+                Cerrando sesión en {countdown} segundo{countdown !== 1 ? 's' : ''}...
+              </p>
+            )}
+            <div className="mt-4 flex justify-center">
+              <Link
+                href="/login"
+                className="px-6 py-3 text-callout font-semibold text-white bg-blue-600 rounded-2xl hover:bg-blue-700 transition-all shadow-lg"
+              >
+                Ir a Iniciar Sesión
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div className="mb-6 p-4 glass-thin rounded-2xl border border-red-200/50 bg-red-50/50">
+            <p className="text-callout text-red-700 font-medium">{error}</p>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label className="block text-callout font-medium text-label-primary mb-2" htmlFor="newPassword">
+              Nueva Contraseña
+            </label>
+            <input
+              id="newPassword"
+              type="password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              className="w-full px-4 py-3 glass-thin rounded-2xl border border-white/20 
+                         text-body text-label-primary placeholder:text-label-tertiary
+                         focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-blue-600
+                         transition-all disabled:opacity-50"
+              required
+              disabled={countdown !== null || loading}
+            />
+          </div>
+
+          <div>
+            <label className="block text-callout font-medium text-label-primary mb-2" htmlFor="confirmPassword">
+              Confirmar Nueva Contraseña
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              className="w-full px-4 py-3 glass-thin rounded-2xl border border-white/20 
+                         text-body text-label-primary placeholder:text-label-tertiary
+                         focus:outline-hidden focus:ring-2 focus:ring-blue-600 focus:border-blue-600
+                         transition-all disabled:opacity-50"
+              required
+              disabled={countdown !== null || loading}
+            />
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 pt-4">
+            <Link
+              href={backLink}
+              className="text-callout font-medium text-blue-600 hover:text-blue-700 transition-colors text-center sm:text-left"
+            >
+              {isClientPortalUser ? 'Volver al Portal' : 'Volver al Perfil'}
+            </Link>
+            
+            <button
+              type="submit"
+              disabled={loading || countdown !== null}
+              className="px-6 py-3 rounded-2xl text-callout font-semibold text-white bg-blue-600 hover:bg-blue-700 
+                         focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-600
+                         disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
+            >
+              {loading ? 'Actualizando...' : 'Cambiar Contraseña'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </Container>
   );
 } 

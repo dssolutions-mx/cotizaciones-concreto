@@ -204,7 +204,7 @@ export async function POST(request: NextRequest) {
     // Check if user already exists
     const { data: existingUser, error: userCheckError } = await supabase
       .from('user_profiles')
-      .select('id')
+      .select('id, first_name, last_name')
       .eq('email', email)
       .maybeSingle();
 
@@ -258,59 +258,69 @@ export async function POST(request: NextRequest) {
       }
 
       newUserId = existingUser.id;
-    } else {
-      // Create new user account via Supabase Admin API with invitation email
-      // Note: This requires SUPABASE_SERVICE_ROLE_KEY environment variable
-      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    }
 
-      if (!serviceRoleKey || !supabaseUrl) {
-        return NextResponse.json(
-          { error: 'Server configuration error' },
-          { status: 500 }
-        );
-      }
+    // Always attempt to send invitation email, even for existing users
+    // Supabase will handle resending if needed or skip if user is already confirmed
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-      // Create admin client for invitation
-      const { createClient } = await import('@supabase/supabase-js');
-      const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
-        auth: {
-          autoRefreshToken: false,
-          persistSession: false,
-        },
-      });
-
-      // Get redirect URL for invitation
-      const origin = process.env.NEXT_PUBLIC_APP_URL || 
-        (typeof window !== 'undefined' ? window.location.origin : 'https://cotizaciones-concreto.vercel.app');
-      const redirectTo = `${origin}/auth/callback`;
-
-      // Invite user by email (this sends the invitation email)
-      const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
-        email,
-        {
-          redirectTo,
-          data: {
-            first_name: firstName,
-            last_name: lastName,
-            invited_by: user.id,
-            invited_to_client: clientId,
-            role: 'EXTERNAL_CLIENT',
-          },
-        }
+    if (!serviceRoleKey || !supabaseUrl) {
+      return NextResponse.json(
+        { error: 'Server configuration error' },
+        { status: 500 }
       );
+    }
 
-      if (inviteError || !inviteData?.user) {
-        console.error('Error inviting user:', inviteError);
+    // Create admin client for invitation
+    const { createClient } = await import('@supabase/supabase-js');
+    const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    // Get redirect URL for invitation
+    const origin = process.env.NEXT_PUBLIC_APP_URL || 
+      (typeof window !== 'undefined' ? window.location.origin : 'https://cotizaciones-concreto.vercel.app');
+    const redirectTo = `${origin}/auth/callback`;
+
+    // Invite user by email (this sends the invitation email)
+    // For existing users, this will resend the invitation if they haven't confirmed yet
+    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+      email,
+      {
+        redirectTo,
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          invited_by: user.id,
+          invited_to_client: clientId,
+          role: 'EXTERNAL_CLIENT',
+        },
+      }
+    );
+
+    if (inviteError) {
+      console.error('Error inviting user:', inviteError);
+      // Don't fail if user already exists and is confirmed - that's expected
+      if (!inviteError.message?.includes('already registered') && !inviteError.message?.includes('already exists')) {
         return NextResponse.json(
-          { error: inviteError?.message || 'Failed to send invitation' },
+          { error: inviteError.message || 'Failed to send invitation' },
           { status: 500 }
         );
       }
-
+      // If user exists, continue with the existing user ID
+      console.log('User already exists, continuing with existing user:', newUserId);
+    } else if (inviteData?.user) {
+      // If invitation succeeded, use the returned user ID (might be new or existing)
       newUserId = inviteData.user.id;
+    }
 
-      // Create user profile
+    // Ensure user profile exists (create if new user, update if existing)
+    if (!existingUser) {
+      // Create user profile for new users
       const { error: profileCreateError } = await supabaseAdmin
         .from('user_profiles')
         .insert({
@@ -324,7 +334,28 @@ export async function POST(request: NextRequest) {
 
       if (profileCreateError) {
         console.error('Error creating user profile:', profileCreateError);
-        // Note: User invited but profile failed - should be handled in cleanup
+        // Check if profile already exists (race condition)
+        if (!profileCreateError.message?.includes('duplicate') && !profileCreateError.code?.includes('23505')) {
+          return NextResponse.json(
+            { error: 'Failed to create user profile' },
+            { status: 500 }
+          );
+        }
+      }
+    } else {
+      // Update existing user profile to ensure it's marked as portal user
+      const { error: profileUpdateError } = await supabaseAdmin
+        .from('user_profiles')
+        .update({
+          first_name: firstName || existingUser.first_name || '',
+          last_name: lastName || existingUser.last_name || '',
+          is_portal_user: true,
+        })
+        .eq('id', newUserId);
+
+      if (profileUpdateError) {
+        console.error('Error updating user profile:', profileUpdateError);
+        // Non-critical error, continue
       }
     }
 
