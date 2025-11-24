@@ -27,6 +27,9 @@ function UpdatePasswordForm() {
   const [authReady, setAuthReady] = useState(false);
   const [invitationFlow, setInvitationFlow] = useState(false);
   const [inviteEmail, setInviteEmail] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [isClientPortalUser, setIsClientPortalUser] = useState(false);
   // Store session data for debugging purposes
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [currentSessionData, setCurrentSessionData] = useState<SessionData | null>(null);
@@ -77,6 +80,22 @@ function UpdatePasswordForm() {
           
           if (sessionData.session.user.email) {
             setInviteEmail(sessionData.session.user.email);
+          }
+          
+          // Fetch user profile to determine user type
+          const userId = sessionData.session.user.id;
+          const { data: profileData } = await supabase
+            .from('user_profiles')
+            .select('role, first_name, last_name')
+            .eq('id', userId)
+            .single();
+          
+          if (profileData) {
+            setUserRole(profileData.role);
+            setIsClientPortalUser(profileData.role === 'EXTERNAL_CLIENT');
+            if (profileData.first_name || profileData.last_name) {
+              setUserName(`${profileData.first_name || ''} ${profileData.last_name || ''}`.trim());
+            }
           }
           
           setCurrentSessionData({
@@ -138,6 +157,23 @@ function UpdatePasswordForm() {
             } else if (_sessionData.user) {
               console.log('Session set successfully from URL tokens', _sessionData);
               setInviteEmail(_sessionData.user.email || null);
+              
+              // Fetch user profile to determine user type
+              const userId = _sessionData.user.id;
+              const { data: profileData } = await supabase
+                .from('user_profiles')
+                .select('role, first_name, last_name')
+                .eq('id', userId)
+                .single();
+              
+              if (profileData) {
+                setUserRole(profileData.role);
+                setIsClientPortalUser(profileData.role === 'EXTERNAL_CLIENT');
+                if (profileData.first_name || profileData.last_name) {
+                  setUserName(`${profileData.first_name || ''} ${profileData.last_name || ''}`.trim());
+                }
+              }
+              
               setCurrentSessionData({
                 session: _sessionData.session,
                 user: _sessionData.user
@@ -410,21 +446,26 @@ function UpdatePasswordForm() {
                 countdownInterval = null;
               }
               
-              // IMPORTANT: Use full page reload to /login with force_logout=true
-              // rather than just a router.push which keeps the JS context
-              console.log('Countdown complete, performing hard redirect to login');
-              
-              // Use more advanced approach for hard reload:
-              // 1. Add special flags to URL
-              // 2. Use a unique timestamp for cache busting
-              // 3. Force a complete page reload
-              const loginUrl = new URL('/login', window.location.origin);
-              loginUrl.searchParams.set('force_logout', 'true');
-              loginUrl.searchParams.set('t', Date.now().toString());
-              loginUrl.searchParams.set('reason', 'password_update');
-              
-              // Force a hard navigation through window.location instead of router
-              window.location.href = loginUrl.toString();
+          // IMPORTANT: Use full page reload based on user type
+          // Client portal users go to login, internal users go to their dashboard
+          console.log('Countdown complete, performing hard redirect');
+          
+          // Determine redirect target based on user role
+          let redirectTarget = '/login';
+          if (isClientPortalUser) {
+            redirectTarget = '/login?redirect=/client-portal';
+          } else {
+            // Internal users go to login with updated flag
+            redirectTarget = '/login?updated=true';
+          }
+          
+          const redirectUrl = new URL(redirectTarget, window.location.origin);
+          redirectUrl.searchParams.set('force_logout', 'true');
+          redirectUrl.searchParams.set('t', Date.now().toString());
+          redirectUrl.searchParams.set('reason', 'password_update');
+          
+          // Force a hard navigation through window.location instead of router
+          window.location.href = redirectUrl.toString();
             }
           }, 1000);
         }
@@ -486,14 +527,21 @@ function UpdatePasswordForm() {
         console.error('Error in final storage clearing:', _clearError);
       }
       
-      // Use more advanced approach for hard reload
-      const loginUrl = new URL('/login', window.location.origin);
-      loginUrl.searchParams.set('force_logout', 'true');
-      loginUrl.searchParams.set('t', Date.now().toString());
-      loginUrl.searchParams.set('reason', 'password_update');
+      // Determine redirect target based on user type
+      let redirectTarget = '/login';
+      if (isClientPortalUser) {
+        redirectTarget = '/login?redirect=/client-portal';
+      } else {
+        redirectTarget = '/login?updated=true';
+      }
+      
+      const redirectUrl = new URL(redirectTarget, window.location.origin);
+      redirectUrl.searchParams.set('force_logout', 'true');
+      redirectUrl.searchParams.set('t', Date.now().toString());
+      redirectUrl.searchParams.set('reason', 'password_update');
       
       // Force a hard navigation through window.location
-      window.location.href = loginUrl.toString();
+      window.location.href = redirectUrl.toString();
     }
   }, [message, countdown, router]);
 
@@ -644,18 +692,49 @@ function UpdatePasswordForm() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50">
       <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
         <div className="text-center">
+          <div className="mb-4">
+            {isClientPortalUser ? (
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 mb-4">
+                <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+              </div>
+            ) : (
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-indigo-100 mb-4">
+                <svg className="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+            )}
+          </div>
           <h1 className="text-3xl font-bold text-gray-900">
-            {invitationFlow ? 'Configura tu Contraseña' : 'Actualizar Contraseña'}
+            {invitationFlow 
+              ? (isClientPortalUser ? 'Bienvenido al Portal de Cliente' : 'Configura tu Contraseña')
+              : 'Actualizar Contraseña'}
           </h1>
           <p className="mt-2 text-sm text-gray-600">
             {invitationFlow 
-              ? 'Crea una contraseña para acceder a tu cuenta' 
+              ? (isClientPortalUser 
+                  ? 'Crea una contraseña para acceder al portal de cliente y gestionar tus pedidos'
+                  : 'Crea una contraseña para acceder a tu cuenta')
               : 'Crea una nueva contraseña para tu cuenta'}
           </p>
+          {userName && (
+            <p className="mt-2 text-base font-semibold text-gray-800">
+              {userName}
+            </p>
+          )}
           {inviteEmail && (
-            <p className="mt-2 text-sm font-medium text-indigo-600">
+            <p className="mt-1 text-sm text-gray-500">
               {inviteEmail}
             </p>
+          )}
+          {isClientPortalUser && invitationFlow && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md text-left">
+              <p className="text-xs text-blue-800">
+                <strong>Portal de Cliente:</strong> Podrás ver tus pedidos, cotizaciones, datos de calidad y más información relevante de tu cuenta.
+              </p>
+            </div>
           )}
           
           {/* Show session status for debugging */}

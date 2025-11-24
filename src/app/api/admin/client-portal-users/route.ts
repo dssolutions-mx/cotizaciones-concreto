@@ -230,25 +230,33 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Create auth user
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        email_confirm: false, // User will confirm via invitation
-        user_metadata: {
-          first_name: firstName,
-          last_name: lastName,
-        },
-      });
+      // Get redirect URL for invitation
+      const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app';
+      const redirectTo = `${origin}/auth/callback`;
 
-      if (authError || !authData.user) {
-        console.error('Error creating auth user:', authError);
+      // Invite user by email (this sends the invitation email)
+      const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+        email,
+        {
+          redirectTo,
+          data: {
+            first_name: firstName,
+            last_name: lastName,
+            role: 'EXTERNAL_CLIENT',
+            invited_by: user.id,
+          },
+        }
+      );
+
+      if (inviteError || !inviteData?.user) {
+        console.error('Error inviting user:', inviteError);
         return NextResponse.json(
-          { error: 'Error al crear usuario de autenticación' },
+          { error: inviteError?.message || 'Error al enviar invitación' },
           { status: 500 }
         );
       }
 
-      userId = authData.user.id;
+      userId = inviteData.user.id;
 
       // Create user profile
       const { error: profileError } = await supabaseAdmin
@@ -335,15 +343,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // TODO: Send invitation email
-
     return NextResponse.json({
       success: true,
       data: {
         userId,
         email,
         clientAssociations,
-        message: 'Usuario del portal creado exitosamente',
+        invitationSent: true,
+        message: 'Usuario del portal creado e invitación enviada exitosamente',
       },
     });
   } catch (error) {

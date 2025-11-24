@@ -259,7 +259,7 @@ export async function POST(request: NextRequest) {
 
       newUserId = existingUser.id;
     } else {
-      // Create new user account via Supabase Admin API
+      // Create new user account via Supabase Admin API with invitation email
       // Note: This requires SUPABASE_SERVICE_ROLE_KEY environment variable
       const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
       const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -271,40 +271,47 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Use the auth service to create user
-      const authCreateResponse = await fetch(`${supabaseUrl}/auth/v1/admin/users`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${serviceRoleKey}`,
-          'apikey': serviceRoleKey,
-          'Content-Type': 'application/json',
+      // Create admin client for invitation
+      const { createClient } = await import('@supabase/supabase-js');
+      const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
         },
-        body: JSON.stringify({
-          email,
-          email_confirm: false, // User will confirm via invitation
-          user_metadata: {
+      });
+
+      // Get redirect URL for invitation
+      const origin = process.env.NEXT_PUBLIC_APP_URL || 
+        (typeof window !== 'undefined' ? window.location.origin : 'https://cotizaciones-concreto.vercel.app');
+      const redirectTo = `${origin}/auth/callback`;
+
+      // Invite user by email (this sends the invitation email)
+      const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+        email,
+        {
+          redirectTo,
+          data: {
             first_name: firstName,
             last_name: lastName,
             invited_by: user.id,
             invited_to_client: clientId,
+            role: 'EXTERNAL_CLIENT',
           },
-        }),
-      });
+        }
+      );
 
-      if (!authCreateResponse.ok) {
-        const errorData = await authCreateResponse.json();
-        console.error('Error creating user via admin API:', errorData);
+      if (inviteError || !inviteData?.user) {
+        console.error('Error inviting user:', inviteError);
         return NextResponse.json(
-          { error: 'Failed to create user account' },
+          { error: inviteError?.message || 'Failed to send invitation' },
           { status: 500 }
         );
       }
 
-      const authData = await authCreateResponse.json();
-      newUserId = authData.id;
+      newUserId = inviteData.user.id;
 
       // Create user profile
-      const { error: profileCreateError } = await supabase
+      const { error: profileCreateError } = await supabaseAdmin
         .from('user_profiles')
         .insert({
           id: newUserId,
@@ -317,7 +324,7 @@ export async function POST(request: NextRequest) {
 
       if (profileCreateError) {
         console.error('Error creating user profile:', profileCreateError);
-        // Note: User created in auth but profile failed - should be handled in cleanup
+        // Note: User invited but profile failed - should be handled in cleanup
       }
     }
 
@@ -342,14 +349,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Send invitation email via edge function or SendGrid
-
     return NextResponse.json({
       success: true,
       data: {
         userId: newUserId,
         invitationSent: true,
-        message: 'User invited successfully',
+        message: 'Invitación enviada exitosamente al usuario',
       },
     });
   } catch (error) {
