@@ -5,7 +5,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -54,9 +54,24 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
   const form = useForm<InviteFormData>({
     resolver: zodResolver(inviteSchema),
     defaultValues: {
+      email: '',
+      firstName: '',
+      lastName: '',
       role: 'user',
     },
   });
+
+  // Reset form when modal opens/closes
+  useEffect(() => {
+    if (open) {
+      form.reset({
+        email: '',
+        firstName: '',
+        lastName: '',
+        role: 'user',
+      });
+    }
+  }, [open, form]);
 
   const onSubmit = async (data: InviteFormData) => {
     setIsSubmitting(true);
@@ -66,7 +81,12 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
         title: 'Invitación enviada',
         description: `Se ha enviado una invitación a ${data.email}`,
       });
-      form.reset();
+      form.reset({
+        email: '',
+        firstName: '',
+        lastName: '',
+        role: 'user',
+      });
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
@@ -98,7 +118,7 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
                 <FormItem>
                   <FormLabel>Dirección de Correo *</FormLabel>
                   <FormControl>
-                    <Input placeholder="usuario@ejemplo.com" {...field} />
+                    <Input placeholder="usuario@ejemplo.com" {...field} value={field.value || ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -112,7 +132,7 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
                   <FormItem>
                     <FormLabel>Nombre</FormLabel>
                     <FormControl>
-                      <Input placeholder="Juan" {...field} />
+                      <Input placeholder="Juan" {...field} value={field.value || ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -125,7 +145,7 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
                   <FormItem>
                     <FormLabel>Apellido</FormLabel>
                     <FormControl>
-                      <Input placeholder="Pérez" {...field} />
+                      <Input placeholder="Pérez" {...field} value={field.value || ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

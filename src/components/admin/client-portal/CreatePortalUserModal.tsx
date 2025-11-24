@@ -76,6 +76,9 @@ function CreatePortalUserModalComponent({
   const form = useForm<CreatePortalUserFormData>({
     resolver: zodResolver(createPortalUserSchema),
     defaultValues: {
+      email: '',
+      firstName: '',
+      lastName: '',
       clientIds: [],
       roles: {},
     },
@@ -261,7 +264,7 @@ function CreatePortalUserModalComponent({
                 <FormItem>
                   <FormLabel>Email *</FormLabel>
                   <FormControl>
-                    <Input placeholder="usuario@ejemplo.com" {...field} />
+                    <Input placeholder="usuario@ejemplo.com" {...field} value={field.value || ''} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -269,19 +272,19 @@ function CreatePortalUserModalComponent({
             />
 
             <div className="grid grid-cols-2 gap-4">
-              <FormField
-                control={form.control}
-                name="firstName"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nombre</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Juan" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <FormField
+              control={form.control}
+              name="firstName"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Nombre</FormLabel>
+                  <FormControl>
+                    <Input placeholder="Juan" {...field} value={field.value || ''} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
               <FormField
                 control={form.control}
                 name="lastName"
@@ -289,7 +292,7 @@ function CreatePortalUserModalComponent({
                   <FormItem>
                     <FormLabel>Apellido</FormLabel>
                     <FormControl>
-                      <Input placeholder="Pérez" {...field} />
+                      <Input placeholder="Pérez" {...field} value={field.value || ''} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
