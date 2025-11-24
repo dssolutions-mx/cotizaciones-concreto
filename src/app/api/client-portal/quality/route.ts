@@ -150,10 +150,21 @@ export async function GET(request: Request) {
           .filter(Boolean);
         
         if (orderNumbers.length > 0) {
-          const { data: ordersData } = await supabase
+          const { data: ordersData, error: ordersError } = await supabase
             .from('orders')
             .select('id, order_number, elemento')
             .in('order_number', orderNumbers);
+          
+          if (ordersError) {
+            console.error('[Quality API] Error fetching orders data:', ordersError);
+            console.error('[Quality API] Orders error details:', {
+              code: ordersError.code,
+              message: ordersError.message,
+              details: ordersError.details,
+              hint: ordersError.hint,
+              orderNumbers: orderNumbers.slice(0, 5) // Log first 5 for debugging
+            });
+          }
           
           if (ordersData) {
             const orderMap = new Map(ordersData.map((o: any) => [o.order_number, o]));
@@ -195,6 +206,13 @@ export async function GET(request: Request) {
           
           if (muestreosError) {
             console.error('[Quality API] Error fetching concrete_specs:', muestreosError);
+            console.error('[Quality API] Muestreos error details:', {
+              code: muestreosError.code,
+              message: muestreosError.message,
+              details: muestreosError.details,
+              hint: muestreosError.hint,
+              muestreoIdsCount: allMuestreoIds.length
+            });
           } else if (muestreosData) {
             // Create a map of muestreo_id -> concrete_specs and fecha_muestreo_ts
             const muestreosMap = new Map(muestreosData.map((m: any) => [m.id, { 
@@ -229,6 +247,13 @@ export async function GET(request: Request) {
           
           if (ensayosError) {
             console.error('[Quality API] Error fetching fecha_ensayo_ts:', ensayosError);
+            console.error('[Quality API] Ensayos error details:', {
+              code: ensayosError.code,
+              message: ensayosError.message,
+              details: ensayosError.details,
+              hint: ensayosError.hint,
+              muestraIdsCount: allMuestraIds.length
+            });
           } else if (ensayosData) {
             // Create a map of muestra_id -> array of ensayos with timestamps
             const ensayosByMuestraMap = new Map<string, any[]>();
@@ -280,6 +305,15 @@ export async function GET(request: Request) {
 
     if (cvError) {
       console.error('[Quality API] CV by recipe error:', cvError);
+      console.error('[Quality API] CV by recipe error details:', {
+        code: cvError.code,
+        message: cvError.message,
+        details: cvError.details,
+        hint: cvError.hint,
+        clientId,
+        fromDate,
+        toDate
+      });
       // Don't fail the entire request, just log the error
     }
 
