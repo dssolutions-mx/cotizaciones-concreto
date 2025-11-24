@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import RoleGuard from '@/components/auth/RoleGuard';
 import { Search, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { useToast } from '@/components/ui/use-toast';
 import type { PortalUser } from '@/lib/supabase/clientPortalAdmin';
 
 export default function ClientPortalUsersPage() {
+  const searchParams = useSearchParams();
   const [users, setUsers] = useState<PortalUser[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +27,7 @@ export default function ClientPortalUsersPage() {
 
   useEffect(() => {
     let filtered = users;
+    const clientFilter = searchParams.get('clientId');
 
     // Apply client filter if set
     if (clientFilter) {
@@ -50,7 +53,7 @@ export default function ClientPortalUsersPage() {
     }
 
     setFilteredUsers(filtered);
-  }, [searchTerm, users, clientFilter]);
+  }, [searchTerm, users, searchParams]);
 
   const fetchUsers = async () => {
     try {
