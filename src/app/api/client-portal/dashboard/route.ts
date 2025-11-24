@@ -95,22 +95,42 @@ export async function GET(request: Request) {
       }
     }
 
+    // Get user's role to determine if they can see prices
+    const { data: clientPortalUser } = await supabase
+      .from('client_portal_users')
+      .select('role_within_client')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .maybeSingle();
+    
+    const isExecutive = clientPortalUser?.role_within_client === 'executive';
+
     // Get recent activity: orders, payments, and quality tests
     let recentActivity: any[] = [];
     let validEnsayos: any[] = [];
 
     try {
       // 1. Get recent orders (last 10)
+      // Only include total_amount if user is executive
+      const orderFields = isExecutive 
+        ? 'id, order_number, delivery_date, total_amount, order_status, created_at'
+        : 'id, order_number, delivery_date, order_status, created_at';
+      
       const { data: recentOrders } = await supabase
         .from('orders')
-        .select('id, order_number, delivery_date, total_amount, order_status, created_at')
+        .select(orderFields)
         .order('created_at', { ascending: false })
         .limit(10);
 
       // 2. Get recent payments (last 10)
+      // Only include amount if user is executive
+      const paymentFields = isExecutive
+        ? 'id, amount, payment_date, payment_method, created_at'
+        : 'id, payment_date, payment_method, created_at';
+      
       const { data: recentPayments } = await supabase
         .from('client_payments')
-        .select('id, amount, payment_date, payment_method, created_at')
+        .select(paymentFields)
         .order('payment_date', { ascending: false })
         .limit(10);
 
@@ -159,7 +179,9 @@ export async function GET(request: Request) {
         id: order.id,
         type: 'order',
         title: `Pedido ${order.order_number}`,
-        description: `$${parseFloat(order.total_amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`,
+        description: isExecutive && order.total_amount 
+          ? `$${parseFloat(order.total_amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+          : `Fecha de entrega: ${order.delivery_date || 'Pendiente'}`,
         timestamp: order.created_at,
         status: order.order_status === 'completed' ? 'success' : 'pending',
         sortDate: new Date(order.created_at)
@@ -170,7 +192,9 @@ export async function GET(request: Request) {
         id: payment.id,
         type: 'payment',
         title: 'Pago recibido',
-        description: `$${parseFloat(payment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} · ${payment.payment_method}`,
+        description: isExecutive && payment.amount
+          ? `$${parseFloat(payment.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })} · ${payment.payment_method}`
+          : `${payment.payment_method}`,
         timestamp: payment.payment_date,
         status: 'success',
         sortDate: new Date(payment.payment_date)

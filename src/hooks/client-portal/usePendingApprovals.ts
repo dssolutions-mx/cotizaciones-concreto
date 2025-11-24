@@ -3,12 +3,19 @@
  *
  * SWR hook for fetching and managing pending order approvals.
  * Provides automatic revalidation, caching, and error handling.
+ * Only fetches data for executive users.
  */
 
 import useSWR from 'swr';
 import { fetchPendingApprovals, PendingOrder } from '@/lib/client-portal/approvalService';
+import { useUserPermissions } from './useUserPermissions';
 
 export function usePendingApprovals() {
+  const { isExecutive, isLoading: permissionsLoading } = useUserPermissions();
+  
+  // Only fetch if user is an executive
+  const shouldFetch = isExecutive && !permissionsLoading;
+  
   const {
     data,
     error,
@@ -16,12 +23,12 @@ export function usePendingApprovals() {
     isLoading,
     isValidating,
   } = useSWR<PendingOrder[]>(
-    '/api/client-portal/orders/pending-approval',
+    shouldFetch ? '/api/client-portal/orders/pending-approval' : null,
     fetchPendingApprovals,
     {
-      refreshInterval: 30000, // Auto-refresh every 30 seconds
-      revalidateOnFocus: true,
-      revalidateOnReconnect: true,
+      refreshInterval: shouldFetch ? 30000 : 0, // Auto-refresh every 30 seconds only if fetching
+      revalidateOnFocus: shouldFetch,
+      revalidateOnReconnect: shouldFetch,
       dedupingInterval: 5000,
     }
   );
