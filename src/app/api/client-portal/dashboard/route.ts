@@ -33,12 +33,18 @@ export async function GET(request: Request) {
 
     const { data: orderItems, error: orderItemsError } = await supabase
       .from('order_items')
-      .select('concrete_volume_delivered, orders!inner(delivery_date)')
+      .select('concrete_volume_delivered, orders!inner(delivery_date, client_id)')
       .gte('orders.delivery_date', firstDayStr)
       .lte('orders.delivery_date', lastDayStr);
 
     if (orderItemsError) {
       console.error('Dashboard API: Order items query error:', orderItemsError);
+      console.error('Dashboard API: Order items error details:', {
+        code: orderItemsError.code,
+        message: orderItemsError.message,
+        details: orderItemsError.details,
+        hint: orderItemsError.hint
+      });
     }
 
     // Calculate delivered volume for current month
@@ -46,6 +52,12 @@ export async function GET(request: Request) {
       (sum, item) => sum + (parseFloat(item.concrete_volume_delivered as any) || 0),
       0
     ) || 0;
+
+    console.log('Dashboard API: Delivered volume calculation:', {
+      orderItemsCount: orderItems?.length || 0,
+      deliveredVolume,
+      dateRange: { from: firstDayStr, to: lastDayStr }
+    });
 
     // Get client balance - RLS will automatically filter by client_id
     // Filter for GENERAL balance only (both construction_site and construction_site_id must be NULL)

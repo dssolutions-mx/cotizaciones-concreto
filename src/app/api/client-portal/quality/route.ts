@@ -87,7 +87,19 @@ export async function GET(request: Request) {
 
     if (summaryError) {
       console.error('[Quality API] Summary error:', summaryError);
-      return NextResponse.json({ error: 'Error al obtener resumen de calidad' }, { status: 500 });
+      console.error('[Quality API] Error details:', {
+        code: summaryError.code,
+        message: summaryError.message,
+        details: summaryError.details,
+        hint: summaryError.hint,
+        clientId,
+        fromDate,
+        toDate
+      });
+      return NextResponse.json({ 
+        error: 'Error al obtener resumen de calidad',
+        details: summaryError.message 
+      }, { status: 500 });
     }
 
     console.log(`[Quality API] Summary retrieved in ${Date.now() - startTime}ms`);
@@ -568,8 +580,14 @@ export async function GET(request: Request) {
 
   } catch (error) {
     console.error('[Quality API] Unexpected error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('[Quality API] Error stack:', errorStack);
     return NextResponse.json(
-      { error: 'Error interno del servidor' },
+      { 
+        error: 'Error interno del servidor',
+        details: errorMessage 
+      },
       { status: 500 }
     );
   }
