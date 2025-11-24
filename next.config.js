@@ -15,10 +15,11 @@ const nextConfig = {
     // !! WARN !!
     ignoreBuildErrors: true,
   },
-  
+
   // ESLint config should live in eslint.config.js or .eslintrc.* in Next 16
   // Use default output mode for better Vercel compatibility with static assets
   // output: 'standalone',
+
   images: {
     formats: ['image/avif', 'image/webp'],
     // Next 16 defaults changed; keep explicit overrides as needed
