@@ -40,6 +40,14 @@ function LoginForm() {
       profileId: profile?.id
     });
     
+    // Check for redirect parameter first (from password update flow)
+    const redirectParam = searchParams.get('redirect');
+    if (redirectParam && profile && !loading) {
+      console.log(`[Login] Redirecting to specified target: ${redirectParam}`);
+      router.push(redirectParam);
+      return;
+    }
+    
     // If we have a profile and not loading, redirect to appropriate page
     if (profile && !loading) {
       let target = '/dashboard';
@@ -67,7 +75,7 @@ function LoginForm() {
       });
     }
 
-  }, [profile, loading, router]);
+  }, [profile, loading, router, searchParams]);
 
   // Handle URL parameters
   useEffect(() => {

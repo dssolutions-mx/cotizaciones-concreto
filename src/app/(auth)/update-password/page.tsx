@@ -111,11 +111,11 @@ function UpdatePasswordForm() {
         
         // SECOND CHECK: If no active session, check URL parameters
         
-        // Check for recovery token in URL
+        // Check for recovery token in URL (now comes from auth/callback)
         const code = searchParams.get('code');
         const type = searchParams.get('type');
         
-        // Check for hash parameters (used in invitation flows)
+        // Check for hash parameters (used in invitation flows - should be rare now as most go through callback)
         const hashParams = new URLSearchParams(
           typeof window !== 'undefined' ? window.location.hash.substring(1) : ''
         );
@@ -133,8 +133,15 @@ function UpdatePasswordForm() {
           tokenType
         });
         
-        // Determine if this is an invitation flow
-        if (type === 'invite' || type === 'signup' || tokenType === 'invite') {
+        // Determine flow type: invitation (new user) or recovery (existing user resetting password)
+        // Recovery flow is indicated by type=recovery parameter (set by auth/callback)
+        const isRecoveryFlow = type === 'recovery';
+        const isInvitationFlow = type === 'invite' || type === 'signup' || tokenType === 'invite' || tokenType === 'signup';
+        
+        if (isRecoveryFlow) {
+          console.log('Detected password recovery flow from URL parameters');
+          setInvitationFlow(false); // Recovery flow, not invitation
+        } else if (isInvitationFlow) {
           console.log('Detected invitation flow from URL parameters');
           setInvitationFlow(true);
         }
@@ -235,19 +242,38 @@ function UpdatePasswordForm() {
           if (finalSessionCheck.session.user.email) {
             setInviteEmail(finalSessionCheck.session.user.email);
           }
+          
+          // Fetch user profile to determine user type
+          const userId = finalSessionCheck.session.user.id;
+          const { data: profileData } = await supabase
+            .from('user_profiles')
+            .select('role, first_name, last_name')
+            .eq('id', userId)
+            .single();
+          
+          if (profileData) {
+            setUserRole(profileData.role);
+            setIsClientPortalUser(profileData.role === 'EXTERNAL_CLIENT');
+            if (profileData.first_name || profileData.last_name) {
+              setUserName(`${profileData.first_name || ''} ${profileData.last_name || ''}`.trim());
+            }
+          }
+          
           setCurrentSessionData({
             session: finalSessionCheck.session,
             user: finalSessionCheck.session.user
           });
           setSessionEstablished(true);
-          setInvitationFlow(true);
-        } else {
-          // We truly have no session
+          // Don't assume invitation flow - could be recovery
+          setInvitationFlow(type !== 'recovery');
+          } else {
+            // We truly have no session
           console.log('No auth data found after all checks');
-          setError(
-            'No se encontró información de autenticación válida. ' +
-            'Por favor, utiliza el enlace de invitación que recibiste por correo electrónico o contacta al administrador.'
-          );
+          const flowType = searchParams.get('type');
+          const errorMessage = flowType === 'recovery'
+            ? 'No se encontró información de autenticación válida. Por favor, solicita un nuevo enlace de recuperación de contraseña desde la página de inicio de sesión.'
+            : 'No se encontró información de autenticación válida. Por favor, utiliza el enlace de invitación que recibiste por correo electrónico o contacta al administrador.';
+          setError(errorMessage);
         }
         
         setAuthReady(true);
@@ -710,14 +736,18 @@ function UpdatePasswordForm() {
           <h1 className="text-title-1 font-bold text-label-primary">
             {invitationFlow 
               ? (isClientPortalUser ? 'Bienvenido al Portal de Cliente' : 'Configura tu Contraseña')
-              : 'Actualizar Contraseña'}
+              : (searchParams.get('type') === 'recovery' 
+                  ? 'Restablecer Contraseña'
+                  : 'Actualizar Contraseña')}
           </h1>
           <p className="mt-2 text-callout text-label-secondary">
             {invitationFlow 
               ? (isClientPortalUser 
                   ? 'Crea una contraseña para acceder al portal de cliente y gestionar tus pedidos'
                   : 'Crea una contraseña para acceder a tu cuenta')
-              : 'Crea una nueva contraseña para tu cuenta'}
+              : (searchParams.get('type') === 'recovery'
+                  ? 'Ingresa una nueva contraseña para tu cuenta'
+                  : 'Crea una nueva contraseña para tu cuenta')}
           </p>
           {userName && (
             <p className="mt-2 text-body font-semibold text-label-primary">

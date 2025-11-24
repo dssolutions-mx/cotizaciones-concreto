@@ -24,8 +24,8 @@ export default function ResetPasswordPage() {
       
       console.log('Using origin for reset password:', origin);
       
-      // Create a redirect URL with a type parameter to identify the flow
-      const redirectTo = `${origin}/update-password?type=recovery`;
+      // Use unified auth callback entry point for consistency
+      const redirectTo = `${origin}/auth/callback`;
       console.log('Reset password redirect URL:', redirectTo);
       
       // Clear any existing sessions before sending reset email to avoid conflicts
