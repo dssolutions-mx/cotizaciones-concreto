@@ -113,8 +113,19 @@ export default function UserManagementPage() {
     <RoleGuard allowedRoles="EXECUTIVE" redirectTo="/access-denied">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6">
-          <h1 className="text-2xl font-bold">Gestión de Usuarios</h1>
+          <div>
+            <h1 className="text-2xl font-bold">Gestión de Usuarios</h1>
+            <p className="text-sm text-gray-600 mt-1">
+              Gestiona usuarios internos del sistema
+            </p>
+          </div>
           <div className="flex flex-col sm:flex-row gap-3">
+            <Link 
+              href="/admin/client-portal-users"
+              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md text-center"
+            >
+              Usuarios del Portal
+            </Link>
             <Link 
               href="/admin/users/invite"
               className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md text-center"

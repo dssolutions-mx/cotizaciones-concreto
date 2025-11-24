@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { clientService } from '@/lib/supabase/clients';
 import { orderService } from '@/lib/supabase/orders';
 import RoleProtectedButton from '@/components/auth/RoleProtectedButton';
+import RoleProtectedSection from '@/components/auth/RoleProtectedSection';
 import PaymentForm from '@/components/clients/PaymentForm';
 import BalanceAdjustmentModal from '@/components/clients/BalanceAdjustmentModal';
 import { BalanceAdjustmentHistory } from '@/components/clients/BalanceAdjustmentHistory';
@@ -43,6 +44,7 @@ import { Pencil, Trash2, Plus, X, Save, Map, CreditCard } from "lucide-react";
 import { authService } from '@/lib/supabase/auth';
 import { supabase } from '@/lib/supabase/client';
 import ClientLogoManager from '@/components/clients/ClientLogoManager';
+import { ClientPortalUsersSection } from '@/components/admin/client-portal/ClientPortalUsersSection';
 
 // Extended type with coordinates
 interface ConstructionSite extends BaseConstructionSite {
@@ -2017,9 +2019,15 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
             balances={balances}
           />
           <Tabs defaultValue="payments" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="payments">Pagos</TabsTrigger>
               <TabsTrigger value="adjustments">Ajustes de Saldo</TabsTrigger>
+              <RoleProtectedButton
+                allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']}
+                asChild
+              >
+                <TabsTrigger value="portal-users">Usuarios del Portal</TabsTrigger>
+              </RoleProtectedButton>
             </TabsList>
             
             <TabsContent value="payments">
@@ -2029,6 +2037,15 @@ export default function ClientDetailContent({ clientId }: { clientId: string }) 
             <TabsContent value="adjustments">
               <BalanceAdjustmentHistory clientId={clientId} />
             </TabsContent>
+            
+            <RoleProtectedButton
+              allowedRoles={['EXECUTIVE', 'ADMIN_OPERATIONS']}
+              asChild
+            >
+              <TabsContent value="portal-users">
+                <ClientPortalUsersSection clientId={clientId} />
+              </TabsContent>
+            </RoleProtectedButton>
           </Tabs>
         </div>
       </div>
