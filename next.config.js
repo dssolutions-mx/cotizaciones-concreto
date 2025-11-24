@@ -20,13 +20,6 @@ const nextConfig = {
   // Use default output mode for better Vercel compatibility with static assets
   // output: 'standalone',
 
-  // Fix Turbopack workspace root issue
-  experimental: {
-    turbo: {
-      root: process.cwd(),
-    },
-  },
-
   images: {
     formats: ['image/avif', 'image/webp'],
     // Next 16 defaults changed; keep explicit overrides as needed
