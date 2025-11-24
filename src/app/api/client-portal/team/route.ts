@@ -111,18 +111,21 @@ export async function GET(request: NextRequest) {
     }
 
     // Transform the data to a cleaner format
-    const formattedTeamMembers = teamMembers?.map((member) => ({
-      id: member.id,
-      user_id: member.user_id,
-      email: member.user_profiles?.email || '',
-      first_name: member.user_profiles?.first_name || '',
-      last_name: member.user_profiles?.last_name || '',
-      role_within_client: member.role_within_client,
-      permissions: member.permissions,
-      is_active: member.is_active,
-      invited_at: member.invited_at,
-      last_login: null, // last_sign_in_at is in auth.users, not user_profiles
-    })) || [];
+    // Filter out any members where user_profiles is null (data integrity issue)
+    const formattedTeamMembers = teamMembers
+      ?.filter((member) => member.user_profiles !== null)
+      .map((member) => ({
+        id: member.id,
+        user_id: member.user_id,
+        email: member.user_profiles?.email || '',
+        first_name: member.user_profiles?.first_name || '',
+        last_name: member.user_profiles?.last_name || '',
+        role_within_client: member.role_within_client,
+        permissions: member.permissions,
+        is_active: member.is_active,
+        invited_at: member.invited_at,
+        last_login: null, // last_sign_in_at is in auth.users, not user_profiles
+      })) || [];
 
     return NextResponse.json({
       success: true,
@@ -208,7 +211,7 @@ export async function POST(request: NextRequest) {
       .eq('email', email)
       .maybeSingle();
 
-    let newUserId: string;
+    let newUserId: string | undefined;
 
     if (existingUser) {
       // User already exists - check if already associated with this client
@@ -311,11 +314,42 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
-      // If user exists, continue with the existing user ID
+      // If user exists, we should have newUserId from existingUser check above
+      // But if invitation failed for a new user, we need to handle it
+      if (!newUserId) {
+        // Try to get user ID from auth.users if invitation partially succeeded
+        try {
+          const { data: authUser } = await supabaseAdmin.auth.admin.getUserByEmail(email);
+          if (authUser?.user?.id) {
+            newUserId = authUser.user.id;
+            console.log('Retrieved user ID from auth.users:', newUserId);
+          } else {
+            console.error('Could not retrieve user ID after invitation error');
+            return NextResponse.json(
+              { error: 'Error creating user. Please try again.' },
+              { status: 500 }
+            );
+          }
+        } catch (authError) {
+          console.error('Error retrieving user from auth:', authError);
+          return NextResponse.json(
+            { error: 'Error creating user. Please try again.' },
+            { status: 500 }
+          );
+        }
+      }
       console.log('User already exists, continuing with existing user:', newUserId);
     } else if (inviteData?.user) {
       // If invitation succeeded, use the returned user ID (might be new or existing)
       newUserId = inviteData.user.id;
+    }
+
+    // Validate newUserId exists before proceeding
+    if (!newUserId) {
+      return NextResponse.json(
+        { error: 'Error: Could not obtain user ID. Please try again.' },
+        { status: 500 }
+      );
     }
 
     // Ensure user profile exists (create if new user, update if existing)
@@ -330,6 +364,7 @@ export async function POST(request: NextRequest) {
           last_name: lastName || '',
           role: 'EXTERNAL_CLIENT',
           is_portal_user: true,
+          is_active: true,
         });
 
       if (profileCreateError) {
@@ -350,6 +385,7 @@ export async function POST(request: NextRequest) {
           first_name: firstName || existingUser.first_name || '',
           last_name: lastName || existingUser.last_name || '',
           is_portal_user: true,
+          is_active: true,
         })
         .eq('id', newUserId);
 

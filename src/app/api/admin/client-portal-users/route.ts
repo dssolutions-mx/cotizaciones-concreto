@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
       .eq('email', email)
       .maybeSingle();
 
-    let userId: string;
+    let userId: string | undefined;
 
     // Check if user exists and validate role
     if (existingUser) {
@@ -255,11 +255,42 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
-      // If user exists, continue with the existing user ID
+      // If user exists, we should have userId from existingUser check above
+      // But if invitation failed for a new user, we need to handle it
+      if (!userId) {
+        // Try to get user ID from auth.users if invitation partially succeeded
+        try {
+          const { data: authUser } = await supabaseAdmin.auth.admin.getUserByEmail(email);
+          if (authUser?.user?.id) {
+            userId = authUser.user.id;
+            console.log('Retrieved user ID from auth.users:', userId);
+          } else {
+            console.error('Could not retrieve user ID after invitation error');
+            return NextResponse.json(
+              { error: 'Error al crear usuario. Por favor intenta nuevamente.' },
+              { status: 500 }
+            );
+          }
+        } catch (authError) {
+          console.error('Error retrieving user from auth:', authError);
+          return NextResponse.json(
+            { error: 'Error al crear usuario. Por favor intenta nuevamente.' },
+            { status: 500 }
+          );
+        }
+      }
       console.log('User already exists, continuing with existing user:', userId);
     } else if (inviteData?.user) {
       // If invitation succeeded, use the returned user ID (might be new or existing)
       userId = inviteData.user.id;
+    }
+
+    // Validate userId exists before proceeding
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Error: No se pudo obtener el ID del usuario. Por favor intenta nuevamente.' },
+        { status: 500 }
+      );
     }
 
     // Ensure user profile exists (create if new user, update if existing)
