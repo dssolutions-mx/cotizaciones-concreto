@@ -11,14 +11,18 @@ import {
   Download,
   CreditCard,
   Building,
-  Filter
+  Filter,
+  AlertCircle
 } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
 import { Card as BaseCard } from '@/components/ui/Card';
 import { MetricCard } from '@/components/ui/MetricCard';
 import { DataList } from '@/components/ui/DataList';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
+import { PermissionGate } from '@/components/client-portal/shared/PermissionGate';
+import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
 import {
   Select,
   SelectContent,
@@ -83,6 +87,7 @@ const getDateRangeLabel = (range: DateRange): string => {
 
 export default function BalancePage() {
   const router = useRouter();
+  const { canViewBalance, isLoading: permissionsLoading } = useUserPermissions();
   const [data, setData] = useState<BalanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRange>('30');

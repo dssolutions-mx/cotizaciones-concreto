@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
           view_quotes: true,
           view_materials: true,
           view_quality_data: false,
+          view_balance: false,
           manage_team: false,
           approve_orders: false,
         },

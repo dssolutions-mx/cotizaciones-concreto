@@ -2,17 +2,21 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Beaker, Filter, Calendar, Info } from 'lucide-react';
+import { Beaker, Filter, Calendar, Info, AlertCircle } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
 import QualityTabs from '@/components/client-portal/quality/QualityTabs';
 import GlossaryModal from '@/components/client-portal/quality/GlossaryModal';
 import DateRangeFilter from '@/components/client-portal/DateRangeFilter';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
+import { PermissionGate } from '@/components/client-portal/shared/PermissionGate';
+import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
 import type { ClientQualityData, ClientQualitySummary } from '@/types/clientQuality';
 
 export default function QualityPage() {
+  const { canViewQualityData, isLoading: permissionsLoading } = useUserPermissions();
   const [data, setData] = useState<ClientQualityData | null>(null);
   const [summary, setSummary] = useState<ClientQualitySummary | null>(null);
   const [loading, setLoading] = useState(true);

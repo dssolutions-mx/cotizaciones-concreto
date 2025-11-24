@@ -78,11 +78,42 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Check user permissions - require create_orders permission
+    const { data: association, error: assocError } = await supabase
+      .from('client_portal_users')
+      .select('role_within_client, permissions, client_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (assocError) {
+      console.error('Error fetching user permissions:', assocError);
+      return NextResponse.json({ error: 'Failed to verify permissions' }, { status: 500 });
+    }
+
+    // Executives always have permission, regular users need explicit permission
+    const isExecutive = association?.role_within_client === 'executive';
+    const hasCreatePermission = isExecutive || association?.permissions?.create_orders === true;
+
+    if (!hasCreatePermission) {
+      return NextResponse.json(
+        { error: 'No tienes permiso para crear pedidos. Contacta al administrador de tu organización.' },
+        { status: 403 }
+      );
+    }
+
     // Resolve client by portal user
+    const clientId = association?.client_id;
+    if (!clientId) {
+      return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+    }
+
     const { data: client, error: clientError } = await supabase
       .from('clients')
       .select('id')
-      .eq('portal_user_id', user.id)
+      .eq('id', clientId)
       .single();
 
     if (clientError || !client) {

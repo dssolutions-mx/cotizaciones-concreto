@@ -20,6 +20,8 @@ import { MetricCard } from '@/components/ui/MetricCard';
 import { ActivityCard } from '@/components/ui/ActivityCard';
 import { QuickAction } from '@/components/ui/QuickAction';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
+import { PermissionGate } from '@/components/client-portal/shared/PermissionGate';
+import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { ENSAYO_ADJUSTMENT_FACTOR } from '@/lib/qualityHelpers';
@@ -63,6 +65,12 @@ interface DashboardData {
 
 export default function ClientPortalDashboard() {
   const router = useRouter();
+  const { 
+    canViewOrders, 
+    canViewBalance, 
+    canViewQualityData, 
+    canCreateOrders 
+  } = useUserPermissions();
   const [metrics, setMetrics] = useState<DashboardData['metrics'] | null>(null);
   const [recentActivity, setRecentActivity] = useState<DashboardData['recentActivity']>([]);
   const [loading, setLoading] = useState(true);

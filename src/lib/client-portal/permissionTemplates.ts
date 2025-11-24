@@ -12,6 +12,7 @@ export type PermissionKey =
   | 'view_quotes'
   | 'view_materials'
   | 'view_quality_data'
+  | 'view_balance'
   | 'manage_team'
   | 'approve_orders';
 
@@ -28,6 +29,7 @@ export const FULL_ACCESS: Permissions = {
   view_quotes: true,
   view_materials: true,
   view_quality_data: true,
+  view_balance: true,
   manage_team: false, // Reserved for executives
   approve_orders: false, // Reserved for executives
 };
@@ -43,6 +45,7 @@ export const ORDER_MANAGER: Permissions = {
   view_quotes: true,
   view_materials: true,
   view_quality_data: false,
+  view_balance: true,
   manage_team: false,
   approve_orders: false,
 };
@@ -58,6 +61,7 @@ export const VIEW_ONLY: Permissions = {
   view_quotes: true,
   view_materials: true,
   view_quality_data: false,
+  view_balance: false, // View-only users typically shouldn't see financial data
   manage_team: false,
   approve_orders: false,
 };
@@ -73,6 +77,7 @@ export const QUOTE_MANAGER: Permissions = {
   view_quotes: true,
   view_materials: true,
   view_quality_data: false,
+  view_balance: false,
   manage_team: false,
   approve_orders: false,
 };
@@ -88,6 +93,7 @@ export const QUALITY_VIEWER: Permissions = {
   view_quotes: false,
   view_materials: true,
   view_quality_data: true,
+  view_balance: false, // Quality viewers don't need financial access
   manage_team: false,
   approve_orders: false,
 };
@@ -103,6 +109,7 @@ export const EXECUTIVE_PERMISSIONS: Permissions = {
   view_quotes: true,
   view_materials: true,
   view_quality_data: true,
+  view_balance: true,
   manage_team: true,
   approve_orders: true,
 };
@@ -149,7 +156,7 @@ export const PERMISSION_TEMPLATES = {
 export const PERMISSION_LABELS: Record<PermissionKey, { label: string; description: string }> = {
   create_orders: {
     label: 'Crear Pedidos',
-    description: 'Capacidad de crear nuevos pedidos de concreto',
+    description: 'Capacidad de crear nuevos pedidos de concreto desde cotizaciones existentes',
   },
   view_orders: {
     label: 'Ver Pedidos',
@@ -157,11 +164,11 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string; descripti
   },
   create_quotes: {
     label: 'Crear Cotizaciones',
-    description: 'Crear cotizaciones de precios para clientes',
+    description: 'Crear nuevas cotizaciones de precios (funcionalidad futura)',
   },
   view_quotes: {
     label: 'Ver Cotizaciones',
-    description: 'Ver historial y detalles de cotizaciones',
+    description: 'Ver cotizaciones disponibles para crear pedidos',
   },
   view_materials: {
     label: 'Ver Materiales y Precios',
@@ -170,6 +177,10 @@ export const PERMISSION_LABELS: Record<PermissionKey, { label: string; descripti
   view_quality_data: {
     label: 'Ver Datos de Calidad',
     description: 'Acceder a resultados de pruebas de calidad e informes',
+  },
+  view_balance: {
+    label: 'Ver Balance Financiero',
+    description: 'Acceder a información financiera, saldos y pagos',
   },
   manage_team: {
     label: 'Gestionar Equipo',
@@ -195,7 +206,7 @@ export function getEffectivePermissions(
 
   // Merge configured permissions with defaults
   return {
-    ...VIEW_ONLY, // Default to view-only
+    ...VIEW_ONLY, // Default to view-only (no balance, no quality, no order creation)
     ...configuredPermissions,
     // Always ensure these are false for non-executives
     manage_team: false,

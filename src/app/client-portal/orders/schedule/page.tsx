@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Calendar as CalendarIcon, Package, ChevronLeft, Search, Check, Clock } from 'lucide-react';
+import { Calendar as CalendarIcon, Package, ChevronLeft, Search, Check, Clock, AlertCircle } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import DatePicker from '@/components/client-portal/DatePicker';
+import { useUserPermissions } from '@/hooks/client-portal/useUserPermissions';
 import { format, parseISO, addDays } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -70,6 +72,7 @@ function TimePicker({ value, onChange }: { value: string; onChange: (time: strin
 
 export default function ScheduleOrderPage() {
   const router = useRouter();
+  const { canCreateOrders, isLoading: permissionsLoading } = useUserPermissions();
   const [step, setStep] = useState<1 | 2>(1);
   const [loading, setLoading] = useState(true);
   const [sites, setSites] = useState<Site[]>([]);

@@ -16,7 +16,14 @@ export default function ClientPortalNav() {
   const pathname = usePathname();
   const router = useRouter();
   const { logout } = useAuthBridge();
-  const { isExecutive, isLoading: permissionsLoading } = useUserPermissions();
+  const { 
+    isExecutive, 
+    isLoading: permissionsLoading,
+    canViewOrders,
+    canViewBalance,
+    canViewQualityData,
+    canCreateOrders
+  } = useUserPermissions();
   const { count: pendingCount } = usePendingApprovals();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -24,10 +31,22 @@ export default function ClientPortalNav() {
   const navItems = useMemo(() => {
     const baseItems = [
       { href: '/client-portal', label: 'Dashboard', icon: Home },
-      { href: '/client-portal/orders', label: 'Pedidos', icon: Package },
-      { href: '/client-portal/balance', label: 'Balance', icon: DollarSign },
-      { href: '/client-portal/quality', label: 'Calidad', icon: Beaker },
     ];
+
+    // Only show orders if user can view them
+    if (canViewOrders) {
+      baseItems.push({ href: '/client-portal/orders', label: 'Pedidos', icon: Package });
+    }
+
+    // Only show balance if user has permission
+    if (canViewBalance) {
+      baseItems.push({ href: '/client-portal/balance', label: 'Balance', icon: DollarSign });
+    }
+
+    // Only show quality if user has permission
+    if (canViewQualityData) {
+      baseItems.push({ href: '/client-portal/quality', label: 'Calidad', icon: Beaker });
+    }
 
     // Add executive-only items
     if (!permissionsLoading && isExecutive) {

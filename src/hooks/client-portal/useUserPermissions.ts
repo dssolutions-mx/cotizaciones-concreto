@@ -104,6 +104,7 @@ export function useUserPermissions() {
     canViewQuotes: hasPermissionCheck('view_quotes'),
     canViewMaterials: hasPermissionCheck('view_materials'),
     canViewQualityData: hasPermissionCheck('view_quality_data'),
+    canViewBalance: hasPermissionCheck('view_balance'),
     canManageTeam: hasPermissionCheck('manage_team'),
     canApproveOrders: hasPermissionCheck('approve_orders'),
   };
