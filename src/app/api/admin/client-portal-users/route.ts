@@ -319,12 +319,13 @@ export async function POST(request: NextRequest) {
         }
       }
     } else {
-      // Update existing user profile to ensure it's marked as portal user
+      // Update existing user profile to ensure it's marked as portal user and has correct role
       const { error: profileUpdateError } = await supabaseAdmin
         .from('user_profiles')
         .update({
           first_name: firstName || existingUser.first_name || '',
           last_name: lastName || existingUser.last_name || '',
+          role: 'EXTERNAL_CLIENT', // Ensure role is set to EXTERNAL_CLIENT for portal users
           is_portal_user: true,
           is_active: true,
         })
