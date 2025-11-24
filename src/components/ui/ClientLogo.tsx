@@ -24,11 +24,39 @@ export function ClientLogo({ size = 'md', className }: ClientLogoProps) {
         const userId = userData.user?.id;
         if (!userId) return;
 
-        // Find client by portal user id and get logo path
+        // Get client_id from client_portal_users (multi-user system)
+        const { data: association } = await supabase
+          .from('client_portal_users')
+          .select('client_id')
+          .eq('user_id', userId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        let clientId: string | null = null;
+
+        if (association?.client_id) {
+          // Use multi-user system
+          clientId = association.client_id;
+        } else {
+          // Fallback to legacy portal_user_id for backward compatibility
+          const { data: legacyClient } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('portal_user_id', userId)
+            .maybeSingle();
+          
+          clientId = legacyClient?.id || null;
+        }
+
+        if (!clientId) return;
+
+        // Get logo path from client
         const { data: client } = await supabase
           .from('clients')
-          .select('id, business_name, logo_path')
-          .eq('portal_user_id', userId)
+          .select('logo_path')
+          .eq('id', clientId)
           .maybeSingle();
 
         const path = (client as any)?.logo_path as string | null;

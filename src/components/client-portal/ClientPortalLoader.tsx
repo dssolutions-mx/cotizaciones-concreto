@@ -26,13 +26,38 @@ export default function ClientPortalLoader({ message = 'Cargando...', stage }: C
           return;
         }
 
-        const { data: client } = await supabase
-          .from('clients')
-          .select('logo_path')
-          .eq('portal_user_id', userId)
+        // Get client_id from client_portal_users (multi-user system)
+        const { data: association } = await supabase
+          .from('client_portal_users')
+          .select('client_id')
+          .eq('user_id', userId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: true })
+          .limit(1)
           .maybeSingle();
 
-        const path = (client as any)?.logo_path as string | null;
+        let path: string | null = null;
+
+        if (association?.client_id) {
+          // Use multi-user system
+          const { data: client } = await supabase
+            .from('clients')
+            .select('logo_path')
+            .eq('id', association.client_id)
+            .maybeSingle();
+          
+          path = (client as any)?.logo_path as string | null;
+        } else {
+          // Fallback to legacy portal_user_id for backward compatibility
+          const { data: legacyClient } = await supabase
+            .from('clients')
+            .select('logo_path')
+            .eq('portal_user_id', userId)
+            .maybeSingle();
+          
+          path = (legacyClient as any)?.logo_path as string | null;
+        }
+
         if (!path) {
           setIsLogoLoaded(true);
           return;
