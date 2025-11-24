@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   Table,
   TableBody,
@@ -62,6 +62,7 @@ function PortalUsersTableComponent({
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [removingClientId, setRemovingClientId] = useState<string | null>(null);
   const [deactivatingUserId, setDeactivatingUserId] = useState<string | null>(null);
+  const dropdownTriggerRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
 
   // Persist expanded state to sessionStorage
   useEffect(() => {
@@ -88,9 +89,18 @@ function PortalUsersTableComponent({
   }, []);
 
   // Memoize assign client handler
-  const handleAssignClient = useCallback((userId: string) => {
+  const handleAssignClient = useCallback((userId: string, triggerButton?: HTMLButtonElement) => {
+    // Store trigger button reference for focus restoration
+    if (triggerButton) {
+      dropdownTriggerRefs.current.set(userId, triggerButton);
+    }
     setSelectedUserId(userId);
-    setAssignModalOpen(true);
+    // Use requestAnimationFrame to ensure dropdown is fully closed before opening modal
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setAssignModalOpen(true);
+      });
+    });
   }, []);
 
   // Memoize remove client handler
@@ -290,18 +300,47 @@ function PortalUsersTableComponent({
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm" disabled={isRemoving || isDeactivating}>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            disabled={isRemoving || isDeactivating}
+                            ref={(el) => {
+                              if (el) {
+                                dropdownTriggerRefs.current.set(user.id, el);
+                              }
+                            }}
+                          >
                             <MoreVertical className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleAssignClient(user.id)} disabled={isRemoving || isDeactivating}>
+                          <DropdownMenuItem 
+                            onSelect={() => {
+                              // Get the trigger button for focus restoration
+                              const triggerButton = dropdownTriggerRefs.current.get(user.id);
+                              // Let Radix close the dropdown naturally, then wait for animation to complete
+                              // Double requestAnimationFrame ensures dropdown close animation finishes
+                              requestAnimationFrame(() => {
+                                requestAnimationFrame(() => {
+                                  handleAssignClient(user.id, triggerButton || undefined);
+                                });
+                              });
+                            }}
+                            disabled={isRemoving || isDeactivating}
+                          >
                             <Plus className="h-4 w-4 mr-2" />
                             Asignar Cliente
                           </DropdownMenuItem>
                           {user.is_active && (
                             <DropdownMenuItem
-                              onClick={() => handleDeactivate(user.id)}
+                              onSelect={() => {
+                                // Let Radix close the dropdown naturally
+                                requestAnimationFrame(() => {
+                                  requestAnimationFrame(() => {
+                                    handleDeactivate(user.id);
+                                  });
+                                });
+                              }}
                               className="text-red-600"
                               disabled={isRemoving || isDeactivating}
                             >
@@ -341,6 +380,7 @@ function PortalUsersTableComponent({
           userId={selectedUserId}
           existingClientIds={existingClientIds}
           onSuccess={handleAssignSuccess}
+          triggerRef={dropdownTriggerRefs.current.get(selectedUserId) || undefined}
         />
       )}
     </>

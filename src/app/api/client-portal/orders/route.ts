@@ -93,6 +93,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Failed to verify permissions' }, { status: 500 });
     }
 
+    if (!association) {
+      console.error('User not found in client_portal_users table:', user.id);
+      return NextResponse.json(
+        { error: 'No se encontró tu asociación con ningún cliente. Contacta al administrador.' },
+        { status: 404 }
+      );
+    }
+
     // Executives always have permission, regular users need explicit permission
     const isExecutive = association?.role_within_client === 'executive';
     const hasCreatePermission = isExecutive || association?.permissions?.create_orders === true;
@@ -107,7 +115,11 @@ export async function POST(request: Request) {
     // Resolve client by portal user
     const clientId = association?.client_id;
     if (!clientId) {
-      return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+      console.error('Association found but client_id is null:', association);
+      return NextResponse.json(
+        { error: 'No se encontró el cliente asociado. Contacta al administrador.' },
+        { status: 404 }
+      );
     }
 
     const { data: client, error: clientError } = await supabase
@@ -117,7 +129,11 @@ export async function POST(request: Request) {
       .single();
 
     if (clientError || !client) {
-      return NextResponse.json({ error: 'Client not found' }, { status: 404 });
+      console.error('Client not found in clients table:', clientId, clientError);
+      return NextResponse.json(
+        { error: 'El cliente asociado no existe. Contacta al administrador.' },
+        { status: 404 }
+      );
     }
 
     const body = await request.json();

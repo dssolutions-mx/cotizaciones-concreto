@@ -50,6 +50,7 @@ interface AssignClientModalProps {
   userId: string;
   existingClientIds?: string[];
   onSuccess?: () => void;
+  triggerRef?: HTMLButtonElement | null;
 }
 
 // Cache clients list outside component to persist across modal opens/closes
@@ -63,6 +64,7 @@ function AssignClientModalComponent({
   userId,
   existingClientIds = [],
   onSuccess,
+  triggerRef,
 }: AssignClientModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clients, setClients] = useState<Array<{ id: string; business_name: string; client_code: string }>>(
@@ -71,6 +73,8 @@ function AssignClientModalComponent({
   const [loadingClients, setLoadingClients] = useState(false);
   const { toast } = useToast();
   const abortControllerRef = useRef<AbortController | null>(null);
+  const firstFocusableRef = useRef<HTMLButtonElement | null>(null);
+  const previousActiveElementRef = useRef<HTMLElement | null>(null);
 
   const form = useForm<AssignClientFormData>({
     resolver: zodResolver(assignClientSchema),
@@ -118,16 +122,46 @@ function AssignClientModalComponent({
     }
   }, [toast]);
 
-  // Load clients when modal opens
+  // Load clients and manage focus when modal opens/closes
   useEffect(() => {
     if (open) {
+      // Store the previously active element for focus restoration
+      previousActiveElementRef.current = document.activeElement as HTMLElement;
       loadClients();
+      // Focus the first focusable element after a brief delay to ensure modal is rendered
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (firstFocusableRef.current) {
+            firstFocusableRef.current.focus();
+          } else {
+            // Fallback: find first focusable element in the modal
+            const modalContent = document.querySelector('[role="dialog"]');
+            if (modalContent) {
+              const focusableElements = modalContent.querySelectorAll(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+              );
+              const firstElement = focusableElements[0] as HTMLElement;
+              if (firstElement) {
+                firstElement.focus();
+              }
+            }
+          }
+        });
+      });
     } else {
       // Reset form when modal closes
       form.reset({
         clientId: '',
         role: 'user',
       });
+      // Restore focus to the trigger button or previously active element
+      const elementToFocus = triggerRef || previousActiveElementRef.current;
+      if (elementToFocus) {
+        requestAnimationFrame(() => {
+          elementToFocus.focus();
+          previousActiveElementRef.current = null;
+        });
+      }
     }
   }, [open, form, loadClients]);
 
@@ -196,7 +230,14 @@ function AssignClientModalComponent({
   }, [onOpenChange]);
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog 
+      open={open} 
+      onOpenChange={(isOpen) => {
+        if (!isOpen) {
+          handleClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Asignar Cliente</DialogTitle>
@@ -293,6 +334,7 @@ function AssignClientModalComponent({
                 variant="outline"
                 onClick={handleClose}
                 disabled={isSubmitting}
+                ref={firstFocusableRef}
               >
                 Cancelar
               </Button>

@@ -192,9 +192,14 @@ export default function TeamManagementPage() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            onClick={() => {
-                              setSelectedMember(member);
-                              setEditRoleModalOpen(true);
+                            onSelect={() => {
+                              // Let Radix close the dropdown naturally, then wait for animation to complete
+                              requestAnimationFrame(() => {
+                                requestAnimationFrame(() => {
+                                  setSelectedMember(member);
+                                  setEditRoleModalOpen(true);
+                                });
+                              });
                             }}
                           >
                             <Edit className="h-4 w-4 mr-2" />
@@ -202,9 +207,14 @@ export default function TeamManagementPage() {
                           </DropdownMenuItem>
                           {member.role_within_client === 'user' && (
                             <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedMember(member);
-                                setEditPermissionsModalOpen(true);
+                              onSelect={() => {
+                                // Let Radix close the dropdown naturally, then wait for animation to complete
+                                requestAnimationFrame(() => {
+                                  requestAnimationFrame(() => {
+                                    setSelectedMember(member);
+                                    setEditPermissionsModalOpen(true);
+                                  });
+                                });
                               }}
                             >
                               <Key className="h-4 w-4 mr-2" />
@@ -213,9 +223,14 @@ export default function TeamManagementPage() {
                           )}
                           {member.is_active && (
                             <DropdownMenuItem
-                              onClick={() => {
-                                setSelectedMember(member);
-                                setDeactivateDialogOpen(true);
+                              onSelect={() => {
+                                // Let Radix close the dropdown naturally, then wait for animation to complete
+                                requestAnimationFrame(() => {
+                                  requestAnimationFrame(() => {
+                                    setSelectedMember(member);
+                                    setDeactivateDialogOpen(true);
+                                  });
+                                });
                               }}
                               className="text-red-600"
                             >

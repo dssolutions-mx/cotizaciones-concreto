@@ -47,6 +47,12 @@ export async function fetchPendingApprovals(): Promise<PendingOrder[]> {
   });
 
   if (!response.ok) {
+    // If 403, user is not an executive - return empty array instead of throwing
+    // This prevents errors when the hook is called before permissions are fully loaded
+    if (response.status === 403) {
+      console.log('User does not have permission to view pending approvals');
+      return [];
+    }
     const error = await response.json();
     throw new Error(error.error || 'Failed to fetch pending approvals');
   }

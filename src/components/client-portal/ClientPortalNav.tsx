@@ -24,6 +24,7 @@ export default function ClientPortalNav() {
     canViewQualityData,
     canCreateOrders
   } = useUserPermissions();
+  // Only fetch pending approvals if user is an executive (hook handles this internally)
   const { count: pendingCount } = usePendingApprovals();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 

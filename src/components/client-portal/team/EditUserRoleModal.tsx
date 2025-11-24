@@ -5,7 +5,7 @@
 
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -32,6 +32,38 @@ export function EditUserRoleModal({ open, onOpenChange, member, onSuccess }: Edi
   const [selectedRole, setSelectedRole] = useState<'executive' | 'user'>(member.role_within_client);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
+  const previousActiveElementRef = useRef<HTMLElement | null>(null);
+
+  // Manage focus when modal opens/closes
+  useEffect(() => {
+    if (open) {
+      // Store the previously active element for focus restoration
+      previousActiveElementRef.current = document.activeElement as HTMLElement;
+      // Focus the first focusable element after modal is rendered
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const modalContent = document.querySelector('[role="dialog"]');
+          if (modalContent) {
+            const focusableElements = modalContent.querySelectorAll(
+              'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            const firstElement = focusableElements[0] as HTMLElement;
+            if (firstElement) {
+              firstElement.focus();
+            }
+          }
+        });
+      });
+    } else {
+      // Restore focus to the previously active element
+      if (previousActiveElementRef.current) {
+        requestAnimationFrame(() => {
+          previousActiveElementRef.current?.focus();
+          previousActiveElementRef.current = null;
+        });
+      }
+    }
+  }, [open]);
 
   const handleSubmit = async () => {
     if (selectedRole === member.role_within_client) {

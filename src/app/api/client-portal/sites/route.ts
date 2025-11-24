@@ -11,21 +11,25 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Resolve client via portal user
-    const { data: client, error: clientError } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('portal_user_id', user.id)
-      .single();
+    // Resolve client via client_portal_users table (works for both executives and secondary users)
+    const { data: association, error: assocError } = await supabase
+      .from('client_portal_users')
+      .select('client_id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
 
-    if (clientError || !client) {
+    if (assocError || !association?.client_id) {
       return NextResponse.json({ error: 'Client not found' }, { status: 404 });
     }
+
+    const clientId = association.client_id;
 
     const { data, error } = await supabase
       .from('construction_sites')
       .select('id, name')
-      .eq('client_id', client.id)
+      .eq('client_id', clientId)
       .order('name');
 
     if (error) {
@@ -38,7 +42,7 @@ export async function GET(request: Request) {
       const { data: prices, error: pricesError } = await supabase
         .from('product_prices')
         .select('construction_site')
-        .eq('client_id', client.id)
+        .eq('client_id', clientId)
         .eq('is_active', true)
         .not('construction_site', 'is', null);
 
