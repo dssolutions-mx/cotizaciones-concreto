@@ -207,7 +207,36 @@ function UpdatePasswordForm() {
             
             if (error) {
               console.error('Error exchanging code:', error.message);
-              setError(`Error al procesar el código de recuperación: ${error.message}`);
+              
+              // Check if this is a PKCE error (code verifier missing - often caused by SendGrid redirects)
+              if (error.message?.includes('code verifier') || error.message?.includes('invalid request') || error.message?.includes('both auth code and code verifier')) {
+                console.log('PKCE error detected, likely due to SendGrid redirect. Attempting session recovery...');
+                
+                // Try to recover session - Supabase might have established it despite the error
+                const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+                
+                if (sessionData?.session && !sessionError) {
+                  console.log('Session recovered despite PKCE error');
+                  
+                  if (sessionData.session.user?.email) {
+                    setInviteEmail(sessionData.session.user.email);
+                  }
+                  
+                  setCurrentSessionData({
+                    session: sessionData.session,
+                    user: sessionData.session.user || null
+                  });
+                  setSessionEstablished(true);
+                  setAuthReady(true);
+                  setLoading(false);
+                  return; // Successfully recovered session
+                }
+                
+                // If we can't recover, provide helpful error message
+                setError('El enlace de recuperación fue modificado por el servicio de correo. Por favor, intenta hacer clic directamente en el enlace del correo o solicita un nuevo enlace de recuperación.');
+              } else {
+                setError(`Error al procesar el código de recuperación: ${error.message}`);
+              }
             } else {
               // Get the session after exchange
               const { data: newSession } = await supabase.auth.getSession();
@@ -225,7 +254,22 @@ function UpdatePasswordForm() {
             }
           } catch (exchangeError) {
             console.error('Exception during code exchange:', exchangeError);
-            setError('Error al procesar el código de recuperación');
+            
+            // Try to recover session on exception too
+            const { data: sessionData } = await supabase.auth.getSession();
+            if (sessionData?.session) {
+              console.log('Session recovered after exception');
+              if (sessionData.session.user?.email) {
+                setInviteEmail(sessionData.session.user.email);
+              }
+              setCurrentSessionData({
+                session: sessionData.session,
+                user: sessionData.session.user || null
+              });
+              setSessionEstablished(true);
+            } else {
+              setError('Error al procesar el código de recuperación');
+            }
           }
           
           setAuthReady(true);

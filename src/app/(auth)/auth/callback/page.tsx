@@ -62,6 +62,59 @@ function AuthCallbackHandler() {
       const code = searchParams.get('code');
       const recoveryType = searchParams.get('type'); // Check query param for recovery type
 
+      // Check if we're coming from a SendGrid redirect (they often lose hash fragments)
+      // SendGrid wraps URLs but should preserve query params, try to extract original URL
+      if (!accessToken && !code && typeof window !== 'undefined') {
+        const currentUrl = window.location.href;
+        
+        // Check if this is a SendGrid tracking URL
+        if (currentUrl.includes('sendgrid.net') || currentUrl.includes('ct.sendgrid.net')) {
+          console.log('Detected SendGrid redirect, attempting to recover session');
+          
+          // Try to get the original URL from SendGrid's redirect
+          // SendGrid typically redirects to the original URL, so check if we can get session
+          try {
+            // Wait a bit for any redirects to complete
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Check if Supabase can recover the session
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            
+            if (session && !sessionError) {
+              console.log('Recovered session from Supabase after SendGrid redirect');
+              // Check if this is a new user (invitation flow)
+              const isNewUser = session.user?.created_at === session.user?.last_sign_in_at;
+              
+              if (isNewUser) {
+                console.log('New user detected, redirecting to update-password');
+                router.push('/update-password');
+                return;
+              } else {
+                const target = await getRedirectTarget();
+                router.push(target);
+                return;
+              }
+            }
+          } catch (recoveryError) {
+            console.error('Error recovering session from SendGrid redirect:', recoveryError);
+          }
+        }
+        
+        // Also try to recover session even if not SendGrid redirect
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (session && !sessionError) {
+          console.log('Found existing session, checking if new user');
+          const isNewUser = session.user?.created_at === session.user?.last_sign_in_at;
+          
+          if (isNewUser) {
+            console.log('New user detected from session, redirecting to update-password');
+            router.push('/update-password');
+            return;
+          }
+        }
+      }
+
       // Handle invitation or password recovery flow (access_token in hash)
       if (accessToken && refreshToken) {
         console.log('Processing authentication tokens...', { type });
@@ -102,16 +155,51 @@ function AuthCallbackHandler() {
 
         if (error) {
           console.error('Error exchanging code for session:', error);
+          
+          // Check if this is a PKCE error (code verifier missing - often caused by SendGrid redirects)
+          if (error.message?.includes('code verifier') || error.message?.includes('invalid request')) {
+            console.log('PKCE error detected, likely due to SendGrid redirect. Attempting session recovery...');
+            
+            // Try to recover session - Supabase might have established it despite the error
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            
+            if (sessionData?.session && !sessionError) {
+              console.log('Session recovered despite PKCE error');
+              const isRecoveryFlow = recoveryType === 'recovery';
+              const isNewUser = sessionData.session.user?.created_at === sessionData.session.user?.last_sign_in_at;
+              
+              if (isRecoveryFlow || isNewUser) {
+                const updatePasswordUrl = isRecoveryFlow 
+                  ? '/update-password?type=recovery'
+                  : '/update-password';
+                router.push(updatePasswordUrl);
+                return;
+              } else {
+                const target = await getRedirectTarget();
+                router.push(target);
+                return;
+              }
+            }
+            
+            // If we can't recover, provide helpful error message
+            setError('El enlace de autenticación fue modificado por el servicio de correo. Por favor, intenta hacer clic directamente en el enlace del correo o solicita que te reenvíen la invitación.');
+            return;
+          }
+          
           setError(`Error al procesar el código: ${error.message}`);
           return;
         }
 
         // Check if this is a password recovery flow
         const isRecoveryFlow = recoveryType === 'recovery';
+        const isNewUser = data.user?.created_at === data.user?.last_sign_in_at;
         
-        if (isRecoveryFlow) {
-          console.log('Password recovery flow detected, redirecting to update-password');
-          router.push('/update-password?type=recovery');
+        if (isRecoveryFlow || isNewUser) {
+          console.log('Password recovery or new user flow detected, redirecting to update-password');
+          const updatePasswordUrl = isRecoveryFlow 
+            ? '/update-password?type=recovery'
+            : '/update-password';
+          router.push(updatePasswordUrl);
         } else {
           const target = await getRedirectTarget();
           router.push(target);
@@ -123,11 +211,21 @@ function AuthCallbackHandler() {
 
         if (sessionData.session) {
           console.log('Found existing session');
-          const target = await getRedirectTarget();
-          router.push(target);
+          // Check if this might be a new user from invitation (SendGrid might have lost hash)
+          const isNewUser = sessionData.session.user?.created_at === sessionData.session.user?.last_sign_in_at;
+          
+          if (isNewUser) {
+            console.log('New user detected from session, redirecting to update-password');
+            router.push('/update-password');
+          } else {
+            const target = await getRedirectTarget();
+            router.push(target);
+          }
         } else {
           console.error('No auth parameters found and no session established');
-          setError('No se encontraron parámetros de autenticación');
+          // Provide helpful error message for invitation flow issues
+          // This often happens when SendGrid wraps the link and loses the hash fragment
+          setError('No se encontraron parámetros de autenticación. Si recibiste un enlace de invitación, el enlace puede haber sido modificado por el servicio de correo. Por favor, intenta hacer clic directamente en el enlace del correo o contacta al administrador para que te reenvíe la invitación.');
         }
       }
     } catch (err) {
@@ -137,6 +235,45 @@ function AuthCallbackHandler() {
       setLoading(false);
     }
   }, [router, searchParams]);
+
+  // Listen for auth state changes (helps with SendGrid redirects that lose hash)
+  useEffect(() => {
+    let hasRedirected = false;
+    
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('Auth state changed:', event, { hasSession: !!session });
+      
+      // If session is established and we're still loading, process it
+      // Only handle if we haven't already redirected and no tokens were found in URL
+      if (session && loading && event === 'SIGNED_IN' && !hasRedirected) {
+        // Check if we already have tokens in URL (if so, let handleAuthCallback handle it)
+        const hashParams = new URLSearchParams(
+          typeof window !== 'undefined' ? window.location.hash.substring(1) : ''
+        );
+        const hasTokens = hashParams.get('access_token') || searchParams.get('code');
+        
+        if (!hasTokens) {
+          console.log('Session established via auth state change (likely SendGrid redirect)');
+          hasRedirected = true;
+          const isNewUser = session.user?.created_at === session.user?.last_sign_in_at;
+          
+          if (isNewUser) {
+            console.log('New user detected from auth state change, redirecting to update-password');
+            router.push('/update-password');
+          } else {
+            const target = await getRedirectTarget();
+            router.push(target);
+          }
+        }
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [loading, router, searchParams]);
 
   // Initialize auth processing on mount
   useEffect(() => {
