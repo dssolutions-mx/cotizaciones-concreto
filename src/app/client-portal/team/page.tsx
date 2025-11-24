@@ -52,7 +52,7 @@ export default function TeamManagementPage() {
 
   // Check permissions
   if (permissionsLoading) {
-    return <LoadingState message="Checking permissions..." />;
+    return <LoadingState message="Verificando permisos..." />;
   }
 
   if (!isExecutive) {
@@ -61,7 +61,7 @@ export default function TeamManagementPage() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Access denied. Only executive users can access team management.
+            Acceso denegado. Solo los usuarios ejecutivos pueden acceder a la gestión de equipo.
           </AlertDescription>
         </Alert>
       </div>
@@ -84,7 +84,7 @@ export default function TeamManagementPage() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Failed to load team members: {error}
+            Error al cargar miembros del equipo: {error}
           </AlertDescription>
         </Alert>
       </div>
@@ -97,16 +97,16 @@ export default function TeamManagementPage() {
       <div className="container mx-auto px-4 py-8">
         <Card>
           <CardHeader>
-            <CardTitle>Team Management</CardTitle>
-            <CardDescription>Manage team members and their access</CardDescription>
+            <CardTitle>Gestión de Equipo</CardTitle>
+            <CardDescription>Gestiona miembros del equipo y sus accesos</CardDescription>
           </CardHeader>
           <CardContent>
             <EmptyState
               icon={Users}
-              title="No team members yet"
-              description="Invite your first team member to start collaborating"
+              title="Aún no hay miembros del equipo"
+              description="Invita a tu primer miembro del equipo para comenzar a colaborar"
               action={{
-                label: 'Invite Team Member',
+                label: 'Invitar Miembro',
                 onClick: () => setInviteModalOpen(true),
               }}
             />
@@ -126,47 +126,47 @@ export default function TeamManagementPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-gray-900">Team Management</h1>
+          <h1 className="text-3xl font-semibold text-gray-900">Gestión de Equipo</h1>
           <p className="text-sm text-gray-600 mt-1">
-            Manage team members and their permissions
+            Gestiona miembros del equipo y sus permisos
           </p>
         </div>
         <Button onClick={() => setInviteModalOpen(true)}>
           <UserPlus className="h-4 w-4 mr-2" />
-          Invite Member
+          Invitar Miembro
         </Button>
       </div>
 
       {/* Team Members Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Team Members ({teamMembers.length})</CardTitle>
+          <CardTitle>Miembros del Equipo ({teamMembers.length})</CardTitle>
           <CardDescription>
-            View and manage your organization's team members
+            Ver y gestionar los miembros del equipo de tu organización
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Last Login</TableHead>
+                <TableHead>Nombre</TableHead>
+                <TableHead>Correo</TableHead>
+                <TableHead>Rol</TableHead>
+                <TableHead>Estado</TableHead>
+                <TableHead>Último Acceso</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {teamMembers.map((member) => {
-                const memberName = `${member.first_name} ${member.last_name}`.trim() || 'Unnamed User';
+                const memberName = `${member.first_name} ${member.last_name}`.trim() || 'Usuario sin nombre';
                 const lastLogin = member.last_login
-                  ? new Date(member.last_login).toLocaleDateString('en-US', {
+                  ? new Date(member.last_login).toLocaleDateString('es-MX', {
                       month: 'short',
                       day: 'numeric',
                       year: 'numeric',
                     })
-                  : 'Never';
+                  : 'Nunca';
 
                 return (
                   <TableRow key={member.id}>
@@ -177,9 +177,9 @@ export default function TeamManagementPage() {
                     </TableCell>
                     <TableCell>
                       {member.is_active ? (
-                        <span className="text-green-600 text-sm">Active</span>
+                        <span className="text-green-600 text-sm">Activo</span>
                       ) : (
-                        <span className="text-gray-500 text-sm">Inactive</span>
+                        <span className="text-gray-500 text-sm">Inactivo</span>
                       )}
                     </TableCell>
                     <TableCell className="text-sm text-gray-600">{lastLogin}</TableCell>
@@ -198,7 +198,7 @@ export default function TeamManagementPage() {
                             }}
                           >
                             <Edit className="h-4 w-4 mr-2" />
-                            Change Role
+                            Cambiar Rol
                           </DropdownMenuItem>
                           {member.role_within_client === 'user' && (
                             <DropdownMenuItem
@@ -208,7 +208,7 @@ export default function TeamManagementPage() {
                               }}
                             >
                               <Key className="h-4 w-4 mr-2" />
-                              Edit Permissions
+                              Editar Permisos
                             </DropdownMenuItem>
                           )}
                           {member.is_active && (
@@ -220,7 +220,7 @@ export default function TeamManagementPage() {
                               className="text-red-600"
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
-                              Deactivate
+                              Desactivar
                             </DropdownMenuItem>
                           )}
                         </DropdownMenuContent>

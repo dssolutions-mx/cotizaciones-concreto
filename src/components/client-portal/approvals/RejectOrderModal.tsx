@@ -33,7 +33,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
 
 const rejectSchema = z.object({
-  reason: z.string().min(10, 'Please provide a reason with at least 10 characters'),
+  reason: z.string().min(10, 'Por favor proporciona una razón con al menos 10 caracteres'),
 });
 
 type RejectFormData = z.infer<typeof rejectSchema>;
@@ -46,11 +46,11 @@ interface RejectOrderModalProps {
 }
 
 const COMMON_REASONS = [
-  'Incorrect quantity',
-  'Budget not approved',
-  'Duplicate order',
-  'Wrong delivery date',
-  'Delivery location unavailable',
+  'Cantidad incorrecta',
+  'Presupuesto no aprobado',
+  'Pedido duplicado',
+  'Fecha de entrega incorrecta',
+  'Ubicación de entrega no disponible',
 ];
 
 export function RejectOrderModal({ open, onOpenChange, order, onSuccess }: RejectOrderModalProps) {
@@ -69,15 +69,15 @@ export function RejectOrderModal({ open, onOpenChange, order, onSuccess }: Rejec
     try {
       await rejectOrder(order.id, data.reason);
       toast({
-        title: 'Order rejected',
-        description: `Order ${order.order_number} has been rejected. The creator will be notified.`,
+        title: 'Pedido rechazado',
+        description: `El pedido ${order.order_number} ha sido rechazado. El creador será notificado.`,
       });
       form.reset();
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
       toast({
-        title: 'Failed to reject order',
+        title: 'Error al rechazar pedido',
         description: error.message,
         variant: 'destructive',
       });
@@ -94,16 +94,16 @@ export function RejectOrderModal({ open, onOpenChange, order, onSuccess }: Rejec
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Reject Order {order.order_number}</DialogTitle>
+          <DialogTitle>Rechazar Pedido {order.order_number}</DialogTitle>
           <DialogDescription>
-            Please provide a reason for rejecting this order. The creator will receive this message.
+            Por favor proporciona una razón para rechazar este pedido. El creador recibirá este mensaje.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             {/* Quick Reasons */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Common Reasons (click to use):</label>
+              <label className="text-sm font-medium">Razones Comunes (haz clic para usar):</label>
               <div className="flex flex-wrap gap-2">
                 {COMMON_REASONS.map((reason) => (
                   <Badge
@@ -124,10 +124,10 @@ export function RejectOrderModal({ open, onOpenChange, order, onSuccess }: Rejec
               name="reason"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Rejection Reason *</FormLabel>
+                  <FormLabel>Razón de Rechazo *</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Enter the reason for rejecting this order..."
+                      placeholder="Ingresa la razón para rechazar este pedido..."
                       rows={4}
                       {...field}
                     />
@@ -144,7 +144,7 @@ export function RejectOrderModal({ open, onOpenChange, order, onSuccess }: Rejec
                 onClick={() => onOpenChange(false)}
                 disabled={isSubmitting}
               >
-                Cancel
+                Cancelar
               </Button>
               <Button
                 type="submit"
@@ -152,7 +152,7 @@ export function RejectOrderModal({ open, onOpenChange, order, onSuccess }: Rejec
                 disabled={isSubmitting}
               >
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Reject Order
+                Rechazar Pedido
               </Button>
             </DialogFooter>
           </form>

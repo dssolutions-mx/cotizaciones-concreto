@@ -43,14 +43,14 @@ export function EditUserRoleModal({ open, onOpenChange, member, onSuccess }: Edi
     try {
       await updateTeamMemberRole(member.user_id, selectedRole);
       toast({
-        title: 'Role updated',
-        description: `${member.first_name} ${member.last_name} is now a${selectedRole === 'executive' ? 'n' : ''} ${selectedRole}`,
+        title: 'Rol actualizado',
+        description: `${member.first_name} ${member.last_name} ahora es ${selectedRole === 'executive' ? 'ejecutivo' : 'usuario'}`,
       });
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
       toast({
-        title: 'Failed to update role',
+        title: 'Error al actualizar rol',
         description: error.message,
         variant: 'destructive',
       });
@@ -63,9 +63,9 @@ export function EditUserRoleModal({ open, onOpenChange, member, onSuccess }: Edi
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Change User Role</DialogTitle>
+          <DialogTitle>Cambiar Rol de Usuario</DialogTitle>
           <DialogDescription>
-            Update the role for {member.first_name} {member.last_name}
+            Actualiza el rol para {member.first_name} {member.last_name}
           </DialogDescription>
         </DialogHeader>
         <div className="py-4">
@@ -73,18 +73,18 @@ export function EditUserRoleModal({ open, onOpenChange, member, onSuccess }: Edi
             <div className="flex items-start space-x-3 rounded-lg border p-4 mb-3">
               <RadioGroupItem value="executive" id="role-executive" />
               <div className="space-y-1">
-                <Label htmlFor="role-executive" className="cursor-pointer">Executive</Label>
+                <Label htmlFor="role-executive" className="cursor-pointer">Ejecutivo</Label>
                 <p className="text-xs text-gray-600">
-                  Full access to all features, can manage team and approve orders
+                  Acceso completo a todas las funciones, puede gestionar equipo y aprobar pedidos
                 </p>
               </div>
             </div>
             <div className="flex items-start space-x-3 rounded-lg border p-4">
               <RadioGroupItem value="user" id="role-user" />
               <div className="space-y-1">
-                <Label htmlFor="role-user" className="cursor-pointer">User</Label>
+                <Label htmlFor="role-user" className="cursor-pointer">Usuario</Label>
                 <p className="text-xs text-gray-600">
-                  Configurable permissions, limited access based on settings
+                  Permisos configurables, acceso limitado según configuración
                 </p>
               </div>
             </div>
@@ -92,11 +92,11 @@ export function EditUserRoleModal({ open, onOpenChange, member, onSuccess }: Edi
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            Cancel
+            Cancelar
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Update Role
+            Actualizar Rol
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -35,14 +35,14 @@ export function DeactivateUserDialog({ open, onOpenChange, member, onSuccess }: 
     try {
       await deactivateTeamMember(member.user_id);
       toast({
-        title: 'User deactivated',
-        description: `${member.first_name} ${member.last_name} has been deactivated and can no longer access the portal`,
+        title: 'Usuario desactivado',
+        description: `${member.first_name} ${member.last_name} ha sido desactivado y ya no puede acceder al portal`,
       });
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
       toast({
-        title: 'Failed to deactivate user',
+        title: 'Error al desactivar usuario',
         description: error.message,
         variant: 'destructive',
       });
@@ -55,20 +55,20 @@ export function DeactivateUserDialog({ open, onOpenChange, member, onSuccess }: 
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Deactivate Team Member?</AlertDialogTitle>
+          <AlertDialogTitle>¿Desactivar Miembro del Equipo?</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to deactivate <strong>{member.first_name} {member.last_name}</strong>?
+            ¿Estás seguro de que deseas desactivar a <strong>{member.first_name} {member.last_name}</strong>?
             <br /><br />
-            They will lose access to the client portal immediately. You can reactivate them later if needed.
+            Perderá acceso al portal de cliente inmediatamente. Puedes reactivarlo más tarde si es necesario.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            Cancel
+            Cancelar
           </Button>
           <Button variant="destructive" onClick={handleDeactivate} disabled={isSubmitting}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Deactivate User
+            Desactivar Usuario
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

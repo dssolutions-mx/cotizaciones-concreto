@@ -33,7 +33,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
 
 const inviteSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
+  email: z.string().email('Por favor ingresa una dirección de correo válida'),
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   role: z.enum(['executive', 'user']),
@@ -63,15 +63,15 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
     try {
       await inviteTeamMember(data);
       toast({
-        title: 'Invitation sent',
-        description: `An invitation has been sent to ${data.email}`,
+        title: 'Invitación enviada',
+        description: `Se ha enviado una invitación a ${data.email}`,
       });
       form.reset();
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
       toast({
-        title: 'Failed to invite user',
+        title: 'Error al invitar usuario',
         description: error.message,
         variant: 'destructive',
       });
@@ -84,9 +84,9 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Invite Team Member</DialogTitle>
+          <DialogTitle>Invitar Miembro del Equipo</DialogTitle>
           <DialogDescription>
-            Send an invitation to join your organization
+            Envía una invitación para unirse a tu organización
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -96,9 +96,9 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
               name="email"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Email Address *</FormLabel>
+                  <FormLabel>Dirección de Correo *</FormLabel>
                   <FormControl>
-                    <Input placeholder="user@example.com" {...field} />
+                    <Input placeholder="usuario@ejemplo.com" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -110,9 +110,9 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
                 name="firstName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>First Name</FormLabel>
+                    <FormLabel>Nombre</FormLabel>
                     <FormControl>
-                      <Input placeholder="John" {...field} />
+                      <Input placeholder="Juan" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -123,9 +123,9 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
                 name="lastName"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Last Name</FormLabel>
+                    <FormLabel>Apellido</FormLabel>
                     <FormControl>
-                      <Input placeholder="Doe" {...field} />
+                      <Input placeholder="Pérez" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -137,7 +137,7 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
               name="role"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Role *</FormLabel>
+                  <FormLabel>Rol *</FormLabel>
                   <FormControl>
                     <RadioGroup
                       onValueChange={field.onChange}
@@ -148,10 +148,10 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
                         <RadioGroupItem value="executive" id="executive" />
                         <div className="space-y-1">
                           <label htmlFor="executive" className="text-sm font-medium cursor-pointer">
-                            Executive
+                            Ejecutivo
                           </label>
                           <p className="text-xs text-gray-600">
-                            Full access to all features, can manage team and approve orders
+                            Acceso completo a todas las funciones, puede gestionar equipo y aprobar pedidos
                           </p>
                         </div>
                       </div>
@@ -159,10 +159,10 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
                         <RadioGroupItem value="user" id="user" />
                         <div className="space-y-1">
                           <label htmlFor="user" className="text-sm font-medium cursor-pointer">
-                            User
+                            Usuario
                           </label>
                           <p className="text-xs text-gray-600">
-                            Configurable permissions, limited access based on settings
+                            Permisos configurables, acceso limitado según configuración
                           </p>
                         </div>
                       </div>
@@ -179,11 +179,11 @@ export function InviteUserModal({ open, onOpenChange, onSuccess }: InviteUserMod
                 onClick={() => onOpenChange(false)}
                 disabled={isSubmitting}
               >
-                Cancel
+                Cancelar
               </Button>
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Send Invitation
+                Enviar Invitación
               </Button>
             </div>
           </form>

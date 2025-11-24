@@ -72,13 +72,10 @@ export async function GET(request: NextRequest) {
         ),
         order_items (
           id,
-          product_id,
-          concrete_volume_requested,
-          products (
-            id,
-            product_name,
-            product_code
-          )
+          product_type,
+          volume,
+          unit_price,
+          total_price
         )
       `)
       .in('client_id', clientIds)
@@ -118,14 +115,14 @@ export async function GET(request: NextRequest) {
 
       // Calculate total volume
       const totalVolume = items?.reduce(
-        (sum, item) => sum + (parseFloat(item.concrete_volume_requested) || 0),
+        (sum, item) => sum + (parseFloat(item.volume) || 0),
         0
       ) || 0;
 
       // Get product summary
       const productSummary = items?.map(item => ({
-        product_name: item.products?.product_name || 'Unknown Product',
-        volume: parseFloat(item.concrete_volume_requested) || 0,
+        product_name: item.product_type || 'Unknown Product',
+        volume: parseFloat(item.volume) || 0,
       })) || [];
 
       return {

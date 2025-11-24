@@ -24,22 +24,22 @@ interface OrderStatusBadgeProps {
 export function OrderStatusBadge({ status, variant = 'default' }: OrderStatusBadgeProps) {
   const statusConfig = {
     not_required: {
-      label: 'Active',
+      label: 'Activo',
       className: 'bg-gray-100 text-gray-800 border-gray-300',
       icon: CheckCircle,
     },
     pending_client: {
-      label: 'Pending Approval',
+      label: 'Pendiente de Aprobación',
       className: 'bg-yellow-100 text-yellow-800 border-yellow-300',
       icon: Clock,
     },
     approved_by_client: {
-      label: 'Approved',
+      label: 'Aprobado',
       className: 'bg-green-100 text-green-800 border-green-300',
       icon: CheckCircle,
     },
     rejected_by_client: {
-      label: 'Rejected',
+      label: 'Rechazado',
       className: 'bg-red-100 text-red-800 border-red-300',
       icon: XCircle,
     },

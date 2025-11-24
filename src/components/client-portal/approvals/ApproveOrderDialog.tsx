@@ -35,14 +35,14 @@ export function ApproveOrderDialog({ open, onOpenChange, order, onSuccess }: App
     try {
       await approveOrder(order.id);
       toast({
-        title: 'Order approved',
-        description: `Order ${order.order_number} has been approved and sent to credit validation.`,
+        title: 'Pedido aprobado',
+        description: `El pedido ${order.order_number} ha sido aprobado y enviado a validación de crédito.`,
       });
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
       toast({
-        title: 'Failed to approve order',
+        title: 'Error al aprobar pedido',
         description: error.message,
         variant: 'destructive',
       });
@@ -55,16 +55,16 @@ export function ApproveOrderDialog({ open, onOpenChange, order, onSuccess }: App
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Approve Order?</AlertDialogTitle>
+          <AlertDialogTitle>¿Aprobar Pedido?</AlertDialogTitle>
           <AlertDialogDescription>
-            Are you sure you want to approve order <strong>{order.order_number}</strong>?
+            ¿Estás seguro de que deseas aprobar el pedido <strong>{order.order_number}</strong>?
             <br /><br />
-            This order will proceed to credit validation. The order creator will be notified of your approval.
+            Este pedido procederá a validación de crédito. El creador del pedido será notificado de tu aprobación.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            Cancel
+            Cancelar
           </Button>
           <Button
             className="bg-green-600 hover:bg-green-700"
@@ -72,7 +72,7 @@ export function ApproveOrderDialog({ open, onOpenChange, order, onSuccess }: App
             disabled={isSubmitting}
           >
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Approve Order
+            Aprobar Pedido
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

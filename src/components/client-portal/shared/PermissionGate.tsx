@@ -75,7 +75,7 @@ export function PermissionGate({
         <Lock className="h-4 w-4 text-amber-600" />
         <AlertDescription className="text-amber-800">
           {deniedMessage ||
-            'You do not have permission to access this feature. Contact your organization administrator for access.'}
+            'No tienes permiso para acceder a esta función. Contacta al administrador de tu organización para obtener acceso.'}
         </AlertDescription>
       </Alert>
     );
@@ -110,7 +110,7 @@ export function PermissionButton({
       disabled={isLoading || !hasRequiredPermission || buttonProps.disabled}
       title={
         showTooltip && !hasRequiredPermission
-          ? 'You do not have permission for this action'
+          ? 'No tienes permiso para esta acción'
           : buttonProps.title
       }
     >

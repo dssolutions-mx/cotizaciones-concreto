@@ -61,14 +61,14 @@ export function EditPermissionsModal({ open, onOpenChange, member, onSuccess }: 
     try {
       await updateTeamMemberPermissions(member.user_id, permissions);
       toast({
-        title: 'Permissions updated',
-        description: `Permissions for ${member.first_name} ${member.last_name} have been updated`,
+        title: 'Permisos actualizados',
+        description: `Los permisos para ${member.first_name} ${member.last_name} han sido actualizados`,
       });
       onOpenChange(false);
       onSuccess?.();
     } catch (error: any) {
       toast({
-        title: 'Failed to update permissions',
+        title: 'Error al actualizar permisos',
         description: error.message,
         variant: 'destructive',
       });
@@ -90,21 +90,21 @@ export function EditPermissionsModal({ open, onOpenChange, member, onSuccess }: 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit Permissions</DialogTitle>
+          <DialogTitle>Editar Permisos</DialogTitle>
           <DialogDescription>
-            Configure permissions for {member.first_name} {member.last_name}
+            Configura los permisos para {member.first_name} {member.last_name}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-6 py-4">
           {/* Template Selector */}
           <div className="space-y-2">
-            <Label>Permission Template</Label>
+            <Label>Plantilla de Permisos</Label>
             <Select onValueChange={handleTemplateChange}>
               <SelectTrigger>
-                <SelectValue placeholder="Choose a template or customize" />
+                <SelectValue placeholder="Elige una plantilla o personaliza" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="custom">Custom</SelectItem>
+                <SelectItem value="custom">Personalizado</SelectItem>
                 {Object.entries(PERMISSION_TEMPLATES).map(([key, template]) => (
                   <SelectItem key={key} value={key}>
                     {template.name} - {template.description}
@@ -116,7 +116,7 @@ export function EditPermissionsModal({ open, onOpenChange, member, onSuccess }: 
 
           {/* Individual Permissions */}
           <div className="space-y-4">
-            <Label className="text-base">Individual Permissions</Label>
+            <Label className="text-base">Permisos Individuales</Label>
             {userPermissionKeys.map((key) => {
               const config = PERMISSION_LABELS[key];
               return (
@@ -139,11 +139,11 @@ export function EditPermissionsModal({ open, onOpenChange, member, onSuccess }: 
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
-            Cancel
+            Cancelar
           </Button>
           <Button onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Permissions
+            Guardar Permisos
           </Button>
         </DialogFooter>
       </DialogContent>

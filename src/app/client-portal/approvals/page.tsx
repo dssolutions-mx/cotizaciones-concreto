@@ -32,7 +32,7 @@ export default function ApprovalsPage() {
 
   // Check permissions
   if (permissionsLoading) {
-    return <LoadingState message="Checking permissions..." />;
+    return <LoadingState message="Verificando permisos..." />;
   }
 
   if (!isExecutive) {
@@ -41,7 +41,7 @@ export default function ApprovalsPage() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Access denied. Only executive users can view order approvals.
+            Acceso denegado. Solo los usuarios ejecutivos pueden ver las aprobaciones de pedidos.
           </AlertDescription>
         </Alert>
       </div>
@@ -64,7 +64,7 @@ export default function ApprovalsPage() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Failed to load pending approvals: {error}
+            Error al cargar aprobaciones pendientes: {error}
           </AlertDescription>
         </Alert>
       </div>
@@ -95,8 +95,8 @@ export default function ApprovalsPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Order Approvals</CardTitle>
-                <CardDescription>Review and approve orders from your team</CardDescription>
+                <CardTitle>Aprobaciones de Pedidos</CardTitle>
+                <CardDescription>Revisa y aprueba pedidos de tu equipo</CardDescription>
               </div>
               <Button variant="outline" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
                 <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -106,8 +106,8 @@ export default function ApprovalsPage() {
           <CardContent>
             <EmptyState
               icon={CheckCircle}
-              title="All caught up!"
-              description="No orders are waiting for your approval at this time."
+              title="¡Todo al día!"
+              description="No hay pedidos esperando tu aprobación en este momento."
             />
           </CardContent>
         </Card>
@@ -120,14 +120,14 @@ export default function ApprovalsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-semibold text-gray-900">Order Approvals</h1>
+          <h1 className="text-3xl font-semibold text-gray-900">Aprobaciones de Pedidos</h1>
           <p className="text-sm text-gray-600 mt-1">
-            {count} {count === 1 ? 'order' : 'orders'} pending your approval
+            {count} {count === 1 ? 'pedido' : 'pedidos'} pendientes de aprobación
           </p>
         </div>
         <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
           <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-          Refresh
+          Actualizar
         </Button>
       </div>
 

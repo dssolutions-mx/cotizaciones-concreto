@@ -30,7 +30,7 @@ interface LoadingStateProps {
 }
 
 export function LoadingState({
-  message = 'Loading...',
+  message = 'Cargando...',
   variant = 'spinner',
   rows = 3,
 }: LoadingStateProps) {

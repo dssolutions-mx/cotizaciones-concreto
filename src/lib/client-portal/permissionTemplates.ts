@@ -112,32 +112,32 @@ export const EXECUTIVE_PERMISSIONS: Permissions = {
  */
 export const PERMISSION_TEMPLATES = {
   FULL_ACCESS: {
-    name: 'Full Access',
-    description: 'Complete access to all features (except team management)',
+    name: 'Acceso Completo',
+    description: 'Acceso completo a todas las funciones (excepto gestión de equipo)',
     permissions: FULL_ACCESS,
     icon: 'Shield',
   },
   ORDER_MANAGER: {
-    name: 'Order Manager',
-    description: 'Create and manage orders, view materials',
+    name: 'Gestor de Pedidos',
+    description: 'Crear y gestionar pedidos, ver materiales',
     permissions: ORDER_MANAGER,
     icon: 'Package',
   },
   VIEW_ONLY: {
-    name: 'View Only',
-    description: 'Read-only access to orders, quotes, and materials',
+    name: 'Solo Lectura',
+    description: 'Acceso de solo lectura a pedidos, cotizaciones y materiales',
     permissions: VIEW_ONLY,
     icon: 'Eye',
   },
   QUOTE_MANAGER: {
-    name: 'Quote Manager',
-    description: 'Create and manage quotes',
+    name: 'Gestor de Cotizaciones',
+    description: 'Crear y gestionar cotizaciones',
     permissions: QUOTE_MANAGER,
     icon: 'FileText',
   },
   QUALITY_VIEWER: {
-    name: 'Quality Viewer',
-    description: 'View quality data and testing results',
+    name: 'Visualizador de Calidad',
+    description: 'Ver datos de calidad y resultados de pruebas',
     permissions: QUALITY_VIEWER,
     icon: 'CheckCircle',
   },
@@ -148,36 +148,36 @@ export const PERMISSION_TEMPLATES = {
  */
 export const PERMISSION_LABELS: Record<PermissionKey, { label: string; description: string }> = {
   create_orders: {
-    label: 'Create Orders',
-    description: 'Ability to create new concrete orders',
+    label: 'Crear Pedidos',
+    description: 'Capacidad de crear nuevos pedidos de concreto',
   },
   view_orders: {
-    label: 'View Orders',
-    description: 'View order history and details',
+    label: 'Ver Pedidos',
+    description: 'Ver historial y detalles de pedidos',
   },
   create_quotes: {
-    label: 'Create Quotes',
-    description: 'Create price quotes for clients',
+    label: 'Crear Cotizaciones',
+    description: 'Crear cotizaciones de precios para clientes',
   },
   view_quotes: {
-    label: 'View Quotes',
-    description: 'View quote history and details',
+    label: 'Ver Cotizaciones',
+    description: 'Ver historial y detalles de cotizaciones',
   },
   view_materials: {
-    label: 'View Materials & Pricing',
-    description: 'Access material catalog and pricing information',
+    label: 'Ver Materiales y Precios',
+    description: 'Acceder al catálogo de materiales e información de precios',
   },
   view_quality_data: {
-    label: 'View Quality Data',
-    description: 'Access quality test results and reports',
+    label: 'Ver Datos de Calidad',
+    description: 'Acceder a resultados de pruebas de calidad e informes',
   },
   manage_team: {
-    label: 'Manage Team',
-    description: 'Invite and manage team members (executives only)',
+    label: 'Gestionar Equipo',
+    description: 'Invitar y gestionar miembros del equipo (solo ejecutivos)',
   },
   approve_orders: {
-    label: 'Approve Orders',
-    description: 'Approve orders created by team members (executives only)',
+    label: 'Aprobar Pedidos',
+    description: 'Aprobar pedidos creados por miembros del equipo (solo ejecutivos)',
   },
 };
 
