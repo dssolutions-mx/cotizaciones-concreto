@@ -24,7 +24,7 @@ type Product = {
   slump: number | null;
   placement_type: string | null;
   max_aggregate_size: number | null;
-  unit_price: number;
+  unit_price: number | null; // null if user doesn't have view_prices permission
   quote_detail_id: string;
   quote_id: string;
 };
@@ -256,20 +256,8 @@ export default function ScheduleOrderPage() {
     );
   }
 
-  if (!canViewPrices) {
-    return (
-      <div className="min-h-screen bg-background-primary flex items-center justify-center">
-        <Container maxWidth="md" className="py-8">
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              No tienes permiso para ver precios. Necesitas acceso a precios para crear pedidos. Contacta al administrador de tu organización.
-            </AlertDescription>
-          </Alert>
-        </Container>
-      </div>
-    );
-  }
+  // Note: canViewPrices is NOT required for order creation
+  // Users can create orders without seeing prices - prices are hidden in the UI but still applied on the backend
 
   return (
     <div className="min-h-screen bg-background-primary">

@@ -181,8 +181,23 @@ export async function POST(request: Request) {
     const randomPart = Math.floor(1000 + Math.random() * 9000);
     const orderNumber = `ORD-${dateStr}-${randomPart}`;
 
-    // Insert order - rely on RLS for client access, but set client_id explicitly
-    const totalAmount = (volume && unit_price) ? Number(volume) * Number(unit_price) : 0;
+    // Fetch the actual price from quote_details (source of truth)
+    // This ensures correct pricing even if user doesn't have view_prices permission
+    let actualUnitPrice = 0;
+    if (quote_detail_id) {
+      const { data: quoteDetailForPrice } = await supabase
+        .from('quote_details')
+        .select('final_price')
+        .eq('id', quote_detail_id)
+        .single();
+      
+      if (quoteDetailForPrice?.final_price) {
+        actualUnitPrice = Number(quoteDetailForPrice.final_price);
+      }
+    }
+
+    // Insert order - use actual price from database, not from payload
+    const totalAmount = (volume && actualUnitPrice) ? Number(volume) * actualUnitPrice : 0;
 
     // Validate construction_site_id is a valid UUID (if provided)
     // If it's not a UUID, it's likely a fallback site name, so set it to null
@@ -263,6 +278,10 @@ export async function POST(request: Request) {
         productType = 'SERVICIO DE BOMBEO';
       }
 
+      // Use the actual price from quote_details, not from payload
+      const itemUnitPrice = Number(quoteDetail.final_price || 0);
+      const itemTotalPrice = Number(volume) * itemUnitPrice;
+
       const { error: itemError } = await supabase
         .from('order_items')
         .insert({
@@ -272,10 +291,10 @@ export async function POST(request: Request) {
           master_recipe_id: quoteDetail.master_recipe_id || null,
           product_type: productType,
           volume: Number(volume),
-          unit_price: Number(unit_price || 0),
-          total_price: totalAmount,
+          unit_price: itemUnitPrice,
+          total_price: itemTotalPrice,
           has_pump_service: quoteDetail.pump_service || false,
-          pump_price: quoteDetail.pump_service ? Number(unit_price || 0) : null,
+          pump_price: quoteDetail.pump_service ? itemUnitPrice : null,
           has_empty_truck_charge: false,
           pump_volume: null
         });

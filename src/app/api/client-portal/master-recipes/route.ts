@@ -39,13 +39,16 @@ export async function GET(request: Request) {
       );
     }
 
-    // Executives always have permission, regular users need explicit permission
+    // Executives always have all permissions
     const isExecutive = association?.role_within_client === 'executive';
     const hasViewPricesPermission = isExecutive || association?.permissions?.view_prices === true;
+    const hasCreateOrdersPermission = isExecutive || association?.permissions?.create_orders === true;
 
-    if (!hasViewPricesPermission) {
+    // User needs create_orders permission to load products (for order creation)
+    // view_prices only controls whether prices are shown in the response
+    if (!hasCreateOrdersPermission) {
       return NextResponse.json(
-        { error: 'No tienes permiso para ver precios. Contacta al administrador de tu organización.' },
+        { error: 'No tienes permiso para crear pedidos. Contacta al administrador de tu organización.' },
         { status: 403 }
       );
     }
@@ -199,7 +202,9 @@ export async function GET(request: Request) {
             slump: masterData.slump || null,
             placement_type: masterData.placement_type || null,
             max_aggregate_size: masterData.max_aggregate_size || null,
-            unit_price: detail.final_price || 0,
+            // Only include price if user has view_prices permission
+            // Backend will still use the correct price when creating the order
+            unit_price: hasViewPricesPermission ? (detail.final_price || 0) : null,
             quote_detail_id: detail.id,
             quote_id: quote.id
           });
@@ -211,7 +216,8 @@ export async function GET(request: Request) {
       a.master_code.localeCompare(b.master_code)
     );
 
-    return NextResponse.json({ products });
+    // Include flag so UI knows whether to show prices
+    return NextResponse.json({ products, canViewPrices: hasViewPricesPermission });
   } catch (e) {
     console.error('master-recipes GET error:', e);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
