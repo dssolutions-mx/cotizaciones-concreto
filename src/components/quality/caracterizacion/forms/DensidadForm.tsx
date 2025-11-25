@@ -293,15 +293,19 @@ export default function DensidadForm({
       
       const drSSS = MagSSS / Ma;
       
-      // Para calcular la densidad seca, necesitaríamos el % de absorción
-      // Por ahora, solo calculamos Dr SSS
-      // Si el usuario ingresa absorción manualmente, podemos calcular Dr seca
+      // Calcular densidad seca si hay porcentaje de absorción
+      // Dr seca = Dr SSS / (1 + (%Abs/100))
+      let drSeca = 0;
+      const absPercent = formData.porcentaje_absorcion || 0;
+      if (absPercent > 0) {
+        drSeca = drSSS / (1 + (absPercent / 100));
+      }
       
       setFormData(prev => ({
         ...prev,
         densidad_relativa_sss: Number(drSSS.toFixed(3)),
-        densidad_relativa_seca: 0, // Se calcularía con absorción
-        absorcion: 0 // Se debe ingresar o calcular por separado
+        densidad_relativa_seca: Number(drSeca.toFixed(3)),
+        absorcion: absPercent
       }));
     }
   };
@@ -685,11 +689,13 @@ export default function DensidadForm({
                   <ul className="mt-2 space-y-1 ml-4">
                     <li>• <strong>M<sub>ag</sub><sup>SSS</sup></strong> = Masa de la muestra SSS en aire (kg)</li>
                     <li>• <strong>M<sub>a</sub></strong> = Masa del agua desalojada a razón de 1 dm³ por kg</li>
+                    <li>• <strong>%Abs</strong> = Porcentaje de absorción (necesario para densidad seca)</li>
                   </ul>
                   <div className="mt-3 p-2 bg-white rounded border border-blue-300">
-                    <strong>Método del Picnómetro Tipo Sifón (Ecuación 11):</strong>
+                    <strong>Fórmulas del Método del Picnómetro Tipo Sifón:</strong>
                     <div className="mt-1 space-y-1 font-mono text-xs">
                       <div>• <strong>D<sub>r</sub> SSS = M<sub>ag</sub><sup>SSS</sup> / M<sub>a</sub></strong></div>
+                      <div>• <strong>D<sub>r</sub> seca = D<sub>r</sub> SSS / (1 + (%Abs/100))</strong></div>
                     </div>
                   </div>
                 </AlertDescription>
@@ -735,24 +741,60 @@ export default function DensidadForm({
                   )}
                   <p className="text-xs text-gray-500">Masa del agua desalojada a razón de 1 dm³ por kg</p>
                 </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="porcentaje_absorcion_grava" className="flex items-center gap-2">
+                    <span>Porcentaje de Absorción</span>
+                    <Badge variant="outline" className="text-xs font-mono">%Abs</Badge>
+                  </Label>
+                  <Input
+                    id="porcentaje_absorcion_grava"
+                    type="number"
+                    step="0.01"
+                    value={formData.porcentaje_absorcion || ''}
+                    onChange={(e) => handleInputChange('porcentaje_absorcion', e.target.value)}
+                    className={errors.porcentaje_absorcion ? 'border-red-500' : ''}
+                    placeholder="1.5"
+                  />
+                  {errors.porcentaje_absorcion && (
+                    <p className="text-sm text-red-600">{errors.porcentaje_absorcion}</p>
+                  )}
+                  <p className="text-xs text-gray-500">% Absorción (necesario para calcular densidad seca)</p>
+                </div>
               </div>
               
               {/* Mostrar el cálculo de Dr SSS */}
               {formData.masa_muestra_sss_grava && formData.masa_agua_desalojada && 
                formData.masa_muestra_sss_grava > 0 && formData.masa_agua_desalojada > 0 && (
                 <div className="mt-4 p-4 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/30">
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <Calculator className="h-5 w-5 text-[#069e2d]" />
-                      <span className="font-medium text-[#069e2d]">Cálculo de Densidad Relativa SSS:</span>
+                      <span className="font-medium text-[#069e2d]">Cálculos Intermedios:</span>
                     </div>
+                    
+                    {/* Cálculo Dr SSS */}
                     <div className="text-sm font-mono bg-white p-3 rounded border space-y-1">
+                      <div className="font-semibold text-gray-700">Densidad Relativa SSS:</div>
                       <div>D<sub>r</sub> SSS = M<sub>ag</sub><sup>SSS</sup> / M<sub>a</sub></div>
                       <div>D<sub>r</sub> SSS = {formData.masa_muestra_sss_grava.toFixed(3)} / {formData.masa_agua_desalojada.toFixed(3)}</div>
                       <div className="text-[#069e2d] font-bold">
                         D<sub>r</sub> SSS = {(formData.masa_muestra_sss_grava / formData.masa_agua_desalojada).toFixed(3)} (adimensional)
                       </div>
                     </div>
+
+                    {/* Cálculo Dr Seca si hay absorción */}
+                    {formData.porcentaje_absorcion && formData.porcentaje_absorcion > 0 && (
+                      <div className="text-sm font-mono bg-white p-3 rounded border space-y-1">
+                        <div className="font-semibold text-gray-700">Densidad Relativa Seca:</div>
+                        <div>D<sub>r</sub> seca = D<sub>r</sub> SSS / (1 + (%Abs/100))</div>
+                        <div>D<sub>r</sub> seca = {(formData.masa_muestra_sss_grava / formData.masa_agua_desalojada).toFixed(3)} / (1 + ({formData.porcentaje_absorcion.toFixed(2)}/100))</div>
+                        <div>D<sub>r</sub> seca = {(formData.masa_muestra_sss_grava / formData.masa_agua_desalojada).toFixed(3)} / {(1 + formData.porcentaje_absorcion/100).toFixed(4)}</div>
+                        <div className="text-blue-600 font-bold">
+                          D<sub>r</sub> seca = {((formData.masa_muestra_sss_grava / formData.masa_agua_desalojada) / (1 + formData.porcentaje_absorcion/100)).toFixed(3)} (adimensional)
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -919,14 +961,65 @@ export default function DensidadForm({
 
                 <Separator />
 
+                {/* Densidad Relativa Seca */}
+                {formData.porcentaje_absorcion && formData.porcentaje_absorcion > 0 ? (
+                  <>
+                    <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="flex items-center gap-2">
+                        <Scale className="h-5 w-5 text-blue-600" />
+                        <span className="font-medium text-blue-800">Densidad Relativa Seca (D<sub>r</sub> seca):</span>
+                      </div>
+                      <Badge className="bg-blue-600 text-white text-xl px-4 py-2">
+                        {formData.densidad_relativa_seca.toFixed(3)}
+                      </Badge>
+                    </div>
+                    
+                    <div className="p-3 bg-gray-50 rounded-lg">
+                      <div className="text-sm text-gray-600 mb-1">Fórmula:</div>
+                      <div className="text-xs font-mono bg-white p-2 rounded border space-y-1">
+                        <div><strong>D<sub>r</sub> seca = D<sub>r</sub> SSS / (1 + (%Abs/100))</strong></div>
+                        <div className="text-gray-600 mt-1">Donde:</div>
+                        <div>• D<sub>r</sub> seca = Densidad relativa seca (adimensional)</div>
+                        <div>• D<sub>r</sub> SSS = Densidad relativa SSS (adimensional)</div>
+                        <div>• %Abs = Porcentaje de absorción</div>
+                      </div>
+                      <div className="mt-2 text-xs bg-blue-50 p-2 rounded border border-blue-200 text-blue-800">
+                        <strong>Cálculo:</strong> D<sub>r</sub> seca = {formData.densidad_relativa_sss.toFixed(3)} / (1 + ({formData.porcentaje_absorcion.toFixed(2)}/100)) = {formData.densidad_relativa_sss.toFixed(3)} / {(1 + formData.porcentaje_absorcion/100).toFixed(4)} = {formData.densidad_relativa_seca.toFixed(3)}
+                      </div>
+                    </div>
+
+                    <Separator />
+
+                    {/* Absorción */}
+                    <div className="p-4 bg-[#069e2d]/10 rounded-lg border border-[#069e2d]/20">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Droplets className="h-5 w-5 text-[#069e2d]" />
+                          <span className="font-medium text-[#069e2d]">Porcentaje de Absorción:</span>
+                        </div>
+                        <Badge className="bg-[#069e2d] text-white text-xl px-4 py-2">
+                          {formData.absorcion.toFixed(2)}%
+                        </Badge>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <Alert>
+                    <Info className="h-4 w-4" />
+                    <AlertDescription className="text-sm">
+                      <strong>Nota:</strong> Para calcular la densidad relativa seca, ingrese el porcentaje de absorción en el campo correspondiente.
+                      El valor de absorción se puede obtener del estudio de absorción según la norma NMX-C-164-ONNCCE-2014.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                <Separator />
+
                 <Alert>
                   <Info className="h-4 w-4" />
                   <AlertDescription className="text-sm">
                     <strong>Nota:</strong> La densidad relativa SSS es un valor adimensional que representa la relación entre la masa de la muestra y el volumen de agua desplazada. 
                     Este valor es fundamental para el diseño de mezclas de concreto y para determinar la calidad del agregado grueso.
-                    <div className="mt-2 text-xs text-gray-600">
-                      Para obtener otros valores como densidad seca o absorción, se requiere realizar ensayos adicionales según la norma NMX-C-164-ONNCCE-2014.
-                    </div>
                   </AlertDescription>
                 </Alert>
               </>
