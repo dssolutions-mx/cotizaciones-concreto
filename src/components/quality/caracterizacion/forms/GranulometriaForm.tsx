@@ -1015,7 +1015,7 @@ export default function GranulometriaForm({
       {/* Curva Granulométrica */}
       {estudioInfo && formData.peso_muestra_inicial > 0 && (
         <CurvaGranulometrica 
-          mallas={formData.mallas}
+          mallas={getMallasRelevantes()}
           limites={limites}
           tipoMaterial={estudioInfo.tipo_material}
           tamaño={selectedTamaño}
