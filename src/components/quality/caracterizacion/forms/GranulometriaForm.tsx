@@ -122,6 +122,7 @@ export default function GranulometriaForm({
   const [selectedTamaño, setSelectedTamaño] = useState<string>('');
   const [loadingEstudio, setLoadingEstudio] = useState(true);
   const [loadingLimites, setLoadingLimites] = useState(false);
+  const [hasInitialData] = useState<boolean>(!!initialData);
 
   // Cargar información del estudio al montar
   useEffect(() => {
@@ -135,33 +136,9 @@ export default function GranulometriaForm({
     }
   }, [estudioInfo, selectedTamaño]);
 
-  // Prellenar con 0 las mallas relevantes cuando se cargan los límites
-  useEffect(() => {
-    if (limites.length > 0) {
-      // Crear mapa de mallas con límites (normalizado)
-      const mallasConLimitesMap = new Map<string, any>();
-      limites.forEach(limite => {
-        const mallaLimpia = normalizarNombreMalla(limite.malla);
-        mallasConLimitesMap.set(mallaLimpia, limite);
-      });
-
-      setFormData(prev => {
-        const mallasActualizadas = prev.mallas.map(malla => {
-          const nombreNormalizado = normalizarNombreMalla(malla.numero_malla);
-          const esRelevante = mallasConLimitesMap.has(nombreNormalizado);
-          
-          // Si la malla es relevante y su peso_retenido es null, establecerlo en 0
-          if (esRelevante && malla.peso_retenido === null) {
-            return { ...malla, peso_retenido: 0 };
-          }
-          // Si la malla NO es relevante, mantenerla en null
-          return malla;
-        });
-        
-        return { ...prev, mallas: mallasActualizadas };
-      });
-    }
-  }, [limites]);
+  // Los límites se cargan pero NO se pre-llenan los valores
+  // El usuario debe ingresar manualmente todos los pesos retenidos
+  // Este comportamiento se eliminó para evitar valores por defecto no deseados
 
   const cargarInfoEstudio = async () => {
     try {
@@ -367,8 +344,8 @@ export default function GranulometriaForm({
   };
 
   const handlePesoRetenidoChange = (mallaId: string, value: string) => {
-    // Si el campo está vacío, establecer en 0 (para mallas relevantes)
-    const peso = value === '' ? 0 : parseFloat(value) || 0;
+    // Si el campo está vacío, establecer null para indicar que no hay datos ingresados
+    const peso = value === '' ? null : parseFloat(value);
     setFormData(prev => {
       const mallasActualizadas = prev.mallas.map(malla =>
         malla.id === mallaId 
@@ -437,6 +414,28 @@ export default function GranulometriaForm({
     }
   };
 
+  const handleLimpiarDatos = () => {
+    if (window.confirm('¿Está seguro de que desea limpiar todos los datos ingresados? Esta acción no se puede deshacer.')) {
+      setFormData({
+        mallas: MALLAS_ESTANDAR.map((malla, index) => ({
+          id: `malla-${index}`,
+          ...malla,
+          peso_retenido: null,
+          porcentaje_retenido: 0,
+          porcentaje_acumulado: 0,
+          porcentaje_pasa: 100
+        })),
+        peso_muestra_inicial: 0,
+        peso_total_retenido: 0,
+        perdida_lavado: 0,
+        modulo_finura: 0,
+        tamaño_maximo_nominal: '',
+        observaciones: ''
+      });
+      toast.success('Datos limpiados exitosamente');
+    }
+  };
+
   if (loadingEstudio) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -448,6 +447,17 @@ export default function GranulometriaForm({
 
   return (
     <div className="space-y-6">
+      {/* Alerta de datos guardados */}
+      {hasInitialData && (
+        <Alert className="border-amber-500 bg-amber-50">
+          <AlertCircle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-800">
+            <strong>Atención:</strong> Este análisis contiene datos previamente guardados. Si desea empezar de nuevo, 
+            utilice el botón "Limpiar Datos" al final del formulario.
+          </AlertDescription>
+        </Alert>
+      )}
+      
       {/* Header */}
       <Card>
         <CardHeader>
@@ -1065,23 +1075,36 @@ export default function GranulometriaForm({
       {/* Botones de Acción */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex justify-end space-x-4">
-            <Button variant="outline" onClick={onCancel} disabled={saving}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} disabled={saving || isLoading}>
-              {saving ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Guardando...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4 mr-2" />
-                  Guardar Análisis
-                </>
-              )}
-            </Button>
+          <div className="flex justify-between items-center">
+            {hasInitialData && (
+              <Button 
+                variant="outline" 
+                onClick={handleLimpiarDatos} 
+                disabled={saving}
+                className="border-red-500 text-red-500 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Limpiar Datos
+              </Button>
+            )}
+            <div className={`flex space-x-4 ${!hasInitialData ? 'ml-auto' : ''}`}>
+              <Button variant="outline" onClick={onCancel} disabled={saving}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSave} disabled={saving || isLoading}>
+                {saving ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Guardando...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Guardar Análisis
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
