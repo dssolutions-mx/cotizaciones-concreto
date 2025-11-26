@@ -6,7 +6,7 @@ import RoleGuard from '@/components/auth/RoleGuard';
 import { Search, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { PortalUsersTable } from '@/components/admin/client-portal/PortalUsersTable';
+import { PortalUserCard } from '@/components/admin/client-portal/PortalUserCard';
 import { CreatePortalUserModal } from '@/components/admin/client-portal/CreatePortalUserModal';
 import { useToast } from '@/components/ui/use-toast';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -14,6 +14,7 @@ import { ErrorBoundary } from '@/components/admin/client-portal/ErrorBoundary';
 import type { PortalUser } from '@/lib/supabase/clientPortalAdmin';
 
 function ClientPortalUsersContent() {
+  // Call useSearchParams unconditionally at the top level
   const searchParams = useSearchParams();
   const [users, setUsers] = useState<PortalUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -26,6 +27,9 @@ function ClientPortalUsersContent() {
 
   // Debounce search term to prevent excessive filtering
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
+  
+  // Extract client filter from search params early to avoid issues
+  const clientFilter = searchParams?.get('clientId') || null;
 
   // Retry logic helper
   const retryFetch = useCallback(async (
@@ -129,14 +133,18 @@ function ClientPortalUsersContent() {
   }, [fetchUsers]);
 
   // Memoize filtered users to prevent unnecessary recalculations
+  // Use clientFilter variable instead of calling searchParams.get() inside useMemo
   const filteredUsers = useMemo(() => {
-    let filtered = users;
-    const clientFilter = searchParams.get('clientId');
+    if (!users || users.length === 0) {
+      return [];
+    }
+    
+    let filtered = [...users];
 
     // Apply client filter if set
     if (clientFilter) {
       filtered = filtered.filter((user) =>
-        user.client_associations.some((assoc) => assoc.client_id === clientFilter)
+        user.client_associations?.some((assoc) => assoc.client_id === clientFilter) || false
       );
     }
 
@@ -145,19 +153,19 @@ function ClientPortalUsersContent() {
       const term = debouncedSearchTerm.toLowerCase();
       filtered = filtered.filter(
         (user) =>
-          user.email.toLowerCase().includes(term) ||
+          user.email?.toLowerCase().includes(term) ||
           (user.first_name?.toLowerCase().includes(term) || false) ||
           (user.last_name?.toLowerCase().includes(term) || false) ||
-          user.client_associations.some(
+          user.client_associations?.some(
             (assoc) =>
-              assoc.client_name.toLowerCase().includes(term) ||
-              assoc.client_code.toLowerCase().includes(term)
-          )
+              assoc.client_name?.toLowerCase().includes(term) ||
+              assoc.client_code?.toLowerCase().includes(term)
+          ) || false
       );
     }
 
     return filtered;
-  }, [users, debouncedSearchTerm, searchParams]);
+  }, [users, debouncedSearchTerm, clientFilter]);
 
   // Memoize refresh handler
   const handleRefresh = useCallback(() => {
@@ -216,11 +224,31 @@ function ClientPortalUsersContent() {
           />
         </div>
 
-        <PortalUsersTable
-          users={filteredUsers}
-          loading={loading}
-          onRefresh={handleRefresh}
-        />
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            <span className="ml-2 text-gray-600">Cargando usuarios...</span>
+          </div>
+        ) : filteredUsers.length === 0 ? (
+          <div className="glass-base rounded-xl p-12 text-center border">
+            <p className="text-gray-500">
+              {searchTerm
+                ? 'No se encontraron usuarios que coincidan con la búsqueda'
+                : 'No se encontraron usuarios del portal'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredUsers.map((user, index) => (
+              <PortalUserCard
+                key={user.id}
+                user={user}
+                onRefresh={handleRefresh}
+                delay={index * 0.05}
+              />
+            ))}
+          </div>
+        )}
 
         <CreatePortalUserModal
           open={createModalOpen}

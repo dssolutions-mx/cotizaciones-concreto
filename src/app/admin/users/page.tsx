@@ -1,12 +1,25 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { UserRole } from '@/store/auth/types';
 import RoleGuard from '@/components/auth/RoleGuard';
 import Link from 'next/link';
 import { authService } from '@/lib/supabase/auth';
-import { Search, Edit2, Save, X, UserMinus, UserPlus, Building2 } from 'lucide-react';
+import { Search, UserPlus, Filter, Download } from 'lucide-react';
 import { usePlantContext } from '@/contexts/PlantContext';
+import { UserCard } from '@/components/admin/users/UserCard';
+import { UserEditModal } from '@/components/admin/users/UserEditModal';
+import { BulkActionsBar } from '@/components/admin/users/BulkActionsBar';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { useToast } from '@/components/ui/use-toast';
 import UserPlantAssignment from '@/components/plants/UserPlantAssignment';
 
 interface UserData {
@@ -26,31 +39,19 @@ interface UserData {
 
 export default function UserManagementPage() {
   const [users, setUsers] = useState<UserData[]>([]);
-  const [filteredUsers, setFilteredUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<UserData | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const { availablePlants, businessUnits } = usePlantContext();
+  const { toast } = useToast();
 
   useEffect(() => {
     fetchUsers();
   }, []);
-
-  useEffect(() => {
-    if (searchTerm.trim() === '') {
-      setFilteredUsers(users);
-    } else {
-      const term = searchTerm.toLowerCase();
-      const filtered = users.filter(
-        user => 
-          (user.first_name?.toLowerCase().includes(term) || 
-           user.last_name?.toLowerCase().includes(term) || 
-           user.email.toLowerCase().includes(term))
-      );
-      setFilteredUsers(filtered);
-    }
-  }, [searchTerm, users]);
 
   const fetchUsers = async () => {
     try {
@@ -66,25 +67,34 @@ export default function UserManagementPage() {
     }
   };
 
-  const handleRoleChange = async (userId: string, newRole: UserRole) => {
-    try {
-      setLoading(true);
-      await authService.updateUserRole(userId, newRole);
-      
-      // Update local state
-      setUsers(users.map(user => 
-        user.id === userId ? { ...user, role: newRole } : user
-      ));
-      
-      setEditingUser(null);
-    } catch (err: unknown) {
-      console.error('Error updating role:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Error al actualizar el rol';
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
+  const filteredUsers = useMemo(() => {
+    let filtered = users;
+
+    // Apply search filter
+    if (searchTerm.trim() !== '') {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        user =>
+          (user.first_name?.toLowerCase().includes(term) ||
+           user.last_name?.toLowerCase().includes(term) ||
+           user.email.toLowerCase().includes(term))
+      );
     }
-  };
+
+    // Apply role filter
+    if (roleFilter !== 'all') {
+      filtered = filtered.filter(user => user.role === roleFilter);
+    }
+
+    // Apply status filter
+    if (statusFilter === 'active') {
+      filtered = filtered.filter(user => user.is_active !== false);
+    } else if (statusFilter === 'inactive') {
+      filtered = filtered.filter(user => user.is_active === false);
+    }
+
+    return filtered;
+  }, [users, searchTerm, roleFilter, statusFilter]);
 
   const handleUserStatusToggle = async (userId: string, isCurrentlyActive: boolean) => {
     try {
@@ -94,19 +104,53 @@ export default function UserManagementPage() {
       } else {
         await authService.reactivateUser(userId);
       }
-      
-      // Update local state
-      setUsers(users.map(user => 
+
+      setUsers(users.map(user =>
         user.id === userId ? { ...user, is_active: !isCurrentlyActive } : user
       ));
-      
+
+      toast({
+        title: 'Éxito',
+        description: `Usuario ${isCurrentlyActive ? 'desactivado' : 'activado'} correctamente`,
+      });
     } catch (err: unknown) {
       console.error('Error updating user status:', err);
       const errorMessage = err instanceof Error ? err.message : 'Error al actualizar el estado del usuario';
-      setError(errorMessage);
+      toast({
+        title: 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditSuccess = () => {
+    fetchUsers();
+    setEditingUser(null);
+  };
+
+  const handleExport = () => {
+    const csv = [
+      ['Nombre', 'Email', 'Rol', 'Estado', 'Planta', 'Fecha Creación'].join(','),
+      ...filteredUsers.map(user =>
+        [
+          `"${(user.first_name || '')} ${(user.last_name || '')}"`.trim() || 'Sin nombre',
+          user.email,
+          user.role,
+          user.is_active !== false ? 'Activo' : 'Inactivo',
+          user.plant_name || user.business_unit_name || 'Global',
+          new Date(user.created_at).toLocaleDateString('es-ES'),
+        ].join(',')
+      ),
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `usuarios_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
   };
 
   return (
@@ -120,32 +164,31 @@ export default function UserManagementPage() {
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-3">
-            <Link 
-              href="/admin/client-portal-users"
-              className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-md text-center"
-            >
-              Usuarios del Portal
+            <Link href="/admin/client-portal-users">
+              <Button variant="outline" className="w-full sm:w-auto">
+                Usuarios del Portal
+              </Button>
             </Link>
-            <Link 
-              href="/admin/users/invite"
-              className="bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-md text-center"
-            >
-              Invitar Usuario
+            <Link href="/admin/users/invite">
+              <Button variant="outline" className="w-full sm:w-auto">
+                <UserPlus className="h-4 w-4 mr-2" />
+                Invitar Usuario
+              </Button>
             </Link>
-            <Link 
-              href="/admin/users/create"
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-md text-center"
-            >
-              Crear Usuario
+            <Link href="/admin/users/create">
+              <Button className="w-full sm:w-auto">
+                <UserPlus className="h-4 w-4 mr-2" />
+                Crear Usuario
+              </Button>
             </Link>
           </div>
         </div>
-        
+
         {error && (
           <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md flex justify-between items-center">
             <span>{error}</span>
-            <button 
-              onClick={() => setError(null)} 
+            <button
+              onClick={() => setError(null)}
               className="text-red-500 hover:text-red-700 font-bold"
               aria-label="Cerrar mensaje de error"
             >
@@ -153,203 +196,99 @@ export default function UserManagementPage() {
             </button>
           </div>
         )}
-        
-        <div className="mb-4 relative">
-          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-            <Search className="h-5 w-5 text-gray-400" />
-          </div>
-          <input
-            type="text"
-            placeholder="Buscar usuarios..."
-            className="pl-10 pr-4 py-2 border border-gray-300 rounded-md w-full sm:w-72 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        
-        <div className="bg-white shadow-md rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/5">
-                    Usuario
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/5">
-                    Correo
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
-                    Rol
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/5">
-                    Planta/Unidad
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">
-                    Estado
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
-                    Fecha
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">
-                    Acciones
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {loading ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-4 text-center">
-                      <div className="flex justify-center items-center">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
-                        <span className="ml-2">Cargando usuarios...</span>
-                      </div>
-                    </td>
-                  </tr>
-                ) : filteredUsers.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      {searchTerm ? 'No se encontraron resultados para la búsqueda' : 'No se encontraron usuarios'}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredUsers.map((user) => (
-                    <tr 
-                      key={user.id} 
-                      className={`hover:bg-gray-50 ${!user.is_active ? "bg-gray-50" : ""}`}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="text-sm font-medium text-gray-900">
-                          {user.first_name || ''} {user.last_name || ''}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <UserPlantAssignment 
-                          user={user}
-                          onUpdate={fetchUsers}
-                        />
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-500 truncate max-w-[180px]">{user.email}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {editingUser?.id === user.id ? (
-                          <select
-                            value={editingUser.role}
-                            onChange={(e) => setEditingUser({
-                              ...editingUser,
-                              role: e.target.value as UserRole
-                            })}
-                            className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm 
-                                   focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                          >
-                            <option value="SALES_AGENT">Vendedor</option>
-                            <option value="QUALITY_TEAM">Equipo de Calidad</option>
-                            <option value="PLANT_MANAGER">Jefe de Planta</option>
-                            <option value="EXECUTIVE">Directivo</option>
-                            <option value="CREDIT_VALIDATOR">Validador de Crédito</option>
-                            <option value="DOSIFICADOR">Dosificador</option>
-                          </select>
-                        ) : (
-                          <div className="text-sm text-gray-900">
-                            {user.role === 'SALES_AGENT' && 'Vendedor'}
-                            {user.role === 'QUALITY_TEAM' && 'Equipo de Calidad'}
-                            {user.role === 'PLANT_MANAGER' && 'Jefe de Planta'}
-                            {user.role === 'EXECUTIVE' && 'Directivo'}
-                            {user.role === 'CREDIT_VALIDATOR' && 'Validador de Crédito'}
-                            {user.role === 'DOSIFICADOR' && 'Dosificador'}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-900">
-                          {user.plant_name ? (
-                            <div className="flex items-center">
-                              <Building2 className="h-4 w-4 text-gray-400 mr-2" />
-                              <div>
-                                <div className="font-medium">{user.plant_name}</div>
-                                {user.plant_code && (
-                                  <div className="text-xs text-gray-500">{user.plant_code}</div>
-                                )}
-                              </div>
-                            </div>
-                          ) : user.business_unit_name ? (
-                            <div className="flex items-center">
-                              <Building2 className="h-4 w-4 text-blue-400 mr-2" />
-                              <div>
-                                <div className="font-medium text-blue-600">{user.business_unit_name}</div>
-                                <div className="text-xs text-gray-500">Unidad de Negocio</div>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center text-gray-400">
-                              <Building2 className="h-4 w-4 mr-2" />
-                              <span className="text-sm">Global</span>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span 
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
-                          ${user.is_active !== false ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}
-                        >
-                          {user.is_active !== false ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-500">
-                          {new Date(user.created_at).toLocaleDateString('es-ES', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric'
-                          })}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {editingUser?.id === user.id ? (
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => handleRoleChange(user.id, editingUser.role)}
-                              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-3 py-1 rounded-md text-sm"
-                            >
-                              Guardar
-                            </button>
-                            <button
-                              onClick={() => setEditingUser(null)}
-                              className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1 rounded-md text-sm"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => setEditingUser(user)}
-                              className="bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-3 py-1 rounded-md text-sm"
-                            >
-                              Editar
-                            </button>
-                            <button
-                              onClick={() => handleUserStatusToggle(user.id, user.is_active !== false)}
-                              className={`px-3 py-1 rounded-md text-sm ${
-                                user.is_active !== false 
-                                  ? 'bg-red-50 hover:bg-red-100 text-red-600' 
-                                  : 'bg-green-50 hover:bg-green-100 text-green-600'
-                              }`}
-                            >
-                              {user.is_active !== false ? 'Desactivar' : 'Activar'}
-                            </button>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+
+        {/* Filters */}
+        <div className="glass-base rounded-xl p-4 mb-6 border">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                <Search className="h-5 w-5 text-gray-400" />
+              </div>
+              <Input
+                type="text"
+                placeholder="Buscar usuarios..."
+                className="pl-10"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+
+            <Select value={roleFilter} onValueChange={setRoleFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Filtrar por rol" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los roles</SelectItem>
+                <SelectItem value="SALES_AGENT">Vendedor</SelectItem>
+                <SelectItem value="QUALITY_TEAM">Equipo de Calidad</SelectItem>
+                <SelectItem value="PLANT_MANAGER">Jefe de Planta</SelectItem>
+                <SelectItem value="EXECUTIVE">Directivo</SelectItem>
+                <SelectItem value="CREDIT_VALIDATOR">Validador de Crédito</SelectItem>
+                <SelectItem value="DOSIFICADOR">Dosificador</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Filtrar por estado" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos los estados</SelectItem>
+                <SelectItem value="active">Activos</SelectItem>
+                <SelectItem value="inactive">Inactivos</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Button variant="outline" onClick={handleExport} className="w-full">
+              <Download className="h-4 w-4 mr-2" />
+              Exportar CSV
+            </Button>
           </div>
         </div>
+
+        {/* Users Grid */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            <span className="ml-2 text-gray-600">Cargando usuarios...</span>
+          </div>
+        ) : filteredUsers.length === 0 ? (
+          <div className="glass-base rounded-xl p-12 text-center border">
+            <p className="text-gray-500">
+              {searchTerm || roleFilter !== 'all' || statusFilter !== 'all'
+                ? 'No se encontraron usuarios que coincidan con los filtros'
+                : 'No se encontraron usuarios'}
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredUsers.map((user, index) => (
+              <UserCard
+                key={user.id}
+                user={user}
+                onEdit={setEditingUser}
+                onToggleStatus={handleUserStatusToggle}
+                delay={index * 0.05}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Edit Modal */}
+        <UserEditModal
+          open={!!editingUser}
+          onOpenChange={(open) => !open && setEditingUser(null)}
+          user={editingUser}
+          onSuccess={handleEditSuccess}
+        />
+
+        {/* Bulk Actions Bar */}
+        <BulkActionsBar
+          selectedCount={selectedUsers.size}
+          onDeselectAll={() => setSelectedUsers(new Set())}
+          onBulkExport={handleExport}
+        />
       </div>
     </RoleGuard>
   );
-} 
+}
