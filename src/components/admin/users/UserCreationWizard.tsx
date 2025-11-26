@@ -354,8 +354,8 @@ export function UserCreationWizard() {
                       <span className="text-gray-600">Asignación:</span>
                       <span className="font-medium">
                         {data.plantId 
-                          ? availablePlants?.find(p => p.id === data.plantId)?.name
-                          : businessUnits?.find(bu => bu.id === data.businessUnitId)?.name}
+                          ? (Array.isArray(availablePlants) ? availablePlants.find(p => p?.id === data.plantId)?.name : null)
+                          : (Array.isArray(businessUnits) ? businessUnits.find(bu => bu?.id === data.businessUnitId)?.name : null)}
                       </span>
                     </div>
                   )}

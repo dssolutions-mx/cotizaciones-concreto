@@ -30,7 +30,15 @@ interface DashboardMetrics {
 
 export function AdminDashboard() {
   const router = useRouter();
-  const { availablePlants, businessUnits } = usePlantContext();
+  let plantContext;
+  try {
+    plantContext = usePlantContext();
+  } catch (err) {
+    plantContext = null;
+  }
+  const availablePlants = plantContext?.availablePlants || [];
+  const businessUnits = plantContext?.businessUnits || [];
+  
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     totalUsers: 0,
     activeUsers: 0,
@@ -44,7 +52,9 @@ export function AdminDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadMetrics();
+    if (Array.isArray(availablePlants) && Array.isArray(businessUnits)) {
+      loadMetrics();
+    }
   }, [availablePlants, businessUnits]);
 
   const loadMetrics = async () => {
@@ -59,17 +69,19 @@ export function AdminDashboard() {
       // Load portal users
       const portalUsers = await clientPortalAdminService.getAllPortalUsers();
 
-      // Calculate plant metrics
-      const activePlants = availablePlants?.filter(p => p.is_active) || [];
-      const activeBusinessUnits = businessUnits?.filter(bu => bu.is_active) || [];
+      // Calculate plant metrics with null checks
+      const plants = Array.isArray(availablePlants) ? availablePlants : [];
+      const units = Array.isArray(businessUnits) ? businessUnits : [];
+      const activePlants = plants.filter(p => p?.is_active) || [];
+      const activeBusinessUnits = units.filter(bu => bu?.is_active) || [];
 
       setMetrics({
         totalUsers: users?.length || 0,
         activeUsers: activeUsers.length,
         inactiveUsers: inactiveUsers.length,
-        totalPlants: availablePlants?.length || 0,
+        totalPlants: plants.length || 0,
         activePlants: activePlants.length,
-        totalBusinessUnits: businessUnits?.length || 0,
+        totalBusinessUnits: units.length || 0,
         activeBusinessUnits: activeBusinessUnits.length,
         portalUsers: portalUsers?.length || 0,
       });

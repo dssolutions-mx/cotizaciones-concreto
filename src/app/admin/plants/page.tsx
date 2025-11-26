@@ -1,5 +1,9 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const fetchCache = 'force-no-store';
+
 import { useState, useEffect, useMemo } from 'react';
 import RoleGuard from '@/components/auth/RoleGuard';
 import { Building2, Plus, Search, Filter } from 'lucide-react';
@@ -36,7 +40,18 @@ interface EditingItem {
 }
 
 export default function PlantsManagementPage() {
-  const { availablePlants, businessUnits, refreshPlantData } = usePlantContext();
+  let plantContext;
+  try {
+    plantContext = usePlantContext();
+  } catch (err) {
+    // Context not available during SSR/static generation
+    plantContext = null;
+  }
+  
+  const availablePlants = plantContext?.availablePlants || [];
+  const businessUnits = plantContext?.businessUnits || [];
+  const refreshPlantData = plantContext?.refreshPlantData || (async () => {});
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<EditingItem | null>(null);
@@ -47,45 +62,49 @@ export default function PlantsManagementPage() {
   const { toast } = useToast();
 
   const filteredBusinessUnits = useMemo(() => {
-    let filtered = businessUnits || [];
+    if (!Array.isArray(businessUnits) || businessUnits.length === 0) return [];
+    
+    let filtered = [...businessUnits];
     
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(bu =>
-        bu.name.toLowerCase().includes(term) ||
-        bu.code.toLowerCase().includes(term)
+        bu?.name?.toLowerCase().includes(term) ||
+        bu?.code?.toLowerCase().includes(term)
       );
     }
     
     if (filterType === 'active') {
-      filtered = filtered.filter(bu => bu.is_active);
+      filtered = filtered.filter(bu => bu?.is_active);
     } else if (filterType === 'inactive') {
-      filtered = filtered.filter(bu => !bu.is_active);
+      filtered = filtered.filter(bu => !bu?.is_active);
     }
     
     return filtered;
   }, [businessUnits, searchTerm, filterType]);
 
   const filteredPlants = useMemo(() => {
-    let filtered = availablePlants || [];
+    if (!Array.isArray(availablePlants) || availablePlants.length === 0) return [];
+    
+    let filtered = [...availablePlants];
     
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(plant =>
-        plant.name.toLowerCase().includes(term) ||
-        plant.code.toLowerCase().includes(term) ||
-        plant.location?.toLowerCase().includes(term)
+        plant?.name?.toLowerCase().includes(term) ||
+        plant?.code?.toLowerCase().includes(term) ||
+        plant?.location?.toLowerCase().includes(term)
       );
     }
     
     if (selectedBusinessUnit) {
-      filtered = filtered.filter(plant => plant.business_unit_id === selectedBusinessUnit);
+      filtered = filtered.filter(plant => plant?.business_unit_id === selectedBusinessUnit);
     }
     
     if (filterType === 'active') {
-      filtered = filtered.filter(plant => plant.is_active);
+      filtered = filtered.filter(plant => plant?.is_active);
     } else if (filterType === 'inactive') {
-      filtered = filtered.filter(plant => !plant.is_active);
+      filtered = filtered.filter(plant => !plant?.is_active);
     }
     
     return filtered;
@@ -116,45 +135,50 @@ export default function PlantsManagementPage() {
   };
 
   const handleSave = async () => {
-    if (!editing) return;
+    if (!editing || !editing.data) return;
 
     try {
       setLoading(true);
       setError(null);
 
+      const dataToSave = { ...editing.data };
+      const editingId = editing.id;
+
       if (editing.type === 'business_unit') {
-        if (editing.id) {
+        if (editingId) {
           const { error } = await supabase
             .from('business_units')
-            .update(editing.data)
-            .eq('id', editing.id);
+            .update(dataToSave)
+            .eq('id', editingId);
           if (error) throw error;
         } else {
           const { error } = await supabase
             .from('business_units')
-            .insert([editing.data]);
+            .insert([dataToSave]);
           if (error) throw error;
         }
       } else {
-        if (editing.id) {
+        if (editingId) {
           const { error } = await supabase
             .from('plants')
-            .update(editing.data)
-            .eq('id', editing.id);
+            .update(dataToSave)
+            .eq('id', editingId);
           if (error) throw error;
         } else {
           const { error } = await supabase
             .from('plants')
-            .insert([editing.data]);
+            .insert([dataToSave]);
           if (error) throw error;
         }
       }
 
-      await refreshPlantData();
+      if (refreshPlantData) {
+        await refreshPlantData();
+      }
       setEditing(null);
       toast({
         title: 'Éxito',
-        description: editing.id ? 'Elemento actualizado correctamente' : 'Elemento creado correctamente',
+        description: editingId ? 'Elemento actualizado correctamente' : 'Elemento creado correctamente',
       });
     } catch (err) {
       console.error('Error saving:', err);
@@ -191,7 +215,9 @@ export default function PlantsManagementPage() {
         if (error) throw error;
       }
 
-      await refreshPlantData();
+      if (refreshPlantData) {
+        await refreshPlantData();
+      }
       toast({
         title: 'Éxito',
         description: 'Elemento desactivado correctamente',
@@ -211,7 +237,7 @@ export default function PlantsManagementPage() {
   };
 
   const updateEditingData = (field: string, value: string | boolean) => {
-    if (!editing) return;
+    if (!editing || !editing.data) return;
     setEditing({
       ...editing,
       data: { ...editing.data, [field]: value }
@@ -219,7 +245,8 @@ export default function PlantsManagementPage() {
   };
 
   const getPlantCountForBU = (buId: string) => {
-    return availablePlants?.filter(p => p.business_unit_id === buId).length || 0;
+    if (!Array.isArray(availablePlants)) return 0;
+    return availablePlants.filter(p => p?.business_unit_id === buId).length;
   };
 
   return (
@@ -289,9 +316,9 @@ export default function PlantsManagementPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todas las unidades</SelectItem>
-                {businessUnits?.map((bu) => (
-                  <SelectItem key={bu.id} value={bu.id}>
-                    {bu.name}
+                {Array.isArray(businessUnits) && businessUnits.map((bu) => (
+                  <SelectItem key={bu?.id} value={bu?.id}>
+                    {bu?.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -374,93 +401,95 @@ export default function PlantsManagementPage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-4 py-4">
-              {editing?.type === 'business_unit' ? (
-                <>
-                  <div>
-                    <Label htmlFor="bu-code">Código *</Label>
-                    <Input
-                      id="bu-code"
-                      value={(editing.data as Partial<BusinessUnit>).code || ''}
-                      onChange={(e) => updateEditingData('code', e.target.value)}
-                      className="mt-1"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="bu-name">Nombre *</Label>
-                    <Input
-                      id="bu-name"
-                      value={(editing.data as Partial<BusinessUnit>).name || ''}
-                      onChange={(e) => updateEditingData('name', e.target.value)}
-                      className="mt-1"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="bu-description">Descripción</Label>
-                    <textarea
-                      id="bu-description"
-                      value={(editing.data as Partial<BusinessUnit>).description || ''}
-                      onChange={(e) => updateEditingData('description', e.target.value)}
-                      className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md"
-                      rows={3}
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <Label htmlFor="plant-code">Código *</Label>
-                    <Input
-                      id="plant-code"
-                      value={(editing.data as Partial<Plant>).code || ''}
-                      onChange={(e) => updateEditingData('code', e.target.value)}
-                      className="mt-1"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="plant-name">Nombre *</Label>
-                    <Input
-                      id="plant-name"
-                      value={(editing.data as Partial<Plant>).name || ''}
-                      onChange={(e) => updateEditingData('name', e.target.value)}
-                      className="mt-1"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="plant-location">Ubicación</Label>
-                    <Input
-                      id="plant-location"
-                      value={(editing.data as Partial<Plant>).location || ''}
-                      onChange={(e) => updateEditingData('location', e.target.value)}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="plant-bu">Unidad de Negocio</Label>
-                    <Select
-                      value={(editing.data as Partial<Plant>).business_unit_id || ''}
-                      onValueChange={(value) => updateEditingData('business_unit_id', value)}
-                    >
-                      <SelectTrigger id="plant-bu" className="mt-1">
-                        <SelectValue placeholder="Seleccionar unidad" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Ninguna</SelectItem>
-                        {businessUnits?.map((bu) => (
-                          <SelectItem key={bu.id} value={bu.id}>
-                            {bu.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
-            </div>
+            {editing && editing.data && (
+              <div className="space-y-4 py-4">
+                {editing.type === 'business_unit' ? (
+                  <>
+                    <div>
+                      <Label htmlFor="bu-code">Código *</Label>
+                      <Input
+                        id="bu-code"
+                        value={(editing.data as Partial<BusinessUnit>).code || ''}
+                        onChange={(e) => updateEditingData('code', e.target.value)}
+                        className="mt-1"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="bu-name">Nombre *</Label>
+                      <Input
+                        id="bu-name"
+                        value={(editing.data as Partial<BusinessUnit>).name || ''}
+                        onChange={(e) => updateEditingData('name', e.target.value)}
+                        className="mt-1"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="bu-description">Descripción</Label>
+                      <textarea
+                        id="bu-description"
+                        value={(editing.data as Partial<BusinessUnit>).description || ''}
+                        onChange={(e) => updateEditingData('description', e.target.value)}
+                        className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md"
+                        rows={3}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <Label htmlFor="plant-code">Código *</Label>
+                      <Input
+                        id="plant-code"
+                        value={(editing.data as Partial<Plant>).code || ''}
+                        onChange={(e) => updateEditingData('code', e.target.value)}
+                        className="mt-1"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="plant-name">Nombre *</Label>
+                      <Input
+                        id="plant-name"
+                        value={(editing.data as Partial<Plant>).name || ''}
+                        onChange={(e) => updateEditingData('name', e.target.value)}
+                        className="mt-1"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="plant-location">Ubicación</Label>
+                      <Input
+                        id="plant-location"
+                        value={(editing.data as Partial<Plant>).location || ''}
+                        onChange={(e) => updateEditingData('location', e.target.value)}
+                        className="mt-1"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="plant-bu">Unidad de Negocio</Label>
+                      <Select
+                        value={(editing.data as Partial<Plant>).business_unit_id || ''}
+                        onValueChange={(value) => updateEditingData('business_unit_id', value)}
+                      >
+                        <SelectTrigger id="plant-bu" className="mt-1">
+                          <SelectValue placeholder="Seleccionar unidad" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">Ninguna</SelectItem>
+                          {Array.isArray(businessUnits) && businessUnits.map((bu) => (
+                            <SelectItem key={bu?.id} value={bu?.id}>
+                              {bu?.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
 
             <div className="flex justify-end gap-2 pt-4 border-t">
               <Button variant="outline" onClick={() => setEditing(null)} disabled={loading}>

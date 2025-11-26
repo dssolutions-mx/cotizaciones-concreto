@@ -1,5 +1,9 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const fetchCache = 'force-no-store';
+
 import { useState, useEffect, useMemo } from 'react';
 import type { UserRole } from '@/store/auth/types';
 import RoleGuard from '@/components/auth/RoleGuard';
@@ -104,11 +108,11 @@ export default function UserManagementPage() {
       } else {
         await authService.reactivateUser(userId);
       }
-
-      setUsers(users.map(user =>
+      
+      setUsers(users.map(user => 
         user.id === userId ? { ...user, is_active: !isCurrentlyActive } : user
       ));
-
+      
       toast({
         title: 'Éxito',
         description: `Usuario ${isCurrentlyActive ? 'desactivado' : 'activado'} correctamente`,
@@ -166,29 +170,29 @@ export default function UserManagementPage() {
           <div className="flex flex-col sm:flex-row gap-3">
             <Link href="/admin/client-portal-users">
               <Button variant="outline" className="w-full sm:w-auto">
-                Usuarios del Portal
+              Usuarios del Portal
               </Button>
             </Link>
             <Link href="/admin/users/invite">
               <Button variant="outline" className="w-full sm:w-auto">
                 <UserPlus className="h-4 w-4 mr-2" />
-                Invitar Usuario
+              Invitar Usuario
               </Button>
             </Link>
             <Link href="/admin/users/create">
               <Button className="w-full sm:w-auto">
                 <UserPlus className="h-4 w-4 mr-2" />
-                Crear Usuario
+              Crear Usuario
               </Button>
             </Link>
           </div>
         </div>
-
+        
         {error && (
           <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md flex justify-between items-center">
             <span>{error}</span>
-            <button
-              onClick={() => setError(null)}
+            <button 
+              onClick={() => setError(null)} 
               className="text-red-500 hover:text-red-700 font-bold"
               aria-label="Cerrar mensaje de error"
             >
@@ -196,23 +200,23 @@ export default function UserManagementPage() {
             </button>
           </div>
         )}
-
+        
         {/* Filters */}
         <div className="glass-base rounded-xl p-4 mb-6 border">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="relative">
-              <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                <Search className="h-5 w-5 text-gray-400" />
-              </div>
+          <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+            <Search className="h-5 w-5 text-gray-400" />
+          </div>
               <Input
-                type="text"
-                placeholder="Buscar usuarios..."
+            type="text"
+            placeholder="Buscar usuarios..."
                 className="pl-10"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        
             <Select value={roleFilter} onValueChange={setRoleFilter}>
               <SelectTrigger>
                 <SelectValue placeholder="Filtrar por rol" />
@@ -243,15 +247,15 @@ export default function UserManagementPage() {
               <Download className="h-4 w-4 mr-2" />
               Exportar CSV
             </Button>
-          </div>
-        </div>
+                              </div>
+                            </div>
 
         {/* Users Grid */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
             <span className="ml-2 text-gray-600">Cargando usuarios...</span>
-          </div>
+                              </div>
         ) : filteredUsers.length === 0 ? (
           <div className="glass-base rounded-xl p-12 text-center border">
             <p className="text-gray-500">
@@ -259,8 +263,8 @@ export default function UserManagementPage() {
                 ? 'No se encontraron usuarios que coincidan con los filtros'
                 : 'No se encontraron usuarios'}
             </p>
-          </div>
-        ) : (
+                            </div>
+                          ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredUsers.map((user, index) => (
               <UserCard
@@ -291,4 +295,4 @@ export default function UserManagementPage() {
       </div>
     </RoleGuard>
   );
-}
+} 

@@ -1,5 +1,9 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+export const fetchCache = 'force-no-store';
+
 import React, { useState, useMemo } from 'react';
 import RoleGuard from '@/components/auth/RoleGuard';
 import { Shield, Users, Check, X, Search } from 'lucide-react';

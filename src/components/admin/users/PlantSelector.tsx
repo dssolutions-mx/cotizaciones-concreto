@@ -18,12 +18,19 @@ export function PlantSelector({
   onPlantChange,
   onBusinessUnitChange,
 }: PlantSelectorProps) {
-  const { availablePlants, businessUnits } = usePlantContext();
+  let plantContext;
+  try {
+    plantContext = usePlantContext();
+  } catch (err) {
+    plantContext = null;
+  }
+  const availablePlants = plantContext?.availablePlants || [];
+  const businessUnits = plantContext?.businessUnits || [];
 
   return (
     <div className="space-y-6">
       {/* Business Units */}
-      {businessUnits && businessUnits.length > 0 && (
+      {businessUnits && Array.isArray(businessUnits) && businessUnits.length > 0 && (
         <div>
           <h3 className="text-lg font-semibold mb-3">Unidades de Negocio</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -76,7 +83,7 @@ export function PlantSelector({
       )}
 
       {/* Plants */}
-      {availablePlants && availablePlants.length > 0 && (
+      {availablePlants && Array.isArray(availablePlants) && availablePlants.length > 0 && (
         <div>
           <h3 className="text-lg font-semibold mb-3">Plantas</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
