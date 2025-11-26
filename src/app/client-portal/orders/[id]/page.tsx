@@ -37,6 +37,7 @@ interface OrderDetail {
   delivery_date: string;
   delivery_time?: string;
   order_status: string;
+  client_approval_status?: string;
   total_amount: number;
   elemento?: string;
   special_requirements?: string;
@@ -58,6 +59,54 @@ interface OrderDetail {
     empty_truck_volume?: number;
     empty_truck_price?: number;
   }>;
+}
+
+// Helper function to get the combined status for client portal display
+function getCombinedStatus(order: OrderDetail | undefined): { variant: any; label: string } {
+  if (!order) return { variant: 'neutral', label: 'Cargando...' };
+  
+  const { order_status, credit_status, client_approval_status } = order;
+  
+  // Check client approval status first (pending client executive approval)
+  if (client_approval_status === 'pending_client') {
+    return { variant: 'warning', label: 'Pendiente de Aprobación' };
+  }
+  
+  // Check if order was rejected by client
+  if (client_approval_status === 'rejected_by_client') {
+    return { variant: 'error', label: 'Rechazado por Cliente' };
+  }
+  
+  // Order is approved by client or doesn't need approval - check credit status
+  if (client_approval_status === 'approved_by_client' || client_approval_status === 'not_required') {
+    if (credit_status === 'pending') {
+      return { variant: 'secondary', label: 'Pendiente de Crédito' };
+    }
+    if (credit_status === 'approved') {
+      // Credit approved - now check order status for delivery progress
+      if (order_status === 'in_progress') {
+        return { variant: 'primary', label: 'En Progreso' };
+      }
+      if (order_status === 'completed') {
+        return { variant: 'success', label: 'Completado' };
+      }
+      return { variant: 'success', label: 'Aprobado' };
+    }
+    if (credit_status === 'rejected') {
+      return { variant: 'error', label: 'Crédito Rechazado' };
+    }
+  }
+  
+  // Fallback to order_status based display
+  const statusConfig: Record<string, { variant: any; label: string }> = {
+    created: { variant: 'neutral', label: 'Creado' },
+    validated: { variant: 'success', label: 'Validado' },
+    in_progress: { variant: 'primary', label: 'En Progreso' },
+    completed: { variant: 'success', label: 'Completado' },
+    cancelled: { variant: 'error', label: 'Cancelado' }
+  };
+  
+  return statusConfig[order_status] || { variant: 'neutral', label: 'Creado' };
 }
 
 const statusConfig: Record<string, { variant: any; label: string }> = {
@@ -210,8 +259,8 @@ export default function OrderDetailPage() {
               <h2 className="text-title-2 font-bold text-label-primary">
                 Estado del Pedido
               </h2>
-              <Badge variant={statusConfig[order?.order_status]?.variant || 'neutral'}>
-                {statusConfig[order?.order_status]?.label || order?.order_status}
+              <Badge variant={getCombinedStatus(order).variant}>
+                {getCombinedStatus(order).label}
               </Badge>
             </div>
 
@@ -299,7 +348,7 @@ export default function OrderDetailPage() {
                   </p>
                 </div>
                 <p className="text-title-3 font-bold text-label-primary">
-                  {statusConfig[order?.order_status]?.label || order?.order_status}
+                  {getCombinedStatus(order).label}
                 </p>
               </div>
             </div>

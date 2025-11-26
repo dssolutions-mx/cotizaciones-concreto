@@ -25,14 +25,43 @@ export async function GET(request: Request) {
         construction_site,
         delivery_date,
         order_status,
+        credit_status,
+        client_approval_status,
         elemento,
         created_at
       `)
       .order('delivery_date', { ascending: false });
 
     // Apply status filter if provided
+    // Handle combined status filtering for client portal view
     if (statusFilter && statusFilter !== 'all') {
-      ordersQuery = ordersQuery.eq('order_status', statusFilter);
+      switch (statusFilter) {
+        case 'pending_approval':
+          // Orders waiting for client executive approval
+          ordersQuery = ordersQuery.eq('client_approval_status', 'pending_client');
+          break;
+        case 'pending_credit':
+          // Orders approved by client but waiting for credit validation
+          ordersQuery = ordersQuery
+            .in('client_approval_status', ['approved_by_client', 'not_required'])
+            .eq('credit_status', 'pending');
+          break;
+        case 'approved':
+          // Fully approved orders
+          ordersQuery = ordersQuery.eq('credit_status', 'approved');
+          break;
+        case 'in_progress':
+          // Orders being delivered
+          ordersQuery = ordersQuery.eq('order_status', 'in_progress');
+          break;
+        case 'completed':
+          // Completed orders
+          ordersQuery = ordersQuery.eq('order_status', 'completed');
+          break;
+        default:
+          // For any other status, filter by order_status
+          ordersQuery = ordersQuery.eq('order_status', statusFilter);
+      }
     }
 
     // Apply search filter if provided

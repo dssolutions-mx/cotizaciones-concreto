@@ -13,22 +13,62 @@ interface OrderCardProps {
     construction_site: string;
     delivery_date: string;
     order_status: string;
+    credit_status?: string;
+    client_approval_status?: string;
     elemento?: string;
     total_volume?: number;
   };
   onClick: () => void;
 }
 
-const statusConfig: Record<string, { variant: any; label: string }> = {
-  created: { variant: 'neutral', label: 'Creado' },
-  approved: { variant: 'success', label: 'Aprobado' },
-  in_progress: { variant: 'primary', label: 'En Progreso' },
-  completed: { variant: 'success', label: 'Completado' },
-  cancelled: { variant: 'error', label: 'Cancelado' }
-};
+// Helper function to get the combined status for client portal display
+function getCombinedStatus(order: OrderCardProps['order']): { variant: any; label: string } {
+  const { order_status, credit_status, client_approval_status } = order;
+  
+  // Check client approval status first (pending client executive approval)
+  if (client_approval_status === 'pending_client') {
+    return { variant: 'warning', label: 'Pend. Aprobación' };
+  }
+  
+  // Check if order was rejected by client
+  if (client_approval_status === 'rejected_by_client') {
+    return { variant: 'error', label: 'Rechazado' };
+  }
+  
+  // Order is approved by client or doesn't need approval - check credit status
+  if (client_approval_status === 'approved_by_client' || client_approval_status === 'not_required') {
+    if (credit_status === 'pending') {
+      return { variant: 'secondary', label: 'Pend. Crédito' };
+    }
+    if (credit_status === 'approved') {
+      // Credit approved - now check order status for delivery progress
+      if (order_status === 'in_progress') {
+        return { variant: 'primary', label: 'En Progreso' };
+      }
+      if (order_status === 'completed') {
+        return { variant: 'success', label: 'Completado' };
+      }
+      return { variant: 'success', label: 'Aprobado' };
+    }
+    if (credit_status === 'rejected') {
+      return { variant: 'error', label: 'Crédito Rechazado' };
+    }
+  }
+  
+  // Fallback to order_status based display
+  const statusConfig: Record<string, { variant: any; label: string }> = {
+    created: { variant: 'neutral', label: 'Creado' },
+    validated: { variant: 'success', label: 'Validado' },
+    in_progress: { variant: 'primary', label: 'En Progreso' },
+    completed: { variant: 'success', label: 'Completado' },
+    cancelled: { variant: 'error', label: 'Cancelado' }
+  };
+  
+  return statusConfig[order_status] || { variant: 'neutral', label: 'Creado' };
+}
 
 export function OrderCard({ order, onClick }: OrderCardProps) {
-  const config = statusConfig[order.order_status] || statusConfig.created;
+  const config = getCombinedStatus(order);
 
   return (
     <motion.div

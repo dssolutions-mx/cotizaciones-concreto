@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, SlidersHorizontal, Package, MapPin, Calendar as CalendarIcon, Layers } from 'lucide-react';
+import { Search, SlidersHorizontal, Package, MapPin, Calendar as CalendarIcon, Layers, Plus } from 'lucide-react';
 import { Container } from '@/components/ui/Container';
 import { OrderCard } from '@/components/ui/OrderCard';
 import { FilterChip } from '@/components/ui/FilterChip';
@@ -11,8 +11,9 @@ import { Input } from '@/components/ui/input';
 import { Card as BaseCard } from '@/components/ui/Card';
 import ClientPortalLoader from '@/components/client-portal/ClientPortalLoader';
 import DateRangeFilter from '@/components/client-portal/DateRangeFilter';
-import { format, subDays, startOfDay, endOfDay } from 'date-fns';
+import { format, subDays, addDays, startOfDay, endOfDay } from 'date-fns';
 import { es } from 'date-fns/locale';
+import Link from 'next/link';
 
 interface Order {
   id: string;
@@ -20,12 +21,16 @@ interface Order {
   construction_site: string;
   delivery_date: string;
   order_status: string;
+  credit_status?: string;
+  client_approval_status?: string;
   elemento?: string;
   total_volume?: number;
 }
 
 const statusFilters = [
   { key: 'all', label: 'Todos' },
+  { key: 'pending_approval', label: 'Pend. Aprobación' },
+  { key: 'pending_credit', label: 'Pend. Crédito' },
   { key: 'approved', label: 'Aprobados' },
   { key: 'in_progress', label: 'En Progreso' },
   { key: 'completed', label: 'Completados' }
@@ -40,9 +45,10 @@ export default function OrdersPage() {
   const [activeFilter, setActiveFilter] = useState('all');
   const [showDateFilter, setShowDateFilter] = useState(false);
   const [groupBySite, setGroupBySite] = useState(false);
+  // Default date range: 30 days past to 30 days future (to include scheduled orders)
   const [dateRange, setDateRange] = useState({
     from: startOfDay(subDays(new Date(), 30)),
-    to: endOfDay(new Date())
+    to: endOfDay(addDays(new Date(), 30))
   });
 
   // Helper to format date without timezone conversion
@@ -117,18 +123,29 @@ export default function OrdersPage() {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center gap-4 mb-4">
-            <div className="w-12 h-12 rounded-2xl glass-thick flex items-center justify-center border border-white/30">
-              <Package className="w-6 h-6 text-label-primary" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl glass-thick flex items-center justify-center border border-white/30">
+                <Package className="w-6 h-6 text-label-primary" />
+              </div>
+              <div>
+                <h1 className="text-large-title font-bold text-label-primary">
+                  Mis Pedidos
+                </h1>
+                <p className="text-body text-label-secondary">
+                  {filteredOrders.length} pedido{filteredOrders.length !== 1 ? 's' : ''}
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-large-title font-bold text-label-primary">
-                Mis Pedidos
-              </h1>
-              <p className="text-body text-label-secondary">
-                {filteredOrders.length} pedido{filteredOrders.length !== 1 ? 's' : ''}
-              </p>
-            </div>
+            
+            {/* Create Order Button */}
+            <Link
+              href="/client-portal/orders/schedule"
+              className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-600 text-white text-callout font-semibold shadow-lg shadow-green-500/30 hover:shadow-xl hover:shadow-green-500/40 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
+            >
+              <Plus className="w-5 h-5" />
+              <span className="hidden sm:inline">Crear Pedido</span>
+            </Link>
           </div>
         </motion.div>
 
@@ -186,8 +203,8 @@ export default function OrdersPage() {
                 onClick={() => setGroupBySite(!groupBySite)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-callout font-medium transition-all ${
                   groupBySite
-                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-lg shadow-blue-500/30'
-                    : 'glass-thin text-label-secondary hover:glass-interactive hover:text-label-primary'
+                    ? 'bg-blue-600 text-white border border-blue-700 ring-2 ring-blue-400/50'
+                    : 'glass-thin text-label-secondary hover:glass-interactive hover:text-label-primary border border-transparent'
                 }`}
               >
                 <Layers className="w-4 h-4" />

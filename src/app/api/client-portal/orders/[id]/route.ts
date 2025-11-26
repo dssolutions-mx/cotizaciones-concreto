@@ -25,6 +25,7 @@ export async function GET(
         delivery_date,
         delivery_time,
         order_status,
+        client_approval_status,
         total_amount,
         elemento,
         special_requirements,
