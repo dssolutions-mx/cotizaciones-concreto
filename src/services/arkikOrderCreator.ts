@@ -254,58 +254,55 @@ export async function createOrdersFromSuggestions(
 
     console.log('[ArkikOrderCreator] Creating', newOrderSuggestions.length, 'new orders');
 
-    // Process orders in batches for better performance
-    const batchSize = 5; // Process 5 orders at a time
-    for (let i = 0; i < newOrderSuggestions.length; i += batchSize) {
-      const batch = newOrderSuggestions.slice(i, i + batchSize);
+    // CRITICAL FIX: Process orders sequentially to prevent trigger overload and lock contention
+    // Parallel processing causes multiple triggers to fire simultaneously, leading to:
+    // - Lock contention on client_balances table
+    // - Statement timeout errors
+    // - Database performance degradation
+    for (let i = 0; i < newOrderSuggestions.length; i++) {
+      const suggestion = newOrderSuggestions[i];
+      const sequenceNumber = dataCache.orderNumberSequence + i;
       
-      // CRITICAL FIX: Pre-assign unique sequence numbers to prevent race conditions
-      const batchWithSequence = batch.map((suggestion, batchIndex) => ({
-        suggestion,
-        sequenceNumber: dataCache.orderNumberSequence + batchIndex
-      }));
-      
+      console.log(`[ArkikOrderCreator] Processing order ${i + 1} of ${newOrderSuggestions.length}`);
 
-      
-      const batchResults = await Promise.allSettled(
-        batchWithSequence.map(({ suggestion, sequenceNumber }) => 
-          createSingleOrderWithoutBalanceUpdate(suggestion, plantId, user.id, validatedRows, dataCache, sequenceNumber)
-        )
-      );
+      try {
+        const orderResult = await createSingleOrderWithoutBalanceUpdate(
+          suggestion, 
+          plantId, 
+          user.id, 
+          validatedRows, 
+          dataCache, 
+          sequenceNumber
+        );
 
-      // Aggregate batch results and track affected balances
-      batchResults.forEach((batchResult, index) => {
-        if (batchResult.status === 'fulfilled') {
-          const orderResult = batchResult.value;
-          result.ordersCreated += orderResult.ordersCreated;
-          result.remisionesCreated += orderResult.remisionesCreated;
-          result.materialsProcessed += orderResult.materialsProcessed;
-          result.orderItemsCreated += orderResult.orderItemsCreated;
-          result.errors.push(...orderResult.errors);
+        // Aggregate results
+        result.ordersCreated += orderResult.ordersCreated;
+        result.remisionesCreated += orderResult.remisionesCreated;
+        result.materialsProcessed += orderResult.materialsProcessed;
+        result.orderItemsCreated += orderResult.orderItemsCreated;
+        result.errors.push(...orderResult.errors);
 
-          // Track this order's client/site for balance calculation
-          const suggestion = batch[index];
-          const firstRemision = suggestion.remisiones[0];
-          const constructionSiteName = firstRemision.obra_name || null;
-          const constructionSiteId = firstRemision.construction_site_id || null;
-          
-          // Add general balance key
-          affectedBalances.add(`${firstRemision.client_id}||GENERAL`);
-          
-          // Add site-specific balance key if site exists
-          // CRITICAL: Always use constructionSiteName (not ID) because update_client_balance RPC expects site NAME
-          if (constructionSiteName) {
-            affectedBalances.add(`${firstRemision.client_id}|${constructionSiteName}|SITE`);
-          }
-        } else {
-          const suggestion = batch[index];
-          const errorMessage = batchResult.reason instanceof Error ? batchResult.reason.message : 'Error desconocido';
-          result.errors.push(`Error en orden ${suggestion.group_key}: ${errorMessage}`);
+        // Track this order's client/site for balance calculation
+        const firstRemision = suggestion.remisiones[0];
+        const constructionSiteName = firstRemision.obra_name || null;
+        const constructionSiteId = firstRemision.construction_site_id || null;
+        
+        // Add general balance key
+        affectedBalances.add(`${firstRemision.client_id}||GENERAL`);
+        
+        // Add site-specific balance key if site exists
+        // CRITICAL: Always use constructionSiteName (not ID) because update_client_balance RPC expects site NAME
+        if (constructionSiteName) {
+          affectedBalances.add(`${firstRemision.client_id}|${constructionSiteName}|SITE`);
         }
-      });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+        result.errors.push(`Error en orden ${suggestion.group_key}: ${errorMessage}`);
+        console.error(`[ArkikOrderCreator] Error processing order ${i + 1}:`, error);
+      }
 
-      // Update order number sequence for next batch based on successful orders created
-      dataCache.orderNumberSequence += batch.length;
+      // Update order number sequence after each order
+      dataCache.orderNumberSequence += 1;
     }
 
     // CRITICAL: Now recalculate ALL affected balances in a single batch operation
@@ -1348,13 +1345,63 @@ async function createSingleOrderWithoutBalanceUpdate(
       });
 
     if (remisionesData.length > 0) {
-      const { data: createdRemisiones, error: remisionesError } = await supabase
-        .from('remisiones')
-        .insert(remisionesData)
-        .select('id, remision_number');
+      // Retry logic for remisiones insert to handle transient timeout errors
+      const maxRetries = 3;
+      let retryCount = 0;
+      let createdRemisiones;
+      let remisionesError;
 
-      if (remisionesError) {
-        throw new Error(`Error creando remisiones: ${remisionesError.message}`);
+      while (retryCount < maxRetries) {
+        try {
+          const insertResult = await supabase
+            .from('remisiones')
+            .insert(remisionesData)
+            .select('id, remision_number');
+
+          remisionesError = insertResult.error;
+          createdRemisiones = insertResult.data;
+
+          if (!remisionesError) {
+            break; // Success, exit retry loop
+          }
+
+          // Check if it's a timeout error
+          const isTimeoutError = remisionesError.message?.includes('timeout') || 
+                                 remisionesError.message?.includes('canceling statement');
+          
+          if (!isTimeoutError || retryCount === maxRetries - 1) {
+            // Not a timeout error or last retry, throw immediately
+            throw new Error(`Error creando remisiones: ${remisionesError.message}`);
+          }
+
+          // Exponential backoff: wait 1s, 2s, 4s
+          const delayMs = Math.pow(2, retryCount) * 1000;
+          console.warn(`[ArkikOrderCreator] Remisiones insert timeout (attempt ${retryCount + 1}/${maxRetries}), retrying in ${delayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          retryCount++;
+        } catch (error) {
+          if (retryCount === maxRetries - 1) {
+            throw error; // Last retry failed, throw the error
+          }
+          // Check if it's a timeout error
+          const isTimeoutError = error instanceof Error && 
+                                 (error.message.includes('timeout') || 
+                                  error.message.includes('canceling statement'));
+          
+          if (!isTimeoutError) {
+            throw error; // Not a timeout, throw immediately
+          }
+
+          // Exponential backoff
+          const delayMs = Math.pow(2, retryCount) * 1000;
+          console.warn(`[ArkikOrderCreator] Remisiones insert timeout (attempt ${retryCount + 1}/${maxRetries}), retrying in ${delayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          retryCount++;
+        }
+      }
+
+      if (remisionesError || !createdRemisiones) {
+        throw new Error(`Error creando remisiones después de ${maxRetries} intentos: ${remisionesError?.message || 'Error desconocido'}`);
       }
 
       result.remisionesCreated = remisionesData.length;
@@ -1446,18 +1493,10 @@ async function createSingleOrderWithoutBalanceUpdate(
       has_site_name: !!constructionSiteName
     });
 
-    // CRITICAL: Recalculate order amounts and delivered volumes after remisiones are created
-    try {
-      console.log('[ArkikOrderCreator] Recalculating order amounts and delivered volumes for order:', order.id);
-      const { recalculateOrderAmount } = await import('./orderService');
-      await recalculateOrderAmount(order.id);
-      console.log('[ArkikOrderCreator] Order amounts and volumes recalculated successfully');
-    } catch (amountError) {
-      console.error('[ArkikOrderCreator] Error recalculating order amounts:', amountError);
-      result.errors.push(`Error recalculando montos de la orden: ${amountError instanceof Error ? amountError.message : 'Error desconocido'}`);
-    }
-
-    // NOTE: Balance calculation is deferred to batch processing to prevent race conditions
+    // NOTE: Order amount recalculation is handled by the database trigger `actualizar_volumenes_orden()`
+    // which fires automatically on remisiones INSERT. The trigger also calls `update_client_balance()`,
+    // so manual recalculation is redundant and causes duplicate expensive operations.
+    // Balance calculation is deferred to batch processing to prevent race conditions.
 
     return result;
 
