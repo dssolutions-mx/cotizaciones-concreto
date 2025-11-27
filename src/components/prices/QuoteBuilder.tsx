@@ -10,7 +10,7 @@ import { calculateBasePrice } from '@/lib/utils/priceCalculator';
 import { createQuote, QuotesService } from '@/services/quotes';
 import { supabase } from '@/lib/supabase';
 import ConstructionSiteSelect from '@/components/ui/ConstructionSiteSelect';
-import * as Select from '@radix-ui/react-select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { Disclosure } from '@headlessui/react';
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons';
@@ -18,14 +18,17 @@ import { DayPicker } from 'react-day-picker';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import * as Popover from '@radix-ui/react-popover';
-import { CalendarIcon, AlertCircle } from 'lucide-react';
+import { CalendarIcon, AlertCircle, Search, Plus, Trash2, MapPin, Building2, User, Loader2 } from 'lucide-react';
 import 'react-day-picker/dist/style.css';
-import { useDebouncedCallback } from 'use-debounce';
+import { useDebouncedCallback, useDebounce } from 'use-debounce';
 import { usePlantAwareRecipes } from '@/hooks/usePlantAwareRecipes';
 import { usePlantContext } from '@/contexts/PlantContext';
 import ClientCreationForm from '@/components/clients/ClientCreationForm';
 import ConstructionSiteForm from '@/components/clients/ConstructionSiteForm';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
 interface Client {
   id: string;
@@ -121,7 +124,10 @@ export default function QuoteBuilder() {
   const [includePumpService, setIncludePumpService] = useState<boolean>(false);
   const [includesVAT, setIncludesVAT] = useState<boolean>(false);
   const [recipeSearch, setRecipeSearch] = useState<string>('');
+  const [debouncedRecipeSearch] = useDebounce(recipeSearch, 300);
   const [clientSearch, setClientSearch] = useState<string>('');
+  const [debouncedClientSearch] = useDebounce(clientSearch, 300);
+  
   // Load master recipes when feature flag is enabled
   useEffect(() => {
     const loadMasters = async () => {
@@ -565,8 +571,6 @@ export default function QuoteBuilder() {
       return false;
     }
 
-
-
     // Validate pumping service when included
     if (includePumpService) {
       if (pumpServiceProduct.price <= 0) {
@@ -716,9 +720,9 @@ export default function QuoteBuilder() {
 
   // Add a filtered recipes function
   const filteredRecipes = recipes.filter(recipe => {
-    if (!recipeSearch.trim()) return true;
+    if (!debouncedRecipeSearch.trim()) return true;
     
-    const searchLower = recipeSearch.toLowerCase();
+    const searchLower = debouncedRecipeSearch.toLowerCase();
     return (
       (recipe.recipe_code || '').toLowerCase().includes(searchLower) ||
       String(recipe.strength_fc ?? '').includes(searchLower) ||
@@ -745,9 +749,9 @@ export default function QuoteBuilder() {
 
   // Filtered clients function
   const filteredClients = clients.filter(client => {
-    if (!clientSearch.trim()) return true;
+    if (!debouncedClientSearch.trim()) return true;
     
-    const searchLower = clientSearch.toLowerCase();
+    const searchLower = debouncedClientSearch.toLowerCase();
     return (
       (client.business_name || '').toLowerCase().includes(searchLower) ||
       (client.client_code || '').toLowerCase().includes(searchLower)
@@ -862,52 +866,42 @@ export default function QuoteBuilder() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 @container">
       {/* Left Panel: Product Catalog */}
-      <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-        <div className="p-6 border-b border-gray-100">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">
+      <Card variant="thick" className="lg:col-span-2 h-[calc(100vh-15rem)] min-h-[600px] flex flex-col border-0 p-6">
+        <div className="mb-6 shrink-0">
+          <h2 className="text-title-2 font-bold text-gray-800 mb-4">
             {features.masterPricingEnabled ? 'Catálogo de Maestros' : 'Catálogo de Productos'}
           </h2>
           <div className="relative">
-            <input
+            <Input
               type="text"
               value={recipeSearch}
               onChange={(e) => setRecipeSearch(e.target.value)}
-              placeholder={features.masterPricingEnabled ? 'Buscar maestros por código, resistencia...' : 'Buscar recetas por código, resistencia, edad...'}
-              className="w-full p-2.5 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
+              placeholder={features.masterPricingEnabled ? 'Buscar maestros...' : 'Buscar recetas...'}
+              className="pl-10 w-full"
             />
-            <svg 
-              className="absolute left-3 top-3 h-4 w-4 text-gray-400"
-              fill="none" 
-              viewBox="0 0 24 24" 
-              stroke="currentColor"
-            >
-              <path 
-                strokeLinecap="round" 
-                strokeLinejoin="round" 
-                strokeWidth={2} 
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             {recipeSearch && (
               <button
                 onClick={() => setRecipeSearch('')}
-                className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
-                <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <div className="bg-gray-200 rounded-full p-0.5">
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </div>
               </button>
             )}
           </div>
         </div>
-        <div className="flex-1 overflow-hidden p-6 @container">
-          <div className="h-full overflow-y-auto pr-2 pb-2 max-h-[50vh] md:max-h-[calc(70vh-110px)]">
+        <div className="flex-1 min-h-0">
+          <div className="h-full overflow-y-auto pr-2 pb-2 custom-scrollbar">
             {features.masterPricingEnabled ? (
-              // Masters mode
+              // Masters mode logic kept intact
               (() => {
                 const filteredMasters = masters.filter(m => {
-                  if (!recipeSearch.trim()) return true;
-                  const s = recipeSearch.toLowerCase();
+                  if (!debouncedRecipeSearch.trim()) return true;
+                  const s = debouncedRecipeSearch.toLowerCase();
                   return (
                     (m.master_code || '').toLowerCase().includes(s) ||
                     String(m.strength_fc ?? '').includes(s) ||
@@ -928,85 +922,73 @@ export default function QuoteBuilder() {
                 if (Object.keys(groupedMasters).length === 0) {
                   return (
                     <div className="p-8 text-center text-gray-500">
-                      {recipeSearch ? (
-                        <div>
-                          <p className="mb-2">No se encontraron maestros con "{recipeSearch}"</p>
-                          <button onClick={() => setRecipeSearch('')} className="text-blue-500 hover:underline">Limpiar búsqueda</button>
-                        </div>
-                      ) : (
-                        <p>No hay maestros disponibles</p>
-                      )}
+                      <p>No hay maestros disponibles</p>
                     </div>
                   );
                 }
 
                 return (
-                  <div>
+                  <div className="space-y-6 px-2">
                     {Object.entries(groupedMasters)
                       .sort(([a], [b]) => Number(b) - Number(a))
                       .map(([strengthStr, slumpGroups]) => {
                         const strength = Number(strengthStr);
                         const isStrengthExpanded = expandedStrengths.includes(strength);
                         return (
-                          <div key={strength} className="border rounded-lg overflow-hidden shadow-sm mb-4">
+                          <div key={strength} className="bg-white/50 rounded-xl overflow-hidden border border-gray-100 shadow-sm transition-all duration-200">
                             <button
                               onClick={() => toggleStrength(strength)}
-                              className="w-full p-3 bg-gray-100 hover:bg-gray-200 flex justify-between items-center transition-colors"
-                              aria-expanded={isStrengthExpanded}
+                              className="w-full p-5 flex justify-between items-center hover:bg-white/80 transition-colors group"
                             >
-                              <h4 className="font-medium text-gray-700">f'c: {strength} kg/cm²</h4>
-                              <svg className={`w-4 h-4 transform transition-transform text-gray-500 ${isStrengthExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                              </svg>
+                              <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-lg ${isStrengthExpanded ? 'bg-blue-100 text-blue-600' : 'bg-gray-100 text-gray-500'} transition-colors`}>
+                                  <span className="font-bold text-lg">{strength}</span>
+                                </div>
+                                <div className="text-left">
+                                  <h4 className="font-semibold text-gray-800 group-hover:text-blue-700 transition-colors">Concreto f'c {strength} kg/cm²</h4>
+                                  <p className="text-xs text-gray-500">{Object.keys(slumpGroups).length} variantes de revenimiento</p>
+                                </div>
+                              </div>
+                              <ChevronDownIcon className={`w-5 h-5 text-gray-400 transition-transform duration-300 ${isStrengthExpanded ? 'rotate-180 text-blue-500' : ''}`} />
                             </button>
                             {isStrengthExpanded && (
-                              <div className="p-3 space-y-4 animate-in fade-in slide-in-from-top-3 duration-200">
+                              <div className="p-5 pt-0 space-y-6 animate-in slide-in-from-top-2">
                                 {Object.entries(slumpGroups)
                                   .sort(([a], [b]) => Number(b) - Number(a))
                                   .map(([slumpStr, mastersAtSlump]) => (
-                                    <div key={slumpStr} className="space-y-3">
-                                      <h5 className="font-medium text-gray-600">Revenimiento: {slumpStr} cm</h5>
-                                      <div className="grid grid-cols-1 @md:grid-cols-2 @lg:grid-cols-3 gap-4">
+                                    <div key={slumpStr} className="pl-2">
+                                      <div className="flex items-center gap-2 mb-3">
+                                        <span className="h-px w-4 bg-gray-300"></span>
+                                        <h5 className="text-sm font-medium text-gray-500 uppercase tracking-wide">Revenimiento {slumpStr} cm</h5>
+                                        <span className="h-px flex-1 bg-gray-100"></span>
+                                      </div>
+                                      <div className="grid grid-cols-1 gap-4">
                                         {mastersAtSlump.map(m => (
-                                          <div key={m.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
-                                            <h3 className="font-semibold text-gray-800">{m.master_code}</h3>
-                                            <div className="text-sm space-y-2 mt-2 text-gray-600">
-                                              <p className="flex items-center gap-1">
-                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714a2.25 2.25 0 0 0 .659 1.591L19.5 14.5" />
-                                                </svg>
-                                                <span>Tamaño máx.: {m.max_aggregate_size} mm</span>
-                                              </p>
-                                              <p className="flex items-center gap-1">
-                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                                                </svg>
-                                                <span>Edad: {m.age_days ? `${m.age_days} días` : m.age_hours ? `${m.age_hours} horas` : 'N/A'}</span>
-                                              </p>
-                                              <p className="flex items-center gap-1">
-                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12v-8.25M12 12.75h.008v.008H12v-.008Z" />
-                                                </svg>
-                                                <span>Revenimiento: {m.slump} cm</span>
-                                              </p>
-                                              <p className="flex items-center gap-1">
-                                                <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 0 0-10.026 0 1.106 1.106 0 0 0-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
-                                                </svg>
-                                                <span>Colocación: {m.placement_type === 'D' ? 'Directa' : 'Bombeado'}</span>
-                                              </p>
+                                          <Card key={m.id} variant="interactive" className="p-4 flex flex-col sm:flex-row justify-between items-center gap-4 bg-white shadow-sm hover:shadow-md border-gray-100 transition-all duration-200 group">
+                                            <div className="flex-1">
+                                              <h3 className="font-bold text-gray-900 text-base group-hover:text-blue-700 transition-colors">{m.master_code}</h3>
+                                              <div className="flex flex-wrap gap-2 mt-2">
+                                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
+                                                  {m.placement_type === 'D' ? 'Directa' : 'Bombeado'}
+                                                </span>
+                                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                                                  TMA: {m.max_aggregate_size}mm
+                                                </span>
+                                                <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-600 border border-gray-200">
+                                                  Edad: {m.age_days ? `${m.age_days}d` : 'N/A'}
+                                                </span>
+                                              </div>
                                             </div>
-                                            <button
+                                            <Button
                                               onClick={() => addMasterToQuote(m.id)}
-                                              className="mt-4 w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors focus:ring-2 focus:ring-green-500 focus:ring-offset-2 flex items-center justify-center gap-1"
                                               disabled={isLoading}
+                                              size="sm"
+                                              variant="primary"
+                                              className="shrink-0 h-9 px-4 shadow-sm hover:shadow-md transition-all"
                                             >
-                                              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                              </svg>
-                                              Agregar a Cotización
-                                            </button>
-                                          </div>
+                                              <Plus className="w-4 h-4 mr-1.5" /> Agregar
+                                            </Button>
+                                          </Card>
                                         ))}
                                       </div>
                                     </div>
@@ -1020,817 +1002,441 @@ export default function QuoteBuilder() {
                 );
               })()
             ) : (
-            Object.keys(groupedRecipes).length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                {recipeSearch ? (
-                  <div>
-                    <p className="mb-2">No se encontraron recetas con "{recipeSearch}"</p>
-                    <button 
-                      onClick={() => setRecipeSearch('')}
-                      className="text-blue-500 hover:underline"
-                    >
-                      Limpiar búsqueda
-                    </button>
-                  </div>
-                ) : (
+              // Standard recipes mode (Updated UI)
+              Object.keys(groupedRecipes).length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
                   <p>No hay recetas disponibles</p>
-                )}
-              </div>
-            ) : (
-              Object.entries(groupedRecipes)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([type, strengthGroups]) => {
-                  const isTypeExpanded = expandedTypes.includes(type);
-                  const typeName = type === 'FC' ? "Concreto Convencional F'c" : 
-                                type === 'MR' ? 'Concreto Módulo de Ruptura Mr' : type;
-                  
-                  return (
-                    <div key={type} className="border rounded-lg overflow-hidden mb-4 shadow-sm">
-                      <button
-                        onClick={() => toggleType(type)}
-                        className="w-full p-4 bg-gray-50 hover:bg-gray-100 flex justify-between items-center transition-colors"
-                        aria-expanded={isTypeExpanded}
-                      >
-                        <h3 className="text-lg font-semibold text-gray-800">{typeName}</h3>
-                        <svg
-                          className={`w-5 h-5 transform transition-transform text-gray-500 ${
-                            isTypeExpanded ? 'rotate-180' : ''
-                          }`}
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
+                </div>
+              ) : (
+                Object.entries(groupedRecipes)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([type, strengthGroups]) => {
+                    const isTypeExpanded = expandedTypes.includes(type);
+                    const typeName = type === 'FC' ? "Concreto Convencional F'c" : 
+                                  type === 'MR' ? 'Concreto Módulo de Ruptura Mr' : type;
+                    
+                    return (
+                      <div key={type} className="bg-white/50 rounded-xl overflow-hidden border border-gray-100 mb-4 shadow-sm">
+                        <button
+                          onClick={() => toggleType(type)}
+                          className="w-full p-5 flex justify-between items-center hover:bg-white/80 transition-colors"
                         >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 9l-7 7-7-7"
-                          />
-                        </svg>
-                      </button>
-                      
-                      {isTypeExpanded && (
-                        <div className="p-4 space-y-6 animate-in fade-in slide-in-from-top-5 duration-300">
-                          {Object.entries(strengthGroups)
-                            .sort(([a], [b]) => Number(b) - Number(a))
-                            .map(([strengthStr, slumpGroups]) => {
-                              const strength = Number(strengthStr);
-                              const isStrengthExpanded = expandedStrengths.includes(strength);
-                              
-                              // Use different label based on recipe type
-                              const strengthLabel = type === 'MR' ? 'MR' : 'f\'c';
-                              
-                              return (
-                                <div key={strength} className="border rounded-lg overflow-hidden shadow-sm">
-                                  <button
-                                    onClick={() => toggleStrength(strength)}
-                                    className="w-full p-3 bg-gray-100 hover:bg-gray-200 flex justify-between items-center transition-colors"
-                                    aria-expanded={isStrengthExpanded}
-                                  >
-                                    <h4 className="font-medium text-gray-700">{strengthLabel}: {strength} kg/cm²</h4>
-                                    <svg
-                                      className={`w-4 h-4 transform transition-transform text-gray-500 ${
-                                        isStrengthExpanded ? 'rotate-180' : ''
-                                      }`}
-                                      fill="none"
-                                      stroke="currentColor"
-                                      viewBox="0 0 24 24"
+                          <h3 className="font-bold text-gray-800 text-lg">{typeName}</h3>
+                          <ChevronDownIcon className={`w-5 h-5 text-gray-500 transition-transform duration-200 ${isTypeExpanded ? 'rotate-180' : ''}`} />
+                        </button>
+                        
+                        {isTypeExpanded && (
+                          <div className="p-5 pt-0 space-y-4">
+                            {Object.entries(strengthGroups)
+                              .sort(([a], [b]) => Number(b) - Number(a))
+                              .map(([strengthStr, slumpGroups]) => {
+                                const strength = Number(strengthStr);
+                                const isStrengthExpanded = expandedStrengths.includes(strength);
+                                const strengthLabel = type === 'MR' ? 'MR' : 'f\'c';
+                                
+                                return (
+                                  <div key={strength} className="border-l-2 border-gray-200 pl-4 ml-1">
+                                    <button
+                                      onClick={() => toggleStrength(strength)}
+                                      className="w-full py-3 flex justify-between items-center text-left hover:text-blue-600 transition-colors"
                                     >
-                                      <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M19 9l-7 7-7-7"
-                                      />
-                                    </svg>
-                                  </button>
-                                  
-                                  {isStrengthExpanded && (
-                                    <div className="p-3 space-y-4 animate-in fade-in slide-in-from-top-3 duration-200">
-                                      {Object.entries(slumpGroups)
-                                        .sort(([a], [b]) => Number(b) - Number(a))
-                                        .map(([slumpStr, slumpRecipes]) => (
-                                          <div key={slumpStr} className="space-y-3">
-                                            <h5 className="font-medium text-gray-600">
-                                              Revenimiento: {slumpStr} cm
-                                            </h5>
-                                            <div className="grid grid-cols-1 @md:grid-cols-2 @lg:grid-cols-3 gap-4">
-                                              {slumpRecipes.map(recipe => (
-                                                <div key={recipe.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
-                                                  <h3 className="font-semibold text-gray-800">{recipe.recipe_code}</h3>
-                                                  <div className="text-sm space-y-2 mt-2 text-gray-600">
-                                                    <div>
-                                                      {recipe.has_waterproofing ? (
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">Impermeabilizante</span>
-                                                      ) : (
-                                                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-50 text-gray-600 border border-gray-200">Sin impermeabilizante</span>
-                                                      )}
+                                      <h4 className="font-medium text-gray-700 text-base">{strengthLabel}: {strength} kg/cm²</h4>
+                                      <ChevronDownIcon className={`w-4 h-4 text-gray-400 transition-transform ${isStrengthExpanded ? 'rotate-180' : ''}`} />
+                                    </button>
+                                    
+                                    {isStrengthExpanded && (
+                                      <div className="mt-3 space-y-5 animate-in slide-in-from-top-1">
+                                        {Object.entries(slumpGroups)
+                                          .sort(([a], [b]) => Number(b) - Number(a))
+                                          .map(([slumpStr, slumpRecipes]) => (
+                                            <div key={slumpStr}>
+                                              <h5 className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wider">Revenimiento: {slumpStr} cm</h5>
+                                              <div className="grid gap-4">
+                                                {slumpRecipes.map(recipe => (
+                                                  <Card key={recipe.id} variant="interactive" className="p-4 bg-white shadow-sm hover:shadow-md border-gray-100 transition-all">
+                                                    <div className="flex justify-between items-center gap-4">
+                                                      <div className="min-w-0 flex-1">
+                                                        <h3 className="font-bold text-sm text-gray-900 truncate" title={recipe.recipe_code}>{recipe.recipe_code}</h3>
+                                                        <div className="mt-2 flex flex-wrap gap-2">
+                                                          {recipe.has_waterproofing && (
+                                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 border border-blue-100">Impermeabilizante</span>
+                                                          )}
+                                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">TMA: {recipe.max_aggregate_size}mm</span>
+                                                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200">{recipe.placement_type === 'D' ? 'Directa' : 'Bombeado'}</span>
+                                                        </div>
+                                                      </div>
+                                                      <Button 
+                                                        onClick={() => recipe.id && addProductToQuote(recipe.id)}
+                                                        disabled={isLoading || !recipe.id}
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0 rounded-full shadow-sm hover:shadow shrink-0"
+                                                      >
+                                                        <Plus className="w-4 h-4" />
+                                                      </Button>
                                                     </div>
-                                                    <p className="flex items-center gap-1">
-                                                      <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714a2.25 2.25 0 0 0 .659 1.591L19.5 14.5" />
-                                                      </svg>
-                                                      <span>Tamaño máx.: {recipe.max_aggregate_size} mm</span>
-                                                    </p>
-                                                    <p className="flex items-center gap-1">
-                                                      <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12v-8.25M12 12.75h.008v.008H12v-.008Z" />
-                                                      </svg>
-                                                      <span>Revenimiento: {recipe.slump} cm</span>
-                                                    </p>
-                                                    {recipe.age_days && (
-                                                      <p className="flex items-center gap-1">
-                                                        <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                                                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                                                        </svg>
-                                                        <span>Edad: {recipe.age_days} días</span>
-                                                      </p>
-                                                    )}
-                                                    <p className="flex items-center gap-1">
-                                                      <svg className="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 18.75a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 0 1-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 0 1-3 0m3 0a1.5 1.5 0 0 0-3 0m3 0h1.125c.621 0 1.129-.504 1.09-1.124a17.902 17.902 0 0 0-3.213-9.193 2.056 2.056 0 0 0-1.58-.86H14.25M16.5 18.75h-2.25m0-11.177v-.958c0-.568-.422-1.048-.987-1.106a48.554 48.554 0 0 0-10.026 0 1.106 1.106 0 0 0-.987 1.106v7.635m12-6.677v6.677m0 4.5v-4.5m0 0h-12" />
-                                                      </svg>
-                                                      <span>Colocación: {recipe.placement_type === 'D' ? 'Directa' : 'Bombeado'}</span>
-                                                    </p>
-                                                  </div>
-                                                  <button 
-                                                    onClick={() => recipe.id && addProductToQuote(recipe.id)}
-                                                    className="mt-4 w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors focus:ring-2 focus:ring-green-500 focus:ring-offset-2 flex items-center justify-center gap-1"
-                                                    disabled={isLoading || !recipe.id}
-                                                  >
-                                                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                                    </svg>
-                                                    Agregar a Cotización
-                                                  </button>
-                                                </div>
-                                              ))}
+                                                  </Card>
+                                                ))}
+                                              </div>
                                             </div>
-                                          </div>
-                                        ))}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-            ))}
+                                          ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+              )
+            )}
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Right Panel: Client Selection and History */}
-      <div className="bg-white rounded-lg shadow-sm p-6 flex flex-col border border-gray-100 @container h-min">
-        <h2 className="text-xl font-bold mb-6 text-gray-800">Seleccionar Cliente</h2>
-        <div className="space-y-4">
-          <div>
-            <label htmlFor="client-search" className="block text-sm font-medium text-gray-700 mb-1">Buscar Cliente</label>
-            <div className="relative mb-3">
-              <input
-                type="text"
-                id="client-search"
-                value={clientSearch}
-                onChange={(e) => setClientSearch(e.target.value)}
-                placeholder="Nombre o código del cliente..."
-                className="w-full p-2.5 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-              />
-              <svg 
-                className="absolute left-3 top-3 h-4 w-4 text-gray-400"
-                fill="none" 
-                viewBox="0 0 24 24" 
-                stroke="currentColor"
-              >
-                <path 
-                  strokeLinecap="round" 
-                  strokeLinejoin="round" 
-                  strokeWidth={2} 
-                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+      <div className="flex flex-col gap-6 h-[calc(100vh-15rem)] min-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+        <Card variant="thick" className="p-6 border-0 shrink-0">
+          <h2 className="text-title-3 font-bold mb-6 text-gray-800 flex items-center gap-2">
+            <User className="w-5 h-5 text-blue-500" />
+            Cliente y Obra
+          </h2>
+          <div className="space-y-5">
+            {/* Client Search & Select */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Cliente</label>
+              <div className="relative">
+                <Input
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  placeholder="Buscar cliente..."
+                  className="mb-2"
                 />
-              </svg>
-              {clientSearch && (
-                <button
-                  onClick={() => setClientSearch('')}
-                  className="absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
+              </div>
+              <div className="flex gap-2">
+                <Select value={selectedClient} onValueChange={setSelectedClient} disabled={isLoading}>
+                  <SelectTrigger className="w-full bg-white/50">
+                    <SelectValue placeholder="Seleccionar Cliente" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {filteredClients.map((client) => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.business_name} ({client.client_code})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button 
+                  onClick={() => setShowCreateClientDialog(true)}
+                  variant="secondary"
+                  size="icon"
+                  className="shrink-0"
                 >
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="client-select" className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-            <div className="flex space-x-2 items-center">
-              <Select.Root
-                value={selectedClient}
-                onValueChange={setSelectedClient}
-                disabled={isLoading}
-              >
-                <Select.Trigger
-                  id="client-select"
-                  className="w-full p-2.5 bg-white border border-gray-300 rounded-lg flex items-center justify-between text-sm shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 data-[placeholder]:text-gray-500"
-                  aria-label="Cliente"
-                >
-                  <Select.Value placeholder="Seleccionar Cliente" />
-                  <Select.Icon>
-                    <ChevronDownIcon className="h-4 w-4 text-gray-500" />
-                  </Select.Icon>
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Content className="overflow-hidden bg-white rounded-md shadow-lg border">
-                    <Select.ScrollUpButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
-                      <ChevronUpIcon />
-                    </Select.ScrollUpButton>
-                    <Select.Viewport className="p-1">
-                      {filteredClients.map((client) => (
-                        <Select.Item
-                          key={client.id}
-                          value={client.id}
-                          className="relative flex items-center h-8 py-2 pl-7 pr-2 text-sm rounded select-none hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
-                        >
-                          <Select.ItemText>{client.business_name} ({client.client_code})</Select.ItemText>
-                          <Select.ItemIndicator className="absolute left-1 inline-flex items-center justify-center">
-                            <CheckIcon className="h-4 w-4" />
-                          </Select.ItemIndicator>
-                        </Select.Item>
-                      ))}
-                    </Select.Viewport>
-                    <Select.ScrollDownButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
-                      <ChevronDownIcon />
-                    </Select.ScrollDownButton>
-                  </Select.Content>
-                </Select.Portal>
-              </Select.Root>
-              
-              <button
-                type="button"
-                onClick={() => setShowCreateClientDialog(true)}
-                className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow-xs flex items-center justify-center"
-                aria-label="Crear nuevo cliente"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {selectedClient && (
-            <div>
-              <label htmlFor="construction-site-display" className="block text-sm font-medium text-gray-700 mb-1">Obra</label>
-              <div className="flex space-x-2 items-center">
-                {clientSites.length > 0 ? (
-                  <Select.Root
-                    value={selectedSite}
-                    onValueChange={(value) => {
-                      setSelectedSite(value);
-                      const site = clientSites.find(s => s.id === value);
-                      if (site) {
-                        setConstructionSite(site.name);
-                        setLocation(site.location || ''); // Ensure location is set, fallback to empty string
-                        if (site.latitude && site.longitude) {
-                          setSiteCoordinates({
-                            lat: site.latitude,
-                            lng: site.longitude
-                          });
-                        } else {
-                          setSiteCoordinates({ lat: null, lng: null });
-                        }
-                      }
-                    }}
-                  >
-                    <Select.Trigger
-                      id="construction-site-select" // Changed ID for clarity
-                      className="w-full p-2.5 bg-white border border-gray-300 rounded-lg flex items-center justify-between text-sm shadow-sm focus:ring-2 focus:ring-green-500 focus:border-green-500 data-[placeholder]:text-gray-500"
-                      aria-label="Obra"
-                    >
-                      <Select.Value placeholder="Seleccionar Obra" />
-                      <Select.Icon>
-                        <ChevronDownIcon className="h-4 w-4 text-gray-500" />
-                      </Select.Icon>
-                    </Select.Trigger>
-                    <Select.Portal>
-                      <Select.Content className="overflow-hidden bg-white rounded-md shadow-lg border">
-                        <Select.ScrollUpButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
-                          <ChevronUpIcon />
-                        </Select.ScrollUpButton>
-                        <Select.Viewport className="p-1">
-                          {clientSites.map((site) => (
-                            <Select.Item
-                              key={site.id}
-                              value={site.id}
-                              className="relative flex items-center h-8 py-2 pl-7 pr-2 text-sm rounded select-none hover:bg-gray-100 focus:bg-gray-100 focus:outline-none"
-                            >
-                              <Select.ItemText>{site.name}</Select.ItemText>
-                              <Select.ItemIndicator className="absolute left-1 inline-flex items-center justify-center">
-                                <CheckIcon className="h-4 w-4" />
-                              </Select.ItemIndicator>
-                            </Select.Item>
-                          ))}
-                        </Select.Viewport>
-                        <Select.ScrollDownButton className="flex items-center justify-center h-6 bg-white text-gray-700 cursor-default">
-                          <ChevronDownIcon />
-                        </Select.ScrollDownButton>
-                      </Select.Content>
-                    </Select.Portal>
-                  </Select.Root>
-                ) : (
-                  <div id="construction-site-display" className="w-full p-2.5 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700 shadow-sm min-h-[38px] flex items-center">
-                    {constructionSite || <span className="text-gray-500">No hay obras, cree una nueva.</span>}
-                  </div>
-                )}
-                
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateSiteDialog(true);
-                    setEnableMapForSite(true);
-                  }}
-                  className="px-3 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow-xs flex items-center justify-center"
-                  aria-label="Crear nueva obra"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                  </svg>
-                </button>
+                  <Plus className="w-5 h-5" />
+                </Button>
               </div>
             </div>
-          )}
 
-          <div>
-            <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-1">Ubicación</label>
-            <input 
-              id="location"
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-              placeholder="Dirección o coordenadas"
-              disabled={isLoading || !!selectedSite} // Disable if a site is selected from dropdown or isLoading
-            />
-          </div>
-
-          <div className="p-4 bg-gray-50 rounded-lg">
-            <div className="flex items-center mb-4">
-              <Checkbox.Root
-                id="includePumpService"
-                checked={includePumpService}
-                onCheckedChange={(checked: boolean | 'indeterminate') => 
-                  setIncludePumpService(checked === true)}
-                disabled={isLoading}
-                className="h-4 w-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
-              >
-                <Checkbox.Indicator>
-                  <CheckIcon className="h-3 w-3 text-white" />
-                </Checkbox.Indicator>
-              </Checkbox.Root>
-              <label htmlFor="includePumpService" className="ms-2 text-sm font-medium text-gray-700">
-                Incluir Servicio de Bombeo para toda la cotización
-              </label>
-            </div>
-            
-
-          </div>
-
-          <div className="p-4 bg-gray-50 rounded-lg">
-            <div className="flex items-center">
-              <Checkbox.Root
-                id="includesVAT"
-                checked={includesVAT}
-                onCheckedChange={(checked: boolean | 'indeterminate') => 
-                  setIncludesVAT(checked === true)}
-                disabled={isLoading}
-                className="h-4 w-4 bg-white border border-gray-300 rounded flex items-center justify-center data-[state=checked]:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50"
-              >
-                <Checkbox.Indicator>
-                  <CheckIcon className="h-3 w-3 text-white" />
-                </Checkbox.Indicator>
-              </Checkbox.Root>
-              <label htmlFor="includesVAT" className="ms-2 text-sm font-medium text-gray-700">
-                Incluir IVA en la cotización
-              </label>
-            </div>
-          </div>
-
-          {/* Pumping Service Configuration */}
-          {includePumpService && (
-            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <h3 className="font-semibold mb-4 text-gray-800 flex items-center gap-2">
-                <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                </svg>
-                Configuración del Servicio de Bombeo
-              </h3>
-              <div className="space-y-4">
-                <div>
-                  <label htmlFor="pumpServiceDescription" className="block text-sm font-medium text-gray-700 mb-1">Descripción del Servicio</label>
-                  <input
-                    id="pumpServiceDescription"
-                    type="text"
-                    value={pumpServiceProduct.description || ''}
-                    onChange={(e) => updatePumpServiceDetails({ description: e.target.value })}
-                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
-                    placeholder="Ej: Servicio de Bombeo Estándar"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label htmlFor="pumpVolume" className="block text-sm font-medium text-gray-700 mb-1">Volumen (m³)</label>
-                    <input
-                      id="pumpVolume"
-                      type="number"
-                      value={pumpServiceProduct.volume || 1}
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        updatePumpServiceDetails({
-                          volume: isNaN(value) ? 1 : value
-                        });
+            {/* Site Selection */}
+            {selectedClient && (
+              <div className="space-y-2 animate-in fade-in slide-in-from-top-2">
+                <label className="text-sm font-medium text-gray-700">Obra</label>
+                <div className="flex gap-2">
+                  {clientSites.length > 0 ? (
+                    <Select 
+                      value={selectedSite} 
+                      onValueChange={(value) => {
+                        setSelectedSite(value);
+                        const site = clientSites.find(s => s.id === value);
+                        if (site) {
+                          setConstructionSite(site.name);
+                          setLocation(site.location || '');
+                          if (site.latitude && site.longitude) {
+                            setSiteCoordinates({ lat: site.latitude, lng: site.longitude });
+                          } else {
+                            setSiteCoordinates({ lat: null, lng: null });
+                          }
+                        }
                       }}
-                      className="w-full p-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
-                      min="0"
-                      step="0.1"
+                    >
+                      <SelectTrigger className="w-full bg-white/50">
+                        <SelectValue placeholder="Seleccionar Obra" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {clientSites.map((site) => (
+                          <SelectItem key={site.id} value={site.id}>
+                            {site.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-500 italic">
+                      Sin obras registradas
+                    </div>
+                  )}
+                  <Button
+                    onClick={() => {
+                      setShowCreateSiteDialog(true);
+                      setEnableMapForSite(true);
+                    }}
+                    variant="secondary"
+                    size="icon"
+                    className="shrink-0"
+                  >
+                    <Plus className="w-5 h-5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Location & Date */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Ubicación</label>
+              <div className="relative">
+                <Input 
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                  placeholder="Dirección o coordenadas"
+                  disabled={isLoading || !!selectedSite}
+                  className="pl-9"
+                />
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Vigencia</label>
+              <Popover.Root>
+                <Popover.Trigger asChild>
+                  <Button
+                    variant="secondary"
+                    className={`w-full justify-start text-left font-normal ${!validityDate && "text-muted-foreground"}`}
+                  >
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {validityDate ? format(new Date(validityDate + 'T00:00:00'), 'dd/MM/yyyy') : <span>Seleccionar fecha</span>}
+                  </Button>
+                </Popover.Trigger>
+                <Popover.Portal>
+                  <Popover.Content className="w-auto p-0 bg-white rounded-xl shadow-xl border-0" align="start">
+                    <DayPicker
+                      mode="single"
+                      selected={selectedDate}
+                      onSelect={setSelectedDate}
+                      locale={es}
+                      initialFocus
+                      classNames={{
+                        day_selected: "bg-blue-600 text-white hover:bg-blue-600 hover:text-white focus:bg-blue-600 focus:text-white",
+                        day_today: "bg-gray-100 font-bold text-gray-900",
+                      }}
+                    />
+                  </Popover.Content>
+                </Popover.Portal>
+              </Popover.Root>
+            </div>
+
+            {/* Toggles */}
+            <div className="space-y-3 pt-4 border-t border-gray-100">
+              <div className="flex items-center space-x-3">
+                <Checkbox.Root
+                  id="includePumpService"
+                  checked={includePumpService}
+                  onCheckedChange={(checked) => setIncludePumpService(checked === true)}
+                  className="h-5 w-5 rounded-md border border-gray-300 bg-white data-[state=checked]:bg-blue-600 data-[state=checked]:text-white flex items-center justify-center transition-colors"
+                >
+                  <Checkbox.Indicator>
+                    <CheckIcon className="h-3.5 w-3.5" />
+                  </Checkbox.Indicator>
+                </Checkbox.Root>
+                <label htmlFor="includePumpService" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
+                  Incluir Servicio de Bombeo
+                </label>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <Checkbox.Root
+                  id="includesVAT"
+                  checked={includesVAT}
+                  onCheckedChange={(checked) => setIncludesVAT(checked === true)}
+                  className="h-5 w-5 rounded-md border border-gray-300 bg-white data-[state=checked]:bg-blue-600 data-[state=checked]:text-white flex items-center justify-center transition-colors"
+                >
+                  <Checkbox.Indicator>
+                    <CheckIcon className="h-3.5 w-3.5" />
+                  </Checkbox.Indicator>
+                </Checkbox.Root>
+                <label htmlFor="includesVAT" className="text-sm font-medium text-gray-700 cursor-pointer select-none">
+                  Incluir IVA
+                </label>
+              </div>
+            </div>
+
+            {/* Pump Configuration */}
+            {includePumpService && (
+              <div className="p-4 bg-blue-50/50 rounded-xl border border-blue-100 space-y-3 animate-in fade-in slide-in-from-top-2">
+                <h3 className="font-semibold text-sm text-blue-800">Configuración Bombeo</h3>
+                <Input
+                  value={pumpServiceProduct.description || ''}
+                  onChange={(e) => updatePumpServiceDetails({ description: e.target.value })}
+                  placeholder="Descripción del servicio"
+                  className="bg-white"
+                />
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-500">Volumen (m³)</label>
+                    <Input
+                      type="number"
+                      value={pumpServiceProduct.volume}
+                      onChange={(e) => updatePumpServiceDetails({ volume: parseFloat(e.target.value) || 0 })}
+                      className="bg-white"
                     />
                   </div>
                   <div>
-                    <label htmlFor="pumpPrice" className="block text-sm font-medium text-gray-700 mb-1">Precio por m³ (MXN)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
-                      <input
-                        id="pumpPrice"
-                        type="number"
-                        value={pumpServiceProduct.price || 0}
-                        onChange={(e) => {
-                          const value = parseFloat(e.target.value);
-                          updatePumpServiceDetails({
-                            price: isNaN(value) ? 0 : value
-                          });
-                        }}
-                        className="w-full p-2.5 pl-8 pr-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm"
-                        min="0"
-                        step="0.01"
-                      />
-                    </div>
+                    <label className="text-xs text-gray-500">Precio (MXN)</label>
+                    <Input
+                      type="number"
+                      value={pumpServiceProduct.price}
+                      onChange={(e) => updatePumpServiceDetails({ price: parseFloat(e.target.value) || 0 })}
+                      className="bg-white"
+                    />
                   </div>
                 </div>
-
-                <div className="bg-blue-100 p-3 rounded-lg">
-                  <div className="flex justify-between items-center">
-                    <span className="font-medium text-gray-700">Total del Servicio:</span>
-                    <span className="font-bold text-blue-600">
-                      ${((pumpServiceProduct.price || 0) * (pumpServiceProduct.volume || 1)).toLocaleString('es-MX', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                      })} MXN
-                    </span>
-                  </div>
+                <div className="text-right font-bold text-blue-700 text-sm">
+                  Total: ${((pumpServiceProduct.price || 0) * (pumpServiceProduct.volume || 1)).toLocaleString('es-MX')}
                 </div>
               </div>
-            </div>
-          )}
-
-          <div>
-            <label htmlFor="validityDate" className="block text-sm font-medium text-gray-700 mb-1">Fecha de Validez</label>
-            <Popover.Root>
-              <Popover.Trigger asChild>
-                <button
-                  id="validityDate"
-                  className={`w-full p-2.5 border text-left border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm flex justify-between items-center ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={isLoading}
-                >
-                  <span className={validityDate ? 'text-gray-900' : 'text-gray-500'}>
-                    {validityDate ? format(new Date(validityDate + 'T00:00:00'), 'dd/MM/yyyy') : 'Seleccionar fecha'}
-                  </span>
-                  <CalendarIcon className="h-4 w-4 text-gray-500" />
-                </button>
-              </Popover.Trigger>
-              <Popover.Portal>
-                <Popover.Content 
-                  className="bg-white p-2 rounded-lg shadow-lg border border-gray-200 z-50"
-                  sideOffset={5}
-                >
-                  <DayPicker
-                    mode="single"
-                    selected={selectedDate}
-                    onSelect={setSelectedDate}
-                    locale={es}
-                    className="p-2"
-                    classNames={{
-                      day_selected: 'bg-green-600 text-white',
-                      day_today: 'bg-gray-100 font-bold',
-                      button_reset: 'hidden'
-                    }}
-                    footer={
-                      <div className="pt-2 text-center text-sm text-gray-500">
-                        {selectedDate && (
-                          <p>Has seleccionado {format(selectedDate, 'PPP', { locale: es })}</p>
-                        )}
-                      </div>
-                    }
-                  />
-                </Popover.Content>
-              </Popover.Portal>
-            </Popover.Root>
-          </div>
-
-          <div className="mt-4">
-            <h3 className="font-semibold mb-3 text-gray-800 flex items-center gap-1">
-              <svg className="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-              </svg>
-              Historial Reciente
-            </h3>
-            <div className="max-h-[250px] overflow-y-auto rounded-lg border border-gray-200">
-              {clientHistory.length > 0 ? (
-                <div className="divide-y divide-gray-200">
-                  {clientHistory.slice(0, 10).map((item, index) => (
-                    <div key={index} className="p-3 hover:bg-gray-50">
-                      <p className="font-medium text-gray-800">
-                        {item.quote_details[0]?.product?.recipe_code || 'Sin tipo'} - 
-                        ${item.quote_details[0]?.final_price 
-                          ? item.quote_details[0].final_price.toLocaleString('es-MX', { 
-                              minimumFractionDigits: 2, 
-                              maximumFractionDigits: 2 
-                            }) 
-                          : '0.00'}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {item.delivery_date && new Date(item.delivery_date).toLocaleDateString()}
-                      </p>
-                      {item.delivery_site && (
-                        <p className="text-sm text-gray-600 mt-1 flex items-center gap-1">
-                          <svg className="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z" />
-                          </svg>
-                          {item.delivery_site} ({item.location})
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-500 text-center p-4">Sin historial de pedidos</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center mt-6">
-          <button
-            onClick={clearDraft}
-            className="inline-flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            disabled={isLoading}
-          >
-            <svg className="h-4 w-4 mr-1.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-            </svg>
-            Limpiar Borrador
-          </button>
-          <button
-            onClick={saveQuote}
-            className="inline-flex items-center justify-center px-5 py-2.5 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <span className="flex items-center gap-2">
-                <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Guardando...
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2Z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 11v6" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 14h6" />
-                </svg>
-                Guardar Cotización
-              </span>
             )}
-          </button>
+          </div>
+        </Card>
+
+        {/* Client History - simplified */}
+        <Card variant="thin" className="p-4 overflow-hidden flex flex-col shrink-0">
+          <h3 className="font-semibold text-gray-700 mb-3 text-sm flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-gray-400" />
+            Historial Reciente
+          </h3>
+          <div className="space-y-2 max-h-[200px] overflow-y-auto custom-scrollbar">
+            {clientHistory.length > 0 ? (
+              clientHistory.slice(0, 5).map((item, idx) => (
+                <div key={idx} className="text-xs p-2 bg-white/40 rounded-lg border border-white/50">
+                  <p className="font-medium text-gray-800">{item.quote_details[0]?.product?.recipe_code || 'Producto'}</p>
+                  <div className="flex justify-between text-gray-500 mt-1">
+                    <span>{new Date(item.delivery_date).toLocaleDateString()}</span>
+                    <span>${item.quote_details[0]?.final_price?.toLocaleString() || '0'}</span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-xs text-gray-400 text-center py-4">Sin historial disponible</p>
+            )}
+          </div>
+        </Card>
+        
+        {/* Actions */}
+        <div className="grid grid-cols-2 gap-3 shrink-0 pb-2">
+          <Button variant="secondary" onClick={clearDraft} disabled={isLoading}>
+            Limpiar
+          </Button>
+          <Button onClick={saveQuote} disabled={isLoading} loading={isLoading}>
+            Guardar
+          </Button>
         </div>
       </div>
 
       {/* Bottom Panel: Quote Products */}
       {(quoteProducts.length > 0 || (includePumpService && pumpServiceProduct.price > 0)) && (
-        <div className="lg:col-span-3 bg-white rounded-lg shadow-sm p-6 border border-gray-100">
-          <h2 className="text-xl font-bold mb-6 text-gray-800 flex items-center gap-2">
-            {(quoteProducts.length === 0 && includePumpService && pumpServiceProduct.price > 0) ? (
-              <>
-                <svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                </svg>
-                Servicio de Bombeo
-              </>
-            ) : (
-              <>
-                <svg className="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5V6a3.75 3.75 0 1 0-7.5 0v4.5m11.356-1.993 1.263 12c.07.665-.45 1.243-1.119 1.243H4.25a1.125 1.125 0 0 1-1.12-1.243l1.264-12A1.125 1.125 0 0 1 5.513 7.5h12.974c.576 0 1.059.435 1.119 1.007ZM8.625 10.5a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm7.5 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
-                </svg>
-                Productos de la Cotización
-              </>
-            )}
-          </h2>
-          <div className="divide-y divide-gray-200">
+        <Card variant="thick" className="lg:col-span-3 border-0 p-6">
+          <div className="mb-6">
+            <h2 className="text-title-3 font-bold text-gray-800 flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-green-600" />
+              Detalle de la Cotización
+            </h2>
+          </div>
+          
+          <div className="space-y-4">
             {quoteProducts.map((product, index) => (
-              <div key={index} className="grid grid-cols-1 md:grid-cols-6 gap-4 py-5 @container">
-                <div className="md:col-span-1">
-                  <p className="font-semibold text-gray-800 mb-1">
-                    {features.masterPricingEnabled && product.master_code 
-                      ? product.master_code 
-                      : product.recipe.recipe_code}
+              <div key={index} className="bg-white/60 rounded-xl p-4 border border-gray-100 shadow-sm grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                <div className="md:col-span-3">
+                  <p className="font-bold text-gray-900 text-sm">
+                    {features.masterPricingEnabled && product.master_code ? product.master_code : product.recipe.recipe_code}
                   </p>
-                  <p className="text-xs text-gray-500">{product.recipe.placement_type === 'D' ? 'Colocación directa' : 'Bombeado'}</p>
+                  <p className="text-xs text-gray-500 mt-1">{product.recipe.placement_type === 'D' ? 'Directa' : 'Bombeado'}</p>
                 </div>
-                <div className="@md:col-span-5 grid grid-cols-1 @md:grid-cols-2 @lg:grid-cols-5 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Volumen (m³)</label>
-                    <input 
-                      type="number" 
-                      value={product.volume} 
-                      onChange={(e) => {
-                        const value = parseFloat(e.target.value);
-                        updateProductDetails(index, { 
-                          volume: isNaN(value) ? 1 : value 
-                        });
-                      }}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-                      disabled={isLoading}
+                
+                <div className="md:col-span-2">
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Volumen (m³)</label>
+                  <Input 
+                    type="number" 
+                    value={product.volume}
+                    onChange={(e) => updateProductDetails(index, { volume: parseFloat(e.target.value) || 0 })}
+                    className="bg-white h-9"
+                  />
+                </div>
+                
+                <div className="md:col-span-2">
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Precio Base</label>
+                  <div className="relative">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                    <Input 
+                      type="number"
+                      value={product.basePrice}
+                      onChange={(e) => updateProductDetails(index, { basePrice: parseFloat(e.target.value) || 0 })}
+                      className="bg-white pl-5 h-9"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Precio Base (MXN)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
-                      <input 
-                        type="number" 
-                        value={product.basePrice} 
-                        onChange={(e) => {
-                          const value = parseFloat(e.target.value);
-                          updateProductDetails(index, { 
-                            basePrice: isNaN(value) ? 0 : value 
-                          });
-                        }}
-                        className="w-full p-2 pl-8 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-                        title="Edita el precio base para ajustar el precio final"
-                      />
-                    </div>
+                </div>
+                
+                <div className="md:col-span-2">
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Margen (%)</label>
+                  <div className="relative">
+                    <Input 
+                      type="number"
+                      value={(product.profitMargin * 100).toFixed(2)}
+                      onChange={(e) => updateProductDetails(index, { profitMargin: (parseFloat(e.target.value) || 0) / 100 })}
+                      className="bg-white pr-6 h-9"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">%</span>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Margen (%)</label>
-                    <div className="relative">
-                      <input 
-                        type="number"
-                        step="0.01"
-                        value={Math.round((product.profitMargin * 100) * 100) / 100}
-                        onChange={(e) => {
-                          const value = parseFloat(e.target.value);
-                          if (!isNaN(value)) {
-                            updateProductDetails(index, { 
-                              profitMargin: value / 100 
-                            });
-                          }
-                        }}
-                        onBlur={() => {
-                          // Ensure minimum 4% margin
-                          const current = product.profitMargin * 100;
-                          const clamped = Math.max(4, current);
-                          if (clamped !== current) {
-                            updateProductDetails(index, { 
-                              profitMargin: clamped / 100 
-                            });
-                          }
-                        }}
-                        placeholder="4.0"
-                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-                        disabled={isLoading}
-                        title="Edita el margen para ajustar automáticamente el precio final"
-                      />
-                      {product.profitMargin > 0.04 && (
-                        <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-green-600 font-medium">
-                          ✓
-                        </div>
-                      )}
-                    </div>
+                </div>
+                
+                <div className="md:col-span-2">
+                  <label className="text-xs font-medium text-gray-500 mb-1 block">Precio Final</label>
+                  <div className="relative">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                    <Input 
+                      type="number"
+                      value={product.finalPrice}
+                      onChange={(e) => updateProductDetails(index, { finalPrice: parseFloat(e.target.value) || 0 })}
+                      className="bg-white pl-5 h-9 font-bold text-green-700"
+                    />
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Precio Final</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
-                      <input 
-                        type="number"
-                        value={product.finalPrice}
-                        onChange={(e) => {
-                          const value = parseFloat(e.target.value);
-                          if (!isNaN(value) && value > 0) {
-                            updateProductDetails(index, { 
-                              finalPrice: value 
-                            });
-                          }
-                        }}
-                        onBlur={() => {
-                          // Validate that the price is positive
-                          if (product.finalPrice <= 0) {
-                            updateProductDetails(index, { 
-                              finalPrice: product.basePrice * (1 + product.profitMargin) 
-                            });
-                          }
-                        }}
-                        className="w-full p-2 pl-8 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 shadow-sm"
-                        title="Edita el precio final para ajustar automáticamente el margen"
-                        disabled={isLoading}
-                      />
-                      {product.finalPrice % 5 === 0 && Math.abs(product.finalPrice - (product.basePrice * (1 + product.profitMargin))) < 0.01 && (
-                        <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-blue-600 font-medium" title="Precio calculado automáticamente">
-                          ✓
-                        </div>
-                      )}
-                      {Math.abs(product.finalPrice - (product.basePrice * (1 + product.profitMargin))) >= 0.01 && (
-                        <div className="absolute right-2 top-1/2 transform -translate-y-1/2 text-xs text-orange-600 font-medium" title="Precio establecido manualmente">
-                          ✎
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-end">
-                    <button 
-                      onClick={() => removeProductFromQuote(index)}
-                      className="inline-flex items-center gap-1 justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 w-full"
-                      disabled={isLoading}
-                    >
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                      </svg>
-                      Eliminar
-                    </button>
-                  </div>
+                </div>
+                
+                <div className="md:col-span-1 flex justify-end">
+                  <Button variant="destructive" size="icon" onClick={() => removeProductFromQuote(index)} className="h-9 w-9">
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 </div>
               </div>
             ))}
 
-            {/* Pumping Service Display for standalone pumping service */}
-            {quoteProducts.length === 0 && includePumpService && pumpServiceProduct.price > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-4 py-5 @container bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="md:col-span-1">
-                  <p className="font-semibold text-blue-800 mb-1 flex items-center gap-2">
-                    <svg className="h-4 w-4 text-blue-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                    </svg>
-                    SERVICIO DE BOMBEO
-                  </p>
-                  <p className="text-xs text-blue-600">{pumpServiceProduct.description || 'Servicio de Bombeo'}</p>
-                </div>
-                <div className="@md:col-span-5 grid grid-cols-1 @md:grid-cols-2 @lg:grid-cols-5 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-blue-700 mb-1">Volumen (m³)</label>
-                    <div className="bg-white p-2 rounded border border-blue-300">
-                      <span className="font-medium">{pumpServiceProduct.volume || 1}</span>
-                    </div>
-                  </div>
-
-
-                  <div>
-                    <label className="block text-xs font-medium text-blue-700 mb-1">Precio por m³</label>
-                    <div className="bg-white p-2 rounded border border-blue-300">
-                      <span className="font-medium">${(pumpServiceProduct.price || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-end">
-                    <div className="bg-blue-100 p-3 rounded border border-blue-300 w-full">
-                      <div className="text-center">
-                        <p className="text-xs font-medium text-blue-700 mb-1">Total</p>
-                        <p className="font-bold text-blue-800">
-                          ${((pumpServiceProduct.price || 0) * (pumpServiceProduct.volume || 1)).toLocaleString('es-MX', {
-                            minimumFractionDigits: 2,
-                            maximumFractionDigits: 2
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+            {quoteProducts.length === 0 && includePumpService && (
+              <div className="bg-blue-50/50 rounded-xl p-6 border border-blue-100 text-center text-blue-800">
+                Solo Servicio de Bombeo Seleccionado
               </div>
             )}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Loading Overlay */}
       {isLoading && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-xl shadow-xl">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-600 mx-auto"></div>
-            <p className="mt-4 text-center font-medium text-gray-700">Procesando...</p>
-          </div>
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50">
+          <Card variant="thick" className="p-8 flex flex-col items-center gap-4">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-600"></div>
+            <p className="font-medium text-gray-700">Procesando solicitud...</p>
+          </Card>
         </div>
       )}
 
@@ -1850,79 +1456,29 @@ export default function QuoteBuilder() {
         open={showCreateSiteDialog} 
         onOpenChange={(open) => {
           setShowCreateSiteDialog(open);
-          // If opening the dialog, trigger a resize event after a small delay
-          // to ensure Google Maps renders correctly
           if (open) {
-            console.log('Opening site creation dialog with Google Maps');
-            
-            // Clear existing coordinates when opening the dialog
             setSiteCoordinates({ lat: null, lng: null });
-            
-            // More robust approach with multiple resize events
-            const triggerResize = () => {
-              window.dispatchEvent(new Event('resize'));
-              console.log('Resize event triggered for map initialization');
-            };
-            
-            // Trigger multiple resize events with increasing delays
-            const timeouts = [
-              setTimeout(triggerResize, 200),
-              setTimeout(triggerResize, 500),
-              setTimeout(triggerResize, 800),
-              setTimeout(triggerResize, 1200),
-              setTimeout(() => {
-                triggerResize();
-                console.log('Final resize event triggered for map');
-              }, 1500)
-            ];
-            
-            // Return cleanup function that will run if the component unmounts
-            return () => {
-              console.log('Cleaning up resize timeouts');
-              timeouts.forEach(clearTimeout);
-            };
+            const triggerResize = () => window.dispatchEvent(new Event('resize'));
+            setTimeout(triggerResize, 200);
+            setTimeout(triggerResize, 1000);
           }
         }}
       >
-        <DialogContent className="sm:max-w-[700px] w-[95vw] sm:w-[90vw] max-h-[90vh] h-[90vh] overflow-hidden p-0 flex flex-col">
-          {/* Fixed Header */}
-          <div className="flex-shrink-0 p-4 sm:p-6 border-b border-gray-200 bg-white">
-            <DialogTitle className="text-lg font-semibold">Crear Nueva Obra</DialogTitle>
-            <DialogDescription className="text-sm text-gray-600 mt-1">
-              Completa los detalles de la nueva obra y selecciona su ubicación en el mapa.
-            </DialogDescription>
+        <DialogContent className="sm:max-w-[700px] w-[95vw] h-[90vh] p-0 flex flex-col overflow-hidden">
+          <div className="p-6 border-b border-gray-100">
+            <DialogTitle>Crear Nueva Obra</DialogTitle>
+            <DialogDescription>Detalles de la nueva obra y ubicación.</DialogDescription>
           </div>
-          
-          {/* Scrollable Body */}
-          <div className="flex-1 overflow-hidden p-4 sm:p-6 flex flex-col">
+          <div className="flex-1 overflow-y-auto p-6">
             {selectedClient ? (
-              <div className="h-full flex flex-col">
-                {/* Show debug info */}
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="bg-blue-50 p-2 mb-2 text-sm rounded flex-shrink-0">
-                    <p>Google Maps API cargada: {typeof google !== 'undefined' && google.maps ? 'Sí' : 'No'}</p>
-                    <p>API Key presente: {!!process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? 'Sí' : 'No'}</p>
-                  </div>
-                )}
-                <div className="flex-1 min-h-0">
-                  <ConstructionSiteForm
-                    clientId={selectedClient}
-                    onSiteCreated={(id: string, name: string, loc?: string, lat?: number, lng?: number) => handleSiteCreated(id, name, loc, lat, lng)}
-                    onCancel={() => setShowCreateSiteDialog(false)}
-                  />
-                </div>
-              </div>
+              <ConstructionSiteForm
+                clientId={selectedClient}
+                onSiteCreated={(id, name, loc, lat, lng) => handleSiteCreated(id, name, loc, lat, lng)}
+                onCancel={() => setShowCreateSiteDialog(false)}
+              />
             ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center">
-                  <p className="mb-4">Por favor, selecciona un cliente primero.</p>
-                  <button
-                    onClick={() => setShowCreateSiteDialog(false)}
-                    className="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-md"
-                  >
-                    Cerrar
-                  </button>
-                </div>
+              <div className="text-center py-10 text-gray-500">
+                Seleccione un cliente primero.
               </div>
             )}
           </div>

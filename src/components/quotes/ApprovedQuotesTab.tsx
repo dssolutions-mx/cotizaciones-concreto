@@ -651,7 +651,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
   }, [quotes, filterDateFrom, filterDateTo]);
 
   return (
-    <div className="p-4">
+    <div className="space-y-6">
       {isLoading ? (
         <div className="flex justify-center items-center h-64">
           <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-blue-500"></div>
@@ -663,7 +663,7 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
       ) : (
         <>
           {/* Date Range Filter Only */}
-          <div className="mb-6 space-y-4">
+          <div className="space-y-4">
             <div className="flex flex-col gap-3">
               {/* Filter Toggle Button */}
               <div className="flex flex-wrap gap-2 items-center">
@@ -858,44 +858,61 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
 
       {/* Quote Details Modal */}
       {selectedQuote && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-11/12 max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex justify-center items-center z-50 p-4">
+          <div className="bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto border border-white/20 animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-8">
               {/* Modal Header with Quote Info */}
-              <div className="mb-6 pb-4 border-b border-gray-200">
+              <div className="mb-8 pb-6 border-b border-gray-200/50">
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-2xl font-bold text-gray-900">Cotización #{selectedQuote.quote_number}</h2>
-                    <p className="text-sm text-gray-600 mt-1">Cliente: {selectedQuote.client?.business_name || 'Sin cliente'}</p>
+                    <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Cotización #{selectedQuote.quote_number}</h2>
+                    <p className="text-lg text-gray-600 mt-1">Cliente: <span className="font-medium text-gray-900">{selectedQuote.client?.business_name || 'Sin cliente'}</span></p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-gray-600">Aprobada el {new Date(selectedQuote.approval_date).toLocaleDateString('es-MX')}</p>
-                    <p className="text-xs text-gray-500">Por: {selectedQuote.approver_name || 'Sistema'}</p>
+                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-green-100/80 text-green-800 rounded-full text-xs font-bold uppercase tracking-wider mb-2">
+                      <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                      Aprobada
+                    </div>
+                    <p className="text-sm text-gray-500">El {new Date(selectedQuote.approval_date).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Por: {selectedQuote.approver_name || 'Sistema'}</p>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-block px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">APROBADA</span>
                 </div>
               </div>
 
               {/* Quote Details - Modern Card Style */}
-              <div className="space-y-4 mb-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <p className="text-xs text-gray-600 uppercase tracking-wide font-semibold mb-1">Sitio de Construcción</p>
-                    <p className="text-lg font-medium text-gray-900">{selectedQuote.construction_site || 'N/A'}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div className="p-5 bg-white/50 rounded-xl border border-white/60 shadow-sm">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2 bg-blue-100/50 rounded-lg">
+                      <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Sitio de Construcción</p>
                   </div>
-                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                    <p className="text-xs text-gray-600 uppercase tracking-wide font-semibold mb-1">Vigencia</p>
-                    <p className="text-lg font-medium text-gray-900">{new Date(selectedQuote.validity_date).toLocaleDateString('es-MX')}</p>
+                  <p className="text-xl font-medium text-gray-900 pl-12">{selectedQuote.construction_site || 'N/A'}</p>
+                </div>
+                <div className="p-5 bg-white/50 rounded-xl border border-white/60 shadow-sm">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2 bg-purple-100/50 rounded-lg">
+                      <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <p className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Vigencia</p>
                   </div>
+                  <p className="text-xl font-medium text-gray-900 pl-12">{new Date(selectedQuote.validity_date).toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                 </div>
               </div>
 
               {/* Items Table with Master/Variant Indicators */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Detalles de la Cotización</h3>
-                <div className="overflow-x-auto rounded-lg border border-gray-200">
+              <div className="mb-8 bg-white/60 rounded-xl border border-gray-200/60 overflow-hidden shadow-sm">
+                <div className="px-6 py-4 border-b border-gray-200/50 bg-gray-50/50 flex justify-between items-center">
+                  <h3 className="text-lg font-bold text-gray-900">Detalles de la Cotización</h3>
+                  <span className="text-xs font-medium text-gray-500 bg-white px-2 py-1 rounded-md border border-gray-200">{editingQuoteDetails.length} Productos</span>
+                </div>
+                <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                     <thead className="bg-gradient-to-r from-gray-100 to-gray-50 border-b border-gray-200">
                       <tr>
@@ -1064,7 +1081,19 @@ export default function ApprovedQuotesTab({ onDataSaved, statusFilter, clientFil
               )}
 
               {/* Modal Actions */}
-              <div className="flex justify-end space-x-2 mt-6">
+              <div className="flex justify-end space-x-2 mt-6 pt-6 border-t border-gray-200/50">
+                {!isEditing && (
+                  <button 
+                    onClick={startEditing}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 shadow-lg shadow-blue-500/20"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M17.414 2.586a2 2 0 00-2.828 0L7 10.172V13h2.828l7.586-7.586a2 2 0 000-2.828z" />
+                      <path fillRule="evenodd" d="M2 6a2 2 0 012-2h4a1 1 0 010 2H4v10h10v-4a1 1 0 112 0v4a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" clipRule="evenodd" />
+                    </svg>
+                    Duplicar y Editar
+                  </button>
+                )}
                 {isEditing && (
                   <>
                     <button 
