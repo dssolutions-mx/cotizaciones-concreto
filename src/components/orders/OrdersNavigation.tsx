@@ -307,10 +307,10 @@ const OrdersNavigation = memo(function OrdersNavigation({
                   onClick={() => navigate(tab.id)}
                   className={cn(
                     'relative px-4 py-2 rounded-full text-sm font-medium transition-all duration-200',
-                    'flex items-center gap-2 whitespace-nowrap',
+                    'flex items-center gap-2 whitespace-nowrap z-0',
                     isActive
                       ? 'text-white'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+                      : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                   )}
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
@@ -318,19 +318,33 @@ const OrdersNavigation = memo(function OrdersNavigation({
                   {isActive && (
                     <motion.div
                       layoutId="activeTab"
-                      className="absolute inset-0 bg-systemBlue rounded-full shadow-lg"
+                      className="absolute inset-0 rounded-full shadow-lg"
+                      style={{ 
+                        backgroundColor: 'rgb(0, 122, 255)', // systemBlue - fully opaque
+                        opacity: 1
+                      }}
                       transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                     />
                   )}
                   <span className="relative z-10 flex items-center gap-2">
-                    <tab.icon className="h-4 w-4" />
-                    <span className="hidden sm:inline">{tab.label}</span>
-                    <span className="sm:hidden">{tab.label.substring(0, 4)}</span>
+                    <tab.icon className={cn('h-4 w-4', isActive ? 'text-white' : '')} />
+                    <span className={cn(
+                      isActive ? 'text-white font-semibold' : '',
+                      'hidden sm:inline'
+                    )}>
+                      {tab.label}
+                    </span>
+                    <span className={cn(
+                      isActive ? 'text-white font-semibold' : '',
+                      'sm:hidden'
+                    )}>
+                      {tab.label.substring(0, 4)}
+                    </span>
                     {tab.id === 'credit' && tab.badge !== undefined && tab.badge > 0 && (
                       <span className={cn(
                         'ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
                         isActive
-                          ? 'bg-white/20 text-white'
+                          ? 'bg-white/30 text-white border border-white/20'
                           : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
                       )}>
                         {tab.badge}

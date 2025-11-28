@@ -170,7 +170,7 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
                   )}
                   {initials && (
                     <span
-                      className="inline-flex items-center justify-center h-6 w-6 rounded-full glass-thin text-gray-700 dark:text-gray-300 text-xs font-semibold"
+                      className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-semibold border border-gray-300 dark:border-gray-600"
                       title="Creador del pedido"
                     >
                       {initials}
@@ -205,9 +205,9 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
             </div>
 
             {/* Client Code */}
-            <div className="text-sm text-gray-700 dark:text-gray-300">
+            <div className="text-sm">
               <span className="font-medium text-gray-600 dark:text-gray-400">Código:</span>{' '}
-              <span className="text-gray-900 dark:text-gray-100">{order.clients?.client_code || 'N/A'}</span>
+              <span className="text-gray-900 dark:text-gray-100 font-semibold">{order.clients?.client_code || 'N/A'}</span>
             </div>
 
             {/* Site access summary for Yellow/Red */}
@@ -231,10 +231,10 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
 
             {/* Construction Site */}
             {order.construction_site && (
-              <div className="flex flex-wrap items-center gap-2 text-gray-700 dark:text-gray-300">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-gray-500" />
-                  <span className="font-medium">{order.construction_site}</span>
+                  <MapPin className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{order.construction_site}</span>
                 </div>
                 {((order as any).delivery_latitude && (order as any).delivery_longitude) && (
                   <>
@@ -262,9 +262,9 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
             )}
 
             {/* Delivery Time */}
-            <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-              <Clock className="h-4 w-4 text-gray-500" />
-              <span className="font-medium">{formatTime(order.delivery_time)}</span>
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-gray-600 dark:text-gray-400" />
+              <span className="font-medium text-gray-900 dark:text-gray-100">{formatTime(order.delivery_time)}</span>
               {isPastOrder && order.delivery_date && (
                 <span className="text-sm text-red-600 dark:text-red-400">
                   • {formatDate(order.delivery_date)}
