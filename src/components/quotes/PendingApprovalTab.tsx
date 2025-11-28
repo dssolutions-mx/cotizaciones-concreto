@@ -15,7 +15,7 @@ import { features } from '@/config/featureFlags';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Check, X, MoreVertical, Eye, FileText, Search } from 'lucide-react';
+import { Check, X, MoreVertical, Eye, FileText, Search, Trash2 } from 'lucide-react';
 
 interface PendingApprovalTabProps {
   onDataSaved?: () => void;
