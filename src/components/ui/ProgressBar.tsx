@@ -57,7 +57,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
           )}
         </div>
       )}
-      <div className={cn('w-full rounded-full overflow-hidden glass-thin', sizeClasses[size])}>
+      <div className={cn('w-full rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700', sizeClasses[size])}>
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${percentage}%` }}

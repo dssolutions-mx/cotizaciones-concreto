@@ -364,7 +364,8 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
                 e.stopPropagation();
                 onClick();
               }}
-              className="w-full md:w-auto inline-flex items-center justify-center px-5 py-3 rounded-xl font-semibold text-sm bg-systemBlue text-white hover:bg-systemBlue/90 shadow-md transition-all min-h-[44px]"
+              className="w-full md:w-auto inline-flex items-center justify-center px-5 py-3 rounded-xl font-semibold text-sm bg-systemBlue text-white hover:bg-systemBlue/90 shadow-md transition-all min-h-[44px] !opacity-100"
+              style={{ backgroundColor: '#007AFF', color: 'white', opacity: 1 }}
             >
               Ver detalles
             </motion.button>
