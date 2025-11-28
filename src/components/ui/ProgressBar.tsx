@@ -15,11 +15,11 @@ interface ProgressBarProps {
 }
 
 const colorClasses = {
-  blue: 'bg-blue-500',
-  green: 'bg-green-500',
-  purple: 'bg-purple-500',
-  orange: 'bg-orange-500',
-  red: 'bg-red-500'
+  blue: 'bg-systemBlue',
+  green: 'bg-systemGreen',
+  purple: 'bg-systemBlue', // Use systemBlue instead of purple
+  orange: 'bg-systemOrange',
+  red: 'bg-systemRed'
 };
 
 const sizeClasses = {

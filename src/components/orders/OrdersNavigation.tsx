@@ -318,7 +318,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
                   {isActive && (
                     <motion.div
                       layoutId="activeTab"
-                      className="absolute inset-0 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full shadow-lg"
+                      className="absolute inset-0 bg-systemBlue rounded-full shadow-lg"
                       transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                     />
                   )}
@@ -351,7 +351,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
           >
             <Button
               onClick={() => navigate('create')}
-              className="glass-interactive !bg-gradient-to-r !from-green-600 !to-emerald-600 hover:!from-green-700 hover:!to-emerald-700 !text-white shadow-lg font-semibold"
+              className="glass-interactive !bg-systemGreen hover:!opacity-90 !text-white shadow-lg font-semibold"
             >
               <PlusIcon className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Crear Orden</span>

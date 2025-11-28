@@ -2323,8 +2323,8 @@ export default function ScheduleOrderForm({
                 >
                   <div className={cn(
                     'relative h-12 w-12 rounded-full flex items-center justify-center font-bold text-lg transition-all duration-300',
-                    isActive && 'glass-interactive border-2 border-indigo-500 shadow-lg shadow-indigo-500/50 scale-110',
-                    isCompleted && 'bg-gradient-to-r from-green-500 to-emerald-500 text-white',
+                    isActive && 'glass-interactive border-2 border-systemBlue shadow-lg shadow-systemBlue/50 scale-110',
+                    isCompleted && 'bg-systemGreen text-white',
                     !isActive && !isCompleted && 'glass-thin border border-gray-300 text-gray-500'
                   )}>
                     {isCompleted ? (
@@ -2334,7 +2334,7 @@ export default function ScheduleOrderForm({
                     )}
                     {isActive && (
                       <motion.div
-                        className="absolute inset-0 rounded-full bg-indigo-500/20"
+                        className="absolute inset-0 rounded-full bg-systemBlue/20"
                         animate={{ scale: [1, 1.2, 1] }}
                         transition={{ duration: 2, repeat: Infinity }}
                       />
@@ -2343,8 +2343,8 @@ export default function ScheduleOrderForm({
                   <div className="text-center">
                     <div className={cn(
                       'font-semibold text-sm',
-                      isActive && 'text-indigo-600 dark:text-indigo-400',
-                      isCompleted && 'text-green-600 dark:text-green-400',
+                    isActive && 'text-systemBlue dark:text-systemBlue/80',
+                    isCompleted && 'text-systemGreen dark:text-systemGreen/80',
                       !isActive && !isCompleted && 'text-gray-500'
                     )}>
                       {step.title}
@@ -2355,7 +2355,7 @@ export default function ScheduleOrderForm({
                 {index < steps.length - 1 && (
                   <div className={cn(
                     'flex-1 h-0.5 mx-4 transition-all duration-300',
-                    currentStep > step.number ? 'bg-gradient-to-r from-green-500 to-indigo-500' : 'bg-gray-200'
+                    currentStep > step.number ? 'bg-systemGreen' : 'bg-gray-200'
                   )} />
                 )}
               </React.Fragment>
@@ -2404,7 +2404,7 @@ export default function ScheduleOrderForm({
                   }
                   className={cn(
                     'flex items-center gap-2 px-4 py-2 glass-interactive rounded-xl font-medium',
-                    'bg-gradient-to-r from-indigo-600 to-purple-600 text-white',
+                    'bg-systemBlue text-white',
                     'disabled:opacity-50 disabled:cursor-not-allowed'
                   )}
                   whileHover={{ scale: 1.05 }}

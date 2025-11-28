@@ -1275,7 +1275,7 @@ export default function OrdersList({
                 <motion.div
                   className={cn(
                     'glass-thin rounded-t-2xl px-6 py-4 flex justify-between items-center cursor-pointer',
-                    isPriorityGroup && 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20'
+                    isPriorityGroup && 'bg-systemBlue/20'
                   )}
                   onClick={() => toggleGroupExpand(groupKey)}
                   whileHover={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}

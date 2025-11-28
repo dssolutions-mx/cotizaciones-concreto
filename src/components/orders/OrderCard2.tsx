@@ -206,7 +206,7 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
                     max={pumpVolumePlanned || 100}
                     label="Bombeo"
                     showValue
-                    color={pumpVolumeDelivered ? 'green' : 'purple'}
+                    color={pumpVolumeDelivered ? 'green' : 'blue'}
                     size="md"
                   />
                 </div>
@@ -222,7 +222,7 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
                 {formattedConcrete}
               </div>
               {hasPumpService && formattedPump && (
-                <div className="text-lg font-semibold text-purple-600 dark:text-purple-400">
+                <div className="text-lg font-semibold text-systemBlue dark:text-systemBlue/80">
                   Bombeo: {formattedPump}
                 </div>
               )}

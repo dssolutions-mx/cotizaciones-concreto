@@ -13,44 +13,44 @@ interface StatusPillProps {
 
 const statusColors: Record<string, { bg: string; text: string; glow: string }> = {
   created: {
-    bg: 'bg-blue-500/20',
-    text: 'text-blue-700 dark:text-blue-300',
-    glow: 'shadow-blue-500/50'
+    bg: 'bg-systemBlue/20',
+    text: 'text-systemBlue dark:text-systemBlue/80',
+    glow: 'shadow-systemBlue/50'
   },
   validated: {
-    bg: 'bg-green-500/20',
-    text: 'text-green-700 dark:text-green-300',
-    glow: 'shadow-green-500/50'
+    bg: 'bg-systemGreen/20',
+    text: 'text-systemGreen dark:text-systemGreen/80',
+    glow: 'shadow-systemGreen/50'
   },
   scheduled: {
-    bg: 'bg-purple-500/20',
-    text: 'text-purple-700 dark:text-purple-300',
-    glow: 'shadow-purple-500/50'
+    bg: 'bg-systemOrange/20',
+    text: 'text-systemOrange dark:text-systemOrange/80',
+    glow: 'shadow-systemOrange/50'
   },
   completed: {
-    bg: 'bg-emerald-500/20',
-    text: 'text-emerald-700 dark:text-emerald-300',
-    glow: 'shadow-emerald-500/50'
+    bg: 'bg-systemGreen/20',
+    text: 'text-systemGreen dark:text-systemGreen/80',
+    glow: 'shadow-systemGreen/50'
   },
   cancelled: {
-    bg: 'bg-red-500/20',
-    text: 'text-red-700 dark:text-red-300',
-    glow: 'shadow-red-500/50'
+    bg: 'bg-systemRed/20',
+    text: 'text-systemRed dark:text-systemRed/80',
+    glow: 'shadow-systemRed/50'
   },
   pending: {
-    bg: 'bg-yellow-500/20',
-    text: 'text-yellow-700 dark:text-yellow-300',
-    glow: 'shadow-yellow-500/50'
+    bg: 'bg-systemOrange/20',
+    text: 'text-systemOrange dark:text-systemOrange/80',
+    glow: 'shadow-systemOrange/50'
   },
   approved: {
-    bg: 'bg-green-500/20',
-    text: 'text-green-700 dark:text-green-300',
-    glow: 'shadow-green-500/50'
+    bg: 'bg-systemGreen/20',
+    text: 'text-systemGreen dark:text-systemGreen/80',
+    glow: 'shadow-systemGreen/50'
   },
   rejected: {
-    bg: 'bg-red-500/20',
-    text: 'text-red-700 dark:text-red-300',
-    glow: 'shadow-red-500/50'
+    bg: 'bg-systemRed/20',
+    text: 'text-systemRed dark:text-systemRed/80',
+    glow: 'shadow-systemRed/50'
   }
 };
 
