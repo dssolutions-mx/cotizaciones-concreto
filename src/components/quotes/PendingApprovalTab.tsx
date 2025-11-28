@@ -477,9 +477,8 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
                           <Eye className="w-4 h-4 mr-2" /> Revisar
                         </Button>
                         <Button 
-                          variant="primary" 
                           size="sm" 
-                          className="bg-green-600 hover:bg-green-700 text-white"
+                          className="!bg-green-600 hover:!bg-green-700 !text-white border-0"
                           onClick={() => approveQuote(quote.id)}
                         >
                           <Check className="w-4 h-4 mr-2" /> Aprobar
@@ -681,7 +680,7 @@ export default function PendingApprovalTab({ onDataSaved, statusFilter, clientFi
               <div className="flex gap-2">
                 <Button variant="secondary" onClick={() => saveQuoteModifications(true)}>Guardar Cambios</Button>
                 <Button 
-                  className="bg-green-600 hover:bg-green-700 text-white" 
+                  className="!bg-green-600 hover:!bg-green-700 !text-white border-0" 
                   onClick={() => approveQuote(selectedQuote?.id as string)}
                 >
                   <Check className="w-4 h-4 mr-2" /> Aprobar Cotización
