@@ -1468,8 +1468,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         {canEditOrder && !isEditing && (
           <Button
             onClick={handleEditClick}
-            variant="ghost"
-            className="!bg-blue-600 !hover:bg-blue-700 !text-white"
+            className="!bg-systemBlue hover:!bg-systemBlue/90 !text-white !opacity-100 shadow-md"
+            style={{ backgroundColor: '#007AFF', color: 'white', opacity: 1 }}
           >
             Editar Orden
           </Button>
@@ -1659,9 +1659,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 onClick={() => setActiveTab('details')}
                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
                   activeTab === 'details'
-                    ? 'bg-systemBlue text-white shadow-md'
-                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    ? 'bg-systemBlue text-white shadow-md !opacity-100'
+                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
                 }`}
+                style={activeTab === 'details' ? { backgroundColor: '#007AFF', color: 'white', opacity: 1 } : undefined}
               >
                 Detalles de Orden
               </button>
@@ -1669,9 +1670,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 onClick={() => setActiveTab('remisiones')}
                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
                   activeTab === 'remisiones'
-                    ? 'bg-systemBlue text-white shadow-md'
-                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    ? 'bg-systemBlue text-white shadow-md !opacity-100'
+                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
                 }`}
+                style={activeTab === 'remisiones' ? { backgroundColor: '#007AFF', color: 'white', opacity: 1 } : undefined}
               >
                 Remisiones
               </button>
@@ -1679,9 +1681,10 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
                 onClick={() => setActiveTab('calidad')}
                 className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
                   activeTab === 'calidad'
-                    ? 'bg-systemBlue text-white shadow-md'
-                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                    ? 'bg-systemBlue text-white shadow-md !opacity-100'
+                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
                 }`}
+                style={activeTab === 'calidad' ? { backgroundColor: '#007AFF', color: 'white', opacity: 1 } : undefined}
               >
                 Calidad
               </button>
