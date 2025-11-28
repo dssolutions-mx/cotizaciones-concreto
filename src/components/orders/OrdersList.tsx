@@ -1,12 +1,14 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { OrderWithClient, OrderStatus, CreditStatus } from '@/types/orders';
 import { useRouter } from 'next/navigation';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
+import { OrderCard2 } from './OrderCard2';
 import Link from 'next/link';
 
 type DeliveredFilter = 'all' | 'delivered' | 'pending';
@@ -143,7 +145,7 @@ function formatDate(dateString: string) {
   }).format(date);
 }
 
-// Define a basic OrderCard component
+// Legacy OrderCard - kept for backward compatibility but will be replaced
 function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWithClient; onClick: () => void; groupKey: string; isDosificador?: boolean }) {
 
   function handleContextMenu(e: React.MouseEvent) {
@@ -1264,16 +1266,34 @@ export default function OrdersList({
               : "bg-gray-50 px-4 py-3 border-b border-gray-200";
               
             return (
-              <div key={groupKey} className="bg-white rounded-lg overflow-hidden shadow-md">
-                <div 
-                  className={`${headerClass} flex justify-between items-center cursor-pointer`}
+              <motion.div
+                key={groupKey}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="glass-thick rounded-2xl overflow-hidden shadow-lg mb-6"
+              >
+                <motion.div
+                  className={cn(
+                    'glass-thin rounded-t-2xl px-6 py-4 flex justify-between items-center cursor-pointer',
+                    isPriorityGroup && 'bg-gradient-to-r from-indigo-500/20 to-purple-500/20'
+                  )}
                   onClick={() => toggleGroupExpand(groupKey)}
+                  whileHover={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
                 >
-                  <h3 className={`font-medium text-gray-900 ${isPriorityGroup ? 'text-lg uppercase' : ''}`}>
+                  <h3 className={cn(
+                    'font-bold text-gray-900 dark:text-gray-100',
+                    isPriorityGroup ? 'text-xl uppercase tracking-wide' : 'text-lg'
+                  )}>
                     {group.formattedDate}
-                    <span className="ml-2 text-sm text-gray-500">({group.orders.length})</span>
+                    <span className="ml-2 text-sm font-normal text-gray-500 dark:text-gray-400">
+                      ({group.orders.length})
+                    </span>
                   </h3>
-                  <button className="focus:outline-none">
+                  <motion.button
+                    className="focus:outline-none"
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                  >
                     {group.isExpanded ? (
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                         <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -1283,21 +1303,34 @@ export default function OrdersList({
                         <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
                       </svg>
                     )}
-                  </button>
-                </div>
-                {group.isExpanded && (
-                  <div className="divide-y divide-gray-200">
-                    {group.orders.map(order => (
-                      <OrderCard 
-                        key={`orders-list-${order.id}`} 
-                        order={order} 
-                        onClick={() => handleOrderClick(order.id)} 
-                        groupKey={groupKey}
-                        isDosificador={isDosificador}
-                      />
-                    ))}
-                  </div>
-                )}
+                  </motion.button>
+                </motion.div>
+                <AnimatePresence>
+                  {group.isExpanded && (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="divide-y divide-gray-200/50"
+                    >
+                      {group.orders.map((order, index) => (
+                        <motion.div
+                          key={`orders-list-${order.id}`}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                        >
+                          <OrderCard2
+                            order={order}
+                            onClick={() => handleOrderClick(order.id)}
+                            groupKey={groupKey}
+                            isDosificador={isDosificador}
+                          />
+                        </motion.div>
+                      ))}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             );
           })}

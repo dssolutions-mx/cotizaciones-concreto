@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, isSameMonth, addDays, addWeeks, subDays, subWeeks, startOfDay, endOfDay, eachHourOfInterval, getHours, isToday, isWithinInterval } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
@@ -9,8 +10,11 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { supabase } from '@/lib/supabase';
-import { CalendarIcon, MixerHorizontalIcon } from '@radix-ui/react-icons';
+import { CalendarIcon, MixerHorizontalIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { GlassCard } from '@/components/ui/GlassCard';
+import { StatusPill } from '@/components/ui/StatusPill';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -54,6 +58,8 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   const [viewType, setViewType] = useState<ViewType>(() => preferences.calendarViewType || 'week');
   const [loadingVolumes, setLoadingVolumes] = useState<boolean>(false);
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
+  const [selectedOrder, setSelectedOrder] = useState<OrderWithClient | null>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState<boolean>(false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { profile } = useAuthBridge();
@@ -435,12 +441,27 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handlePrevious, handleNext]);
 
-  function handleOrderClick(id: string) {
+  function handleOrderClick(id: string, order?: OrderWithClient) {
+    if (order) {
+      setSelectedOrder(order);
+      setIsSheetOpen(true);
+    } else {
+      updatePreferences({
+        calendarDate: currentDate.toISOString(),
+        calendarViewType: viewType,
+        lastScrollPosition: calendarRef.current?.scrollTop || 0
+      });
+      router.push(`/orders/${id}?returnTo=calendar`);
+    }
+  }
+
+  function handleViewFullDetails(id: string) {
     updatePreferences({
       calendarDate: currentDate.toISOString(),
       calendarViewType: viewType,
       lastScrollPosition: calendarRef.current?.scrollTop || 0
     });
+    setIsSheetOpen(false);
     router.push(`/orders/${id}?returnTo=calendar`);
   }
 
@@ -461,6 +482,25 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
       });
       window.open(`/orders/${id}?returnTo=calendar`, '_blank');
     }
+  }
+
+  function formatDate(dateString: string) {
+    if (!dateString) return '';
+    const parts = dateString.split('-');
+    if (parts.length !== 3) return dateString;
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    const date = new Date(year, month, day);
+    return new Intl.DateTimeFormat('es-ES', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    }).format(date);
+  }
+
+  function formatTime(timeString: string) {
+    return timeString ? timeString.substring(0, 5) : '';
   }
 
   function getViewTitle() {
@@ -548,16 +588,20 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                 {hourSlot.orders.map(order => {
                   const { bg, border, text } = getStatusBadgeColors(order.order_status);
                   return (
-                    <a
+                    <motion.div
                       key={order.id}
-                      href={`/orders/${order.id}?returnTo=calendar`}
                       onClick={(e) => {
-                        e.preventDefault();
-                        handleOrderClick(order.id);
+                        e.stopPropagation();
+                        handleOrderClick(order.id, order);
                       }}
                       onContextMenu={(e) => handleOrderContextMenu(e, order.id)}
                       onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
-                      className={`block p-3 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs`}
+                      whileHover={{ scale: 1.02, y: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      className={cn(
+                        'block p-3 rounded-xl glass-interactive border border-white/30 cursor-pointer shadow-md',
+                        bg, border, text
+                      )}
                     >
                       <div className="font-medium flex items-center gap-2">
                         {/* Semaforization dot */}
@@ -640,7 +684,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           </span>
                         )}
                       </div>
-                    </a>
+                    </motion.div>
                   );
                 })}
                 {hourSlot.orders.length === 0 && (
@@ -689,16 +733,20 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                 day.orders.map(order => {
                   const { bg, border, text } = getStatusBadgeColors(order.order_status);
                   return (
-                    <a
+                    <motion.div
                       key={order.id}
-                      href={`/orders/${order.id}?returnTo=calendar`}
                       onClick={(e) => {
-                        e.preventDefault();
-                        handleOrderClick(order.id);
+                        e.stopPropagation();
+                        handleOrderClick(order.id, order);
                       }}
                       onContextMenu={(e) => handleOrderContextMenu(e, order.id)}
                       onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
-                      className={`block p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-sm`}
+                      whileHover={{ scale: 1.05, y: -2 }}
+                      whileTap={{ scale: 0.95 }}
+                      className={cn(
+                        'block p-2 rounded-xl glass-interactive border border-white/30 cursor-pointer shadow-md text-sm',
+                        bg, border, text
+                      )}
                     >
                       <div className="font-medium flex items-center gap-1">
                         {(() => {
@@ -782,7 +830,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                           </span>
                         )}
                       </div>
-                    </a>
+                    </motion.div>
                   );
                 })
               ) : (
@@ -828,16 +876,20 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
               {day.orders.map(order => {
                 const { bg, border, text } = getStatusBadgeColors(order.order_status);
                 return (
-                  <a
+                  <motion.div
                     key={order.id}
-                    href={`/orders/${order.id}?returnTo=calendar`}
                     onClick={(e) => {
-                      e.preventDefault();
-                      handleOrderClick(order.id);
+                      e.stopPropagation();
+                      handleOrderClick(order.id, order);
                     }}
                     onContextMenu={(e) => handleOrderContextMenu(e, order.id)}
                     onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
-                    className={`block p-2 rounded-md ${bg} border ${border} ${text} cursor-pointer hover:bg-opacity-70 transition-colors duration-150 shadow-xs text-xs`}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className={cn(
+                      'block p-2 rounded-xl glass-interactive border border-white/30 cursor-pointer shadow-md text-xs',
+                      bg, border, text
+                    )}
                   >
                     <div className="font-medium flex items-center gap-1">
                       {(() => {
@@ -889,7 +941,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                         {(order as any).hasPumpService ? ` • B: ${(order as any).pumpVolume} m³` : ''}
                       </span>
                     </div>
-                  </a>
+                  </motion.div>
                 );
               })}
             </div>
@@ -900,8 +952,9 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   );
 
   return (
-    <div className="bg-white rounded-lg shadow-sm overflow-hidden mb-16" ref={calendarRef} tabIndex={0}>
-      <div className="sticky top-0 z-20 bg-white border-b shadow-xs">
+    <>
+      <div className="glass-thick rounded-2xl shadow-2xl overflow-hidden mb-16" ref={calendarRef} tabIndex={0}>
+      <div className="sticky top-0 z-20 glass-thick border-b border-white/20 shadow-lg">
         <div className="flex flex-col md:flex-row md:items-center justify-between p-4 gap-3">
           <h2 className="text-xl font-semibold text-gray-800">
             {getViewTitle()}
@@ -1035,5 +1088,71 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
         </div>
       </div>
     </div>
+
+      {/* Order Detail Sheet */}
+      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+        <SheetContent className="glass-thick border-l border-white/20 w-full sm:max-w-lg overflow-y-auto">
+          {selectedOrder && (
+            <div className="space-y-6">
+              <SheetHeader>
+                <SheetTitle className="text-2xl font-bold">
+                  {selectedOrder.clients?.business_name || 'Cliente no disponible'}
+                </SheetTitle>
+                <div className="flex gap-2 mt-2">
+                  <StatusPill status={selectedOrder.order_status} variant="glow" />
+                  <StatusPill status={selectedOrder.credit_status} variant="glow" />
+                </div>
+              </SheetHeader>
+
+              <GlassCard variant="thin" className="p-4">
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-semibold text-sm text-gray-500 mb-1">Número de Orden</h4>
+                    <p className="text-lg">#{selectedOrder.order_number}</p>
+                  </div>
+                  {selectedOrder.construction_site && (
+                    <div>
+                      <h4 className="font-semibold text-sm text-gray-500 mb-1">Obra</h4>
+                      <p>{selectedOrder.construction_site}</p>
+                    </div>
+                  )}
+                  <div>
+                    <h4 className="font-semibold text-sm text-gray-500 mb-1">Entrega</h4>
+                    <p>{formatDate(selectedOrder.delivery_date || '')} a las {formatTime(selectedOrder.delivery_time)}</p>
+                  </div>
+                  {(selectedOrder as any).concreteVolume && (
+                    <div>
+                      <h4 className="font-semibold text-sm text-gray-500 mb-1">Volumen</h4>
+                      <p className="text-lg font-bold">
+                        {(selectedOrder as any).concreteVolume} m³
+                        {(selectedOrder as any).hasPumpService && (selectedOrder as any).pumpVolume && (
+                          <span className="text-purple-600"> • Bombeo: {(selectedOrder as any).pumpVolume} m³</span>
+                        )}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </GlassCard>
+
+              <div className="flex gap-3">
+                <Button
+                  onClick={() => handleViewFullDetails(selectedOrder.id)}
+                  className="flex-1 glass-interactive"
+                >
+                  Ver Detalles Completos
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setIsSheetOpen(false)}
+                  className="glass-thin"
+                >
+                  Cerrar
+                </Button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+    </>
   );
 } 
