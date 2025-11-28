@@ -2379,7 +2379,7 @@ export default function ScheduleOrderForm({
               {currentStep > 1 && (
                 <motion.button
                   onClick={() => setCurrentStep(currentStep - 1)}
-                  className="flex items-center gap-2 px-4 py-2 glass-interactive rounded-xl font-medium"
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 transition-colors"
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                 >

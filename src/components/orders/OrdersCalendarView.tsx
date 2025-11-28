@@ -1141,14 +1141,14 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
               <div className="flex gap-3">
                 <Button
                   onClick={() => handleViewFullDetails(selectedOrder.id)}
-                  className="flex-1 glass-interactive"
+                  className="flex-1 bg-systemBlue text-white hover:bg-systemBlue/90 shadow-md"
                 >
                   Ver Detalles Completos
                 </Button>
                 <Button
                   variant="outline"
                   onClick={() => setIsSheetOpen(false)}
-                  className="glass-thin"
+                  className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700"
                 >
                   Cerrar
                 </Button>
