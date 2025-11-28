@@ -57,7 +57,13 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
           )}
         </div>
       )}
-      <div className={cn('w-full rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700', sizeClasses[size])}>
+      <div 
+        className={cn(
+          'w-full rounded-full overflow-hidden',
+          'bg-gray-200 dark:bg-gray-700',
+          sizeClasses[size]
+        )}
+      >
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${percentage}%` }}
@@ -67,6 +73,13 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
             colorClasses[color],
             'shadow-sm'
           )}
+          style={{ 
+            backgroundColor: color === 'blue' ? '#007AFF' : 
+                           color === 'green' ? '#34C759' : 
+                           color === 'orange' ? '#FF9500' : 
+                           color === 'red' ? '#FF3B30' : '#007AFF',
+            opacity: 1
+          }}
         />
       </div>
     </div>

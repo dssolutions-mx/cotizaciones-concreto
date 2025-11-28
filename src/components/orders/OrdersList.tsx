@@ -1329,7 +1329,7 @@ export default function OrdersList({
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="space-y-4 p-4"
+                      className="space-y-6 p-4"
                     >
                       {group.orders.map((order) => (
                         <OrderCard2

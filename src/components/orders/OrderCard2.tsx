@@ -140,13 +140,13 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       whileHover={{ y: -4 }}
-      className="mb-4 last:mb-0"
+      className="mb-6 last:mb-0"
     >
       <GlassCard
         variant="interactive"
         hover
         onClick={onClick}
-        className="p-5 cursor-pointer pb-6"
+        className="p-5 cursor-pointer pb-6 border border-white/40 shadow-lg hover:shadow-xl transition-shadow"
       >
         <div className="flex flex-col md:flex-row gap-5">
           {/* Left Section - Main Info */}

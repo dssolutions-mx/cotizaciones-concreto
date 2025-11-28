@@ -51,6 +51,11 @@ const statusColors: Record<string, { bg: string; text: string; glow: string }> =
     bg: 'bg-systemRed/20',
     text: 'text-systemRed dark:text-systemRed/80',
     glow: 'shadow-systemRed/50'
+  },
+  rejected_by_validator: {
+    bg: 'bg-systemRed/30',
+    text: 'text-systemRed dark:text-systemRed/90',
+    glow: 'shadow-systemRed/60'
   }
 };
 
