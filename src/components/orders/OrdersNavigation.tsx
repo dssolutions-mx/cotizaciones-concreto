@@ -296,9 +296,9 @@ const OrdersNavigation = memo(function OrdersNavigation({
   return (
     <div className="space-y-4">
       {/* Floating Segmented Control - Pill Design */}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex-1 flex justify-center">
-          <div className="glass-thick rounded-full p-1.5 inline-flex gap-1 shadow-lg">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex-1 flex justify-center min-w-0">
+          <div className="glass-thick rounded-full p-1.5 inline-flex gap-1 shadow-lg max-w-full overflow-x-auto">
             {tabs.map((tab) => {
               const isActive = currentTab === tab.id;
               return (
@@ -362,10 +362,11 @@ const OrdersNavigation = memo(function OrdersNavigation({
           <motion.div
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            className="shrink-0"
           >
             <Button
               onClick={() => navigate('create')}
-              className="glass-interactive !bg-systemGreen hover:!opacity-90 !text-white shadow-lg font-semibold"
+              className="bg-systemGreen hover:bg-systemGreen/90 text-white shadow-lg font-semibold min-h-[44px] px-4 py-2.5"
             >
               <PlusIcon className="mr-2 h-4 w-4" />
               <span className="hidden sm:inline">Crear Orden</span>

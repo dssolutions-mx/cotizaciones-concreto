@@ -146,7 +146,7 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
         variant="interactive"
         hover
         onClick={onClick}
-        className="p-5 cursor-pointer"
+        className="p-5 cursor-pointer pb-6"
       >
         <div className="flex flex-col md:flex-row gap-5">
           {/* Left Section - Main Info */}
@@ -302,7 +302,7 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
           </div>
 
           {/* Right Section - Volumes and Actions */}
-          <div className="flex flex-col md:items-end justify-between gap-4 md:w-64">
+          <div className="flex flex-col md:items-end justify-between gap-4 md:w-64 mt-4 md:mt-0">
             {/* Volumes Display */}
             <div className="text-right w-full">
               <div className="text-2xl font-semibold mb-2 leading-tight">

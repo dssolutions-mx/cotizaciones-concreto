@@ -478,9 +478,15 @@ export default function OrdersList({
                 if (pumpDelivered > 0) {
                   pumpVolumeDelivered += pumpDelivered;
                 }
-                const effectivePumpPrice = pumpPrice != null ? pumpPrice : unitPrice;
-                if (pumpUnitPrice === undefined && effectivePumpPrice != null && effectivePumpPrice > 0) {
-                  pumpUnitPrice = effectivePumpPrice;
+                // For pump service, prioritize pump_price field specifically
+                // Only use unit_price as fallback if pump_price is explicitly null/undefined
+                if (pumpUnitPrice === undefined) {
+                  if (pumpPrice != null && pumpPrice > 0) {
+                    pumpUnitPrice = pumpPrice;
+                  } else if (isPumpService && unitPrice != null && unitPrice > 0) {
+                    // Only fallback to unit_price for standalone pump service items
+                    pumpUnitPrice = unitPrice;
+                  }
                 }
               }
             });
@@ -659,10 +665,15 @@ export default function OrdersList({
                 if (pumpDelivered > 0) {
                   pumpVolumeDelivered += pumpDelivered;
                 }
-                // Capture first valid pump unit price
-                const effectivePumpPrice = pumpPrice != null ? pumpPrice : unitPrice;
-                if (pumpUnitPrice === undefined && effectivePumpPrice != null && effectivePumpPrice > 0) {
-                  pumpUnitPrice = effectivePumpPrice;
+                // For pump service, prioritize pump_price field specifically
+                // Only use unit_price as fallback if pump_price is explicitly null/undefined
+                if (pumpUnitPrice === undefined) {
+                  if (pumpPrice != null && pumpPrice > 0) {
+                    pumpUnitPrice = pumpPrice;
+                  } else if (isPumpService && unitPrice != null && unitPrice > 0) {
+                    // Only fallback to unit_price for standalone pump service items
+                    pumpUnitPrice = unitPrice;
+                  }
                 }
               }
             });
@@ -788,9 +799,15 @@ export default function OrdersList({
               if (pumpDelivered > 0) {
                 pumpVolumeDelivered += pumpDelivered;
               }
-              const effectivePumpPrice = pumpPrice != null ? pumpPrice : unitPrice;
-              if (pumpUnitPrice === undefined && effectivePumpPrice != null && effectivePumpPrice > 0) {
-                pumpUnitPrice = effectivePumpPrice;
+              // For pump service, prioritize pump_price field specifically
+              // Only use unit_price as fallback if pump_price is explicitly null/undefined
+              if (pumpUnitPrice === undefined) {
+                if (pumpPrice != null && pumpPrice > 0) {
+                  pumpUnitPrice = pumpPrice;
+                } else if (isPumpService && unitPrice != null && unitPrice > 0) {
+                  // Only fallback to unit_price for standalone pump service items
+                  pumpUnitPrice = unitPrice;
+                }
               }
             }
           });

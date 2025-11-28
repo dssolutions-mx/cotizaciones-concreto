@@ -1124,11 +1124,11 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                     <h4 className="font-semibold text-sm text-gray-500 mb-1">Entrega</h4>
                     <p>{formatDate(selectedOrder.delivery_date || '')} a las {formatTime(selectedOrder.delivery_time || '')}</p>
                   </div>
-                  {(selectedOrder as any).concreteVolume && (
+                  {((selectedOrder as any).concreteVolume || ((selectedOrder as any).hasPumpService && (selectedOrder as any).pumpVolume)) && (
                     <div>
                       <h4 className="font-semibold text-sm text-gray-500 mb-1">Volumen</h4>
                       <p className="text-lg font-bold">
-                        {(selectedOrder as any).concreteVolume} m³
+                        {(selectedOrder as any).concreteVolume ? `${(selectedOrder as any).concreteVolume} m³` : 'N/A'}
                         {(selectedOrder as any).hasPumpService && (selectedOrder as any).pumpVolume && (
                           <span className="text-systemBlue"> • Bombeo: {(selectedOrder as any).pumpVolume} m³</span>
                         )}
