@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation';
 import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { usePlantContext } from '@/contexts/PlantContext';
 import { OrderCard2 } from './OrderCard2';
+import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
 type DeliveredFilter = 'all' | 'delivered' | 'pending';
