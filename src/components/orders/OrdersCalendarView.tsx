@@ -14,7 +14,6 @@ import { CalendarIcon, MixerHorizontalIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { StatusPill } from '@/components/ui/StatusPill';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/lib/utils';
 import {
   DropdownMenu,
@@ -58,8 +57,6 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   const [viewType, setViewType] = useState<ViewType>(() => preferences.calendarViewType || 'week');
   const [loadingVolumes, setLoadingVolumes] = useState<boolean>(false);
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
-  const [selectedOrder, setSelectedOrder] = useState<OrderWithClient | null>(null);
-  const [isSheetOpen, setIsSheetOpen] = useState<boolean>(false);
   const calendarRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { profile } = useAuthBridge();
@@ -442,28 +439,15 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
   }, [handlePrevious, handleNext]);
 
   function handleOrderClick(id: string, order?: OrderWithClient) {
-    if (order) {
-      setSelectedOrder(order);
-      setIsSheetOpen(true);
-    } else {
-      updatePreferences({
-        calendarDate: currentDate.toISOString(),
-        calendarViewType: viewType,
-        lastScrollPosition: calendarRef.current?.scrollTop || 0
-      });
-      router.push(`/orders/${id}?returnTo=calendar`);
-    }
-  }
-
-  function handleViewFullDetails(id: string) {
+    // Always navigate directly to order details page
     updatePreferences({
       calendarDate: currentDate.toISOString(),
       calendarViewType: viewType,
       lastScrollPosition: calendarRef.current?.scrollTop || 0
     });
-    setIsSheetOpen(false);
     router.push(`/orders/${id}?returnTo=calendar`);
   }
+
 
   function handleOrderContextMenu(e: React.MouseEvent, id: string) {
     // Allow the default browser context menu to appear
@@ -592,7 +576,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       key={order.id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleOrderClick(order.id, order);
+                        handleOrderClick(order.id);
                       }}
                       onContextMenu={(e) => handleOrderContextMenu(e, order.id)}
                       onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
@@ -737,7 +721,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                       key={order.id}
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleOrderClick(order.id, order);
+                        handleOrderClick(order.id);
                       }}
                       onContextMenu={(e) => handleOrderContextMenu(e, order.id)}
                       onAuxClick={(e) => handleOrderAuxClick(e, order.id)}
@@ -1089,78 +1073,6 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
         </div>
       </div>
 
-      {/* Order Detail Sheet */}
-      <Sheet open={isSheetOpen && !!selectedOrder} onOpenChange={setIsSheetOpen}>
-        <SheetContent className="glass-thick border-l border-white/20 w-full sm:max-w-lg overflow-y-auto">
-          {selectedOrder ? (
-            <div className="space-y-6">
-              <SheetHeader>
-                <SheetTitle className="text-2xl font-bold">
-                  {selectedOrder.clients?.business_name || 'Cliente no disponible'}
-                </SheetTitle>
-                <div className="flex gap-2 mt-2">
-                  {selectedOrder.order_status && (
-                    <StatusPill status={selectedOrder.order_status} variant="glow" />
-                  )}
-                  {selectedOrder.credit_status && (
-                    <StatusPill status={selectedOrder.credit_status} variant="glow" />
-                  )}
-                </div>
-              </SheetHeader>
-
-              <GlassCard variant="thin" className="p-4">
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-semibold text-sm text-gray-500 mb-1">Número de Orden</h4>
-                    <p className="text-lg">#{selectedOrder.order_number}</p>
-                  </div>
-                  {selectedOrder.construction_site && (
-                    <div>
-                      <h4 className="font-semibold text-sm text-gray-500 mb-1">Obra</h4>
-                      <p>{selectedOrder.construction_site}</p>
-                    </div>
-                  )}
-                  <div>
-                    <h4 className="font-semibold text-sm text-gray-500 mb-1">Entrega</h4>
-                    <p>{formatDate(selectedOrder.delivery_date || '')} a las {formatTime(selectedOrder.delivery_time || '')}</p>
-                  </div>
-                  {((selectedOrder as any).concreteVolume || ((selectedOrder as any).hasPumpService && (selectedOrder as any).pumpVolume)) && (
-                    <div>
-                      <h4 className="font-semibold text-sm text-gray-500 mb-1">Volumen</h4>
-                      <p className="text-lg font-bold">
-                        {(selectedOrder as any).concreteVolume ? `${(selectedOrder as any).concreteVolume} m³` : 'N/A'}
-                        {(selectedOrder as any).hasPumpService && (selectedOrder as any).pumpVolume && (
-                          <span className="text-systemBlue"> • Bombeo: {(selectedOrder as any).pumpVolume} m³</span>
-                        )}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </GlassCard>
-
-              <div className="flex gap-3">
-                <Button
-                  onClick={() => handleViewFullDetails(selectedOrder.id)}
-                  className="flex-1 bg-systemBlue text-white hover:bg-systemBlue/90 shadow-md"
-                >
-                  Ver Detalles Completos
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setIsSheetOpen(false)}
-                  className="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 hover:bg-gray-200 dark:hover:bg-gray-700"
-                >
-                  Cerrar
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="p-4 text-center text-gray-500">
-              Cargando detalles...
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
     </>
   );
 } 
