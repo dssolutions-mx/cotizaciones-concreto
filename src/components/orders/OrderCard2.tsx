@@ -2,7 +2,6 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { useRouter } from 'next/navigation';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { StatusPill } from '@/components/ui/StatusPill';
 import { ProgressBar } from '@/components/ui/ProgressBar';
@@ -17,11 +16,11 @@ interface OrderCard2Props {
   isDosificador?: boolean;
 }
 
-function formatTime(timeString: string) {
+function formatTime(timeString: string | null | undefined) {
   return timeString ? timeString.substring(0, 5) : '';
 }
 
-function formatDate(dateString: string) {
+function formatDate(dateString: string | null | undefined) {
   if (!dateString) return '';
   const parts = dateString.split('-');
   if (parts.length !== 3) return dateString;
@@ -30,7 +29,11 @@ function formatDate(dateString: string) {
   const month = parseInt(parts[1], 10) - 1;
   const day = parseInt(parts[2], 10);
   
+  if (isNaN(year) || isNaN(month) || isNaN(day)) return dateString;
+  
   const date = new Date(year, month, day);
+  if (isNaN(date.getTime())) return dateString;
+  
   return new Intl.DateTimeFormat('es-ES', {
     day: '2-digit',
     month: '2-digit',
@@ -58,7 +61,7 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
   groupKey,
   isDosificador
 }) => {
-  const router = useRouter();
+  if (!order) return null;
 
   // Extract volumes
   const concreteVolumeDelivered = (order as any).concreteVolumeDelivered as number | undefined;
@@ -68,13 +71,17 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
   const hasPumpService = !!(order as any).hasPumpService;
   const hasDeliveredConcrete = !!(order as any).hasDeliveredConcrete;
 
-  const displayConcrete = typeof concreteVolumeDelivered === 'number' ? concreteVolumeDelivered : concreteVolumePlanned;
-  const displayPump = typeof pumpVolumeDelivered === 'number' ? pumpVolumeDelivered : pumpVolumePlanned;
+  const displayConcrete = typeof concreteVolumeDelivered === 'number' && concreteVolumeDelivered > 0 
+    ? concreteVolumeDelivered 
+    : (typeof concreteVolumePlanned === 'number' && concreteVolumePlanned > 0 ? concreteVolumePlanned : undefined);
+  const displayPump = typeof pumpVolumeDelivered === 'number' && pumpVolumeDelivered > 0
+    ? pumpVolumeDelivered
+    : (typeof pumpVolumePlanned === 'number' && pumpVolumePlanned > 0 ? pumpVolumePlanned : undefined);
 
-  const formattedConcrete = typeof displayConcrete === 'number'
+  const formattedConcrete = displayConcrete
     ? `${displayConcrete.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³`
     : 'N/A';
-  const formattedPump = typeof displayPump === 'number'
+  const formattedPump = displayPump
     ? `${displayPump.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m³`
     : undefined;
 
@@ -96,7 +103,7 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       whileHover={{ y: -4 }}
-      className="mb-4"
+      className="mb-4 last:mb-0"
     >
       <GlassCard
         variant="interactive"
@@ -137,16 +144,20 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
 
               {/* Status Pills */}
               <div className="flex flex-col gap-2 items-end">
-                <StatusPill
-                  status={order.order_status}
-                  variant="glow"
-                  size="sm"
-                />
-                <StatusPill
-                  status={order.credit_status}
-                  variant="glow"
-                  size="sm"
-                />
+                {order.order_status && (
+                  <StatusPill
+                    status={order.order_status}
+                    variant="glow"
+                    size="sm"
+                  />
+                )}
+                {order.credit_status && (
+                  <StatusPill
+                    status={order.credit_status}
+                    variant="glow"
+                    size="sm"
+                  />
+                )}
               </div>
             </div>
 
@@ -186,32 +197,32 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
             </div>
 
             {/* Progress Bars */}
-            <div className="space-y-3">
-              {displayConcrete && (
+            {displayConcrete && (
+              <div className="space-y-3">
                 <div>
                   <ProgressBar
-                    value={concreteVolumeDelivered || 0}
-                    max={concreteVolumePlanned || 100}
+                    value={typeof concreteVolumeDelivered === 'number' ? concreteVolumeDelivered : 0}
+                    max={typeof concreteVolumePlanned === 'number' && concreteVolumePlanned > 0 ? concreteVolumePlanned : (displayConcrete || 100)}
                     label="Concreto"
                     showValue
                     color={hasDeliveredConcrete ? 'green' : 'blue'}
                     size="md"
                   />
                 </div>
-              )}
-              {hasPumpService && displayPump && (
-                <div>
-                  <ProgressBar
-                    value={pumpVolumeDelivered || 0}
-                    max={pumpVolumePlanned || 100}
-                    label="Bombeo"
-                    showValue
-                    color={pumpVolumeDelivered ? 'green' : 'blue'}
-                    size="md"
-                  />
-                </div>
-              )}
-            </div>
+                {hasPumpService && displayPump && (
+                  <div>
+                    <ProgressBar
+                      value={typeof pumpVolumeDelivered === 'number' ? pumpVolumeDelivered : 0}
+                      max={typeof pumpVolumePlanned === 'number' && pumpVolumePlanned > 0 ? pumpVolumePlanned : (displayPump || 100)}
+                      label="Bombeo"
+                      showValue
+                      color={typeof pumpVolumeDelivered === 'number' && pumpVolumeDelivered > 0 ? 'green' : 'blue'}
+                      size="md"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Right Section - Volumes and Actions */}

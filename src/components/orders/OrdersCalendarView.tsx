@@ -1090,17 +1090,21 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
       </div>
 
       {/* Order Detail Sheet */}
-      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+      <Sheet open={isSheetOpen && !!selectedOrder} onOpenChange={setIsSheetOpen}>
         <SheetContent className="glass-thick border-l border-white/20 w-full sm:max-w-lg overflow-y-auto">
-          {selectedOrder && (
+          {selectedOrder ? (
             <div className="space-y-6">
               <SheetHeader>
                 <SheetTitle className="text-2xl font-bold">
                   {selectedOrder.clients?.business_name || 'Cliente no disponible'}
                 </SheetTitle>
                 <div className="flex gap-2 mt-2">
-                  <StatusPill status={selectedOrder.order_status} variant="glow" />
-                  <StatusPill status={selectedOrder.credit_status} variant="glow" />
+                  {selectedOrder.order_status && (
+                    <StatusPill status={selectedOrder.order_status} variant="glow" />
+                  )}
+                  {selectedOrder.credit_status && (
+                    <StatusPill status={selectedOrder.credit_status} variant="glow" />
+                  )}
                 </div>
               </SheetHeader>
 
@@ -1118,7 +1122,7 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                   )}
                   <div>
                     <h4 className="font-semibold text-sm text-gray-500 mb-1">Entrega</h4>
-                    <p>{formatDate(selectedOrder.delivery_date || '')} a las {formatTime(selectedOrder.delivery_time)}</p>
+                    <p>{formatDate(selectedOrder.delivery_date || '')} a las {formatTime(selectedOrder.delivery_time || '')}</p>
                   </div>
                   {(selectedOrder as any).concreteVolume && (
                     <div>
@@ -1149,6 +1153,10 @@ export default function OrdersCalendarView({ statusFilter, creditStatusFilter }:
                   Cerrar
                 </Button>
               </div>
+            </div>
+          ) : (
+            <div className="p-4 text-center text-gray-500">
+              Cargando detalles...
             </div>
           )}
         </SheetContent>

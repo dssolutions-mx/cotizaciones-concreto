@@ -13,6 +13,7 @@ import OrdersCalendarView from '@/components/orders/OrdersCalendarView';
 import OrdersNavigation from '@/components/orders/OrdersNavigation';
 import PlantContextDisplay from '@/components/plants/PlantContextDisplay';
 import { GlassDashboardLayout } from '@/components/orders/GlassDashboardLayout';
+import { OrdersErrorBoundary } from '@/components/orders/OrdersErrorBoundary';
 import { OrderStatus, CreditStatus } from '@/types/orders';
 import { useOrderPreferences } from '@/contexts/OrderPreferencesContext';
 
@@ -316,27 +317,29 @@ function OrdersContent() {
   ]);
 
   return (
-    <GlassDashboardLayout
-      header={
-        <div className="flex flex-col gap-4">
-          {/* Plant Context Display - Subtle StatusBar */}
-          <div className="flex items-center justify-between">
-            <PlantContextDisplay showLabel={true} />
+    <OrdersErrorBoundary>
+      <GlassDashboardLayout
+        header={
+          <div className="flex flex-col gap-4">
+            {/* Plant Context Display - Subtle StatusBar */}
+            <div className="flex items-center justify-between">
+              <PlantContextDisplay showLabel={true} />
+            </div>
+            
+            {/* Navigation and Filters */}
+            <OrdersNavigation 
+              currentTab={currentTab}
+              estadoFilter={estadoFilter}
+              creditoFilter={creditoFilter}
+              onTabChange={handleTabChange}
+              onFilterChange={handleFilterChange}
+            />
           </div>
-          
-          {/* Navigation and Filters */}
-          <OrdersNavigation 
-            currentTab={currentTab}
-            estadoFilter={estadoFilter}
-            creditoFilter={creditoFilter}
-            onTabChange={handleTabChange}
-            onFilterChange={handleFilterChange}
-          />
-        </div>
-      }
-    >
-      {renderAllTabs}
-    </GlassDashboardLayout>
+        }
+      >
+        {renderAllTabs}
+      </GlassDashboardLayout>
+    </OrdersErrorBoundary>
   );
 }
 

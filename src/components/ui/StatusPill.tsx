@@ -60,12 +60,30 @@ const sizeClasses = {
   lg: 'px-4 py-1.5 text-base'
 };
 
+const translateStatus = (status: string): string => {
+  if (!status) return 'Sin estado';
+  const statusMap: Record<string, string> = {
+    'created': 'Creada',
+    'validated': 'Validada',
+    'scheduled': 'Programada',
+    'completed': 'Completada',
+    'cancelled': 'Cancelada',
+    'pending': 'Pendiente',
+    'approved': 'Aprobado',
+    'rejected': 'Rechazado',
+    'rejected_by_validator': 'Rechazado por Validador'
+  };
+  return statusMap[status.toLowerCase()] || status;
+};
+
 export const StatusPill: React.FC<StatusPillProps> = ({
   status,
   variant = 'glow',
   size = 'md',
   className
 }) => {
+  if (!status) return null;
+  
   const statusKey = status.toLowerCase();
   const colors = statusColors[statusKey] || {
     bg: 'bg-gray-500/20',
@@ -91,7 +109,7 @@ export const StatusPill: React.FC<StatusPillProps> = ({
         className
       )}
     >
-      {status}
+      {translateStatus(status)}
     </motion.span>
   );
 };

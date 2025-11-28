@@ -37,7 +37,9 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
   size = 'md',
   className
 }) => {
-  const percentage = Math.min(Math.max((value / max) * 100, 0), 100);
+  const safeValue = typeof value === 'number' && !isNaN(value) ? value : 0;
+  const safeMax = typeof max === 'number' && !isNaN(max) && max > 0 ? max : 100;
+  const percentage = Math.min(Math.max((safeValue / safeMax) * 100, 0), 100);
 
   return (
     <div className={cn('w-full', className)}>
@@ -50,7 +52,7 @@ export const ProgressBar: React.FC<ProgressBarProps> = ({
           )}
           {showValue && (
             <span className="text-sm text-gray-600 dark:text-gray-400">
-              {value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {max.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {safeValue.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / {safeMax.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           )}
         </div>

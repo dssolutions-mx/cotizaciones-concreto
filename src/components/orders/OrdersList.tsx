@@ -1311,22 +1311,16 @@ export default function OrdersList({
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="divide-y divide-gray-200/50"
+                      className="space-y-4 p-4"
                     >
-                      {group.orders.map((order, index) => (
-                        <motion.div
+                      {group.orders.map((order) => (
+                        <OrderCard2
                           key={`orders-list-${order.id}`}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: index * 0.05 }}
-                        >
-                          <OrderCard2
-                            order={order}
-                            onClick={() => handleOrderClick(order.id)}
-                            groupKey={groupKey}
-                            isDosificador={isDosificador}
-                          />
-                        </motion.div>
+                          order={order}
+                          onClick={() => handleOrderClick(order.id)}
+                          groupKey={groupKey}
+                          isDosificador={isDosificador}
+                        />
                       ))}
                     </motion.div>
                   )}
