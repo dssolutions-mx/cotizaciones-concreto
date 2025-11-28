@@ -243,8 +243,6 @@ const OrdersNavigation = memo(function OrdersNavigation({
     }
   }, [onFilterChange, searchParams, currentTab, router, pathname]);
 
-  const [isFilterExpanded, setIsFilterExpanded] = useState(true);
-
   // Memoize dropdown elements to prevent re-renders
   const estadoFilterValue = React.useMemo(() => 
     formatDisplayValue(statuses.find(s => s === estadoFilter) || 'Todos'),
@@ -293,7 +291,7 @@ const OrdersNavigation = memo(function OrdersNavigation({
     );
   });
 
-  const [isFilterExpanded, setIsFilterExpanded] = useState(false);
+  const [isFilterExpanded, setIsFilterExpanded] = useState(true);
 
   return (
     <div className="space-y-4">

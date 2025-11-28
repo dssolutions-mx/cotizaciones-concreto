@@ -8,7 +8,7 @@ import { StatusPill } from '@/components/ui/StatusPill';
 import { ProgressBar } from '@/components/ui/ProgressBar';
 import { cn } from '@/lib/utils';
 import { OrderWithClient } from '@/types/orders';
-import { MapPin, Clock, Package, User } from 'lucide-react';
+import { MapPin, Clock } from 'lucide-react';
 
 interface OrderCard2Props {
   order: OrderWithClient;

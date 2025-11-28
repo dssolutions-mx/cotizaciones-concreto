@@ -1331,7 +1331,7 @@ export default function OrdersList({
                     </motion.div>
                   )}
                 </AnimatePresence>
-              </div>
+              </motion.div>
             );
           })}
           
