@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { addDays, format, parseISO } from 'date-fns';
 import { clientService } from '@/lib/supabase/clients';
@@ -9,6 +10,9 @@ import orderService from '@/services/orderService';
 import { EmptyTruckDetails, PumpServiceDetails } from '@/types/orders';
 import SiteAccessValidation, { SiteAccessRating, SiteValidationState } from '@/components/orders/SiteAccessValidation';
 import { usePlantContext } from '@/contexts/PlantContext';
+import { GlassCard } from '@/components/ui/GlassCard';
+import { cn } from '@/lib/utils';
+import { ChevronRight, ChevronLeft, CheckCircle2, Circle } from 'lucide-react';
 // Map preview uses a simple Google Maps embed with marker; no JS API needed
 
 interface Client {
@@ -2288,39 +2292,139 @@ export default function ScheduleOrderForm({
     </div>
   );
   
+  const steps = [
+    { number: 1, title: 'Cliente & Ubicación', description: 'Selecciona el cliente y la obra' },
+    { number: 2, title: 'Producto & Receta', description: 'Elige productos y recetas' },
+    { number: 3, title: 'Logística', description: 'Fecha, hora y servicios adicionales' }
+  ];
+
   // Render based on current step
   return (
-    <div className="max-w-6xl mx-auto">
-      {/* Step indicator */}
-      <div className="mb-6">
+    <div className="max-w-6xl mx-auto space-y-8">
+      {/* Enhanced Step Indicator with Glass */}
+      <GlassCard variant="thick" className="p-6">
         <div className="flex items-center justify-between">
-          <div className={`flex items-center ${currentStep >= 1 ? 'text-green-600' : 'text-gray-400'}`}>
-            <div className={`rounded-full h-8 w-8 flex items-center justify-center ${currentStep >= 1 ? 'bg-green-100' : 'bg-gray-100'}`}>
-              1
-            </div>
-            <span className="ml-2 font-medium">Seleccionar Cliente</span>
-          </div>
-          <div className={`h-0.5 w-16 ${currentStep >= 2 ? 'bg-green-600' : 'bg-gray-200'}`}></div>
-          <div className={`flex items-center ${currentStep >= 2 ? 'text-green-600' : 'text-gray-400'}`}>
-            <div className={`rounded-full h-8 w-8 flex items-center justify-center ${currentStep >= 2 ? 'bg-green-100' : 'bg-gray-100'}`}>
-              2
-            </div>
-            <span className="ml-2 font-medium">Seleccionar Obra</span>
-          </div>
-          <div className={`h-0.5 w-16 ${currentStep >= 3 ? 'bg-green-600' : 'bg-gray-200'}`}></div>
-          <div className={`flex items-center ${currentStep >= 3 ? 'text-green-600' : 'text-gray-400'}`}>
-            <div className={`rounded-full h-8 w-8 flex items-center justify-center ${currentStep >= 3 ? 'bg-green-100' : 'bg-gray-100'}`}>
-              3
-            </div>
-            <span className="ml-2 font-medium">Crear Orden</span>
-          </div>
+          {steps.map((step, index) => {
+            const isActive = currentStep === step.number;
+            const isCompleted = currentStep > step.number;
+            const isClickable = currentStep >= step.number;
+
+            return (
+              <React.Fragment key={step.number}>
+                <motion.button
+                  onClick={() => isClickable && setCurrentStep(step.number)}
+                  disabled={!isClickable}
+                  className={cn(
+                    'flex flex-col items-center gap-2 flex-1',
+                    !isClickable && 'opacity-50 cursor-not-allowed'
+                  )}
+                  whileHover={isClickable ? { scale: 1.05 } : {}}
+                  whileTap={isClickable ? { scale: 0.95 } : {}}
+                >
+                  <div className={cn(
+                    'relative h-12 w-12 rounded-full flex items-center justify-center font-bold text-lg transition-all duration-300',
+                    isActive && 'glass-interactive border-2 border-systemBlue shadow-lg shadow-systemBlue/50 scale-110',
+                    isCompleted && 'bg-systemGreen text-white',
+                    !isActive && !isCompleted && 'glass-thin border border-gray-300 text-gray-500'
+                  )}>
+                    {isCompleted ? (
+                      <CheckCircle2 className="h-6 w-6" />
+                    ) : (
+                      <span>{step.number}</span>
+                    )}
+                    {isActive && (
+                      <motion.div
+                        className="absolute inset-0 rounded-full bg-systemBlue/20"
+                        animate={{ scale: [1, 1.2, 1] }}
+                        transition={{ duration: 2, repeat: Infinity }}
+                      />
+                    )}
+                  </div>
+                  <div className="text-center">
+                    <div className={cn(
+                      'font-semibold text-sm',
+                    isActive && 'text-systemBlue dark:text-systemBlue/80',
+                    isCompleted && 'text-systemGreen dark:text-systemGreen/80',
+                      !isActive && !isCompleted && 'text-gray-500'
+                    )}>
+                      {step.title}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">{step.description}</div>
+                  </div>
+                </motion.button>
+                {index < steps.length - 1 && (
+                  <div className={cn(
+                    'flex-1 h-0.5 mx-4 transition-all duration-300',
+                    currentStep > step.number ? 'bg-systemGreen' : 'bg-gray-200'
+                  )} />
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
-      </div>
-      
-      {/* Step content */}
-      {currentStep === 1 && renderClientSelection()}
-      {currentStep === 2 && renderSiteSelection()}
-      {currentStep === 3 && renderOrderDetails()}
+      </GlassCard>
+
+      {/* Step content with Focus Mode */}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentStep}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: -20 }}
+          transition={{ duration: 0.3 }}
+        >
+          <GlassCard variant="thick" className="p-8 min-h-[600px]">
+            {/* Navigation buttons */}
+            <div className="flex justify-between items-center mb-6">
+              {currentStep > 1 && (
+                <motion.button
+                  onClick={() => setCurrentStep(currentStep - 1)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 transition-colors"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Anterior
+                </motion.button>
+              )}
+              <div className="flex-1" />
+              {currentStep < 3 && (
+                <motion.button
+                  onClick={() => {
+                    // Validate current step before proceeding
+                    if (currentStep === 1 && selectedClientId) {
+                      setCurrentStep(2);
+                    } else if (currentStep === 2 && selectedConstructionSiteId) {
+                      setCurrentStep(3);
+                    }
+                  }}
+                  disabled={
+                    (currentStep === 1 && !selectedClientId) ||
+                    (currentStep === 2 && !selectedConstructionSiteId)
+                  }
+                  className={cn(
+                    'flex items-center gap-2 px-4 py-2 glass-interactive rounded-xl font-medium',
+                    'bg-systemBlue text-white',
+                    'disabled:opacity-50 disabled:cursor-not-allowed'
+                  )}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Siguiente
+                  <ChevronRight className="h-4 w-4" />
+                </motion.button>
+              )}
+            </div>
+
+            {/* Step content */}
+            <div className="focus-mode-content">
+              {currentStep === 1 && renderClientSelection()}
+              {currentStep === 2 && renderSiteSelection()}
+              {currentStep === 3 && renderOrderDetails()}
+            </div>
+          </GlassCard>
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 } 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, memo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -8,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { FilterChip } from '@/components/ui/FilterChip';
 import { cn } from '@/lib/utils';
 import {
   CalendarIcon,
@@ -289,111 +291,181 @@ const OrdersNavigation = memo(function OrdersNavigation({
     );
   });
 
+  const [isFilterExpanded, setIsFilterExpanded] = useState(true);
+
   return (
     <div className="space-y-4">
-      {/* Mobile-only prominent Create Order button - shown first for visibility */}
-      {canCreateOrders && currentTab !== 'create' && (
-        <div className="md:hidden">
-          <Button
-            onClick={() => navigate('create')}
-            className="w-full !bg-green-600 hover:!bg-green-700 !text-white font-semibold py-3 text-base shadow-md"
-          >
-            <PlusIcon className="mr-2 h-5 w-5" />
-            Crear Orden
-          </Button>
+      {/* Floating Segmented Control - Pill Design */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex-1 flex justify-center min-w-0">
+          <div className="glass-thick rounded-full p-1.5 inline-flex gap-1 shadow-lg max-w-full overflow-x-auto">
+            {tabs.map((tab) => {
+              const isActive = currentTab === tab.id;
+              return (
+                <motion.button
+                  key={tab.id}
+                  onClick={() => navigate(tab.id)}
+                  className={cn(
+                    'relative px-4 py-2 rounded-full text-sm font-medium transition-all duration-200',
+                    'flex items-center gap-2 whitespace-nowrap z-0',
+                    isActive
+                      ? 'text-white'
+                      : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
+                  )}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="activeTab"
+                      className="absolute inset-0 rounded-full shadow-lg"
+                      style={{ 
+                        backgroundColor: 'rgb(0, 122, 255)', // systemBlue - fully opaque
+                        opacity: 1
+                      }}
+                      transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <tab.icon className={cn('h-4 w-4', isActive ? 'text-white' : '')} />
+                    <span className={cn(
+                      isActive ? 'text-white font-semibold' : '',
+                      'hidden sm:inline'
+                    )}>
+                      {tab.label}
+                    </span>
+                    <span className={cn(
+                      isActive ? 'text-white font-semibold' : '',
+                      'sm:hidden'
+                    )}>
+                      {tab.label.substring(0, 4)}
+                    </span>
+                    {tab.id === 'credit' && tab.badge !== undefined && tab.badge > 0 && (
+                      <span className={cn(
+                        'ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
+                        isActive
+                          ? 'bg-white/30 text-white border border-white/20'
+                          : 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+                      )}>
+                        {tab.badge}
+                      </span>
+                    )}
+                  </span>
+                </motion.button>
+              );
+            })}
+          </div>
         </div>
-      )}
 
-      {/* Tab Navigation with Create Order Button */}
-      <div className="border-b border-gray-200 dark:border-gray-700 flex items-center">
-        <nav className="-mb-px flex space-x-2 sm:space-x-4 overflow-x-auto flex-1" aria-label="Tabs">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => navigate(tab.id)}
-              className={cn(
-                currentTab === tab.id
-                  ? 'border-indigo-500 text-indigo-600 dark:border-indigo-400 dark:text-indigo-400'
-                  : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:border-gray-600 dark:hover:text-gray-200',
-                'group inline-flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-sm font-medium transition-colors duration-150 ease-in-out focus:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2'
-              )}
-              aria-current={currentTab === tab.id ? 'page' : undefined}
-            >
-              <tab.icon
-                className={cn(
-                  currentTab === tab.id ? 'text-indigo-500 dark:text-indigo-400' : 'text-gray-400 group-hover:text-gray-500 dark:text-gray-500 dark:group-hover:text-gray-400',
-                  'h-5 w-5'
-                )}
-                aria-hidden="true"
-              />
-              <span className="hidden sm:inline">{tab.label}</span>
-              <span className="sm:hidden">{tab.label.substring(0, 4)}</span>
-              {tab.id === 'credit' && tab.badge !== undefined && tab.badge > 0 && (
-                 <span className={cn(
-                   'ml-1 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
-                   currentTab === tab.id
-                     ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200'
-                     : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-                 )}>
-                   {tab.badge}
-                 </span>
-              )}
-            </button>
-          ))}
-        </nav>
-
-        {/* Create Order button (hidden on small screens, visible on md+) */}
-        {canCreateOrders && (
-          <div className="hidden md:block ml-4">
+        {/* Create Order button */}
+        {canCreateOrders && currentTab !== 'create' && (
+          <motion.div
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="shrink-0"
+          >
             <Button
               onClick={() => navigate('create')}
-              variant="ghost"
-              className="!bg-green-600 !hover:bg-green-700 !text-white"
+              className="!bg-systemGreen hover:!bg-systemGreen/90 !text-white shadow-lg font-semibold min-h-[44px] px-4 py-2.5 !opacity-100"
+              style={{ backgroundColor: '#34C759', color: 'white' }}
             >
               <PlusIcon className="mr-2 h-4 w-4" />
-              Crear Orden
+              <span className="hidden sm:inline">Crear Orden</span>
+              <span className="sm:hidden">Crear</span>
             </Button>
-          </div>
+          </motion.div>
         )}
       </div>
 
-      {/* Filters - Only show when 'list' or 'calendar' tab is active */}
+      {/* Dynamic Filter Bar - Expandable */}
       {(currentTab === 'list' || currentTab === 'calendar') && (
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800">
-          <div className="flex shrink-0 items-center text-sm font-medium text-gray-700 dark:text-gray-300">
-             <MixerHorizontalIcon className="mr-2 h-5 w-5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
-             Filtros:
-           </div>
-          {/* Estado Filter - Use the stable dropdown component */}
-          <StableDropdownMenu
-            label="Estado"
-            value={estadoFilterValue}
-            options={statuses}
-            currentValue={estadoFilter}
-            onSelect={(value) => handleFilterChange('estado', value)}
-          />
+        <motion.div
+          initial={false}
+          animate={{ height: isFilterExpanded ? 'auto' : 'auto' }}
+          className="glass-thin rounded-2xl p-4 border border-white/20"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
+              <MixerHorizontalIcon className="h-5 w-5" />
+              <span>Filtros</span>
+            </div>
+            <button
+              onClick={() => setIsFilterExpanded(!isFilterExpanded)}
+              className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200"
+            >
+              {isFilterExpanded ? 'Ocultar' : 'Mostrar'}
+            </button>
+          </div>
 
-          {/* Crédito Filter - Use the stable dropdown component */}
-          <StableDropdownMenu
-            label="Crédito"
-            value={creditoFilterValue}
-            options={creditStatuses}
-            currentValue={creditoFilter}
-            onSelect={(value) => handleFilterChange('credito', value)}
-          />
+          <AnimatePresence>
+            {isFilterExpanded && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="space-y-3"
+              >
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Estado Filter */}
+                  <StableDropdownMenu
+                    label="Estado"
+                    value={estadoFilterValue}
+                    options={statuses}
+                    currentValue={estadoFilter}
+                    onSelect={(value) => handleFilterChange('estado', value)}
+                  />
 
-          {/* Clear Filters Button */}
-           {(estadoFilter !== 'todos' || creditoFilter !== 'todos') && (
-             <Button
-               variant="ghost"
-               size="sm"
-               onClick={handleClearFilters}
-               className="text-muted-foreground hover:text-foreground"
-             >
-               Limpiar Filtros
-             </Button>
-           )}
-        </div>
+                  {/* Crédito Filter */}
+                  <StableDropdownMenu
+                    label="Crédito"
+                    value={creditoFilterValue}
+                    options={creditStatuses}
+                    currentValue={creditoFilter}
+                    onSelect={(value) => handleFilterChange('credito', value)}
+                  />
+                </div>
+
+                {/* Active Filter Chips */}
+                <div className="flex flex-wrap gap-2">
+                  {estadoFilter !== 'todos' && (
+                    <FilterChip
+                      label="Estado"
+                      value={estadoFilterValue}
+                      onRemove={() => handleFilterChange('estado', 'todos')}
+                    />
+                  )}
+                  {creditoFilter !== 'todos' && (
+                    <FilterChip
+                      label="Crédito"
+                      value={creditoFilterValue}
+                      onRemove={() => handleFilterChange('credito', 'todos')}
+                    />
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Always show active filters as chips when collapsed */}
+          {!isFilterExpanded && (estadoFilter !== 'todos' || creditoFilter !== 'todos') && (
+            <div className="flex flex-wrap gap-2">
+              {estadoFilter !== 'todos' && (
+                <FilterChip
+                  label="Estado"
+                  value={estadoFilterValue}
+                  onRemove={() => handleFilterChange('estado', 'todos')}
+                />
+              )}
+              {creditoFilter !== 'todos' && (
+                <FilterChip
+                  label="Crédito"
+                  value={creditoFilterValue}
+                  onRemove={() => handleFilterChange('credito', 'todos')}
+                />
+              )}
+            </div>
+          )}
+        </motion.div>
       )}
     </div>
   );

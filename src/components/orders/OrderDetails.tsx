@@ -1468,8 +1468,8 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
         {canEditOrder && !isEditing && (
           <Button
             onClick={handleEditClick}
-            variant="ghost"
-            className="!bg-blue-600 !hover:bg-blue-700 !text-white"
+            className="!bg-systemBlue hover:!bg-systemBlue/90 !text-white !opacity-100 shadow-md"
+            style={{ backgroundColor: '#007AFF', color: 'white', opacity: 1 }}
           >
             Editar Orden
           </Button>
@@ -1537,46 +1537,51 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
   };
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="mb-6 flex justify-between items-center">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-semibold text-gray-900 flex items-center gap-2">
-              Orden #{order?.order_number || orderId.substring(0, 8)}
-              {/* Site Access semaforization dot */}
-              {(() => {
-                const rating = (order as any)?.site_access_rating as string | undefined;
-                const color = rating === 'green' ? 'bg-green-500' : rating === 'yellow' ? 'bg-yellow-500' : rating === 'red' ? 'bg-red-500' : 'bg-gray-300';
-                const title = rating ? `Acceso: ${rating.toUpperCase()}` : 'Acceso: N/D';
-                return <span className={`inline-block w-3 h-3 rounded-full ${color}`} title={title} />;
-              })()}
-            </h1>
-            {/* Quality Indicator Badge */}
-            {hasRemisiones && (
-              <Badge 
-                variant="outline" 
-                className="bg-blue-50 text-blue-700 border-blue-300 hover:bg-blue-100 cursor-pointer"
-                onClick={() => {
-                  const samplingInfoElement = document.querySelector('[data-sampling-info]');
-                  if (samplingInfoElement) {
-                    samplingInfoElement.scrollIntoView({ behavior: 'smooth' });
-                  }
-                }}
-              >
-                <Beaker className="h-3 w-3 mr-1" />
-                Calidad
-              </Badge>
-            )}
+    <div className="container mx-auto px-4 py-6">
+      {/* Header with Glass Design */}
+      <div className="mb-6">
+        <div className="glass-thick rounded-2xl p-6 shadow-lg">
+          <div className="flex justify-between items-start gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-3 mb-2">
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                  Orden #{order?.order_number || orderId.substring(0, 8)}
+                  {/* Site Access semaforization dot */}
+                  {(() => {
+                    const rating = (order as any)?.site_access_rating as string | undefined;
+                    const color = rating === 'green' ? 'bg-green-500' : rating === 'yellow' ? 'bg-yellow-500' : rating === 'red' ? 'bg-red-500' : 'bg-gray-300';
+                    const title = rating ? `Acceso: ${rating.toUpperCase()}` : 'Acceso: N/D';
+                    return <span className={`inline-block w-3 h-3 rounded-full shadow-lg ${color}`} title={title} />;
+                  })()}
+                </h1>
+                {/* Quality Indicator Badge */}
+                {hasRemisiones && (
+                  <Badge 
+                    variant="outline" 
+                    className="bg-systemBlue/10 text-systemBlue border-systemBlue/30 hover:bg-systemBlue/20 cursor-pointer font-semibold"
+                    onClick={() => {
+                      const samplingInfoElement = document.querySelector('[data-sampling-info]');
+                      if (samplingInfoElement) {
+                        samplingInfoElement.scrollIntoView({ behavior: 'smooth' });
+                      }
+                    }}
+                  >
+                    <Beaker className="h-3 w-3 mr-1" />
+                    Calidad
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm text-gray-700 dark:text-gray-300 font-medium">
+                Cliente: <span className="text-gray-900 dark:text-gray-100">{order?.client?.business_name}</span>
+              </p>
+            </div>
+            <button
+              onClick={handleGoBack}
+              className="inline-flex items-center px-4 py-2.5 text-sm font-semibold rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-300 dark:border-gray-600 transition-colors min-h-[44px]"
+            >
+              Volver
+            </button>
           </div>
-          <p className="mt-1 text-sm text-gray-600">Cliente: {order?.client?.business_name}</p>
-        </div>
-        <div>
-          <button
-            onClick={handleGoBack}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-xs text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-          >
-            Volver
-          </button>
         </div>
       </div>
 
@@ -1648,45 +1653,47 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
       ) : order ? (
         <>
           <div className="mb-6">
-            <div className="border-b">
-              <nav className="-mb-px flex space-x-6">
-                <button
-                  onClick={() => setActiveTab('details')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'details'
-                      ? 'border-green-500 text-green-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Detalles de Orden
-                </button>
-                <button
-                  onClick={() => setActiveTab('remisiones')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'remisiones'
-                      ? 'border-green-500 text-green-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Remisiones
-                </button>
-                <button
-                  onClick={() => setActiveTab('calidad')}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'calidad'
-                      ? 'border-green-500 text-green-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Calidad
-                </button>
-              </nav>
+            {/* Glass Tab Navigation - Apple HIG Style */}
+            <div className="glass-thin rounded-2xl p-1.5 inline-flex gap-1 shadow-md">
+              <button
+                onClick={() => setActiveTab('details')}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                  activeTab === 'details'
+                    ? 'bg-systemBlue text-white shadow-md !opacity-100'
+                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
+                }`}
+                style={activeTab === 'details' ? { backgroundColor: '#007AFF', color: 'white', opacity: 1 } : undefined}
+              >
+                Detalles de Orden
+              </button>
+              <button
+                onClick={() => setActiveTab('remisiones')}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                  activeTab === 'remisiones'
+                    ? 'bg-systemBlue text-white shadow-md !opacity-100'
+                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
+                }`}
+                style={activeTab === 'remisiones' ? { backgroundColor: '#007AFF', color: 'white', opacity: 1 } : undefined}
+              >
+                Remisiones
+              </button>
+              <button
+                onClick={() => setActiveTab('calidad')}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-200 ${
+                  activeTab === 'calidad'
+                    ? 'bg-systemBlue text-white shadow-md !opacity-100'
+                    : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 bg-transparent'
+                }`}
+                style={activeTab === 'calidad' ? { backgroundColor: '#007AFF', color: 'white', opacity: 1 } : undefined}
+              >
+                Calidad
+              </button>
             </div>
                   
             {activeTab === 'details' ? (
-              <div className="mt-6 bg-white shadow-sm overflow-hidden sm:rounded-lg">
-                <div className="px-4 py-5 sm:px-6 bg-gray-50">
-                  <h3 className="text-lg leading-6 font-medium text-gray-900">Estado de la Orden</h3>
+              <div className="mt-6">
+                <div className="glass-thick rounded-2xl p-6 shadow-lg">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Estado de la Orden</h3>
                   
                   {/* Fiscal Status Indicator */}
                   {order.plant && (
