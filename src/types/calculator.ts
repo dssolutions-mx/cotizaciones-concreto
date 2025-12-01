@@ -111,7 +111,7 @@ export interface DesignParams {
   airContent: number;
   airContentTD: number;
   airContentBomb: number;
-  standardDeviation: number;
+  standardDeviation: number | Record<number, number>; // Can be a single value or per-strength values
   resistanceFactors: ResistanceFactors;
   mortarVolumes: MortarVolumes;
   absoluteVolume: number;

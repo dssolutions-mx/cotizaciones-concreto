@@ -16,12 +16,27 @@ import {
   WaterDefinition
 } from '@/types/calculator';
 
+// Helper function to get standard deviation for a specific strength
+export const getStandardDeviationForStrength = (
+  strength: number,
+  standardDeviation: number | Record<number, number> | undefined,
+  defaultStdDev: number = 23
+): number => {
+  if (!standardDeviation) {
+    return defaultStdDev;
+  }
+  if (typeof standardDeviation === 'number') {
+    return standardDeviation;
+  }
+  return standardDeviation[strength] ?? defaultStdDev;
+};
+
 // Calculate critical strength (fcr) using standard deviation percentage
 export const calculateFcr = (
   strength: number, 
-  standardDeviation?: number
+  standardDeviation?: number | Record<number, number>
 ): number => {
-  const stdDev = standardDeviation || 21; // Default 23% if not provided
+  const stdDev = getStandardDeviationForStrength(strength, standardDeviation, 23);
   
   // FCR = Resistencia + (Resistencia * Desviación Estándar %)
   // Ejemplo: resistencia 150 + (150 * 20%) = 150 + 30 = FCR 180

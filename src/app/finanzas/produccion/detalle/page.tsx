@@ -19,7 +19,7 @@ import { SummaryCards as SummaryCardsV2 } from '@/components/production/SummaryC
 import { VolumeByStrengthCards as VolumeByStrengthCardsV2 } from '@/components/production/VolumeByStrengthCards';
 import { ProductionSummaryTable as ProductionSummaryTableV2 } from '@/components/production/Tables/ProductionSummaryTable';
 import { MaterialsByStrengthTable as MaterialsByStrengthTableV2 } from '@/components/production/Tables/MaterialsByStrengthTable';
-import { Download, TrendingUp, Package, DollarSign, BarChart3, ArrowUpIcon, ArrowDownIcon, AlertTriangle, CheckCircle2, Search, CheckCircle, Info } from "lucide-react";
+import { Download, TrendingUp, Package, DollarSign, BarChart3, ArrowUpIcon, ArrowDownIcon, AlertTriangle, CheckCircle2, Search, CheckCircle, Info, ArrowLeft, ChevronRight } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -93,6 +93,38 @@ interface InvestigationData {
   materialPrices: MaterialPriceData[];
   recipeConsumption: RecipeConsumptionData[];
   missingPrices: MissingPriceData[];
+  recipeAnalysis: RecipeAnalysis[]; // New: detailed recipe analysis with patterns
+}
+
+// Extended interfaces for drill-down analysis
+interface RecipeAnalysis {
+  recipe_id: string;
+  recipe_code: string;
+  strength_fc: number;
+  remisiones_count: number;
+  total_volume: number;
+  remisiones: RemisionAnalysis[];
+  averages: {
+    cement_kg_per_m3: number;
+    [material_id: string]: number; // consumption per m³ for each material
+  };
+}
+
+interface RemisionAnalysis {
+  remision_id: string;
+  remision_number: string;
+  fecha: string;
+  volumen_fabricado: number;
+  cement_kg_per_m3: number;
+  deviation_from_avg: number; // percentage
+  status: 'normal' | 'above_avg' | 'below_avg';
+  materials: MaterialConsumptionDetail[];
+  order_info: {
+    client_id: string | null;
+    business_name: string;
+    construction_site?: string;
+    order_number?: string;
+  };
 }
 
 interface MaterialPriceData {
@@ -121,7 +153,10 @@ interface MaterialConsumptionDetail {
   material_name: string;
   material_code: string;
   category: string;
-  total_consumption: number;
+  total_consumption: number; // cantidad_real (actual consumption)
+  cantidad_teorica: number; // theoretical consumption
+  cantidad_real: number; // actual consumption
+  ajuste: number; // variance = cantidad_real - cantidad_teorica
   unit: string;
   has_price: boolean;
   price: number;
@@ -151,6 +186,10 @@ export default function ProduccionDashboard() {
   const [selectedMaterial, setSelectedMaterial] = useState<string>('');
   const [materialConsumptionData, setMaterialConsumptionData] = useState<any>(null);
   const [materialAnalysisLoading, setMaterialAnalysisLoading] = useState(false);
+  // Navigation state for drill-down investigation
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+  const [selectedRemisionId, setSelectedRemisionId] = useState<string | null>(null);
+  const [outlierThreshold, setOutlierThreshold] = useState<number>(10); // Default 10% deviation threshold
 
   const {
     productionData: hookProductionData,
@@ -189,6 +228,13 @@ export default function ProduccionDashboard() {
   useEffect(() => {
     setSelectedMaterial('');
     setMaterialConsumptionData(null);
+  }, [startDate, endDate]);
+
+  // Reset investigation navigation on date change
+  useEffect(() => {
+    setSelectedRecipeId(null);
+    setSelectedRemisionId(null);
+    setInvestigationData(null);
   }, [startDate, endDate]);
 
   // Removed local heavy calculators: handled by useProgressiveProductionDetails
@@ -933,6 +979,231 @@ export default function ProduccionDashboard() {
   };
 
   // Fetch investigation data
+  // Analysis functions for pattern detection
+  const calculateRecipeAverages = (
+    recipeId: string,
+    remisiones: any[],
+    materiales: any[]
+  ): { cement_kg_per_m3: number; [material_id: string]: number } => {
+    const recipeRemisiones = remisiones.filter((r: any) => r.recipe_id === recipeId);
+    if (recipeRemisiones.length === 0) return { cement_kg_per_m3: 0 };
+
+    const averages: { cement_kg_per_m3: number; [material_id: string]: number } = {
+      cement_kg_per_m3: 0
+    };
+
+    // Calculate cement average
+    let totalCement = 0;
+    let totalVolume = 0;
+    const cementPerM3: number[] = [];
+
+    recipeRemisiones.forEach((remision: any) => {
+      const volume = Number(remision.volumen_fabricado) || 0;
+      if (volume <= 0) return;
+
+      // Find cement consumption for this remision
+      const remisionMateriales = materiales.filter(
+        (m: any) => m.remision_id === remision.id
+      );
+      
+      // Aggregate cement by material_id to avoid duplicates
+      let cementQty = 0;
+      const cementMap = new Map<string, number>();
+      remisionMateriales.forEach((m: any) => {
+        const category = (m.materials?.category || '').toUpperCase();
+        if (category === 'CEMENTO') {
+          const materialId = m.material_id;
+          const qty = Number(m.cantidad_real) || 0;
+          const existingQty = cementMap.get(materialId) || 0;
+          cementMap.set(materialId, existingQty + qty);
+        }
+      });
+      
+      // Sum all cement quantities
+      cementMap.forEach((qty) => {
+        cementQty += qty;
+      });
+
+      if (cementQty > 0 && volume > 0) {
+        const cementPerM3Value = cementQty / volume;
+        cementPerM3.push(cementPerM3Value);
+        totalCement += cementQty;
+        totalVolume += volume;
+      }
+    });
+
+    if (cementPerM3.length > 0) {
+      averages.cement_kg_per_m3 = cementPerM3.reduce((sum, val) => sum + val, 0) / cementPerM3.length;
+    }
+
+    // Calculate averages for other materials
+    // Store per-m³ values for each material (similar to how we do it for cement)
+    const materialPerM3Map = new Map<string, number[]>();
+    
+    recipeRemisiones.forEach((remision: any) => {
+      const volume = Number(remision.volumen_fabricado) || 0;
+      if (volume <= 0) return;
+
+      const remisionMateriales = materiales.filter(
+        (m: any) => m.remision_id === remision.id
+      );
+
+      // Aggregate materials by material_id within this remision to avoid duplicates
+      const remisionMaterialMap = new Map<string, number>();
+      remisionMateriales.forEach((m: any) => {
+        const materialId = m.material_id;
+        const category = (m.materials?.category || '').toUpperCase();
+        // Skip cement as we already calculated it
+        if (category === 'CEMENTO') return;
+
+        const qty = Number(m.cantidad_real ?? 0) || 0;
+        if (qty > 0) {
+          const existingQty = remisionMaterialMap.get(materialId) || 0;
+          remisionMaterialMap.set(materialId, existingQty + qty);
+        }
+      });
+
+      // Calculate per-m³ for each material in this remision and add to the array
+      remisionMaterialMap.forEach((qty, materialId) => {
+        if (qty > 0 && volume > 0) {
+          const perM3Value = qty / volume;
+          if (!materialPerM3Map.has(materialId)) {
+            materialPerM3Map.set(materialId, []);
+          }
+          materialPerM3Map.get(materialId)!.push(perM3Value);
+        }
+      });
+    });
+
+    // Calculate average per-m³ for each material
+    materialPerM3Map.forEach((perM3Values, materialId) => {
+      if (perM3Values.length > 0) {
+        averages[materialId] = perM3Values.reduce((sum, val) => sum + val, 0) / perM3Values.length;
+      }
+    });
+
+    return averages;
+  };
+
+  const analyzeRemisionPatterns = (
+    recipeId: string,
+    remisiones: any[],
+    materiales: any[],
+    averages: { cement_kg_per_m3: number; [material_id: string]: number },
+    threshold: number = 10,
+    priceMap?: Map<string, number>
+  ): RemisionAnalysis[] => {
+    const recipeRemisiones = remisiones.filter((r: any) => r.recipe_id === recipeId);
+    
+    return recipeRemisiones.map((remision: any) => {
+      const volume = Number(remision.volumen_fabricado) || 0;
+      
+      // Get materials for this remision and aggregate by material_id to avoid duplicates
+      const remisionMateriales = materiales.filter(
+        (m: any) => m.remision_id === remision.id
+      );
+
+      // Aggregate materials by material_id (in case there are duplicate entries)
+      const materialMap = new Map<string, {
+        material_id: string;
+        material_name: string;
+        material_code: string;
+        category: string;
+        unit: string;
+        cantidad_real: number;
+        cantidad_teorica: number;
+        price: number;
+      }>();
+
+      remisionMateriales.forEach((m: any) => {
+        const materialId = m.material_id;
+        const cantidadReal = Number(m.cantidad_real ?? 0) || 0;
+        const cantidadTeorica = Number(m.cantidad_teorica ?? 0) || 0;
+        const price = priceMap?.get(materialId) || 0;
+
+        if (materialMap.has(materialId)) {
+          // Aggregate quantities for existing material
+          const existing = materialMap.get(materialId)!;
+          existing.cantidad_real += cantidadReal;
+          existing.cantidad_teorica += cantidadTeorica;
+        } else {
+          // Add new material entry
+          materialMap.set(materialId, {
+            material_id: materialId,
+            material_name: m.materials?.material_name || '',
+            material_code: m.materials?.material_code || '',
+            category: m.materials?.category || '',
+            unit: m.materials?.unit_of_measure || '',
+            cantidad_real: cantidadReal,
+            cantidad_teorica: cantidadTeorica,
+            price: price
+          });
+        }
+      });
+
+      // Calculate cement consumption per m³
+      let cementQty = 0;
+      const materialsDetail: MaterialConsumptionDetail[] = [];
+
+      materialMap.forEach((material) => {
+        const category = (material.category || '').toUpperCase();
+        const ajuste = material.cantidad_real - material.cantidad_teorica;
+        
+        if (category === 'CEMENTO') {
+          cementQty += material.cantidad_real;
+        }
+
+        materialsDetail.push({
+          material_id: material.material_id,
+          material_name: material.material_name,
+          material_code: material.material_code,
+          category: material.category,
+          total_consumption: material.cantidad_real, // Keep for backward compatibility
+          cantidad_real: material.cantidad_real,
+          cantidad_teorica: material.cantidad_teorica,
+          ajuste: ajuste,
+          unit: material.unit,
+          has_price: material.price > 0,
+          price: material.price,
+          total_cost: material.cantidad_real * material.price
+        });
+      });
+
+      const cementKgPerM3 = volume > 0 ? cementQty / volume : 0;
+      const avgCementPerM3 = averages.cement_kg_per_m3 || 0;
+      
+      // Calculate deviation
+      let deviation = 0;
+      let status: 'normal' | 'above_avg' | 'below_avg' = 'normal';
+      
+      if (avgCementPerM3 > 0) {
+        deviation = ((cementKgPerM3 - avgCementPerM3) / avgCementPerM3) * 100;
+        const absDeviation = Math.abs(deviation);
+        
+        if (absDeviation > threshold) {
+          status = deviation > 0 ? 'above_avg' : 'below_avg';
+        }
+      }
+
+      return {
+        remision_id: remision.id,
+        remision_number: remision.remision_number,
+        fecha: remision.fecha,
+        volumen_fabricado: volume,
+        cement_kg_per_m3: cementKgPerM3,
+        deviation_from_avg: deviation,
+        status: status,
+        materials: materialsDetail,
+        order_info: {
+          client_id: remision.orders?.client_id || null,
+          business_name: remision.orders?.clients?.business_name || 'Desconocido',
+          construction_site: remision.orders?.construction_site,
+          order_number: remision.orders?.order_number
+        }
+      };
+    });
+  };
+
   const fetchInvestigationData = async () => {
     if (!startDate || !endDate) return;
 
@@ -959,6 +1230,8 @@ export default function ProduccionDashboard() {
           ),
           orders!inner(
             client_id,
+            construction_site,
+            order_number,
             clients!inner(
               business_name
             )
@@ -996,6 +1269,7 @@ export default function ProduccionDashboard() {
             remision_id,
             material_id,
             cantidad_real,
+            cantidad_teorica,
             materials!inner(
               id,
               material_name,
@@ -1017,6 +1291,7 @@ export default function ProduccionDashboard() {
               remision_id,
               material_id,
               cantidad_real,
+              cantidad_teorica,
               materials!inner(
                 id,
                 material_name,
@@ -1151,6 +1426,42 @@ export default function ProduccionDashboard() {
         has_price: material.has_price
       }));
 
+      // 8. Calculate recipe analysis with pattern detection
+      setInvestigationProgress('Calculando análisis de patrones por receta...');
+      const recipeAnalysis: RecipeAnalysis[] = [];
+      const uniqueRecipeIds = Array.from(new Set(remisiones.map((r: any) => r.recipe_id)));
+      
+      uniqueRecipeIds.forEach((recipeId) => {
+        const recipeRemisiones = remisiones.filter((r: any) => r.recipe_id === recipeId);
+        if (recipeRemisiones.length === 0) return;
+
+        const firstRemision = recipeRemisiones[0];
+        const totalVolume = recipeRemisiones.reduce((sum, r) => sum + (Number(r.volumen_fabricado) || 0), 0);
+        
+        // Calculate averages for this recipe
+        const averages = calculateRecipeAverages(recipeId, remisiones, materiales);
+        
+        // Analyze remision patterns
+        const remisionAnalyses = analyzeRemisionPatterns(
+          recipeId,
+          remisiones,
+          materiales,
+          averages,
+          outlierThreshold,
+          priceMap
+        );
+
+        recipeAnalysis.push({
+          recipe_id: recipeId,
+          recipe_code: firstRemision.recipes.recipe_code,
+          strength_fc: firstRemision.recipes.strength_fc,
+          remisiones_count: recipeRemisiones.length,
+          total_volume: totalVolume,
+          remisiones: remisionAnalyses,
+          averages: averages
+        });
+      });
+
       setInvestigationData({
         remisiones: remisiones.map((r: any) => ({
           id: r.id,
@@ -1171,7 +1482,8 @@ export default function ProduccionDashboard() {
         })),
         materialPrices: materialPricesSummary,
         recipeConsumption: Array.from(recipeConsumption.values()),
-        missingPrices
+        missingPrices,
+        recipeAnalysis: recipeAnalysis
       });
 
       setInvestigationProgress(''); // Clear progress when complete
@@ -2171,10 +2483,10 @@ export default function ProduccionDashboard() {
                       <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                           <Search className="h-5 w-5" />
-                          Herramienta de Investigación
+                          Herramienta de Investigación - Análisis de Patrones
                         </CardTitle>
                         <CardDescription>
-                          Analiza datos detallados de remisiones, consumo de materiales y precios para validación.
+                          Analiza patrones de consumo por receta, identifica remisiones con desviaciones y profundiza en detalles específicos.
                           <br />
                           <span className="text-sm text-amber-600 font-medium">
                             💡 Para períodos largos, considera usar rangos de fechas más pequeños para mejor rendimiento.
@@ -2182,7 +2494,7 @@ export default function ProduccionDashboard() {
                         </CardDescription>
                       </CardHeader>
                       <CardContent>
-                        <div className="flex gap-4 mb-4">
+                        <div className="flex gap-4 mb-4 items-center">
                           <Button 
                             onClick={fetchInvestigationData}
                             disabled={investigationLoading}
@@ -2198,310 +2510,105 @@ export default function ProduccionDashboard() {
                             )}
                           </Button>
                           {investigationData && (
-                            <Button 
-                              onClick={() => {
-                                // Export investigation data to Excel
-                                const workbook = XLSX.utils.book_new();
-                                
-                                // Export remisiones
-                                const remisionesSheet = XLSX.utils.json_to_sheet(
-                                  investigationData.remisiones.map((r: any) => ({
-                                    'UUID': r.id,
-                                    'Número Remisión': r.remision_number,
-                                    'Fecha': r.fecha,
-                                    'Volumen (m³)': r.volumen_fabricado,
-                                    'Código Receta': r.recipe.recipe_code,
-                                    'Resistencia (kg/cm²)': r.recipe.strength_fc,
-                                    'Cliente': r.order.clients.business_name
-                                  }))
-                                );
-                                XLSX.utils.book_append_sheet(workbook, remisionesSheet, 'Remisiones');
-                                
-                                // Export material prices
-                                const pricesSheet = XLSX.utils.json_to_sheet(
-                                  investigationData.materialPrices.map((m: any) => ({
-                                    'ID Material': m.material_id,
-                                    'Nombre': m.material_name,
-                                    'Código': m.material_code,
-                                    'Categoría': m.category,
-                                    'Unidad': m.unit_of_measure,
-                                    'Precio Actual': m.current_price,
-                                    'Tiene Precio': m.has_price ? 'Sí' : 'No'
-                                  }))
-                                );
-                                XLSX.utils.book_append_sheet(workbook, pricesSheet, 'Precios Materiales');
-                                
-                                XLSX.writeFile(workbook, `Investigacion_Produccion_${format(startDate!, 'dd-MM-yyyy')}_${format(endDate!, 'dd-MM-yyyy')}.xlsx`);
-                              }}
-                              variant="outline"
-                            >
-                              <Download className="h-4 w-4 mr-2" />
-                              Exportar Datos
-                            </Button>
+                            <>
+                              <div className="flex items-center gap-2">
+                                <Label htmlFor="threshold" className="text-sm">Umbral de Desviación (%):</Label>
+                                <Input
+                                  id="threshold"
+                                  type="number"
+                                  value={outlierThreshold}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (!isNaN(val) && val >= 0) {
+                                      setOutlierThreshold(val);
+                                      // Recalculate patterns with new threshold without re-fetching
+                                      if (investigationData && investigationData.recipeAnalysis) {
+                                        const updatedAnalysis = investigationData.recipeAnalysis.map(recipe => {
+                                          const updatedRemisiones = recipe.remisiones.map(remision => {
+                                            const avgCementPerM3 = recipe.averages.cement_kg_per_m3 || 0;
+                                            let deviation = 0;
+                                            let status: 'normal' | 'above_avg' | 'below_avg' = 'normal';
+                                            
+                                            if (avgCementPerM3 > 0 && remision.cement_kg_per_m3 > 0) {
+                                              deviation = ((remision.cement_kg_per_m3 - avgCementPerM3) / avgCementPerM3) * 100;
+                                              const absDeviation = Math.abs(deviation);
+                                              
+                                              if (absDeviation > val) {
+                                                status = deviation > 0 ? 'above_avg' : 'below_avg';
+                                              }
+                                            }
+                                            
+                                            return {
+                                              ...remision,
+                                              deviation_from_avg: deviation,
+                                              status: status
+                                            };
+                                          });
+                                          
+                                          return {
+                                            ...recipe,
+                                            remisiones: updatedRemisiones
+                                          };
+                                        });
+                                        
+                                        setInvestigationData({
+                                          ...investigationData,
+                                          recipeAnalysis: updatedAnalysis
+                                        });
+                                      }
+                                    }
+                                  }}
+                                  className="w-20"
+                                  min="0"
+                                  max="100"
+                                />
+                              </div>
+                              <Button 
+                                onClick={() => {
+                                  if (!investigationData) return;
+                                  const workbook = XLSX.utils.book_new();
+                                  
+                                  // Export recipe analysis
+                                  const recipeSheet = XLSX.utils.json_to_sheet(
+                                    investigationData.recipeAnalysis.map((r: RecipeAnalysis) => ({
+                                      'Código Receta': r.recipe_code,
+                                      'Resistencia (kg/cm²)': r.strength_fc,
+                                      'Remisiones': r.remisiones_count,
+                                      'Volumen Total (m³)': r.total_volume,
+                                      'Cemento Promedio (kg/m³)': r.averages.cement_kg_per_m3.toFixed(2)
+                                    }))
+                                  );
+                                  XLSX.utils.book_append_sheet(workbook, recipeSheet, 'Recetas');
+                                  
+                                  // Export remisiones with patterns
+                                  const remisionesSheet = XLSX.utils.json_to_sheet(
+                                    investigationData.recipeAnalysis.flatMap((r: RecipeAnalysis) =>
+                                      r.remisiones.map((rem: RemisionAnalysis) => ({
+                                        'Receta': r.recipe_code,
+                                        'Número Remisión': rem.remision_number,
+                                        'Fecha': rem.fecha,
+                                        'Volumen (m³)': rem.volumen_fabricado,
+                                        'Cemento (kg/m³)': rem.cement_kg_per_m3.toFixed(2),
+                                        'Desviación (%)': rem.deviation_from_avg.toFixed(2),
+                                        'Estado': rem.status === 'above_avg' ? 'Arriba del Promedio' : 
+                                                 rem.status === 'below_avg' ? 'Abajo del Promedio' : 'Normal',
+                                        'Cliente': rem.order_info.business_name,
+                                        'Obra': rem.order_info.construction_site || 'N/A'
+                                      }))
+                                    )
+                                  );
+                                  XLSX.utils.book_append_sheet(workbook, remisionesSheet, 'Remisiones');
+                                  
+                                  XLSX.writeFile(workbook, `Investigacion_Patrones_${format(startDate!, 'dd-MM-yyyy')}_${format(endDate!, 'dd-MM-yyyy')}.xlsx`);
+                                }}
+                                variant="outline"
+                              >
+                                <Download className="h-4 w-4 mr-2" />
+                                Exportar Análisis
+                              </Button>
+                            </>
                           )}
                         </div>
-
-                        {investigationData && (
-                          <div className="space-y-6">
-                            {/* Summary Cards */}
-                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                              <Card>
-                                <CardContent className="p-4">
-                                  <div className="text-2xl font-bold text-blue-600">
-                                    {investigationData.remisiones.length}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Total Remisiones</div>
-                                </CardContent>
-                              </Card>
-                              <Card>
-                                <CardContent className="p-4">
-                                  <div className="text-2xl font-bold text-green-600">
-                                    {investigationData.recipeConsumption.length}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Recetas Utilizadas</div>
-                                </CardContent>
-                              </Card>
-                              <Card>
-                                <CardContent className="p-4">
-                                  <div className="text-2xl font-bold text-orange-600">
-                                    {investigationData.materialPrices.length}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Materiales Totales</div>
-                                </CardContent>
-                              </Card>
-                              <Card>
-                                <CardContent className="p-4">
-                                  <div className="text-2xl font-bold text-red-600">
-                                    {investigationData.missingPrices.length}
-                                  </div>
-                                  <div className="text-sm text-muted-foreground">Sin Precios</div>
-                                </CardContent>
-                              </Card>
-                            </div>
-
-                            {/* Missing Prices Alert */}
-                            {investigationData.missingPrices.length > 0 && (
-                              <Alert className="border-red-200 bg-red-50">
-                                <AlertTriangle className="h-4 w-4 text-red-600" />
-                                <AlertDescription className="text-red-800">
-                                  <strong>¡Atención!</strong> Se encontraron {investigationData.missingPrices.length} materiales sin precios configurados. 
-                                  Esto puede afectar los cálculos de costos.
-                                </AlertDescription>
-                              </Alert>
-                            )}
-
-                            {/* Remisiones with UUIDs */}
-                            <Card>
-                              <CardHeader>
-                                <CardTitle>Remisiones Detalladas (con UUIDs)</CardTitle>
-                                <CardDescription>
-                                  Lista completa de remisiones con identificadores únicos para investigación en base de datos
-                                </CardDescription>
-                              </CardHeader>
-                              <CardContent>
-                                <ScrollArea className="h-96">
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow>
-                                        <TableHead>UUID</TableHead>
-                                        <TableHead>Número</TableHead>
-                                        <TableHead>Fecha</TableHead>
-                                        <TableHead>Volumen (m³)</TableHead>
-                                        <TableHead>Receta</TableHead>
-                                        <TableHead>Resistencia</TableHead>
-                                        <TableHead>Cliente</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {investigationData.remisiones.map((remision) => (
-                                        <TableRow key={remision.id}>
-                                          <TableCell className="font-mono text-xs text-muted-foreground">
-                                            {remision.id}
-                                          </TableCell>
-                                          <TableCell className="font-medium">
-                                            {remision.remision_number}
-                                          </TableCell>
-                                          <TableCell>
-                                            {format(new Date(remision.fecha), 'dd/MM/yyyy')}
-                                          </TableCell>
-                                          <TableCell className="text-right">
-                                            {remision.volumen_fabricado.toFixed(2)}
-                                          </TableCell>
-                                          <TableCell className="font-medium">
-                                            {remision.recipe.recipe_code}
-                                          </TableCell>
-                                          <TableCell>
-                                            <Badge variant="outline">
-                                              {remision.recipe.strength_fc} kg/cm²
-                                            </Badge>
-                                          </TableCell>
-                                          <TableCell className="max-w-[200px] truncate">
-                                            {remision.order.clients.business_name}
-                                          </TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </ScrollArea>
-                              </CardContent>
-                            </Card>
-
-                            {/* Material Prices Validation */}
-                            <Card>
-                              <CardHeader>
-                                <CardTitle>Validación de Precios de Materiales</CardTitle>
-                                <CardDescription>
-                                  Estado de precios para todos los materiales utilizados en el período
-                                </CardDescription>
-                              </CardHeader>
-                              <CardContent>
-                                <ScrollArea className="h-96">
-                                  <Table>
-                                    <TableHeader>
-                                      <TableRow>
-                                        <TableHead>ID</TableHead>
-                                        <TableHead>Material</TableHead>
-                                        <TableHead>Código</TableHead>
-                                        <TableHead>Categoría</TableHead>
-                                        <TableHead>Unidad</TableHead>
-                                        <TableHead className="text-right">Precio</TableHead>
-                                        <TableHead>Estado</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {investigationData.materialPrices.map((material) => (
-                                        <TableRow key={material.material_id}>
-                                          <TableCell className="font-mono text-xs text-muted-foreground">
-                                            {material.material_id}
-                                          </TableCell>
-                                          <TableCell className="font-medium">
-                                            {material.material_name}
-                                          </TableCell>
-                                          <TableCell className="font-mono text-sm">
-                                            {material.material_code}
-                                          </TableCell>
-                                          <TableCell>
-                                            <Badge variant="outline" className="text-xs">
-                                              {material.category}
-                                            </Badge>
-                                          </TableCell>
-                                          <TableCell className="text-sm text-muted-foreground">
-                                            {material.unit_of_measure}
-                                          </TableCell>
-                                          <TableCell className="text-right font-medium">
-                                            {material.has_price ? formatCurrency(material.current_price) : 'N/A'}
-                                          </TableCell>
-                                          <TableCell>
-                                            {material.has_price ? (
-                                              <div className="flex items-center gap-2 text-green-600">
-                                                <CheckCircle className="h-4 w-4" />
-                                                <span className="text-sm">Configurado</span>
-                                              </div>
-                                            ) : (
-                                              <div className="flex items-center gap-2 text-red-600">
-                                                <AlertTriangle className="h-4 w-4" />
-                                                <span className="text-sm">Sin Precio</span>
-                                              </div>
-                                            )}
-                                          </TableCell>
-                                        </TableRow>
-                                      ))}
-                                    </TableBody>
-                                  </Table>
-                                </ScrollArea>
-                              </CardContent>
-                            </Card>
-
-                            {/* Recipe Consumption Analysis */}
-                            <Card>
-                              <CardHeader>
-                                <CardTitle>Análisis de Consumo por Receta</CardTitle>
-                                <CardDescription>
-                                  Consumo detallado de materiales por receta con validación de precios
-                                </CardDescription>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="space-y-4">
-                                  {investigationData.recipeConsumption.map((recipe) => (
-                                    <div key={recipe.recipe_id} className="border rounded-lg p-4">
-                                      <div className="flex items-center justify-between mb-3">
-                                        <div>
-                                          <h4 className="text-lg font-semibold">
-                                            {recipe.recipe_code}
-                                          </h4>
-                                          <div className="flex items-center gap-3">
-                                            <Badge variant="outline">
-                                              {recipe.strength_fc} kg/cm²
-                                            </Badge>
-                                            <span className="text-sm text-muted-foreground">
-                                              {recipe.remisiones_count} remisiones
-                                            </span>
-                                            <span className="text-sm text-muted-foreground">
-                                              {recipe.total_volume.toFixed(2)} m³ total
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                      
-                                      <div className="overflow-x-auto">
-                                        <Table>
-                                          <TableHeader>
-                                            <TableRow>
-                                              <TableHead>Material</TableHead>
-                                              <TableHead>Código</TableHead>
-                                              <TableHead className="text-right">Consumo Total</TableHead>
-                                              <TableHead className="text-right">Unidad</TableHead>
-                                              <TableHead className="text-right">Precio Unitario</TableHead>
-                                              <TableHead className="text-right">Costo Total</TableHead>
-                                              <TableHead>Estado Precio</TableHead>
-                                            </TableRow>
-                                          </TableHeader>
-                                          <TableBody>
-                                            {recipe.materials.map((material, idx) => (
-                                              <TableRow key={`${recipe.recipe_id}-${material.material_id}-${idx}`}>
-                                                <TableCell className="font-medium">
-                                                  {material.material_name}
-                                                </TableCell>
-                                                <TableCell className="font-mono text-sm">
-                                                  {material.material_code}
-                                                </TableCell>
-                                                <TableCell className="text-right">
-                                                  {material.total_consumption.toFixed(2)}
-                                                </TableCell>
-                                                <TableCell className="text-right text-muted-foreground">
-                                                  {material.unit}
-                                                </TableCell>
-                                                <TableCell className="text-right font-medium">
-                                                  {material.has_price ? formatCurrency(material.price) : 'N/A'}
-                                                </TableCell>
-                                                <TableCell className="text-right font-bold">
-                                                  {material.has_price ? formatCurrency(material.total_cost) : 'N/A'}
-                                                </TableCell>
-                                                <TableCell>
-                                                  {material.has_price ? (
-                                                    <div className="flex items-center gap-2 text-green-600">
-                                                      <CheckCircle className="h-4 w-4" />
-                                                      <span className="text-xs">OK</span>
-                                                    </div>
-                                                  ) : (
-                                                    <div className="flex items-center gap-2 text-red-600">
-                                                      <AlertTriangle className="h-4 w-4" />
-                                                      <span className="text-xs">Sin Precio</span>
-                                                    </div>
-                                                  )}
-                                                </TableCell>
-                                              </TableRow>
-                                            ))}
-                                          </TableBody>
-                                        </Table>
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              </CardContent>
-                            </Card>
-                          </div>
-                        )}
 
                         {investigationLoading && investigationProgress && (
                           <Alert className="border-blue-200 bg-blue-50">
@@ -2519,6 +2626,703 @@ export default function ProduccionDashboard() {
                               Haz clic en "Cargar Datos de Investigación" para analizar los datos del período seleccionado.
                             </AlertDescription>
                           </Alert>
+                        )}
+
+                        {investigationData && investigationData.recipeAnalysis && (
+                          <>
+                            {/* Breadcrumb Navigation */}
+                            <div className="flex items-center gap-2 mb-4 text-sm text-muted-foreground">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedRecipeId(null);
+                                  setSelectedRemisionId(null);
+                                }}
+                                className={!selectedRecipeId ? 'hidden' : ''}
+                              >
+                                <ArrowLeft className="h-4 w-4 mr-1" />
+                                Lista de Recetas
+                              </Button>
+                              {selectedRecipeId && (
+                                <>
+                                  <ChevronRight className="h-4 w-4" />
+                                  <span className="font-medium text-foreground">
+                                    {investigationData.recipeAnalysis.find(r => r.recipe_id === selectedRecipeId)?.recipe_code}
+                                  </span>
+                                </>
+                              )}
+                              {selectedRemisionId && selectedRecipeId && (
+                                <>
+                                  <ChevronRight className="h-4 w-4" />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setSelectedRemisionId(null)}
+                                  >
+                                    <ArrowLeft className="h-4 w-4 mr-1" />
+                                    Remisiones
+                                  </Button>
+                                  <ChevronRight className="h-4 w-4" />
+                                  <span className="font-medium text-foreground">
+                                    {investigationData.recipeAnalysis
+                                      .find(r => r.recipe_id === selectedRecipeId)
+                                      ?.remisiones.find(rem => rem.remision_id === selectedRemisionId)?.remision_number}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+
+                            {/* Recipe List View (Default) */}
+                            {!selectedRecipeId && !selectedRemisionId && (
+                              <div className="space-y-4">
+                                <Card>
+                                  <CardHeader>
+                                    <CardTitle>Análisis por Receta</CardTitle>
+                                    <CardDescription>
+                                      Selecciona una receta para ver sus remisiones y analizar patrones de consumo
+                                    </CardDescription>
+                                  </CardHeader>
+                                  <CardContent>
+                                    <ScrollArea className="h-[600px]">
+                                      <Table>
+                                        <TableHeader>
+                                          <TableRow>
+                                            <TableHead>Receta</TableHead>
+                                            <TableHead>Resistencia</TableHead>
+                                            <TableHead className="text-right">Remisiones</TableHead>
+                                            <TableHead className="text-right">Volumen Total (m³)</TableHead>
+                                            <TableHead className="text-right">Cemento Promedio (kg/m³)</TableHead>
+                                            <TableHead>Acción</TableHead>
+                                          </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                          {investigationData.recipeAnalysis.map((recipe) => (
+                                            <TableRow 
+                                              key={recipe.recipe_id}
+                                              className="cursor-pointer hover:bg-muted/50"
+                                              onClick={() => setSelectedRecipeId(recipe.recipe_id)}
+                                            >
+                                              <TableCell className="font-medium">
+                                                {recipe.recipe_code}
+                                              </TableCell>
+                                              <TableCell>
+                                                <Badge variant="outline">
+                                                  {recipe.strength_fc} kg/cm²
+                                                </Badge>
+                                              </TableCell>
+                                              <TableCell className="text-right">
+                                                {recipe.remisiones_count}
+                                              </TableCell>
+                                              <TableCell className="text-right">
+                                                {recipe.total_volume.toFixed(2)}
+                                              </TableCell>
+                                              <TableCell className="text-right font-medium">
+                                                {recipe.averages.cement_kg_per_m3 > 0 
+                                                  ? recipe.averages.cement_kg_per_m3.toFixed(2)
+                                                  : 'N/A'}
+                                              </TableCell>
+                                              <TableCell>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSelectedRecipeId(recipe.recipe_id);
+                                                  }}
+                                                >
+                                                  Ver Detalles <ChevronRight className="h-4 w-4 ml-1" />
+                                                </Button>
+                                              </TableCell>
+                                            </TableRow>
+                                          ))}
+                                        </TableBody>
+                                      </Table>
+                                    </ScrollArea>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            )}
+
+                            {/* Recipe Detail View */}
+                            {selectedRecipeId && !selectedRemisionId && (() => {
+                              const recipe = investigationData.recipeAnalysis.find(r => r.recipe_id === selectedRecipeId);
+                              if (!recipe) return null;
+
+                              const aboveAvgCount = recipe.remisiones.filter(r => r.status === 'above_avg').length;
+                              const belowAvgCount = recipe.remisiones.filter(r => r.status === 'below_avg').length;
+                              const normalCount = recipe.remisiones.filter(r => r.status === 'normal').length;
+
+                              return (
+                                <div className="space-y-4">
+                                  {/* Recipe Summary Card */}
+                                  <Card>
+                                    <CardHeader>
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <CardTitle className="text-2xl">{recipe.recipe_code}</CardTitle>
+                                          <CardDescription>
+                                            Resistencia: {recipe.strength_fc} kg/cm² | {recipe.remisiones_count} remisiones | {recipe.total_volume.toFixed(2)} m³ total
+                                          </CardDescription>
+                                        </div>
+                                        <Button
+                                          variant="outline"
+                                          onClick={() => setSelectedRecipeId(null)}
+                                        >
+                                          <ArrowLeft className="h-4 w-4 mr-2" />
+                                          Volver
+                                        </Button>
+                                      </div>
+                                    </CardHeader>
+                                    <CardContent>
+                                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                        <div className="p-4 border rounded-lg">
+                                          <div className="text-sm text-muted-foreground mb-1">Cemento Promedio</div>
+                                          <div className="text-2xl font-bold text-blue-600">
+                                            {recipe.averages.cement_kg_per_m3 > 0 
+                                              ? `${recipe.averages.cement_kg_per_m3.toFixed(2)} kg/m³`
+                                              : 'N/A'}
+                                          </div>
+                                        </div>
+                                        <div className="p-4 border rounded-lg">
+                                          <div className="text-sm text-muted-foreground mb-1">Arriba del Promedio</div>
+                                          <div className="text-2xl font-bold text-orange-600">
+                                            {aboveAvgCount}
+                                          </div>
+                                          <div className="text-xs text-muted-foreground">remisiones</div>
+                                        </div>
+                                        <div className="p-4 border rounded-lg">
+                                          <div className="text-sm text-muted-foreground mb-1">Abajo del Promedio</div>
+                                          <div className="text-2xl font-bold text-blue-600">
+                                            {belowAvgCount}
+                                          </div>
+                                          <div className="text-xs text-muted-foreground">remisiones</div>
+                                        </div>
+                                        <div className="p-4 border rounded-lg">
+                                          <div className="text-sm text-muted-foreground mb-1">Normal</div>
+                                          <div className="text-2xl font-bold text-green-600">
+                                            {normalCount}
+                                          </div>
+                                          <div className="text-xs text-muted-foreground">remisiones</div>
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+
+                                  {/* Remisiones Table */}
+                                  <Card>
+                                    <CardHeader>
+                                      <CardTitle>Remisiones - Análisis de Patrones</CardTitle>
+                                      <CardDescription>
+                                        Remisiones con indicadores de desviación del promedio. Haz clic en una remisión para ver detalles completos.
+                                      </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                      <ScrollArea className="h-[500px]">
+                                        <Table>
+                                          <TableHeader>
+                                            <TableRow>
+                                              <TableHead>Remisión</TableHead>
+                                              <TableHead>Fecha</TableHead>
+                                              <TableHead className="text-right">Volumen (m³)</TableHead>
+                                              <TableHead className="text-right">Cemento (kg/m³)</TableHead>
+                                              <TableHead className="text-right">Desviación</TableHead>
+                                              <TableHead>Estado</TableHead>
+                                              <TableHead>Cliente</TableHead>
+                                              <TableHead>Acción</TableHead>
+                                            </TableRow>
+                                          </TableHeader>
+                                          <TableBody>
+                                            {recipe.remisiones.map((remision) => {
+                                              const statusColors = {
+                                                'above_avg': 'bg-orange-50 text-orange-700 border-orange-200',
+                                                'below_avg': 'bg-blue-50 text-blue-700 border-blue-200',
+                                                'normal': 'bg-green-50 text-green-700 border-green-200'
+                                              };
+                                              const statusLabels = {
+                                                'above_avg': 'Arriba del Promedio',
+                                                'below_avg': 'Abajo del Promedio',
+                                                'normal': 'Normal'
+                                              };
+                                              const statusIcons = {
+                                                'above_avg': <TrendingUp className="h-4 w-4" />,
+                                                'below_avg': <ArrowDownIcon className="h-4 w-4" />,
+                                                'normal': <CheckCircle2 className="h-4 w-4" />
+                                              };
+
+                                              return (
+                                                <TableRow 
+                                                  key={remision.remision_id}
+                                                  className={`cursor-pointer hover:bg-muted/50 ${
+                                                    remision.status === 'above_avg' ? 'bg-orange-50/30' : 
+                                                    remision.status === 'below_avg' ? 'bg-blue-50/30' : ''
+                                                  }`}
+                                                  onClick={() => setSelectedRemisionId(remision.remision_id)}
+                                                >
+                                                  <TableCell className="font-medium">
+                                                    {remision.remision_number}
+                                                  </TableCell>
+                                                  <TableCell>
+                                                    {format(new Date(remision.fecha), 'dd/MM/yyyy')}
+                                                  </TableCell>
+                                                  <TableCell className="text-right">
+                                                    {remision.volumen_fabricado.toFixed(2)}
+                                                  </TableCell>
+                                                  <TableCell className="text-right font-medium">
+                                                    {remision.cement_kg_per_m3 > 0 
+                                                      ? remision.cement_kg_per_m3.toFixed(2)
+                                                      : 'N/A'}
+                                                  </TableCell>
+                                                  <TableCell className="text-right">
+                                                    {remision.deviation_from_avg !== 0 ? (
+                                                      <span className={`font-medium ${
+                                                        remision.deviation_from_avg > 0 ? 'text-orange-600' : 'text-blue-600'
+                                                      }`}>
+                                                        {remision.deviation_from_avg > 0 ? '+' : ''}
+                                                        {remision.deviation_from_avg.toFixed(1)}%
+                                                      </span>
+                                                    ) : (
+                                                      <span className="text-muted-foreground">0%</span>
+                                                    )}
+                                                  </TableCell>
+                                                  <TableCell>
+                                                    <Badge 
+                                                      variant="outline" 
+                                                      className={statusColors[remision.status]}
+                                                    >
+                                                      <span className="flex items-center gap-1">
+                                                        {statusIcons[remision.status]}
+                                                        {statusLabels[remision.status]}
+                                                      </span>
+                                                    </Badge>
+                                                  </TableCell>
+                                                  <TableCell className="max-w-[200px] truncate">
+                                                    {remision.order_info.business_name}
+                                                  </TableCell>
+                                                  <TableCell>
+                                                    <Button
+                                                      variant="ghost"
+                                                      size="sm"
+                                                      onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedRemisionId(remision.remision_id);
+                                                      }}
+                                                    >
+                                                      Ver Detalles <ChevronRight className="h-4 w-4 ml-1" />
+                                                    </Button>
+                                                  </TableCell>
+                                                </TableRow>
+                                              );
+                                            })}
+                                          </TableBody>
+                                        </Table>
+                                      </ScrollArea>
+                                    </CardContent>
+                                  </Card>
+                                </div>
+                              );
+                            })()}
+
+                            {/* Remision Detail View */}
+                            {selectedRecipeId && selectedRemisionId && (() => {
+                              const recipe = investigationData.recipeAnalysis.find(r => r.recipe_id === selectedRecipeId);
+                              if (!recipe) return null;
+                              const remision = recipe.remisiones.find(r => r.remision_id === selectedRemisionId);
+                              if (!remision) return null;
+
+                              return (
+                                <div className="space-y-4">
+                                  {/* Remision Info Card */}
+                                  <Card>
+                                    <CardHeader>
+                                      <div className="flex items-center justify-between">
+                                        <div>
+                                          <CardTitle className="text-2xl">Remisión {remision.remision_number}</CardTitle>
+                                          <CardDescription>
+                                            Receta: {recipe.recipe_code} | Fecha: {format(new Date(remision.fecha), 'dd/MM/yyyy')} | Volumen: {remision.volumen_fabricado.toFixed(2)} m³
+                                          </CardDescription>
+                                        </div>
+                                        <Button
+                                          variant="outline"
+                                          onClick={() => setSelectedRemisionId(null)}
+                                        >
+                                          <ArrowLeft className="h-4 w-4 mr-2" />
+                                          Volver a Remisiones
+                                        </Button>
+                                      </div>
+                                    </CardHeader>
+                                    <CardContent>
+                                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                        {/* Order Information */}
+                                        <div className="space-y-3">
+                                          <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+                                            Información de Orden
+                                          </h4>
+                                          <div className="space-y-3">
+                                            <div>
+                                              <div className="text-xs text-muted-foreground mb-1">Cliente</div>
+                                              <div className="font-medium">{remision.order_info.business_name}</div>
+                                            </div>
+                                            {remision.order_info.construction_site && (
+                                              <div>
+                                                <div className="text-xs text-muted-foreground mb-1">Obra</div>
+                                                <div className="font-medium">{remision.order_info.construction_site}</div>
+                                              </div>
+                                            )}
+                                            {remision.order_info.order_number && (
+                                              <div>
+                                                <div className="text-xs text-muted-foreground mb-1">Orden</div>
+                                                <div className="font-medium font-mono text-sm">{remision.order_info.order_number}</div>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Cement Analysis - Highlighted */}
+                                        <div className="space-y-3 lg:border-l lg:pl-6">
+                                          <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+                                            Análisis de Cemento
+                                          </h4>
+                                          <div className="space-y-4">
+                                            <div className="p-4 rounded-lg bg-muted/50">
+                                              <div className="text-xs text-muted-foreground mb-2">Esta Remisión</div>
+                                              <div className="text-2xl font-bold">
+                                                {remision.cement_kg_per_m3 > 0 
+                                                  ? `${remision.cement_kg_per_m3.toFixed(2)}`
+                                                  : 'N/A'}
+                                                {remision.cement_kg_per_m3 > 0 && (
+                                                  <span className="text-base font-normal text-muted-foreground ml-1">kg/m³</span>
+                                                )}
+                                              </div>
+                                            </div>
+                                            <div className="p-4 rounded-lg bg-muted/30">
+                                              <div className="text-xs text-muted-foreground mb-2">Promedio Receta</div>
+                                              <div className="text-xl font-semibold text-muted-foreground">
+                                                {recipe.averages.cement_kg_per_m3 > 0 
+                                                  ? `${recipe.averages.cement_kg_per_m3.toFixed(2)}`
+                                                  : 'N/A'}
+                                                {recipe.averages.cement_kg_per_m3 > 0 && (
+                                                  <span className="text-sm font-normal ml-1">kg/m³</span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Deviation Status */}
+                                        <div className="space-y-3 lg:border-l lg:pl-6">
+                                          <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-4">
+                                            Estado
+                                          </h4>
+                                          <div className="space-y-4">
+                                            <div className={`p-4 rounded-lg border-2 ${
+                                              remision.status === 'above_avg' ? 'bg-orange-50 border-orange-200' :
+                                              remision.status === 'below_avg' ? 'bg-blue-50 border-blue-200' :
+                                              'bg-green-50 border-green-200'
+                                            }`}>
+                                              <div className="text-xs text-muted-foreground mb-2">Desviación</div>
+                                              <div className={`text-3xl font-bold ${
+                                                remision.deviation_from_avg > 0 ? 'text-orange-600' : 
+                                                remision.deviation_from_avg < 0 ? 'text-blue-600' : 
+                                                'text-green-600'
+                                              }`}>
+                                                {remision.deviation_from_avg > 0 ? '+' : ''}
+                                                {remision.deviation_from_avg.toFixed(1)}%
+                                              </div>
+                                            </div>
+                                            <div className="flex justify-center">
+                                              <Badge 
+                                                variant="outline" 
+                                                className={`text-sm py-1.5 px-3 ${
+                                                  remision.status === 'above_avg' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                                  remision.status === 'below_avg' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                  'bg-green-50 text-green-700 border-green-200'
+                                                }`}
+                                              >
+                                                {remision.status === 'above_avg' ? (
+                                                  <>
+                                                    <TrendingUp className="h-4 w-4 mr-1" />
+                                                    Arriba del Promedio
+                                                  </>
+                                                ) : remision.status === 'below_avg' ? (
+                                                  <>
+                                                    <ArrowDownIcon className="h-4 w-4 mr-1" />
+                                                    Abajo del Promedio
+                                                  </>
+                                                ) : (
+                                                  <>
+                                                    <CheckCircle2 className="h-4 w-4 mr-1" />
+                                                    Normal
+                                                  </>
+                                                )}
+                                              </Badge>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+
+                                  {/* Materials Consumption - Redesigned with Apple HIG principles */}
+                                  <Card>
+                                    <CardHeader>
+                                      <CardTitle>Consumo de Materiales</CardTitle>
+                                      <CardDescription>
+                                        Comparación con el promedio de la receta. Los materiales con desviaciones significativas se destacan.
+                                      </CardDescription>
+                                    </CardHeader>
+                                    <CardContent>
+                                      {(() => {
+                                        // Group materials by category and calculate deviations
+                                        const materialsWithDeviation = remision.materials.map((material) => {
+                                          const consumptionPerM3 = remision.volumen_fabricado > 0 
+                                            ? material.total_consumption / remision.volumen_fabricado 
+                                            : 0;
+                                          const avgConsumptionPerM3 = recipe.averages[material.material_id] || 0;
+                                          const deviation = avgConsumptionPerM3 > 0 
+                                            ? ((consumptionPerM3 - avgConsumptionPerM3) / avgConsumptionPerM3) * 100 
+                                            : 0;
+                                          const hasDeviation = Math.abs(deviation) > outlierThreshold;
+                                          
+                                          return {
+                                            ...material,
+                                            consumptionPerM3,
+                                            avgConsumptionPerM3,
+                                            deviation,
+                                            hasDeviation
+                                          };
+                                        });
+
+                                        // Separate materials with deviations and normal ones
+                                        const materialsWithIssues = materialsWithDeviation.filter(m => m.hasDeviation && m.avgConsumptionPerM3 > 0);
+                                        const normalMaterials = materialsWithDeviation.filter(m => !m.hasDeviation || m.avgConsumptionPerM3 === 0);
+
+                                        // Group by category
+                                        const groupByCategory = (materials: typeof materialsWithDeviation) => {
+                                          const grouped = new Map<string, typeof materialsWithDeviation>();
+                                          materials.forEach(m => {
+                                            const category = m.category || 'Otros';
+                                            if (!grouped.has(category)) {
+                                              grouped.set(category, []);
+                                            }
+                                            grouped.get(category)!.push(m);
+                                          });
+                                          return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+                                        };
+
+                                        return (
+                                          <div className="space-y-6">
+                                            {/* Materials with Deviations - Highlighted Section */}
+                                            {materialsWithIssues.length > 0 && (
+                                              <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                  <AlertTriangle className="h-5 w-5 text-orange-600" />
+                                                  <h3 className="text-lg font-semibold">Atención: Desviaciones Detectadas</h3>
+                                                  <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                                                    {materialsWithIssues.length} material{materialsWithIssues.length > 1 ? 'es' : ''}
+                                                  </Badge>
+                                                </div>
+                                                
+                                                {groupByCategory(materialsWithIssues).map(([category, materials]) => (
+                                                  <div key={category} className="border-l-4 border-orange-500 pl-4 space-y-3">
+                                                    <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">
+                                                      {category}
+                                                    </h4>
+                                                    <div className="grid gap-3">
+                                                      {materials.map((material) => (
+                                                        <div 
+                                                          key={material.material_id}
+                                                          className="p-4 rounded-lg bg-orange-50/50 border border-orange-200 hover:bg-orange-50 transition-colors"
+                                                        >
+                                                          <div className="flex items-start justify-between">
+                                                            <div className="flex-1">
+                                                              <div className="flex items-center gap-2 mb-2">
+                                                                <span className="font-semibold text-base">{material.material_name}</span>
+                                                                <Badge variant="outline" className="text-xs">
+                                                                  {material.material_code}
+                                                                </Badge>
+                                                              </div>
+                                                              <div className="space-y-4 mt-3">
+                                                                {/* Breakdown: Teórico, Real, Ajuste */}
+                                                                <div className="grid grid-cols-3 gap-3 p-3 bg-muted/30 rounded-lg">
+                                                                  <div>
+                                                                    <div className="text-xs text-muted-foreground mb-1">Teórico</div>
+                                                                    <div className="text-base font-semibold">
+                                                                      {material.cantidad_teorica.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{material.unit}</span>
+                                                                    </div>
+                                                                  </div>
+                                                                  <div>
+                                                                    <div className="text-xs text-muted-foreground mb-1">Real</div>
+                                                                    <div className="text-base font-semibold">
+                                                                      {material.cantidad_real.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{material.unit}</span>
+                                                                    </div>
+                                                                  </div>
+                                                                  <div>
+                                                                    <div className="text-xs text-muted-foreground mb-1">Ajuste</div>
+                                                                    <div className={`text-base font-semibold ${
+                                                                      material.ajuste > 0 ? 'text-orange-600' : 
+                                                                      material.ajuste < 0 ? 'text-blue-600' : 
+                                                                      'text-muted-foreground'
+                                                                    }`}>
+                                                                      {material.ajuste > 0 ? '+' : ''}{material.ajuste.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{material.unit}</span>
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
+                                                                
+                                                                {/* Consumption per m³ */}
+                                                                <div className="grid grid-cols-2 gap-4">
+                                                                  <div>
+                                                                    <div className="text-xs text-muted-foreground mb-1">Consumo por m³</div>
+                                                                    <div className="text-lg font-semibold">
+                                                                      {material.consumptionPerM3.toFixed(3)} <span className="text-sm font-normal text-muted-foreground">{material.unit}/m³</span>
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground mt-1">
+                                                                      ({material.cantidad_real.toFixed(2)} ÷ {remision.volumen_fabricado.toFixed(2)} m³)
+                                                                    </div>
+                                                                  </div>
+                                                                  <div>
+                                                                    <div className="text-xs text-muted-foreground mb-1">Promedio Receta</div>
+                                                                    <div className="text-lg font-semibold text-muted-foreground">
+                                                                      {material.avgConsumptionPerM3.toFixed(3)} <span className="text-sm font-normal">{material.unit}/m³</span>
+                                                                    </div>
+                                                                    <div className="text-xs text-muted-foreground mt-1">
+                                                                      Consumo por m³ promedio
+                                                                    </div>
+                                                                  </div>
+                                                                </div>
+                                                              </div>
+                                                            </div>
+                                                            <div className="ml-4 text-right">
+                                                              <div className={`text-2xl font-bold ${
+                                                                material.deviation > 0 ? 'text-orange-600' : 'text-blue-600'
+                                                              }`}>
+                                                                {material.deviation > 0 ? '+' : ''}{material.deviation.toFixed(1)}%
+                                                              </div>
+                                                              <div className="text-xs text-muted-foreground mt-1">
+                                                                {material.deviation > 0 ? 'Arriba' : 'Abajo'} del promedio
+                                                              </div>
+                                                              {material.has_price && (
+                                                                <div className="text-sm text-muted-foreground mt-2">
+                                                                  {formatCurrency(material.total_cost)}
+                                                                </div>
+                                                              )}
+                                                            </div>
+                                                          </div>
+                                                        </div>
+                                                      ))}
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+
+                                            {/* Normal Materials - Collapsible Section */}
+                                            {normalMaterials.length > 0 && (
+                                              <div className="space-y-4">
+                                                <div className="flex items-center gap-2">
+                                                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                                                  <h3 className="text-lg font-semibold">Materiales Dentro del Rango Normal</h3>
+                                                  <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                                    {normalMaterials.length} material{normalMaterials.length > 1 ? 'es' : ''}
+                                                  </Badge>
+                                                </div>
+                                                
+                                                <div className="border rounded-lg overflow-hidden">
+                                                  <Table>
+                                                    <TableHeader>
+                                                      <TableRow>
+                                                        <TableHead>Material</TableHead>
+                                                        <TableHead className="text-right">Teórico</TableHead>
+                                                        <TableHead className="text-right">Real</TableHead>
+                                                        <TableHead className="text-right">Ajuste</TableHead>
+                                                        <TableHead className="text-right">Consumo por m³</TableHead>
+                                                        {normalMaterials.some(m => m.has_price) && (
+                                                          <TableHead className="text-right">Costo</TableHead>
+                                                        )}
+                                                      </TableRow>
+                                                    </TableHeader>
+                                                    <TableBody>
+                                                      {groupByCategory(normalMaterials).flatMap(([category, materials]) => 
+                                                        materials.map((material) => (
+                                                          <TableRow key={material.material_id} className="hover:bg-muted/50">
+                                                            <TableCell>
+                                                              <div>
+                                                                <div className="font-medium">{material.material_name}</div>
+                                                                <div className="text-xs text-muted-foreground flex items-center gap-2 mt-1">
+                                                                  <span>{material.material_code}</span>
+                                                                  <span>•</span>
+                                                                  <span>{category}</span>
+                                                                </div>
+                                                              </div>
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                              <div className="font-medium text-muted-foreground">
+                                                                {material.cantidad_teorica.toFixed(2)} <span className="text-sm font-normal">{material.unit}</span>
+                                                              </div>
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                              <div className="font-semibold text-base">
+                                                                {material.cantidad_real.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{material.unit}</span>
+                                                              </div>
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                              <div className={`font-medium ${
+                                                                material.ajuste > 0 ? 'text-orange-600' : 
+                                                                material.ajuste < 0 ? 'text-blue-600' : 
+                                                                'text-muted-foreground'
+                                                              }`}>
+                                                                {material.ajuste > 0 ? '+' : ''}{material.ajuste.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">{material.unit}</span>
+                                                              </div>
+                                                            </TableCell>
+                                                            <TableCell className="text-right">
+                                                              <div className="font-medium">
+                                                                {material.consumptionPerM3.toFixed(3)} <span className="text-sm font-normal text-muted-foreground">{material.unit}/m³</span>
+                                                              </div>
+                                                              {material.avgConsumptionPerM3 > 0 && (
+                                                                <div className="text-xs text-muted-foreground mt-1">
+                                                                  Promedio: {material.avgConsumptionPerM3.toFixed(3)} {material.unit}/m³
+                                                                </div>
+                                                              )}
+                                                              <div className="text-xs text-muted-foreground mt-0.5">
+                                                                ({material.cantidad_real.toFixed(2)} ÷ {remision.volumen_fabricado.toFixed(2)} m³)
+                                                              </div>
+                                                            </TableCell>
+                                                            {normalMaterials.some(m => m.has_price) && (
+                                                              <TableCell className="text-right">
+                                                                {material.has_price ? (
+                                                                  <div>
+                                                                    <div className="font-medium">{formatCurrency(material.total_cost)}</div>
+                                                                    <div className="text-xs text-muted-foreground">{formatCurrency(material.price)}/{material.unit}</div>
+                                                                  </div>
+                                                                ) : (
+                                                                  <span className="text-muted-foreground text-sm">N/A</span>
+                                                                )}
+                                                              </TableCell>
+                                                            )}
+                                                          </TableRow>
+                                                        ))
+                                                      )}
+                                                    </TableBody>
+                                                  </Table>
+                                                </div>
+                                              </div>
+                                            )}
+
+                                            {materialsWithDeviation.length === 0 && (
+                                              <div className="text-center py-8 text-muted-foreground">
+                                                <CheckCircle2 className="h-12 w-12 mx-auto mb-2 text-green-600" />
+                                                <p>No hay datos de materiales disponibles para esta remisión.</p>
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
+                                    </CardContent>
+                                  </Card>
+                                </div>
+                              );
+                            })()}
+                          </>
                         )}
                       </CardContent>
                     </Card>

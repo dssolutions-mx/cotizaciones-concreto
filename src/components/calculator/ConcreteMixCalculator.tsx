@@ -442,7 +442,7 @@ const ConcreteMixCalculator = () => {
     aggregateSize: number,
     water: number
   ): Recipe => {
-    // Step 1: Calculate critical strength (fcr)
+    // Step 1: Calculate critical strength (fcr) - use strength-specific standard deviation
     const fcr = calculateFcr(strength, designParams.standardDeviation);
     
     // Step 2: Get water-cement ratio using resistance factors
@@ -637,7 +637,7 @@ const ConcreteMixCalculator = () => {
     placement: string, 
     aggregateSize: number
   ): Recipe => {
-    // Step 1: Calculate critical strength (fcr)
+    // Step 1: Calculate critical strength (fcr) - use strength-specific standard deviation
     const fcr = calculateFcr(strength, designParams.standardDeviation);
     
     // Step 2: Get water-cement ratio using resistance factors
@@ -933,36 +933,177 @@ const ConcreteMixCalculator = () => {
     setTempFCR(fcr.toString());
   };
 
+  // Helper function to recalculate a recipe with a new FCR value
+  const recalculateRecipeWithNewFCR = (recipe: Recipe, newFCR: number): Recipe => {
+    // Use the recipe's existing water value to maintain consistency
+    const water = recipe.materialsSSS.water;
+    
+    // Recalculate A/C ratio with new FCR
+    const newACRatio = calculateACRatio(newFCR, designParams.resistanceFactors);
+    
+    // Recalculate cement quantity (rounded to nearest 5)
+    const newCement = Math.round((water / newACRatio) / 5) * 5;
+    
+    // Get mortar volume
+    const mortarVolume = getMortarVolume(designType, recipe.placement, recipe.slump, designParams.mortarVolumes);
+    
+    // Calculate air content
+    const airContentPercent = recipe.placement === 'D' ? designParams.airContentTD : designParams.airContentBomb;
+    
+    // Get combinations
+    const sandCombination = recipe.placement === 'D' 
+      ? designParams.sandCombinationTD 
+      : designParams.sandCombinationBomb;
+    const gravelCombination = recipe.placement === 'D' 
+      ? designParams.gravelCombinationTD 
+      : designParams.gravelCombinationBomb;
+    
+    // Calculate additives using dynamic system
+    const calculatedAdditives = calculateAdditives(
+      recipe.strength,
+      newCement,
+      materials,
+      recipeParams.additiveSystemConfig
+    );
+
+    // Sum additive volumes in liters
+    const totalAdditiveVolumeLiters = calculatedAdditives.reduce((sum, ad) => sum + (ad.totalCC / 1000), 0);
+
+    // Calculate volumes with correct additive volume and air from absolute volume
+    const volumes = calculateVolumes(
+      materials,
+      newCement,
+      water,
+      mortarVolume,
+      airContentPercent,
+      sandCombination,
+      gravelCombination,
+      totalAdditiveVolumeLiters
+    );
+    
+    // Calculate sand and gravel SSD weights from volumes
+    const sandSSDWeights = calculateSandWeights(volumes.sand, sandCombination, materials);
+    const gravelSSDWeights = calculateGravelWeights(volumes.gravel, gravelCombination, materials);
+
+    // Convert SSD weights to OVEN-DRY for Dry state
+    const sandDryWeights: any = {};
+    const gravelDryWeights: any = {};
+    Object.keys(sandSSDWeights).forEach(key => {
+      const idx = parseInt(key.replace('sand', ''));
+      const a = (materials.sands[idx]?.absorption || 0) / 100;
+      sandDryWeights[key] = Math.round(sandSSDWeights[key] / (1 + a));
+    });
+    Object.keys(gravelSSDWeights).forEach(key => {
+      const idx = parseInt(key.replace('gravel', ''));
+      const a = (materials.gravels[idx]?.absorption || 0) / 100;
+      gravelDryWeights[key] = Math.round(gravelSSDWeights[key] / (1 + a));
+    });
+    
+    // Calculate absorption water using SSD weights × absorption
+    const absorptionWater = calculateAbsorptionWater(materials, sandSSDWeights, gravelSSDWeights);
+    const waterTotal = water + absorptionWater;
+
+    // Create materials SSS and Dry
+    const materialsSSS: any = {
+      cement: newCement,
+      water: Math.round(water),
+      ...sandSSDWeights,
+      ...gravelSSDWeights
+    };
+    
+    // Add calculated additives to materials (storing as LITERS)
+    calculatedAdditives.forEach((additive: CalculatedAdditive, index: number) => {
+      const volumeLiters = additive.totalCC / 1000;
+      materialsSSS[`additive${index}`] = Math.round(volumeLiters * 1000) / 1000;
+    });
+    
+    // Calculate dry materials
+    const materialsDry: any = {
+      cement: newCement,
+      water: Math.round(waterTotal),
+      ...sandDryWeights,
+      ...gravelDryWeights
+    };
+    
+    // Add additives to dry materials
+    calculatedAdditives.forEach((additive: CalculatedAdditive, index: number) => {
+      const volumeLiters = additive.totalCC / 1000;
+      materialsDry[`additive${index}`] = Math.round(volumeLiters * 1000) / 1000;
+    });
+    
+    // Calculate costs
+    const costs = calculateCosts(materials, materialsSSS, calculatedAdditives);
+    
+    // Calculate unit mass (converting additive liters to kg using density)
+    let unitMassSSS = 0;
+    let unitMassDry = 0;
+    
+    Object.entries(materialsSSS).forEach(([key, val]) => {
+      if (typeof val === 'number') {
+        if (key.startsWith('additive')) {
+          const additiveIndex = parseInt(key.replace('additive', ''));
+          const additive = calculatedAdditives[additiveIndex];
+          if (additive) {
+            const materialAdditive = materials.additives.find(add => add.id === additive.id);
+            if (materialAdditive) {
+              const weightKg = val * materialAdditive.density;
+              unitMassSSS += weightKg;
+            }
+          }
+        } else {
+          unitMassSSS += val;
+        }
+      }
+    });
+    
+    Object.entries(materialsDry).forEach(([key, val]) => {
+      if (typeof val === 'number') {
+        if (key.startsWith('additive')) {
+          const additiveIndex = parseInt(key.replace('additive', ''));
+          const additive = calculatedAdditives[additiveIndex];
+          if (additive) {
+            const materialAdditive = materials.additives.find(add => add.id === additive.id);
+            if (materialAdditive) {
+              const weightKg = val * materialAdditive.density;
+              unitMassDry += weightKg;
+            }
+          }
+        } else {
+          unitMassDry += val;
+        }
+      }
+    });
+
+    return {
+      ...recipe,
+      fcr: newFCR,
+      acRatio: newACRatio,
+      materialsSSS,
+      materialsDry,
+      volumes,
+      unitMass: {
+        sss: Math.round(unitMassSSS),
+        dry: Math.round(unitMassDry)
+      },
+      costs,
+      extraWater: Math.round(absorptionWater),
+      absorptionDetails: {
+        sandAbsorptionWater: Math.round(absorptionWater * 0.6),
+        gravelAbsorptionWater: Math.round(absorptionWater * 0.4)
+      },
+      calculatedAdditives
+    };
+  };
+
   const handleSaveFCR = (code: string) => {
     const newFCR = parseFloat(tempFCR);
     if (!isNaN(newFCR) && newFCR > 0) {
       setFcrOverrides(prev => ({ ...prev, [code]: newFCR }));
       
-      // Recalculate recipe with new FCR - need to recalculate the entire recipe
+      // Fully recalculate recipe with new FCR
       setGeneratedRecipes(prev => prev.map(recipe => {
         if (recipe.code === code) {
-          // Extract recipe parameters from code
-          const [strengthPart, slumpPlacement, agePart] = recipe.code.split('-');
-          const strength = parseInt(strengthPart.replace('FC', '').replace('MR', ''));
-          const slump = parseInt(slumpPlacement.slice(0, -1));
-          const placement = slumpPlacement.slice(-1);
-          
-          // Recalculate with new FCR using resistance factors
-          const newACRatio = calculateACRatio(newFCR, designParams.resistanceFactors);
-          const waterKey = getWaterKey(slump, placement);
-          const waterQuantities = placement === 'D' 
-            ? recipeParams.waterQuantitiesTD 
-            : recipeParams.waterQuantitiesBomb;
-          const water = waterQuantities[waterKey] || waterQuantities['14D'];
-          const newCement = Math.round((water / newACRatio) / 5) * 5;
-          
-          return {
-            ...recipe,
-            fcr: newFCR,
-            acRatio: newACRatio,
-            materialsSSS: { ...recipe.materialsSSS, cement: newCement },
-            materialsDry: { ...recipe.materialsDry, cement: newCement }
-          };
+          return recalculateRecipeWithNewFCR(recipe, newFCR);
         }
         return recipe;
       }));

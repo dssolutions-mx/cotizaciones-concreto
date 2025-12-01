@@ -8,8 +8,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DesignParams, RecipeParams, Materials, DesignType, WaterQuantities } from '@/types/calculator';
-import { AGGREGATE_SIZES, AIR_CONTENTS } from '@/lib/calculator/constants';
-import { getCementRangeCompletionStatus } from '@/lib/calculator/calculations';
+import { AGGREGATE_SIZES, AIR_CONTENTS, FC_STRENGTHS, MR_STRENGTHS } from '@/lib/calculator/constants';
+import { getCementRangeCompletionStatus, getStandardDeviationForStrength } from '@/lib/calculator/calculations';
 import { CONCRETE_TYPES, ConcreteTypeCode } from '@/config/concreteTypes';
 
 interface DesignParametersProps {
@@ -54,6 +54,9 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
   // Debounced validation state to avoid constant error messages while typing
   const [showValidationErrors, setShowValidationErrors] = useState(false);
   const [validationTimer, setValidationTimer] = useState<NodeJS.Timeout | null>(null);
+  
+  // Local state for standard deviation inputs to allow empty values while editing
+  const [stdDevInputValues, setStdDevInputValues] = useState<Record<number, string>>({});
 
   // Debounce validation errors - only show after user stops typing for 1.5 seconds
   useEffect(() => {
@@ -362,20 +365,193 @@ export const DesignParameters: React.FC<DesignParametersProps> = ({
               />
             </div>
 
-            <div>
-              <Label htmlFor="std-deviation">Desviación Estándar FC (%)</Label>
-              <Input
-                id="std-deviation"
-                type="number"
-                value={designParams.standardDeviation || 23}
-                onChange={(e) => onDesignParamsChange({ standardDeviation: parseFloat(e.target.value) || 23 })}
-                min="10"
-                max="50"
-                step="0.1"
-                className="h-10"
-                placeholder="23"
-              />
+            <div className="col-span-3">
+              <Label htmlFor="std-deviation-mode">Modo de Desviación Estándar</Label>
+              <Select
+                value={typeof designParams.standardDeviation === 'number' ? 'single' : 'per-strength'}
+                onValueChange={(value) => {
+                  if (value === 'single') {
+                    // Convert to single value - use default or first value from record
+                    const currentValue = typeof designParams.standardDeviation === 'number' 
+                      ? designParams.standardDeviation 
+                      : (Object.values(designParams.standardDeviation)[0] || 23);
+                    onDesignParamsChange({ standardDeviation: currentValue });
+                  } else {
+                    // Convert to per-strength - initialize with current single value or default
+                    const currentValue = typeof designParams.standardDeviation === 'number' 
+                      ? designParams.standardDeviation 
+                      : 23;
+                    const strengths = designType === 'FC' ? FC_STRENGTHS : MR_STRENGTHS;
+                    const perStrength: Record<number, number> = {};
+                    strengths.forEach(strength => {
+                      perStrength[strength] = currentValue;
+                    });
+                    onDesignParamsChange({ standardDeviation: perStrength });
+                  }
+                }}
+              >
+                <SelectTrigger className="h-10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="single">Valor único para todas las resistencias</SelectItem>
+                  <SelectItem value="per-strength">Valor por resistencia</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
+          </div>
+
+          {/* Standard Deviation Input - Single or Per-Strength */}
+          <div className="mt-4">
+            {typeof designParams.standardDeviation === 'number' ? (
+              <div>
+                <Label htmlFor="std-deviation">Desviación Estándar {designType === 'FC' ? 'FC' : 'MR'} (%)</Label>
+                <Input
+                  id="std-deviation"
+                  type="number"
+                  value={designParams.standardDeviation || 23}
+                  onChange={(e) => onDesignParamsChange({ standardDeviation: parseFloat(e.target.value) || 23 })}
+                  min="10"
+                  max="50"
+                  step="0.1"
+                  className="h-10"
+                  placeholder="23"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Este valor se aplicará a todas las resistencias
+                </p>
+              </div>
+            ) : (
+              <div>
+                <Label>Desviación Estándar por Resistencia (%)</Label>
+                <div className="mt-2 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-800 mb-3">
+                    Configure la desviación estándar para cada resistencia. Las resistencias sin valor personalizado usarán el valor por defecto.
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {(designType === 'FC' ? FC_STRENGTHS : MR_STRENGTHS).map((strength) => {
+                      const stdDevRecord = typeof designParams.standardDeviation === 'number' 
+                        ? {} 
+                        : designParams.standardDeviation;
+                      const currentStdDev = stdDevRecord[strength];
+                      const defaultStdDev = 23;
+                      const isCustom = currentStdDev !== undefined;
+                      
+                      // Use local state if available, otherwise use the actual value or empty
+                      const inputValue = stdDevInputValues[strength] !== undefined 
+                        ? stdDevInputValues[strength]
+                        : (isCustom ? currentStdDev.toString() : '');
+                      
+                      return (
+                        <div key={strength} className="bg-white p-3 rounded border">
+                          <div className="flex items-center justify-between mb-1">
+                            <Label htmlFor={`std-dev-${strength}`} className="text-sm font-medium">
+                              {designType === 'FC' ? 'FC' : 'MR'}{strength}
+                            </Label>
+                            {isCustom && (
+                              <span className="text-xs text-blue-600 font-semibold">✓</span>
+                            )}
+                          </div>
+                          <Input
+                            id={`std-dev-${strength}`}
+                            type="text"
+                            inputMode="decimal"
+                            value={inputValue}
+                            onChange={(e) => {
+                              const newValue = e.target.value;
+                              // Update local state immediately for smooth editing
+                              setStdDevInputValues((prev: Record<number, string>) => ({
+                                ...prev,
+                                [strength]: newValue
+                              }));
+                            }}
+                            onBlur={(e) => {
+                              const inputValue = e.target.value.trim();
+                              const numValue = parseFloat(inputValue);
+                              
+                              // Clear local state
+                              setStdDevInputValues((prev: Record<number, string>) => {
+                                const updated = { ...prev };
+                                delete updated[strength];
+                                return updated;
+                              });
+                              
+                              // If empty or invalid, reset to default (remove custom value)
+                              if (inputValue === '' || isNaN(numValue) || numValue < 10 || numValue > 50) {
+                                const stdDevRecord = typeof designParams.standardDeviation === 'number' 
+                                  ? {} 
+                                  : designParams.standardDeviation;
+                                const updated = { ...stdDevRecord };
+                                delete updated[strength];
+                                onDesignParamsChange({ standardDeviation: updated });
+                              } else {
+                                // Save valid value
+                                const stdDevRecord = typeof designParams.standardDeviation === 'number' 
+                                  ? {} 
+                                  : designParams.standardDeviation;
+                                const updated = { ...stdDevRecord };
+                                updated[strength] = numValue;
+                                onDesignParamsChange({ standardDeviation: updated });
+                              }
+                            }}
+                            onFocus={(e) => {
+                              // When focusing, set local state to current value for editing
+                              const currentValue = isCustom ? currentStdDev.toString() : '';
+                              setStdDevInputValues((prev: Record<number, string>) => ({
+                                ...prev,
+                                [strength]: currentValue
+                              }));
+                            }}
+                            className={`h-8 text-sm ${isCustom ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}
+                            placeholder={defaultStdDev.toString()}
+                          />
+                          <div className="flex items-center justify-between mt-1">
+                            {!isCustom ? (
+                              <p className="text-xs text-gray-500">Por defecto: {defaultStdDev}%</p>
+                            ) : (
+                              <p className="text-xs text-blue-600">Personalizado</p>
+                            )}
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 px-2 text-xs"
+                              onClick={() => {
+                                // Clear local state
+                                setStdDevInputValues((prev: Record<number, string>) => {
+                                  const updated = { ...prev };
+                                  delete updated[strength];
+                                  return updated;
+                                });
+                                
+                                const stdDevRecord = typeof designParams.standardDeviation === 'number' 
+                                  ? {} 
+                                  : designParams.standardDeviation;
+                                const updated = { ...stdDevRecord };
+                                if (isCustom) {
+                                  delete updated[strength];
+                                } else {
+                                  updated[strength] = defaultStdDev;
+                                }
+                                onDesignParamsChange({ standardDeviation: updated });
+                              }}
+                            >
+                              {isCustom ? 'Reset' : 'Editar'}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-3 p-2 bg-gray-50 rounded border border-gray-300">
+                    <p className="text-xs text-gray-600">
+                      💡 <strong>Nota:</strong> Las resistencias sin valor personalizado usarán el valor por defecto de <strong>23%</strong>. 
+                      Use el botón "Personalizar" para establecer un valor específico para cada resistencia.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Resistance Factors */}
