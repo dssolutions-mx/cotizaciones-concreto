@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { ApexOptions } from 'apexcharts';
 import { motion } from 'framer-motion';
-import { TrendingUp, Droplet, Truck, ChevronDown, Check } from 'lucide-react';
+import { TrendingUp, Droplet, Truck, ChevronDown, Check, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -12,7 +12,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from '@/lib/utils';
+import { useHistoricalVolumeData } from '@/hooks/useHistoricalVolumeData';
 
 const Chart = dynamic(() => import('react-apexcharts'), { ssr: false });
 
@@ -25,20 +33,40 @@ interface HistoricalDataPoint {
   plantName: string;
 }
 
+type DateRangePreset = '6M' | '12M' | '24M' | 'all';
+
 interface HistoricalVolumeChartProps {
-  data: HistoricalDataPoint[];
   availablePlants: { id: string; name: string }[];
-  loading?: boolean;
+  plantIds?: string[];
 }
 
 export function HistoricalVolumeChart({
-  data,
   availablePlants,
-  loading = false
+  plantIds
 }: HistoricalVolumeChartProps) {
   const [selectedPlants, setSelectedPlants] = useState<string[]>([]);
   const [chartType, setChartType] = useState<'volume' | 'revenue'>('volume');
   const [isPlantSelectorOpen, setIsPlantSelectorOpen] = useState(false);
+  const [dateRangePreset, setDateRangePreset] = useState<DateRangePreset>('all');
+
+  // Calculate monthsBack from preset
+  const monthsBack = useMemo(() => {
+    switch (dateRangePreset) {
+      case '6M': return 6;
+      case '12M': return 12;
+      case '24M': return 24;
+      case 'all': return null;
+    }
+  }, [dateRangePreset]);
+
+  // Fetch historical data using the hook
+  const {
+    data,
+    loading
+  } = useHistoricalVolumeData({
+    monthsBack,
+    plantIds: plantIds && plantIds.length > 0 ? plantIds : undefined
+  });
 
   // Filter and aggregate data by selected plants
   const chartData = useMemo(() => {
@@ -288,10 +316,39 @@ export function HistoricalVolumeChart({
           </h3>
           <p className="text-callout text-label-secondary">
             Análisis de tendencias de volumen e ingresos
+            {dateRangePreset === 'all' 
+              ? ' (Todos los períodos)' 
+              : dateRangePreset === '6M' 
+                ? ' (Últimos 6 meses)'
+                : dateRangePreset === '12M'
+                  ? ' (Últimos 12 meses)'
+                  : ' (Últimos 24 meses)'}
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Date Range Selector */}
+          <Select value={dateRangePreset} onValueChange={(value) => setDateRangePreset(value as DateRangePreset)}>
+            <SelectTrigger className="glass-thin border-label-tertiary/10 hover:border-systemBlue/30 w-[160px]">
+              <Calendar className="h-4 w-4 mr-2" />
+              <SelectValue>
+                {dateRangePreset === 'all' 
+                  ? 'Todos los períodos' 
+                  : dateRangePreset === '6M' 
+                    ? 'Últimos 6 meses'
+                    : dateRangePreset === '12M'
+                      ? 'Últimos 12 meses'
+                      : 'Últimos 24 meses'}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="6M">Últimos 6 meses</SelectItem>
+              <SelectItem value="12M">Últimos 12 meses</SelectItem>
+              <SelectItem value="24M">Últimos 24 meses</SelectItem>
+              <SelectItem value="all">Todos los períodos</SelectItem>
+            </SelectContent>
+          </Select>
+
           {/* Chart Type Toggle */}
           <div className="glass-thin rounded-xl p-1 border border-label-tertiary/10">
             <button

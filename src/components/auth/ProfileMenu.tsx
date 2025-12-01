@@ -22,7 +22,8 @@ export default function ProfileMenu() {
   const displayName = useMemo(() => {
     if (!profile) return '';
     if (profile.first_name) return profile.first_name;
-    return profile.email.split('@')[0];
+    if (profile.email) return profile.email.split('@')[0];
+    return 'Usuario';
   }, [profile]);
 
   // Memoize role display to prevent unnecessary re-renders
@@ -122,11 +123,15 @@ export default function ProfileMenu() {
           <div className="p-4 border-b border-gray-100">
             <div className="flex items-center gap-3">
               <div className="flex items-center justify-center w-10 h-10 rounded-full border border-gray-200 text-gray-600">
-                <span className="text-lg font-semibold">{displayName.charAt(0).toUpperCase()}</span>
+                <span className="text-lg font-semibold">
+                  {displayName && displayName.length > 0 ? displayName.charAt(0).toUpperCase() : 'U'}
+                </span>
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-gray-800">{profile.first_name} {profile.last_name}</div>
-                <div className="text-sm text-gray-500 truncate">{profile.email}</div>
+                <div className="font-medium text-gray-800">
+                  {profile.first_name || ''} {profile.last_name || ''}
+                </div>
+                <div className="text-sm text-gray-500 truncate">{profile.email || 'Sin email'}</div>
               </div>
             </div>
             <div className="text-xs font-medium text-gray-600 mt-2 flex justify-end">

@@ -12,12 +12,16 @@ interface HistoricalDataPoint {
 }
 
 interface UseHistoricalVolumeDataProps {
-  monthsBack?: number;
+  monthsBack?: number | null;  // null = all time
+  startDate?: Date | null;      // Optional explicit start date
+  endDate?: Date | null;        // Optional explicit end date
   plantIds?: string[];
 }
 
 export function useHistoricalVolumeData({
-  monthsBack = 6,
+  monthsBack = null,  // Default to all-time
+  startDate: explicitStartDate = null,
+  endDate: explicitEndDate = null,
   plantIds
 }: UseHistoricalVolumeDataProps = {}) {
   const [data, setData] = useState<HistoricalDataPoint[]>([]);
@@ -30,21 +34,44 @@ export function useHistoricalVolumeData({
         setLoading(true);
         setError(null);
 
-        // Calculate date range - last N months
-        const endDate = endOfMonth(new Date());
-        const startDate = startOfMonth(subMonths(endDate, monthsBack - 1));
+        // Calculate date range
+        let startDate: Date;
+        let endDate: Date;
+        let startDateStr: string | null = null;
+        let endDateStr: string | null = null;
 
-        const startDateStr = format(startDate, 'yyyy-MM-dd');
-        const endDateStr = format(endDate, 'yyyy-MM-dd');
+        // Priority: explicit dates > monthsBack > all-time
+        if (explicitStartDate && explicitEndDate) {
+          startDate = startOfMonth(explicitStartDate);
+          endDate = endOfMonth(explicitEndDate);
+          startDateStr = format(startDate, 'yyyy-MM-dd');
+          endDateStr = format(endDate, 'yyyy-MM-dd');
+        } else if (monthsBack !== null && monthsBack !== undefined) {
+          // Use monthsBack to calculate date range
+          endDate = endOfMonth(new Date());
+          startDate = startOfMonth(subMonths(endDate, monthsBack - 1));
+          startDateStr = format(startDate, 'yyyy-MM-dd');
+          endDateStr = format(endDate, 'yyyy-MM-dd');
+        } else {
+          // All-time: no date filters
+          startDateStr = null;
+          endDateStr = null;
+        }
 
-        console.log('[HistoricalVolume] 📅 Fetching from unified view:', startDateStr, 'to:', endDateStr);
+        console.log('[HistoricalVolume] 📅 Fetching from unified view:', startDateStr || 'all-time', 'to:', endDateStr || 'all-time');
 
         // Fetch from vw_plant_financial_analysis_unified view for concrete volume and revenue
         let query = supabase
           .from('vw_plant_financial_analysis_unified')
-          .select('plant_id, plant_code, plant_name, volumen_concreto_m3, ventas_total_concreto, period_start, period_end, data_source')
-          .gte('period_start', startDateStr)
-          .lte('period_end', endDateStr);
+          .select('plant_id, plant_code, plant_name, volumen_concreto_m3, ventas_total_concreto, period_start, period_end, data_source');
+        
+        // Apply date filters only if dates are specified
+        if (startDateStr) {
+          query = query.gte('period_start', startDateStr);
+        }
+        if (endDateStr) {
+          query = query.lte('period_end', endDateStr);
+        }
 
         // Filter by plant IDs if provided
         if (plantIds && plantIds.length > 0) {
@@ -68,9 +95,15 @@ export function useHistoricalVolumeData({
         let pumpQuery = supabase
           .from('remisiones')
           .select('fecha, plant_id, volumen_fabricado, plants!inner(id, name)')
-          .eq('tipo_remision', 'BOMBEO')
-          .gte('fecha', startDateStr)
-          .lte('fecha', endDateStr);
+          .eq('tipo_remision', 'BOMBEO');
+        
+        // Apply date filters only if dates are specified
+        if (startDateStr) {
+          pumpQuery = pumpQuery.gte('fecha', startDateStr);
+        }
+        if (endDateStr) {
+          pumpQuery = pumpQuery.lte('fecha', endDateStr);
+        }
 
         if (plantIds && plantIds.length > 0) {
           if (plantIds.length === 1) {
@@ -211,7 +244,7 @@ export function useHistoricalVolumeData({
     }
 
     fetchHistoricalData();
-  }, [monthsBack, plantIds?.join(',')]);
+  }, [monthsBack, explicitStartDate?.getTime(), explicitEndDate?.getTime(), plantIds?.join(',')]);
 
   return { data, loading, error };
 }

@@ -57,7 +57,6 @@ import {
 
 // Import hooks
 import { useSalesData, useHistoricalSalesData } from '@/hooks/useSalesData';
-import { useHistoricalVolumeData } from '@/hooks/useHistoricalVolumeData';
 import { useSalesAgentData } from '@/hooks/useSalesAgentData';
 
 // Import quality service
@@ -211,14 +210,7 @@ export default function VentasDashboard() {
     error: historicalError
   } = useHistoricalSalesData(selectedPlant);
 
-  // Fetch historical volume data for charts (last 6 months)
-  const {
-    data: historicalVolumeData,
-    loading: historicalVolumeLoading
-  } = useHistoricalVolumeData({
-    monthsBack: 6,
-    plantIds: selectedPlantIds.length > 0 ? selectedPlantIds : undefined
-  });
+  // Historical volume chart now manages its own data fetching
 
   // Fetch sales agent performance data
   const {
@@ -1606,9 +1598,8 @@ export default function VentasDashboard() {
               <div className="space-y-8 mt-8">
                 {/* Historical Volume Chart */}
                 <HistoricalVolumeChart
-                  data={historicalVolumeData}
                   availablePlants={availablePlants}
-                  loading={historicalVolumeLoading}
+                  plantIds={selectedPlantIds.length > 0 ? selectedPlantIds : undefined}
                 />
 
                 {/* Sales Agent Ranking */}
