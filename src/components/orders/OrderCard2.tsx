@@ -134,6 +134,20 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
     return 'bg-gray-500/20 text-gray-700 border border-gray-300/30';
   };
 
+  function handleContextMenu(e: React.MouseEvent) {
+    // Allow the default browser context menu to appear
+    // This enables "Open in new tab" functionality
+    // Don't prevent default here - let the browser handle it
+  }
+
+  function handleAuxClick(e: React.MouseEvent) {
+    // Handle middle-click to open in new tab
+    if (e.button === 1) { // Middle mouse button
+      e.preventDefault();
+      window.open(`/orders/${order.id}`, '_blank');
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -142,12 +156,27 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
       whileHover={{ y: -4 }}
       className="mb-6 last:mb-0"
     >
-      <GlassCard
-        variant="interactive"
-        hover
-        onClick={onClick}
-        className="p-5 cursor-pointer pb-6 border border-white/40 shadow-lg hover:shadow-xl transition-shadow"
+      <a
+        href={`/orders/${order.id}`}
+        className="block"
+        onClick={(e) => {
+          // Allow default behavior for Ctrl/Cmd+click (opens in new tab)
+          // Also allow Shift+click (opens in new window)
+          if (e.ctrlKey || e.metaKey || e.shiftKey) {
+            return; // Let browser handle it - will open in new tab/window
+          }
+          // Only prevent default for regular left-clicks to use router navigation
+          e.preventDefault();
+          onClick();
+        }}
+        onContextMenu={handleContextMenu}
+        onAuxClick={handleAuxClick}
       >
+        <GlassCard
+          variant="interactive"
+          hover
+          className="p-5 cursor-pointer pb-6 border border-white/40 shadow-lg hover:shadow-xl transition-shadow"
+        >
         <div className="flex flex-col md:flex-row gap-5">
           {/* Left Section - Main Info */}
           <div className="flex-1 space-y-3">
@@ -371,7 +400,8 @@ export const OrderCard2: React.FC<OrderCard2Props> = ({
             </motion.button>
           </div>
         </div>
-      </GlassCard>
+        </GlassCard>
+      </a>
     </motion.div>
   );
 };

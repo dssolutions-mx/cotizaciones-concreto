@@ -148,7 +148,6 @@ function formatDate(dateString: string) {
 
 // Legacy OrderCard - kept for backward compatibility but will be replaced
 function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWithClient; onClick: () => void; groupKey: string; isDosificador?: boolean }) {
-
   function handleContextMenu(e: React.MouseEvent) {
     // Allow the default browser context menu to appear
     // This enables "Open in new tab" functionality
@@ -159,7 +158,7 @@ function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWi
     // Handle middle-click to open in new tab
     if (e.button === 1) { // Middle mouse button
       e.preventDefault();
-      onClick();
+      window.open(`/orders/${order.id}`, '_blank');
     }
   }
 
@@ -226,6 +225,12 @@ function OrderCard({ order, onClick, groupKey, isDosificador }: { order: OrderWi
       href={`/orders/${order.id}`}
       className="block p-4 hover:bg-gray-50 transition duration-150 cursor-pointer"
       onClick={(e) => {
+        // Allow default behavior for Ctrl/Cmd+click (opens in new tab)
+        // Also allow Shift+click (opens in new window) and middle-click
+        if (e.ctrlKey || e.metaKey || e.shiftKey) {
+          return; // Let browser handle it - will open in new tab/window
+        }
+        // Only prevent default for regular left-clicks to use router navigation
         e.preventDefault();
         onClick();
       }}

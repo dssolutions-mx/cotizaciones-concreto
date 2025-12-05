@@ -1032,6 +1032,31 @@ export default function OrderDetails({ orderId }: OrderDetailsProps) {
           if (deletePumpError) throw deletePumpError;
         }
       }
+
+      // Manejar la creación de cargo por vacío de olla para mantener paridad con el agendado
+      if (!hasRemisiones && showEmptyTruckAdder && !emptyTruckExists) {
+        const volume = emptyTruckVolumeDraft || 0;
+        const price = emptyTruckPriceDraft || 0;
+
+        if (volume > 0) {
+          const { error: emptyTruckError } = await supabase
+            .from('order_items')
+            .insert({
+              order_id: orderId,
+              quote_detail_id: null,
+              product_type: 'VACÍO DE OLLA',
+              volume,
+              unit_price: price,
+              total_price: volume * price,
+              has_pump_service: false,
+              has_empty_truck_charge: true,
+              empty_truck_volume: volume,
+              empty_truck_price: price
+            });
+
+          if (emptyTruckError) throw emptyTruckError;
+        }
+      }
       
       // Normalizar a recetas maestras y actualizar items (solo si no hay remisiones)
       if (editedOrder.products && editedOrder.products.length > 0 && !hasRemisiones) {
