@@ -925,8 +925,8 @@ export default function QualityBasicTestPage() {
             {/* Check if metrics object exists before trying to access properties */}
              {serverMetrics ? (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4"> 
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Muestras Totales</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{serverMetrics.numeroMuestras ?? 'N/A'}</div></CardContent></Card>
-                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Muestras Cumplimiento</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{serverMetrics.muestrasEnCumplimiento ?? 'N/A'}</div></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Muestreos Totales</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{serverMetrics.numeroMuestras ?? 'N/A'}</div></CardContent></Card>
+                <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Muestreos en Cumplimiento</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{serverMetrics.muestrasEnCumplimiento ?? 'N/A'}</div></CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Resistencia Prom.</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatMetric(serverMetrics.resistenciaPromedio, 2, ' kg/cm²')}</div></CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">% Res. Garantía</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatMetric(serverMetrics.porcentajeResistenciaGarantia, 2, '%')}</div></CardContent></Card>
                 <Card><CardHeader className="pb-2"><CardTitle className="text-sm font-medium">Desv. Estándar</CardTitle></CardHeader><CardContent><div className="text-xl font-bold">{formatMetric(serverMetrics.desviacionEstandar, 2)}</div></CardContent></Card>

@@ -39,12 +39,12 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-      {/* KPI: Muestras en cumplimiento */}
+      {/* KPI: Muestreos en cumplimiento */}
       <Card className="glass-thick rounded-xl border border-slate-200 bg-gradient-to-br from-systemGreen/20 to-systemGreen/5 hover:shadow-lg transition-all">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-title-3 font-semibold text-slate-700">
-              Muestras en Cumplimiento
+              Muestreos en Cumplimiento
             </CardTitle>
             <CheckCircle2 className="h-5 w-5 text-systemGreen" />
           </div>
@@ -54,7 +54,7 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
             {metrics.muestrasEnCumplimiento}
           </div>
           <div className="text-footnote text-slate-500">
-            de {metrics.numeroMuestras} muestras
+            de {metrics.numeroMuestras} muestreos
           </div>
         </CardContent>
       </Card>

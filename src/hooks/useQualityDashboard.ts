@@ -9,8 +9,11 @@ import { supabase } from '@/lib/supabase';
 import { calcularMediaSinCeros } from '@/lib/qualityMetricsUtils';
 import type { DatoGraficoResistencia } from '@/types/quality';
 
+// NOTE: Despite field names, these metrics are per MUESTREO (sampling event), not per muestra
 export interface QualityMetrics {
+  /** Total number of muestreos (sampling events) */
   numeroMuestras: number;
+  /** Number of muestreos with average compliance >= 100% */
   muestrasEnCumplimiento: number;
   resistenciaPromedio: number;
   desviacionEstandar: number;

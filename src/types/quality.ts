@@ -212,14 +212,26 @@ export interface EnsayoWithRelations extends Ensayo {
 }
 
 // Dashboard metrics type
+// NOTE: Despite the field names, these metrics are calculated per MUESTREO (sampling event),
+// not per muestra (specimen) or ensayo (test). The naming is legacy.
+// - numeroMuestras = total number of muestreos (sampling events)
+// - muestrasEnCumplimiento = number of muestreos where average compliance >= 100%
 export interface MetricasCalidad {
+  /** Total number of muestreos (sampling events) - NOT individual muestras */
   numeroMuestras: number;
+  /** Number of muestreos with average compliance >= 100% */
   muestrasEnCumplimiento: number;
+  /** Average resistance across all muestreos (kg/cm²) */
   resistenciaPromedio: number;
+  /** Standard deviation of resistance */
   desviacionEstandar: number;
+  /** Average compliance percentage across muestreos */
   porcentajeResistenciaGarantia: number;
+  /** Cement efficiency (kg/cm² per kg cement) */
   eficiencia: number;
+  /** Volumetric yield (real vs registered volume %) */
   rendimientoVolumetrico: number;
+  /** Coefficient of variation (%) */
   coeficienteVariacion: number;
 }
 
