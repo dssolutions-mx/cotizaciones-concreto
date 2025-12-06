@@ -81,8 +81,8 @@ export async function fetchMuestreos(
           order_id,
           recipe_id,
           fecha,
-          volumen,
-          numero_remision,
+          volumen_fabricado,
+          remision_number,
           recipe:recipes(id, recipe_code, strength_fc, age_days, age_hours),
           orders(id, order_number, construction_site, clients(id, business_name, client_code))
         ),
