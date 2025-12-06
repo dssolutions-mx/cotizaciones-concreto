@@ -241,7 +241,7 @@ export async function fetchMetricasCalidad(
     } : { found: false });
 
     console.log('📊 Raw Muestreos Data for Metrics', {
-      count: data?.length || 0,
+      count: finalMuestreos?.length || 0,
       flattenedEnsayos: allEnsayos.length,
       edadGarantiaValues: allEnsayos.slice(0, 5).map(d => ({
         id: d.id,
@@ -312,7 +312,7 @@ export async function fetchMetricasCalidad(
     });
 
     console.log('📊 Filtered Metrics Data', {
-      totalRecords: data?.length || 0,
+      totalRecords: finalMuestreos?.length || 0,
       filteredRecords: filteredEnsayos.length,
       soloEdadGarantia,
       incluirEnsayosFueraTiempo

@@ -631,17 +631,31 @@ function ClientBalanceBreakdown({
           setDeliveredOrderIds(new Set());
           return;
         }
-        const { data, error } = await supabase
-          .from('remisiones')
-          .select('order_id')
-          .in('order_id', orderIds);
-        if (error) {
-          console.error('Error loading remisiones:', error);
-          setDeliveredOrderIds(new Set());
-          return;
+        // Avoid hitting URL length limits by chunking the IN query
+        const CHUNK_SIZE = 150;
+        const chunks: string[][] = [];
+        for (let i = 0; i < orderIds.length; i += CHUNK_SIZE) {
+          chunks.push(orderIds.slice(i, i + CHUNK_SIZE));
         }
-        const setIds = new Set<string>((data || []).map((r: any) => r.order_id));
-        setDeliveredOrderIds(setIds);
+
+        const collectedIds = new Set<string>();
+        for (const [index, chunk] of chunks.entries()) {
+          const { data, error } = await supabase
+            .from('remisiones')
+            .select('order_id')
+            .in('order_id', chunk);
+
+          if (error) {
+            console.error('Error loading remisiones chunk', { index, size: chunk.length, error });
+            continue;
+          }
+
+          (data || []).forEach((r: any) => {
+            if (r?.order_id) collectedIds.add(r.order_id as string);
+          });
+        }
+
+        setDeliveredOrderIds(collectedIds);
       } catch (e) {
         console.error('Unexpected error loading remisiones:', e);
         setDeliveredOrderIds(new Set());
@@ -707,18 +721,34 @@ function ClientBalanceBreakdown({
           return;
         }
         // Fetch needed fields from orders
-        const { data: orderRows, error: ordersErr } = await supabase
-          .from('orders')
-          .select('id, order_number, construction_site, final_amount, invoice_amount, requires_invoice, plant_id')
-          .in('id', deliveredIds);
-        if (ordersErr) {
-          console.error('Error fetching orders for VAT computation:', ordersErr);
-          // Fallback: sum final_amount
+        // Chunk the orders query to avoid URL length limits
+        const CHUNK_SIZE = 150;
+        const chunks: string[][] = [];
+        for (let i = 0; i < deliveredIds.length; i += CHUNK_SIZE) {
+          chunks.push(deliveredIds.slice(i, i + CHUNK_SIZE));
+        }
+
+        const rows: any[] = [];
+        for (const [index, chunk] of chunks.entries()) {
+          const { data: orderRows, error: ordersErr } = await supabase
+            .from('orders')
+            .select('id, order_number, construction_site, final_amount, invoice_amount, requires_invoice, plant_id')
+            .in('id', chunk);
+
+          if (ordersErr) {
+            console.error('Error fetching orders for VAT computation chunk', { index, size: chunk.length, error: ordersErr });
+            continue;
+          }
+
+          if (Array.isArray(orderRows)) rows.push(...orderRows);
+        }
+
+        if (rows.length === 0) {
+          // Fallback: sum final_amount when we couldn't fetch rows
           const fallback = deliveredOrders.reduce((sum, o) => sum + (o.final_amount || 0), 0);
           setConsumptionWithVat(fallback);
           return;
         }
-        const rows = orderRows || [];
         // Collect plant ids needing VAT rate
         const plantIds = Array.from(new Set(rows.map((r: any) => r.plant_id).filter(Boolean)));
         let vatByPlant: Record<string, number> = {};
@@ -1445,7 +1475,7 @@ function OrderDetailModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={() => onClose()}>
-      <DialogContent className="sm:max-w-[800px]">
+      <DialogContent className="sm:max-w-[800px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Detalles del Pedido</DialogTitle>
           <DialogDescription>
