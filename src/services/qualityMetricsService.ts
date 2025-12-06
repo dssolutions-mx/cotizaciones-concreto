@@ -43,6 +43,18 @@ export async function fetchMetricasCalidad(
       ? (typeof fechaHasta === 'string' ? fechaHasta : format(fechaHasta, 'yyyy-MM-dd'))
       : undefined;
 
+    // Check if we have additional filters beyond date and plant
+    // RPC only supports date + plant filters, so skip RPC if other filters are active
+    const hasAdditionalFilters = !!(
+      client_id || 
+      construction_site_id || 
+      recipe_code || 
+      clasificacion || 
+      specimen_type || 
+      fc_value || 
+      age_guarantee
+    );
+
     console.log('🔍 Fetching Quality Metrics', {
       fechaDesde: formattedFechaDesde,
       fechaHasta: formattedFechaHasta,
@@ -51,51 +63,57 @@ export async function fetchMetricasCalidad(
       recipe_code,
       plant_code,
       plant_filter_active: plant_code !== undefined && plant_code !== null,
+      hasAdditionalFilters,
       soloEdadGarantia,
       incluirEnsayosFueraTiempo
     });
 
     // Try fast-path: server-side metrics RPC (avoids N+1 and large payloads)
+    // ONLY use RPC when no additional filters are active (RPC only supports date + plant)
     const rpcFrom = formattedFechaDesde || format(subMonths(new Date(), 1), 'yyyy-MM-dd');
     const rpcTo = formattedFechaHasta || format(new Date(), 'yyyy-MM-dd');
     const isUuid = (val?: string) => !!val && /^[0-9a-fA-F-]{36}$/.test(val);
     const plantIdForRpc = isUuid(plant_code) ? plant_code : null;
 
-    try {
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_quality_dashboard_metrics', {
-        p_from_date: rpcFrom,
-        p_to_date: rpcTo,
-        p_plant_id: plantIdForRpc,
-        p_business_unit_id: null,
-        p_limit: 500
-      });
+    if (!hasAdditionalFilters) {
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_quality_dashboard_metrics', {
+          p_from_date: rpcFrom,
+          p_to_date: rpcTo,
+          p_plant_id: plantIdForRpc,
+          p_business_unit_id: null,
+          p_limit: 500
+        });
 
-      if (!rpcError && rpcData) {
-        const numeroMuestras = Number(rpcData.total_muestreos || 0);
-        const muestrasEnCumplimiento = Number(rpcData.muestras_en_cumplimiento || 0);
-        const resistenciaPromedio = Number(rpcData.avg_resistencia || 0);
-        const desviacionEstandar = Number(rpcData.std_dev || 0);
-        const porcentajeResistenciaGarantia = Number(rpcData.avg_compliance || 0);
-        const coeficienteVariacion = Number(rpcData.cv || 0);
+        if (!rpcError && rpcData) {
+          const numeroMuestras = Number(rpcData.total_muestreos || 0);
+          const muestrasEnCumplimiento = Number(rpcData.muestras_en_cumplimiento || 0);
+          const resistenciaPromedio = Number(rpcData.avg_resistencia || 0);
+          const desviacionEstandar = Number(rpcData.std_dev || 0);
+          const porcentajeResistenciaGarantia = Number(rpcData.avg_compliance || 0);
+          const coeficienteVariacion = Number(rpcData.cv || 0);
 
-        const metrics: MetricasCalidad = {
-          numeroMuestras,
-          muestrasEnCumplimiento,
-          resistenciaPromedio: Number(resistenciaPromedio.toFixed(2)),
-          desviacionEstandar: Number(desviacionEstandar.toFixed(2)),
-          porcentajeResistenciaGarantia: Number(porcentajeResistenciaGarantia.toFixed(2)),
-          eficiencia: 0,
-          rendimientoVolumetrico: 0,
-          coeficienteVariacion: Number(coeficienteVariacion.toFixed(2))
-        };
+          const metrics: MetricasCalidad = {
+            numeroMuestras,
+            muestrasEnCumplimiento,
+            resistenciaPromedio: Number(resistenciaPromedio.toFixed(2)),
+            desviacionEstandar: Number(desviacionEstandar.toFixed(2)),
+            porcentajeResistenciaGarantia: Number(porcentajeResistenciaGarantia.toFixed(2)),
+            eficiencia: 0,
+            rendimientoVolumetrico: 0,
+            coeficienteVariacion: Number(coeficienteVariacion.toFixed(2))
+          };
 
-        console.log('✅ Metrics via RPC', metrics);
-        return metrics;
-      } else if (rpcError) {
-        console.warn('RPC get_quality_dashboard_metrics failed, falling back to client aggregation:', rpcError);
+          console.log('✅ Metrics via RPC (no additional filters)', metrics);
+          return metrics;
+        } else if (rpcError) {
+          console.warn('RPC get_quality_dashboard_metrics failed, falling back to client aggregation:', rpcError);
+        }
+      } catch (rpcCatch) {
+        console.warn('RPC get_quality_dashboard_metrics threw, falling back to client aggregation:', rpcCatch);
       }
-    } catch (rpcCatch) {
-      console.warn('RPC get_quality_dashboard_metrics threw, falling back to client aggregation:', rpcCatch);
+    } else {
+      console.log('🔄 Skipping RPC - additional filters active, using cascading filtering');
     }
 
     // Fallback to cascading filtering if RPC is unavailable

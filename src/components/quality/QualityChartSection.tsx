@@ -315,7 +315,7 @@ export function QualityChartSection({
             Cumplimiento de Resistencia
           </CardTitle>
           <span className="text-footnote text-slate-500">
-            {datosGrafico.length} punto{datosGrafico.length !== 1 ? 's' : ''}
+            {datosGrafico.length} muestreo{datosGrafico.length !== 1 ? 's' : ''}
           </span>
         </div>
 

@@ -290,59 +290,76 @@ export async function fetchDatosGraficoResistencia(
       selectedAge: age_guarantee || 'all'
     };
 
+    // Check if we have additional filters beyond date and plant
+    // RPC only supports date + plant filters, so skip RPC if other filters are active
+    const hasAdditionalFilters = !!(
+      client_id || 
+      construction_site_id || 
+      recipe_code || 
+      clasificacion || 
+      specimen_type || 
+      fc_value || 
+      age_guarantee
+    );
+
     // Try fast-path: use RPC aggregation to avoid nested selects
+    // ONLY use RPC when no additional filters are active (RPC only supports date + plant)
     const rpcFrom = formattedFechaDesde || format(subMonths(new Date(), 1), 'yyyy-MM-dd');
     const rpcTo = formattedFechaHasta || format(new Date(), 'yyyy-MM-dd');
     const isUuid = (val?: string) => !!val && /^[0-9a-fA-F-]{36}$/.test(val);
     const plantIdForRpc = isUuid(plant_code) ? plant_code : null;
 
-    try {
-      const { data: rpcData, error: rpcError } = await supabase.rpc('get_quality_chart_data', {
-        p_from_date: rpcFrom,
-        p_to_date: rpcTo,
-        p_plant_id: plantIdForRpc,
-        p_limit: 500
-      });
-
-      if (!rpcError && rpcData) {
-        // Map RPC rows to the shape expected by processChartData
-        const mapped = (rpcData || []).map((row: any) => ({
-          id: row.muestreo_id,
-          muestreo_id: row.muestreo_id,
-          fecha_ensayo: row.fecha_muestreo,
-          porcentaje_cumplimiento: row.avg_compliance,
-          resistencia_calculada: row.avg_resistencia,
-          // minimal nested structure to satisfy downstream processing
-          muestra: {
-            muestreo: {
-              id: row.muestreo_id,
-              fecha_muestreo: row.fecha_muestreo,
-              fecha_muestreo_ts: row.fecha_muestreo_ts,
-              concrete_specs: row.concrete_specs,
-              recipe: {
-                recipe_code: row.recipe_code,
-                strength_fc: row.strength_fc
-              }
-            }
-          }
-        }));
-
-        // Apply post-filters (age guarantee, fuera de tiempo) on aggregated data
-        const filteredEnsayos = mapped.filter(item => {
-          if (soloEdadGarantia && item.is_edad_garantia === false) return false;
-          if (!incluirEnsayosFueraTiempo && item.is_ensayo_fuera_tiempo === true) return false;
-          if (!item.resistencia_calculada || item.resistencia_calculada <= 0) return false;
-          return true;
+    if (!hasAdditionalFilters) {
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_quality_chart_data', {
+          p_from_date: rpcFrom,
+          p_to_date: rpcTo,
+          p_plant_id: plantIdForRpc,
+          p_limit: 500
         });
 
-        const processedData = processChartData(filteredEnsayos);
-        console.log('✅ Chart data via RPC', { count: processedData.length });
-        return processedData;
-      } else if (rpcError) {
-        console.warn('RPC get_quality_chart_data failed, falling back to client aggregation:', rpcError);
+        if (!rpcError && rpcData) {
+          // Map RPC rows to the shape expected by processChartData
+          const mapped = (rpcData || []).map((row: any) => ({
+            id: row.muestreo_id,
+            muestreo_id: row.muestreo_id,
+            fecha_ensayo: row.fecha_muestreo,
+            porcentaje_cumplimiento: row.avg_compliance,
+            resistencia_calculada: row.avg_resistencia,
+            // minimal nested structure to satisfy downstream processing
+            muestra: {
+              muestreo: {
+                id: row.muestreo_id,
+                fecha_muestreo: row.fecha_muestreo,
+                fecha_muestreo_ts: row.fecha_muestreo_ts,
+                concrete_specs: row.concrete_specs,
+                recipe: {
+                  recipe_code: row.recipe_code,
+                  strength_fc: row.strength_fc
+                }
+              }
+            }
+          }));
+
+          // Apply post-filters (age guarantee, fuera de tiempo) on aggregated data
+          const filteredEnsayos = mapped.filter(item => {
+            if (soloEdadGarantia && item.is_edad_garantia === false) return false;
+            if (!incluirEnsayosFueraTiempo && item.is_ensayo_fuera_tiempo === true) return false;
+            if (!item.resistencia_calculada || item.resistencia_calculada <= 0) return false;
+            return true;
+          });
+
+          const processedData = processChartData(filteredEnsayos);
+          console.log('✅ Chart data via RPC (no additional filters)', { count: processedData.length });
+          return processedData;
+        } else if (rpcError) {
+          console.warn('RPC get_quality_chart_data failed, falling back to client aggregation:', rpcError);
+        }
+      } catch (rpcCatch) {
+        console.warn('RPC get_quality_chart_data threw, falling back to client aggregation:', rpcCatch);
       }
-    } catch (rpcCatch) {
-      console.warn('RPC get_quality_chart_data threw, falling back to client aggregation:', rpcCatch);
+    } else {
+      console.log('🔄 Chart: Skipping RPC - additional filters active, using cascading filtering');
     }
 
     // Fallback: cascading filtering + batched fetch of muestreos/muestras/ensayos

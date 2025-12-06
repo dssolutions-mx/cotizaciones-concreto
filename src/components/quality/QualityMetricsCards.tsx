@@ -54,7 +54,7 @@ export function QualityMetricsCards({ metrics, loading, eficienciaOverride, rend
             {metrics.muestrasEnCumplimiento}
           </div>
           <div className="text-footnote text-slate-500">
-            de {metrics.numeroMuestras} muestreos
+            de {metrics.numeroMuestras} muestreos ensayados
           </div>
         </CardContent>
       </Card>
