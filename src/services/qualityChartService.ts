@@ -290,7 +290,62 @@ export async function fetchDatosGraficoResistencia(
       selectedAge: age_guarantee || 'all'
     };
 
-    // Get filtered muestreos using cascading filtering
+    // Try fast-path: use RPC aggregation to avoid nested selects
+    const rpcFrom = formattedFechaDesde || format(subMonths(new Date(), 1), 'yyyy-MM-dd');
+    const rpcTo = formattedFechaHasta || format(new Date(), 'yyyy-MM-dd');
+    const isUuid = (val?: string) => !!val && /^[0-9a-fA-F-]{36}$/.test(val);
+    const plantIdForRpc = isUuid(plant_code) ? plant_code : null;
+
+    try {
+      const { data: rpcData, error: rpcError } = await supabase.rpc('get_quality_chart_data', {
+        p_from_date: rpcFrom,
+        p_to_date: rpcTo,
+        p_plant_id: plantIdForRpc,
+        p_limit: 500
+      });
+
+      if (!rpcError && rpcData) {
+        // Map RPC rows to the shape expected by processChartData
+        const mapped = (rpcData || []).map((row: any) => ({
+          id: row.muestreo_id,
+          muestreo_id: row.muestreo_id,
+          fecha_ensayo: row.fecha_muestreo,
+          porcentaje_cumplimiento: row.avg_compliance,
+          resistencia_calculada: row.avg_resistencia,
+          // minimal nested structure to satisfy downstream processing
+          muestra: {
+            muestreo: {
+              id: row.muestreo_id,
+              fecha_muestreo: row.fecha_muestreo,
+              fecha_muestreo_ts: row.fecha_muestreo_ts,
+              concrete_specs: row.concrete_specs,
+              recipe: {
+                recipe_code: row.recipe_code,
+                strength_fc: row.strength_fc
+              }
+            }
+          }
+        }));
+
+        // Apply post-filters (age guarantee, fuera de tiempo) on aggregated data
+        const filteredEnsayos = mapped.filter(item => {
+          if (soloEdadGarantia && item.is_edad_garantia === false) return false;
+          if (!incluirEnsayosFueraTiempo && item.is_ensayo_fuera_tiempo === true) return false;
+          if (!item.resistencia_calculada || item.resistencia_calculada <= 0) return false;
+          return true;
+        });
+
+        const processedData = processChartData(filteredEnsayos);
+        console.log('✅ Chart data via RPC', { count: processedData.length });
+        return processedData;
+      } else if (rpcError) {
+        console.warn('RPC get_quality_chart_data failed, falling back to client aggregation:', rpcError);
+      }
+    } catch (rpcCatch) {
+      console.warn('RPC get_quality_chart_data threw, falling back to client aggregation:', rpcCatch);
+    }
+
+    // Fallback: cascading filtering + batched fetch of muestreos/muestras/ensayos
     const filteredMuestreos = await getFilteredMuestreos(dateRange, filterSelections, soloEdadGarantia, incluirEnsayosFueraTiempo);
 
     if (!filteredMuestreos || filteredMuestreos.length === 0) {
@@ -298,7 +353,6 @@ export async function fetchDatosGraficoResistencia(
     }
 
     // PERFORMANCE: Limit muestreoIds to prevent database overload
-    // For charts, we typically don't need more than 500 data points
     const MAX_CHART_MUESTREOS = 500;
     const muestreoIds = filteredMuestreos.slice(0, MAX_CHART_MUESTREOS).map((m: any) => m.id);
 
