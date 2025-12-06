@@ -457,8 +457,9 @@ export async function getFilteredMuestreos(
     console.log('📅 Date range for filtering muestreos:', { fechaDesde, fechaHasta });
 
     // Step 1: Get muestreos in date range with their ensayos
-    // PERFORMANCE: Limit query to prevent database overload
-    const { data: muestreosWithEnsayos, error: muestreosError } = await supabase
+    // PERFORMANCE: Aggressive limit + optional plant/recipe filters to avoid overload
+    const MAX_FILTER_MUESTREOS = 200;
+    let muestreosQuery = supabase
       .from('muestreos')
       .select(`
         id,
@@ -491,7 +492,26 @@ export async function getFilteredMuestreos(
       .gte('fecha_muestreo', fechaDesde)
       .lte('fecha_muestreo', fechaHasta)
       .order('fecha_muestreo', { ascending: false })
-      .limit(1000); // CRITICAL: Prevent unbounded queries that cause timeouts
+      .limit(MAX_FILTER_MUESTREOS); // stricter cap to reduce load
+
+    // Optional plant filter (id takes precedence, then code)
+    if (currentSelections.selectedPlant && currentSelections.selectedPlant !== 'all') {
+      muestreosQuery = muestreosQuery.or(
+        `plant_id.eq.${currentSelections.selectedPlant},planta.eq.${currentSelections.selectedPlant}`
+      );
+    }
+
+    // Optional recipe filter
+    if (currentSelections.selectedRecipe && currentSelections.selectedRecipe !== 'all') {
+      muestreosQuery = muestreosQuery.eq('remision.recipe_id', currentSelections.selectedRecipe);
+    }
+
+    // Optional client filter (matches client code/name via order relation)
+    if (currentSelections.selectedClient && currentSelections.selectedClient !== 'all') {
+      muestreosQuery = muestreosQuery.eq('remision.orders.client_id', currentSelections.selectedClient);
+    }
+
+    const { data: muestreosWithEnsayos, error: muestreosError } = await muestreosQuery;
 
     console.log('🔍 Raw muestreos data sample:', muestreosWithEnsayos?.slice(0, 2));
 
