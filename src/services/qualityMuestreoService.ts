@@ -52,8 +52,12 @@ async function mapPlantaToPlantId(planta: string): Promise<string | null> {
   }
 }
 
-// Muestreos
-export async function fetchMuestreos(filters?: FiltrosCalidad) {
+// Muestreos - with pagination to prevent database overload
+export async function fetchMuestreos(
+  filters?: FiltrosCalidad,
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ data: MuestreoWithRelations[]; count: number | null }> {
   try {
     // If filtering by business unit, resolve to plant_ids first
     let resolvedPlantIds: string[] | undefined = filters?.plant_ids;
@@ -66,20 +70,25 @@ export async function fetchMuestreos(filters?: FiltrosCalidad) {
       resolvedPlantIds = (buPlants || []).map(p => p.id);
     }
 
+    // OPTIMIZED: Simplified select to reduce nested LATERAL joins
+    // Only fetch essential fields - fetch muestras separately when needed for detail view
     let query = supabase
       .from('muestreos')
       .select(`
         *,
         remision:remision_id (
-          *,
-          recipe:recipes(*),
-          orders(
-            clients(*)
-          )
+          id,
+          order_id,
+          recipe_id,
+          fecha,
+          volumen,
+          numero_remision,
+          recipe:recipes(id, recipe_code, strength_fc, age_days, age_hours),
+          orders(id, order_number, construction_site, clients(id, business_name, client_code))
         ),
-        plant:plant_id (*, business_unit:business_units(*)),
-        muestras(*)
-      `)
+        plant:plant_id (id, code, name, business_unit:business_units(id, name)),
+        muestras(id, tipo_muestra, estado, identificacion)
+      `, { count: 'exact' })
       .order('fecha_muestreo', { ascending: false });
 
     // Apply filters if provided
@@ -109,13 +118,16 @@ export async function fetchMuestreos(filters?: FiltrosCalidad) {
       }
     }
 
-    const { data, error } = await query;
+    // CRITICAL: Add pagination to prevent loading all records
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
     
     if (error) throw error;
-    return data as MuestreoWithRelations[];
+    return { data: data as MuestreoWithRelations[], count };
   } catch (error) {
     handleError(error, 'fetchMuestreos');
-    return [] as MuestreoWithRelations[];
+    return { data: [] as MuestreoWithRelations[], count: null };
   }
 }
 

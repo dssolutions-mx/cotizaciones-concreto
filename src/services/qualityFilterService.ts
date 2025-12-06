@@ -457,6 +457,7 @@ export async function getFilteredMuestreos(
     console.log('📅 Date range for filtering muestreos:', { fechaDesde, fechaHasta });
 
     // Step 1: Get muestreos in date range with their ensayos
+    // PERFORMANCE: Limit query to prevent database overload
     const { data: muestreosWithEnsayos, error: muestreosError } = await supabase
       .from('muestreos')
       .select(`
@@ -489,7 +490,8 @@ export async function getFilteredMuestreos(
       `)
       .gte('fecha_muestreo', fechaDesde)
       .lte('fecha_muestreo', fechaHasta)
-      .order('fecha_muestreo', { ascending: false });
+      .order('fecha_muestreo', { ascending: false })
+      .limit(1000); // CRITICAL: Prevent unbounded queries that cause timeouts
 
     console.log('🔍 Raw muestreos data sample:', muestreosWithEnsayos?.slice(0, 2));
 

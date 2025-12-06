@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
-import { Loader2, AlertTriangle, Plus, FileText, ChevronRight, Filter, X } from 'lucide-react';
+import { Loader2, AlertTriangle, Plus, FileText, ChevronRight, ChevronDown, Filter, X } from 'lucide-react';
 import { Badge } from "@/components/ui/badge";
 import { fetchMuestreos } from '@/services/qualityMuestreoService';
 import type { MuestreoWithRelations } from '@/types/quality';
@@ -37,6 +37,8 @@ import { useAuthBridge } from '@/adapters/auth-context-bridge';
 import { subMonths } from 'date-fns';
 import { formatDate } from '@/lib/utils';
 import { usePlantContext } from '@/contexts/PlantContext';
+
+const PAGE_SIZE = 50; // Pagination limit for performance
 
 export default function MuestreosPage() {
   const router = useRouter();
@@ -47,6 +49,11 @@ export default function MuestreosPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(0);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   
   // Filtros - sin fecha por defecto
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
@@ -64,14 +71,17 @@ export default function MuestreosPage() {
       try {
         setLoading(true);
         setError(null);
+        setCurrentPage(0);
         
-        const data = await fetchMuestreos({
+        const result = await fetchMuestreos({
           fechaDesde: dateRange?.from,
           fechaHasta: dateRange?.to,
           plant_id: currentPlant?.id
-        });
-        setMuestreos(data);
-        applyFilters(data);
+        }, PAGE_SIZE, 0);
+        
+        setMuestreos(result.data);
+        setTotalCount(result.count);
+        applyFilters(result.data);
       } catch (err) {
         console.error('Error loading muestreos:', err);
         setError('Error al cargar los muestreos');
@@ -82,6 +92,31 @@ export default function MuestreosPage() {
     
     loadMuestreos();
   }, [dateRange, currentPlant?.id]);
+
+  // Load more muestreos (pagination)
+  const loadMoreMuestreos = async () => {
+    if (loadingMore || (totalCount !== null && muestreos.length >= totalCount)) return;
+    
+    try {
+      setLoadingMore(true);
+      const nextPage = currentPage + 1;
+      const offset = nextPage * PAGE_SIZE;
+      
+      const result = await fetchMuestreos({
+        fechaDesde: dateRange?.from,
+        fechaHasta: dateRange?.to,
+        plant_id: currentPlant?.id
+      }, PAGE_SIZE, offset);
+      
+      setMuestreos(prev => [...prev, ...result.data]);
+      setCurrentPage(nextPage);
+      applyFilters([...muestreos, ...result.data]);
+    } catch (err) {
+      console.error('Error loading more muestreos:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // Aplicar filtros y ordenación
   const applyFilters = (data: MuestreoWithRelations[] = muestreos) => {
@@ -528,6 +563,33 @@ export default function MuestreosPage() {
               ))}
             </TableBody>
           </Table>
+          </div>
+          
+          {/* Pagination info and Load More */}
+          <div className="flex flex-col sm:flex-row items-center justify-between p-4 border-t bg-gray-50 gap-2">
+            <p className="text-sm text-gray-500">
+              Mostrando {filteredMuestreos.length} de {totalCount ?? '...'} muestreos
+            </p>
+            {totalCount !== null && muestreos.length < totalCount && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadMoreMuestreos}
+                disabled={loadingMore}
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Cargando...
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="mr-2 h-4 w-4" />
+                    Cargar más
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </div>
       )}

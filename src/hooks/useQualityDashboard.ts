@@ -152,6 +152,7 @@ export function useQualityDashboard({
           try {
             // Get muestreos in the date range with related data for filtering
             // IMPORTANT: Apply the SAME filters as chart data to ensure consistency between KPI cards and scatter chart
+            // PERFORMANCE: Limit to 500 to prevent database overload
             const { data: allMuestreosData } = await supabase
               .from('muestreos')
               .select(`
@@ -168,7 +169,9 @@ export function useQualityDashboard({
                 )
               `)
               .gte('fecha_muestreo', fromDate)
-              .lte('fecha_muestreo', toDate);
+              .lte('fecha_muestreo', toDate)
+              .order('fecha_muestreo', { ascending: false })
+              .limit(500);
 
             // Apply the same filters as the chart data (client-side filtering)
             let muestreosData = allMuestreosData || [];

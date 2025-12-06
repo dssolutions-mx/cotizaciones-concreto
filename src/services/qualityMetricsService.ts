@@ -102,53 +102,67 @@ export async function fetchMetricasCalidad(
 
     console.log(`📊 Found ${filteredMuestreos.length} muestreos after cascading filtering for metrics`);
 
-    // Now fetch the full data for these filtered muestreos
-    const muestreoIds = filteredMuestreos.map((m: any) => m.id);
+    // PERFORMANCE: Limit muestreoIds to prevent database overload
+    // For metrics, 500 samples is statistically sufficient
+    const MAX_METRICS_MUESTREOS = 500;
+    const muestreoIds = filteredMuestreos.slice(0, MAX_METRICS_MUESTREOS).map((m: any) => m.id);
     
-    const { data, error } = await supabase
-      .from('muestreos')
-      .select(`
-        id,
-        fecha_muestreo,
-        fecha_muestreo_ts,
-        event_timezone,
-        planta,
-        plant_id,
-        concrete_specs,
-        remision:remision_id (
+    // PERFORMANCE: Batch queries if we have many IDs
+    const BATCH_SIZE = 100;
+    let allData: any[] = [];
+    
+    for (let i = 0; i < muestreoIds.length; i += BATCH_SIZE) {
+      const batchIds = muestreoIds.slice(i, i + BATCH_SIZE);
+      
+      const { data: batchData, error: batchError } = await supabase
+        .from('muestreos')
+        .select(`
           id,
-          order_id,
-          recipe_id,
-          recipe:recipe_id(
+          fecha_muestreo,
+          fecha_muestreo_ts,
+          event_timezone,
+          planta,
+          plant_id,
+          concrete_specs,
+          remision:remision_id (
             id,
-            recipe_code,
-            strength_fc,
-            age_days,
-            age_hours
-          )
-        ),
-        muestras(
-          id,
-          tipo_muestra,
-          ensayos(
+            order_id,
+            recipe_id,
+            recipe:recipe_id(
+              id,
+              recipe_code,
+              strength_fc,
+              age_days,
+              age_hours
+            )
+          ),
+          muestras(
             id,
-            fecha_ensayo,
-            porcentaje_cumplimiento,
-            resistencia_calculada,
-            is_edad_garantia,
-            is_ensayo_fuera_tiempo
+            tipo_muestra,
+            ensayos(
+              id,
+              fecha_ensayo,
+              porcentaje_cumplimiento,
+              resistencia_calculada,
+              is_edad_garantia,
+              is_ensayo_fuera_tiempo
+            )
           )
-        )
-      `)
-      .in('id', muestreoIds)
-      .order('fecha_muestreo', { ascending: false });
+        `)
+        .in('id', batchIds)
+        .order('fecha_muestreo', { ascending: false });
 
-    if (error) {
-      console.error('❌ Error fetching metrics data:', error);
-      throw error;
+      if (batchError) {
+        console.error('❌ Error fetching metrics data batch:', batchError);
+        throw batchError;
+      }
+      
+      if (batchData) {
+        allData = [...allData, ...batchData];
+      }
     }
 
-    const finalMuestreos = data || [];
+    const finalMuestreos = allData;
 
     console.log('🔍 Metrics - Processing filtered data:', {
       finalMuestreosLength: finalMuestreos.length,
