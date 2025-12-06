@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { calcularMediaSinCeros } from '@/lib/qualityMetricsUtils';
 import type { DatoGraficoResistencia } from '@/types/quality';
@@ -14,8 +14,12 @@ export function useAdvancedMetrics(datosGrafico: DatoGraficoResistencia[]) {
     rendimientoVolumetrico: 0
   });
   const [calculating, setCalculating] = useState(false);
+  const calculationIdRef = useRef(0);
 
   // Calculate filtered advanced metrics when data changes
+  // PERFORMANCE FIX: Replaced N+1 RPC calls with client-side calculation
+  // using already-fetched data. This avoids calling calcular_metricas_muestreo
+  // for each individual muestreo (which caused 400+ RPC calls per load).
   useEffect(() => {
     const calculateFilteredAdvancedMetrics = async () => {
       if (datosGrafico.length === 0) {
@@ -23,7 +27,9 @@ export function useAdvancedMetrics(datosGrafico: DatoGraficoResistencia[]) {
         return;
       }
 
+      const currentCalculationId = ++calculationIdRef.current;
       setCalculating(true);
+
       try {
         // Build quick lookup map: muestreo_id -> { resistencia, clasificacion }
         const muestreoToStats = new Map<string, { resistencia: number; isMR: boolean }>();
@@ -32,171 +38,116 @@ export function useAdvancedMetrics(datosGrafico: DatoGraficoResistencia[]) {
           if (muestreoId) {
             const resistencia = typeof d.resistencia_calculada === 'number' ? d.resistencia_calculada : 0;
             const isMR = d.clasificacion === 'MR';
-            // Prefer latest occurrence; values are averages per muestreo already
             muestreoToStats.set(muestreoId, { resistencia, isMR });
           }
         });
 
-        // Extract unique muestreos from filtered data
-        const uniqueMuestreos = new Map();
-        datosGrafico.forEach(d => {
-          if (d.muestra?.muestreo?.id) {
-            uniqueMuestreos.set(d.muestra.muestreo.id, d.muestra.muestreo);
-          }
-        });
+        // Extract unique muestreo IDs from chart data
+        const muestreoIds: string[] = Array.from(muestreoToStats.keys());
 
-        // Calculate efficiency and rendimiento for each muestreo
+        if (muestreoIds.length === 0) {
+          setAdvancedMetrics({ eficiencia: 0, rendimientoVolumetrico: 0 });
+          setCalculating(false);
+          return;
+        }
+
+        // PERFORMANCE: Single batch query for all materials data instead of N+1 RPC calls
+        // Limit to prevent huge queries
+        const limitedIds = muestreoIds.slice(0, 100);
+        
+        const { data: muestreoMatData, error: matError } = await supabase
+          .from('muestreos')
+          .select(`
+            id,
+            masa_unitaria,
+            remision:remision_id (
+              id,
+              volumen_fabricado,
+              remision_materiales (
+                material_type,
+                cantidad_real
+              )
+            )
+          `)
+          .in('id', limitedIds);
+
+        // Check if this calculation is still current
+        if (currentCalculationId !== calculationIdRef.current) {
+          return;
+        }
+
+        if (matError) {
+          console.warn('Error fetching materials data:', matError);
+          setAdvancedMetrics({ eficiencia: 0, rendimientoVolumetrico: 0 });
+          setCalculating(false);
+          return;
+        }
+
+        // Calculate efficiency and rendimiento from fetched data
         const eficiencias: number[] = [];
         const rendimientos: number[] = [];
 
-        // Use Array.from to avoid TypeScript iteration issues
-        const muestreosArray = Array.from(uniqueMuestreos.entries());
+        (muestreoMatData || []).forEach((row: any) => {
+          const muestreoId = row.id;
+          const stats = muestreoToStats.get(muestreoId);
+          if (!stats) return;
 
-        // Preload remision materiales and muestreo masa_unitaria for client-side fallback
-        const muestreoIds: string[] = Array.from(uniqueMuestreos.keys());
-        const muestreoMaterialsMap = new Map<string, { masaUnitaria: number; totalMateriales: number; cementKg: number }>();
-        if (muestreoIds.length > 0) {
-          try {
-            const { data: muestreoMatData } = await supabase
-              .from('muestreos')
-              .select(`
-                id,
-                masa_unitaria,
-                remision:remision_id (
-                  id,
-                  volumen_fabricado,
-                  remision_materiales (
-                    material_type,
-                    cantidad_real
-                  )
-                )
-              `)
-              .in('id', muestreoIds);
+          const resistenciaProm = stats.resistencia || 0;
+          const isMR = stats.isMR;
+          const masaUnitaria = Number(row.masa_unitaria) || 0;
+          const volumenFabricado = Number(row.remision?.volumen_fabricado) || 0;
 
-            (muestreoMatData || []).forEach((row: any) => {
-              const totalMateriales = (row?.remision?.remision_materiales || [])
-                .reduce((s: number, m: any) => s + (Number(m.cantidad_real) || 0), 0);
-              const cementKg = (row?.remision?.remision_materiales || [])
-                .filter((m: any) => {
-                  const t = (m.material_type || '').toString().toUpperCase();
-                  return t.includes('CEMENTO') || t.includes('CEM');
-                })
-                .reduce((s: number, m: any) => s + (Number(m.cantidad_real) || 0), 0);
+          const materiales = row.remision?.remision_materiales || [];
+          const totalMateriales = materiales.reduce(
+            (s: number, m: any) => s + (Number(m.cantidad_real) || 0), 0
+          );
+          const cementKg = materiales
+            .filter((m: any) => {
+              const t = (m.material_type || '').toString().toUpperCase();
+              return t.includes('CEMENTO') || t.includes('CEM');
+            })
+            .reduce((s: number, m: any) => s + (Number(m.cantidad_real) || 0), 0);
 
-              muestreoMaterialsMap.set(row.id, {
-                masaUnitaria: Number(row.masa_unitaria) || 0,
-                totalMateriales,
-                cementKg
-              });
-            });
-          } catch (e) {
-            console.warn('Could not preload muestreo materiales for efficiency fallback', e);
-          }
-        }
-
-        // Process muestreos in batches to avoid overwhelming the server
-        const batchSize = 5;
-        for (let i = 0; i < muestreosArray.length; i += batchSize) {
-          const batch = muestreosArray.slice(i, i + batchSize);
-
-          for (const [muestreoId, muestreo] of batch) {
-            try {
-              const { data: metricasRPC, error } = await supabase
-                .rpc('calcular_metricas_muestreo', {
-                  p_muestreo_id: muestreoId
-                });
-
-              if (error) {
-                console.warn(`RPC error for muestreo ${muestreoId}:`, error);
-                continue;
-              }
-
-              if (metricasRPC && metricasRPC.length > 0) {
-                const metricas = metricasRPC[0];
-
-                // Add efficiency if available and non-zero
-                const rpcEficienciaRaw = metricas.eficiencia;
-                if (rpcEficienciaRaw !== null && rpcEficienciaRaw !== undefined) {
-                  const rpcEficiencia = typeof rpcEficienciaRaw === 'string' ? parseFloat(rpcEficienciaRaw) : rpcEficienciaRaw;
-                  if (rpcEficiencia > 0 && !isNaN(rpcEficiencia)) {
-                    eficiencias.push(rpcEficiencia);
-                  }
-                }
-
-                // Fallback A: compute efficiency from resistencia and real cement if RPC efficiency is missing/zero (using RPC consumo)
-                if (metricas && (!metricas.eficiencia || metricas.eficiencia === 0)) {
-                  const consumoRealRaw = (metricas.consumo_cemento_real ?? metricas.consumo_cemento ?? null);
-                  const consumoReal = typeof consumoRealRaw === 'string' ? parseFloat(consumoRealRaw) : consumoRealRaw;
-
-                  const stats = muestreoToStats.get(muestreoId);
-                  const resistenciaProm = stats?.resistencia || 0;
-                  const isMR = !!stats?.isMR;
-
-                  if (consumoReal && consumoReal > 0 && resistenciaProm > 0) {
-                    const resistenciaAjustada = isMR ? (resistenciaProm / 0.13) : resistenciaProm;
-                    const eficienciaCalc = resistenciaAjustada / consumoReal;
-                    if (isFinite(eficienciaCalc) && eficienciaCalc > 0) {
-                      eficiencias.push(eficienciaCalc);
-                    }
-                  }
-                }
-
-                // Fallback B: fully client-side using materiales + masa_unitaria (volumen real)
-                if ((!metricas || !metricas.eficiencia || metricas.eficiencia === 0)) {
-                  const mat = muestreoMaterialsMap.get(muestreoId);
-                  const stats = muestreoToStats.get(muestreoId);
-                  const resistenciaProm = stats?.resistencia || 0;
-                  const isMR = !!stats?.isMR;
-
-                  if (mat && mat.masaUnitaria > 0 && mat.totalMateriales > 0 && mat.cementKg > 0 && resistenciaProm > 0) {
-                    const volumenReal = mat.totalMateriales / mat.masaUnitaria;
-                    if (volumenReal > 0) {
-                      const consumoReal = mat.cementKg / volumenReal;
-                      if (consumoReal > 0) {
-                        const resistenciaAjustada = isMR ? (resistenciaProm / 0.13) : resistenciaProm;
-                        const eficienciaCalc = resistenciaAjustada / consumoReal;
-                        if (isFinite(eficienciaCalc) && eficienciaCalc > 0) {
-                          eficiencias.push(eficienciaCalc);
-                        }
-                      }
-                    }
-                  }
-                }
-
-                // Add rendimiento volumétrico if available and non-zero
-                if (metricas.rendimiento_volumetrico && metricas.rendimiento_volumetrico > 0 && !isNaN(metricas.rendimiento_volumetrico)) {
-                  rendimientos.push(metricas.rendimiento_volumetrico);
-                }
-              }
-            } catch (err) {
-              // Log connection errors more prominently
-              console.error(`Connection error for muestreo ${muestreoId}:`, err);
-              // Add a small delay to avoid overwhelming the server
-              await new Promise(resolve => setTimeout(resolve, 100));
+          // Calculate rendimiento volumétrico
+          if (masaUnitaria > 0 && totalMateriales > 0 && volumenFabricado > 0) {
+            const volumenReal = totalMateriales / masaUnitaria;
+            const rendimiento = (volumenReal / volumenFabricado) * 100;
+            if (rendimiento > 0 && rendimiento < 200 && isFinite(rendimiento)) {
+              rendimientos.push(rendimiento);
             }
           }
 
-          // Add a delay between batches
-          if (i + batchSize < muestreosArray.length) {
-            await new Promise(resolve => setTimeout(resolve, 200));
+          // Calculate efficiency: resistencia / consumo_cemento_real
+          if (masaUnitaria > 0 && totalMateriales > 0 && cementKg > 0 && resistenciaProm > 0) {
+            const volumenReal = totalMateriales / masaUnitaria;
+            if (volumenReal > 0) {
+              const consumoReal = cementKg / volumenReal;
+              if (consumoReal > 0) {
+                const resistenciaAjustada = isMR ? (resistenciaProm / 0.13) : resistenciaProm;
+                const eficienciaCalc = resistenciaAjustada / consumoReal;
+                if (isFinite(eficienciaCalc) && eficienciaCalc > 0 && eficienciaCalc < 10) {
+                  eficiencias.push(eficienciaCalc);
+                }
+              }
+            }
           }
-        }
+        });
 
-        // Calculate averages using the utility function
+        // Calculate averages
         const eficiencia = eficiencias.length > 0 ? calcularMediaSinCeros(eficiencias) : 0;
         const rendimientoVolumetrico = rendimientos.length > 0 ? calcularMediaSinCeros(rendimientos) : 0;
 
-        console.log('🔍 Filtered Advanced Metrics calculated:', {
+        console.log('🔍 Advanced Metrics (optimized):', {
           eficiencia,
           rendimientoVolumetrico,
-          totalMuestreos: uniqueMuestreos.size,
+          muestreosProcessed: muestreoMatData?.length || 0,
           eficienciasFound: eficiencias.length,
           rendimientosFound: rendimientos.length
         });
 
         setAdvancedMetrics({ eficiencia, rendimientoVolumetrico });
       } catch (err) {
-        console.error('Error calculating filtered advanced metrics:', err);
+        console.error('Error calculating advanced metrics:', err);
         setAdvancedMetrics({ eficiencia: 0, rendimientoVolumetrico: 0 });
       } finally {
         setCalculating(false);
