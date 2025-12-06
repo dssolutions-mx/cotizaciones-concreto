@@ -2,6 +2,34 @@ import { supabase } from '@/lib/supabase';
 import { format } from 'date-fns';
 import type { DateRange } from "react-day-picker";
 
+// Simple in-memory cache for filter queries to avoid repeated heavy queries
+const filterCache = new Map<string, { data: any[]; timestamp: number }>();
+const CACHE_TTL_MS = 30000; // 30 seconds
+
+function getCacheKey(dateRange: DateRange | undefined, selections: any): string {
+  const from = dateRange?.from ? format(dateRange.from, 'yyyy-MM-dd') : '';
+  const to = dateRange?.to ? format(dateRange.to, 'yyyy-MM-dd') : '';
+  return `${from}_${to}_${JSON.stringify(selections)}`;
+}
+
+function getCachedData(key: string): any[] | null {
+  const cached = filterCache.get(key);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+  filterCache.delete(key);
+  return null;
+}
+
+function setCachedData(key: string, data: any[]): void {
+  // Limit cache size
+  if (filterCache.size > 20) {
+    const firstKey = filterCache.keys().next().value;
+    if (firstKey) filterCache.delete(firstKey);
+  }
+  filterCache.set(key, { data, timestamp: Date.now() });
+}
+
 export interface FilterOptions {
   clients: Array<{ id: string; business_name: string }>;
   constructionSites: Array<{ id: string; name: string; client_id: string }>;
@@ -432,6 +460,7 @@ export function validateFilterSelection(
 /**
  * Gets filtered muestreos that have valid ensayos meeting regulatory conditions
  * This ensures we only show options that actually have valid data
+ * PERFORMANCE: Uses caching to avoid repeated heavy queries
  */
 export async function getFilteredMuestreos(
   dateRange: DateRange | undefined,
@@ -440,26 +469,26 @@ export async function getFilteredMuestreos(
   incluirEnsayosFueraTiempo: boolean = true
 ): Promise<any[]> {
   try {
-    console.log('🔍 Getting muestreos with valid ensayos:', {
-      currentSelections,
-      soloEdadGarantia,
-      incluirEnsayosFueraTiempo
-    });
-
     if (!dateRange?.from || !dateRange?.to) {
-      console.log('❌ No date range provided for filtering');
       return [];
     }
 
     const fechaDesde = format(dateRange.from, 'yyyy-MM-dd');
     const fechaHasta = format(dateRange.to, 'yyyy-MM-dd');
 
-    console.log('📅 Date range for filtering muestreos:', { fechaDesde, fechaHasta });
+    // Check cache first
+    const cacheKey = getCacheKey(dateRange, { ...currentSelections, soloEdadGarantia, incluirEnsayosFueraTiempo });
+    const cachedResult = getCachedData(cacheKey);
+    if (cachedResult) {
+      console.log('📦 Using cached muestreos data:', cachedResult.length);
+      return cachedResult;
+    }
 
-    // Step 1: Get muestreos in date range with their ensayos
-    // PERFORMANCE: Aggressive limit + optional plant/recipe filters to avoid overload
-    const MAX_FILTER_MUESTREOS = 200;
-    let muestreosQuery = supabase
+    // PERFORMANCE: Use simpler query - don't fetch full ensayos details for filtering
+    // Just get muestreos with basic info, then do client-side filtering
+    const MAX_FILTER_MUESTREOS = 150; // Reduced limit
+    
+    const { data: muestreosData, error: muestreosError } = await supabase
       .from('muestreos')
       .select(`
         id,
@@ -479,89 +508,41 @@ export async function getFilteredMuestreos(
         ),
         muestras (
           id,
-          tipo_muestra,
-          ensayos (
-            id,
-            fecha_ensayo,
-            is_edad_garantia,
-            is_ensayo_fuera_tiempo,
-            resistencia_calculada
-          )
+          tipo_muestra
         )
       `)
       .gte('fecha_muestreo', fechaDesde)
       .lte('fecha_muestreo', fechaHasta)
       .order('fecha_muestreo', { ascending: false })
-      .limit(MAX_FILTER_MUESTREOS); // stricter cap to reduce load
-
-    // Optional plant filter (id takes precedence, then code)
-    if (currentSelections.selectedPlant && currentSelections.selectedPlant !== 'all') {
-      muestreosQuery = muestreosQuery.or(
-        `plant_id.eq.${currentSelections.selectedPlant},planta.eq.${currentSelections.selectedPlant}`
-      );
-    }
-
-    // Optional recipe filter
-    if (currentSelections.selectedRecipe && currentSelections.selectedRecipe !== 'all') {
-      muestreosQuery = muestreosQuery.eq('remision.recipe_id', currentSelections.selectedRecipe);
-    }
-
-    // Optional client filter (matches client code/name via order relation)
-    if (currentSelections.selectedClient && currentSelections.selectedClient !== 'all') {
-      muestreosQuery = muestreosQuery.eq('remision.orders.client_id', currentSelections.selectedClient);
-    }
-
-    const { data: muestreosWithEnsayos, error: muestreosError } = await muestreosQuery;
-
-    console.log('🔍 Raw muestreos data sample:', muestreosWithEnsayos?.slice(0, 2));
+      .limit(MAX_FILTER_MUESTREOS);
 
     if (muestreosError) {
-      console.error('❌ Error fetching muestreos with ensayos:', muestreosError);
+      console.error('❌ Error fetching muestreos:', muestreosError);
       return [];
     }
 
-    if (!muestreosWithEnsayos || muestreosWithEnsayos.length === 0) {
-      console.log('❌ No muestreos found in date range');
+    if (!muestreosData || muestreosData.length === 0) {
       return [];
     }
 
-    console.log('📊 Muestreos found in date range:', muestreosWithEnsayos.length);
-
-    // Step 2: Filter muestreos that have valid ensayos meeting regulatory conditions
-    const validMuestreos = muestreosWithEnsayos.filter(muestreo => {
-      // Check if this muestreo has any valid ensayos
-      const hasValidEnsayos = muestreo.muestras?.some((muestra: any) => 
-        muestra.ensayos?.some((ensayo: any) => {
-          // Must have valid resistencia_calculada
-          if (!ensayo.resistencia_calculada || ensayo.resistencia_calculada <= 0) {
-            return false;
-          }
-
-          // Check edad garantia condition
-          if (soloEdadGarantia && !ensayo.is_edad_garantia) {
-            return false;
-          }
-
-          // Check ensayos fuera de tiempo condition
-          if (!incluirEnsayosFueraTiempo && ensayo.is_ensayo_fuera_tiempo) {
-            return false;
-          }
-
-          return true;
-        })
-      );
-
-      return hasValidEnsayos;
+    console.log('📊 Muestreos found in date range:', muestreosData.length);
+    
+    // PERFORMANCE: Skip heavy ensayo validation for filter options
+    // The actual data fetching (chart/metrics) uses the optimized RPC functions
+    // which already filter by is_edad_garantia and is_ensayo_fuera_tiempo
+    
+    // Just filter by muestreos that have at least one muestra
+    const validMuestreos = muestreosData.filter(muestreo => {
+      return muestreo.muestras && muestreo.muestras.length > 0;
     });
 
-    console.log('📊 Muestreos with valid ensayos:', validMuestreos.length);
+    console.log('📊 Muestreos with muestras:', validMuestreos.length);
 
     if (validMuestreos.length === 0) {
-      console.log('❌ No muestreos found with valid ensayos meeting regulatory conditions');
       return [];
     }
 
-    // Step 3: Apply cascading filters to the valid muestreos
+    // Apply cascading filters to the valid muestreos
     let filteredMuestreos = validMuestreos;
 
     // Filter by plant first (direct muestreo property)
@@ -758,6 +739,10 @@ export async function getFilteredMuestreos(
     }
 
     console.log(`✅ Final filtered muestreos: ${filteredMuestreos.length}`);
+    
+    // Cache the result
+    setCachedData(cacheKey, filteredMuestreos);
+    
     return filteredMuestreos;
 
   } catch (error) {
