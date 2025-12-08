@@ -285,8 +285,8 @@ export async function POST(request: NextRequest) {
       newUserId = existingUser.id;
     }
 
-    // Always attempt to send invitation email, even for existing users
-    // Supabase will handle resending if needed or skip if user is already confirmed
+    // Token-based invitation flow (SendGrid-compatible)
+    // Create user manually and send custom email instead of using Supabase's inviteUserByEmail
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
@@ -297,7 +297,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create admin client for invitation
+    // Create admin client
     const { createClient } = await import('@supabase/supabase-js');
     const supabaseAdmin = createClient(supabaseUrl, serviceRoleKey, {
       auth: {
@@ -306,64 +306,48 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Get redirect URL for invitation
+    // Get origin URL
     const origin = process.env.NEXT_PUBLIC_APP_URL || 
       (typeof window !== 'undefined' ? window.location.origin : 'https://cotizaciones-concreto.vercel.app');
-    const redirectTo = `${origin}/auth/callback`;
 
-    // Invite user by email (this sends the invitation email)
-    // For existing users, this will resend the invitation if they haven't confirmed yet
-    const { data: inviteData, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
-      email,
-      {
-        redirectTo,
-        data: {
+    // If user doesn't exist, create them manually (without sending Supabase email)
+    if (!newUserId) {
+      // Try to create new user without sending email (email_confirm: false)
+      const { data: newUserData, error: createError } = await supabaseAdmin.auth.admin.createUser({
+        email,
+        email_confirm: false, // User will confirm via invitation link
+        user_metadata: {
           first_name: normalizedFirstName,
           last_name: normalizedLastName,
           invited_by: user.id,
           invited_to_client: clientId,
           role: 'EXTERNAL_CLIENT',
+          invited: true,
         },
-      }
-    );
+      });
 
-    if (inviteError) {
-      console.error('Error inviting user:', inviteError);
-      // Don't fail if user already exists and is confirmed - that's expected
-      if (!inviteError.message?.includes('already registered') && !inviteError.message?.includes('already exists')) {
-        return NextResponse.json(
-          { error: inviteError.message || 'Failed to send invitation' },
-          { status: 500 }
-        );
-      }
-      // If user exists, we should have newUserId from existingUser check above
-      // But if invitation failed for a new user, we need to handle it
-      if (!newUserId) {
-        // Try to get user ID from auth.users if invitation partially succeeded
-        try {
-          const { data: authUser } = await supabaseAdmin.auth.admin.getUserByEmail(email);
-          if (authUser?.user?.id) {
-            newUserId = authUser.user.id;
-            console.log('Retrieved user ID from auth.users:', newUserId);
-          } else {
-            console.error('Could not retrieve user ID after invitation error');
+      if (createError) {
+        // If user already exists, try to get their ID from user_profiles (we checked earlier)
+        if (createError.message?.includes('already registered') || createError.message?.includes('already exists')) {
+          // User exists - we should have newUserId from existingUser check above
+          // But if not, the user_profiles check should have found them
+          if (!newUserId) {
+            console.error('User exists in auth but not found in user_profiles - this should not happen');
             return NextResponse.json(
-              { error: 'Error creating user. Please try again.' },
+              { error: 'User already exists but could not be retrieved' },
               { status: 500 }
             );
           }
-        } catch (authError) {
-          console.error('Error retrieving user from auth:', authError);
+        } else {
+          console.error('Error creating user:', createError);
           return NextResponse.json(
-            { error: 'Error creating user. Please try again.' },
+            { error: createError.message || 'Failed to create user' },
             { status: 500 }
           );
         }
+      } else if (newUserData?.user) {
+        newUserId = newUserData.user.id;
       }
-      console.log('User already exists, continuing with existing user:', newUserId);
-    } else if (inviteData?.user) {
-      // If invitation succeeded, use the returned user ID (might be new or existing)
-      newUserId = inviteData.user.id;
     }
 
     // Validate newUserId exists before proceeding
@@ -399,13 +383,23 @@ export async function POST(request: NextRequest) {
 
     if (tokenError) {
       console.error('Error storing invitation token:', tokenError);
-      // Continue anyway - Supabase email was already sent
-    } else {
-      // Send custom email with token-based URL (SendGrid-compatible)
-      const sendgridApiKey = process.env.SENDGRID_API_KEY;
-      const invitationUrl = `${origin}/api/auth/verify-invitation?token=${invitationToken}`;
-      
-      if (sendgridApiKey) {
+      return NextResponse.json(
+        { error: 'Failed to create invitation token' },
+        { status: 500 }
+      );
+    }
+
+    // Send custom email with token-based URL (SendGrid-compatible)
+    const sendgridApiKey = process.env.SENDGRID_API_KEY;
+    const invitationUrl = `${origin}/api/auth/verify-invitation?token=${invitationToken}`;
+    
+    // Log the URL for debugging
+    console.log('Generated invitation URL:', invitationUrl);
+    
+    let emailSent = false;
+    
+    // Try sending via SendGrid first
+    if (sendgridApiKey) {
         const emailHtml = `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -442,7 +436,7 @@ Acepta tu invitación para acceder a todas las herramientas y servicios disponib
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
 <td align="center" style="padding: 0 0 40px 0;">
-<a clicktracking="off" href="${invitationUrl}" style="display: inline-block; background: #00B050; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-weight: 600; font-size: 17px; letter-spacing: -0.2px; box-shadow: 0 4px 12px rgba(0, 176, 80, 0.3);">Aceptar invitación</a>
+<a href="${invitationUrl}" style="display: inline-block; background: #00B050; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-weight: 600; font-size: 17px; letter-spacing: -0.2px; box-shadow: 0 4px 12px rgba(0, 176, 80, 0.3);">Aceptar invitación</a>
 </td>
 </tr>
 </table>
@@ -501,12 +495,40 @@ Si no solicitaste esta invitación, puedes ignorar este mensaje de forma segura.
           if (!sendgridResponse.ok) {
             const errorText = await sendgridResponse.text();
             console.error('Error sending email via SendGrid:', errorText);
+            emailSent = false;
           } else {
             console.log('Custom invitation email sent via SendGrid with token URL');
+            emailSent = true;
           }
         } catch (sendgridError) {
           console.error('Exception sending email via SendGrid:', sendgridError);
+          emailSent = false;
         }
+    }
+
+    // Fallback: If SendGrid email failed or SendGrid is not configured, use Supabase email
+    // But use our token-based URL in the redirectTo
+    if (!emailSent) {
+      console.log('Falling back to Supabase email with token-based redirect');
+      const redirectTo = `${origin}/api/auth/verify-invitation?token=${invitationToken}`;
+      
+      const { error: supabaseEmailError } = await supabaseAdmin.auth.admin.inviteUserByEmail(
+        email,
+        {
+          redirectTo,
+          data: {
+            first_name: normalizedFirstName,
+            last_name: normalizedLastName,
+            invited_by: user.id,
+            invited_to_client: clientId,
+            role: 'EXTERNAL_CLIENT',
+          },
+        }
+      );
+
+      if (supabaseEmailError && !supabaseEmailError.message?.includes('already registered') && !supabaseEmailError.message?.includes('already exists')) {
+        console.error('Error sending fallback Supabase email:', supabaseEmailError);
+        // Continue anyway - token is stored, user can still use it
       }
     }
 
