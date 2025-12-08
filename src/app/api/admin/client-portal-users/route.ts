@@ -293,48 +293,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure user profile exists (create if new user, update if existing)
-    if (!existingUser) {
-      // Create user profile for new users
-      const { error: profileError } = await supabaseAdmin
-        .from('user_profiles')
-        .insert({
-          id: userId,
-          email,
-          first_name: firstName || '',
-          last_name: lastName || '',
-          role: 'EXTERNAL_CLIENT',
-          is_portal_user: true,
-          is_active: true,
-        });
+    // Ensure user profile exists with correct role and portal user flag
+    // Use upsert to handle race condition where trigger may have created profile first
+    // This ensures the profile always has EXTERNAL_CLIENT role and is_portal_user=true
+    const { error: profileUpsertError } = await supabaseAdmin
+      .from('user_profiles')
+      .upsert({
+        id: userId,
+        email,
+        first_name: firstName || '',
+        last_name: lastName || '',
+        role: 'EXTERNAL_CLIENT', // Always ensure role is EXTERNAL_CLIENT for portal users
+        is_portal_user: true,
+        is_active: true,
+      }, {
+        onConflict: 'id',
+        ignoreDuplicates: false, // Update existing records
+      });
 
-      if (profileError) {
-        console.error('Error creating user profile:', profileError);
-        // Check if profile already exists (race condition)
-        if (!profileError.message?.includes('duplicate') && !profileError.code?.includes('23505')) {
-          return NextResponse.json(
-            { error: 'Error al crear perfil de usuario' },
-            { status: 500 }
-          );
-        }
-      }
-    } else {
-      // Update existing user profile to ensure it's marked as portal user and has correct role
-      const { error: profileUpdateError } = await supabaseAdmin
-        .from('user_profiles')
-        .update({
-          first_name: firstName || existingUser.first_name || '',
-          last_name: lastName || existingUser.last_name || '',
-          role: 'EXTERNAL_CLIENT', // Ensure role is set to EXTERNAL_CLIENT for portal users
-          is_portal_user: true,
-          is_active: true,
-        })
-        .eq('id', userId);
-
-      if (profileUpdateError) {
-        console.error('Error updating user profile:', profileUpdateError);
-        // Non-critical error, continue
-      }
+    if (profileUpsertError) {
+      console.error('Error upserting user profile:', profileUpsertError);
+      // Non-critical error - profile might have been created by trigger with correct role
+      // Continue with client assignment
     }
 
     // Assign clients

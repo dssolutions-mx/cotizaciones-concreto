@@ -250,7 +250,7 @@ function getQualitySubMenuItems(userRole: string | undefined, plantCode: string 
 
 // Componente interno para navegación con soporte de roles
 function Navigation({ children }: { children: React.ReactNode }) {
-  const { profile } = useAuthBridge();
+  const { profile, session } = useAuthBridge();
   const { currentPlant } = usePlantContext();
   const pathname = usePathname();
   const router = useRouter();
@@ -291,11 +291,35 @@ function Navigation({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
 
+  // Check for new users (invited but haven't set password) and redirect to password setup
+  useEffect(() => {
+    // Only check if we have a session and profile, and we're not already on an auth page
+    if (session?.user && profile && !isAuthRoute && !isLandingRoute) {
+      // Check if this is a new user who hasn't set their password yet
+      // New users have created_at === last_sign_in_at (they've never logged in with password)
+      const isNewUser = session.user.created_at === session.user.last_sign_in_at;
+      
+      // Also check user metadata for invitation indicators
+      const userMetadata = session.user.user_metadata || {};
+      const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+      
+      if (isNewUser || isInvitationMetadata) {
+        console.log('Root layout: Detected new user/invitation, redirecting to update-password', {
+          isNewUser,
+          isInvitationMetadata,
+          email: session.user.email
+        });
+        router.replace('/update-password?type=invite');
+        return;
+      }
+    }
+  }, [session?.user, profile, pathname, router, isAuthRoute, isLandingRoute]);
+
   // Safety redirect: External clients should always land in client-portal
   useEffect(() => {
     if (profile?.role === 'EXTERNAL_CLIENT' && profile.id && profile.email) {
       const isPortal = pathname?.startsWith('/client-portal');
-      const isAuth = pathname === '/login' || pathname?.startsWith('/auth');
+      const isAuth = pathname === '/login' || pathname?.startsWith('/auth') || pathname?.startsWith('/update-password');
       if (!isPortal && !isAuth) {
         console.log(`Root layout: Redirecting external client ${profile.email} to client-portal`);
         router.replace('/client-portal');

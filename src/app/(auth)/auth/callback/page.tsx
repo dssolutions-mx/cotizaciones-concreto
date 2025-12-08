@@ -67,49 +67,83 @@ function AuthCallbackHandler() {
       if (!accessToken && !code && typeof window !== 'undefined') {
         const currentUrl = window.location.href;
         
-        // Check if this is a SendGrid tracking URL
-        if (currentUrl.includes('sendgrid.net') || currentUrl.includes('ct.sendgrid.net')) {
-          console.log('Detected SendGrid redirect, attempting to recover session');
+        // Check if this is a SendGrid tracking URL (check both current URL and referrer)
+        const isSendGridUrl = currentUrl.includes('sendgrid.net') || 
+                              currentUrl.includes('ct.sendgrid.net') ||
+                              (typeof document !== 'undefined' && document.referrer?.includes('sendgrid.net'));
+        
+        if (isSendGridUrl) {
+          console.log('Detected SendGrid redirect, attempting to recover session', {
+            currentUrl,
+            referrer: typeof document !== 'undefined' ? document.referrer : 'N/A'
+          });
           
           // Try to get the original URL from SendGrid's redirect
           // SendGrid typically redirects to the original URL, so check if we can get session
           try {
-            // Wait a bit for any redirects to complete
-            await new Promise(resolve => setTimeout(resolve, 500));
+            // Wait a bit for any redirects to complete and Supabase to process
+            await new Promise(resolve => setTimeout(resolve, 1000));
             
             // Check if Supabase can recover the session
             const { data: { session }, error: sessionError } = await supabase.auth.getSession();
             
             if (session && !sessionError) {
-              console.log('Recovered session from Supabase after SendGrid redirect');
+              console.log('Recovered session from Supabase after SendGrid redirect', {
+                email: session.user?.email,
+                created_at: session.user?.created_at,
+                last_sign_in_at: session.user?.last_sign_in_at
+              });
+              
               // Check if this is a new user (invitation flow)
               const isNewUser = session.user?.created_at === session.user?.last_sign_in_at;
               
-              if (isNewUser) {
-                console.log('New user detected, redirecting to update-password');
-                router.push('/update-password');
+              // Also check user metadata for invitation indicators
+              const userMetadata = session.user?.user_metadata || {};
+              const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+              
+              if (isNewUser || isInvitationMetadata) {
+                console.log('New user/invitation detected from SendGrid redirect, redirecting to update-password', {
+                  isNewUser,
+                  isInvitationMetadata
+                });
+                router.push('/update-password?type=invite');
                 return;
               } else {
                 const target = await getRedirectTarget();
                 router.push(target);
                 return;
               }
+            } else {
+              console.log('No session recovered from SendGrid redirect, will continue with normal flow');
             }
           } catch (recoveryError) {
             console.error('Error recovering session from SendGrid redirect:', recoveryError);
           }
         }
         
-        // Also try to recover session even if not SendGrid redirect
+        // Also try to recover session even if not SendGrid redirect (might be other email client)
+        // This handles cases where hash is lost for other reasons
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (session && !sessionError) {
-          console.log('Found existing session, checking if new user');
+          console.log('Found existing session without hash params, checking if new user', {
+            email: session.user?.email,
+            created_at: session.user?.created_at,
+            last_sign_in_at: session.user?.last_sign_in_at
+          });
+          
           const isNewUser = session.user?.created_at === session.user?.last_sign_in_at;
           
-          if (isNewUser) {
-            console.log('New user detected from session, redirecting to update-password');
-            router.push('/update-password');
+          // Also check user metadata for invitation indicators
+          const userMetadata = session.user?.user_metadata || {};
+          const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+          
+          if (isNewUser || isInvitationMetadata) {
+            console.log('New user/invitation detected from session (no hash), redirecting to update-password', {
+              isNewUser,
+              isInvitationMetadata
+            });
+            router.push('/update-password?type=invite');
             return;
           }
         }
@@ -131,16 +165,28 @@ function AuthCallbackHandler() {
         }
 
         // Check if this is a new user (likely from invitation) or password recovery
+        // New users have created_at === last_sign_in_at (they've never logged in)
         const isNewUser = data.user?.created_at === data.user?.last_sign_in_at;
         const isRecoveryFlow = type === 'recovery' || recoveryType === 'recovery';
+        
+        // Also check if user metadata indicates this is an invitation
+        const userMetadata = data.user?.user_metadata || {};
+        const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
 
         // Both new users (invitations) and password recovery should go to update-password
-        if (isNewUser || type === 'invite' || type === 'signup' || isRecoveryFlow) {
-          console.log('Redirecting to update-password', { isNewUser, type, isRecoveryFlow });
-          // Pass recovery type if it's a recovery flow
+        // Be more aggressive: if type is invite/signup OR if it's a new user OR if metadata indicates invitation
+        if (isNewUser || type === 'invite' || type === 'signup' || isRecoveryFlow || isInvitationMetadata) {
+          console.log('Redirecting to update-password', { 
+            isNewUser, 
+            type, 
+            isRecoveryFlow, 
+            isInvitationMetadata,
+            userMetadata 
+          });
+          // Pass recovery type if it's a recovery flow, otherwise pass invite type
           const updatePasswordUrl = isRecoveryFlow 
             ? '/update-password?type=recovery'
-            : '/update-password';
+            : '/update-password?type=invite';
           router.push(updatePasswordUrl);
         } else {
           const target = await getRedirectTarget();
@@ -194,11 +240,19 @@ function AuthCallbackHandler() {
         const isRecoveryFlow = recoveryType === 'recovery';
         const isNewUser = data.user?.created_at === data.user?.last_sign_in_at;
         
-        if (isRecoveryFlow || isNewUser) {
-          console.log('Password recovery or new user flow detected, redirecting to update-password');
+        // Also check user metadata for invitation indicators
+        const userMetadata = data.user?.user_metadata || {};
+        const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+        
+        if (isRecoveryFlow || isNewUser || isInvitationMetadata) {
+          console.log('Password recovery or new user flow detected, redirecting to update-password', {
+            isRecoveryFlow,
+            isNewUser,
+            isInvitationMetadata
+          });
           const updatePasswordUrl = isRecoveryFlow 
             ? '/update-password?type=recovery'
-            : '/update-password';
+            : '/update-password?type=invite';
           router.push(updatePasswordUrl);
         } else {
           const target = await getRedirectTarget();
@@ -214,9 +268,16 @@ function AuthCallbackHandler() {
           // Check if this might be a new user from invitation (SendGrid might have lost hash)
           const isNewUser = sessionData.session.user?.created_at === sessionData.session.user?.last_sign_in_at;
           
-          if (isNewUser) {
-            console.log('New user detected from session, redirecting to update-password');
-            router.push('/update-password');
+          // Also check user metadata for invitation indicators
+          const userMetadata = sessionData.session.user?.user_metadata || {};
+          const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+          
+          if (isNewUser || isInvitationMetadata) {
+            console.log('New user or invitation detected from session, redirecting to update-password', {
+              isNewUser,
+              isInvitationMetadata
+            });
+            router.push('/update-password?type=invite');
           } else {
             const target = await getRedirectTarget();
             router.push(target);

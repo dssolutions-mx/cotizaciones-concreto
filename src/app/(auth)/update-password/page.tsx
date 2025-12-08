@@ -135,6 +135,7 @@ function UpdatePasswordForm() {
         
         // Determine flow type: invitation (new user) or recovery (existing user resetting password)
         // Recovery flow is indicated by type=recovery parameter (set by auth/callback)
+        // Invitation flow is indicated by type=invite parameter (set by auth/callback for new users)
         const isRecoveryFlow = type === 'recovery';
         const isInvitationFlow = type === 'invite' || type === 'signup' || tokenType === 'invite' || tokenType === 'signup';
         
@@ -144,6 +145,17 @@ function UpdatePasswordForm() {
         } else if (isInvitationFlow) {
           console.log('Detected invitation flow from URL parameters');
           setInvitationFlow(true);
+        } else {
+          // If no type parameter, check if user is new (created_at === last_sign_in_at)
+          // This handles cases where the type parameter might be missing
+          const { data: sessionCheck } = await supabase.auth.getSession();
+          if (sessionCheck?.session) {
+            const isNewUser = sessionCheck.session.user?.created_at === sessionCheck.session.user?.last_sign_in_at;
+            if (isNewUser) {
+              console.log('Detected new user from session (no type parameter), assuming invitation flow');
+              setInvitationFlow(true);
+            }
+          }
         }
         
         // Process tokens if present in URL hash (invitation flow)
@@ -779,7 +791,7 @@ function UpdatePasswordForm() {
           </div>
           <h1 className="text-title-1 font-bold text-label-primary">
             {invitationFlow 
-              ? (isClientPortalUser ? 'Bienvenido al Portal de Cliente' : 'Configura tu Contraseña')
+              ? (isClientPortalUser ? '¡Bienvenido al Portal de Cliente!' : '¡Bienvenido! Configura tu Contraseña')
               : (searchParams.get('type') === 'recovery' 
                   ? 'Restablecer Contraseña'
                   : 'Actualizar Contraseña')}
@@ -787,8 +799,8 @@ function UpdatePasswordForm() {
           <p className="mt-2 text-callout text-label-secondary">
             {invitationFlow 
               ? (isClientPortalUser 
-                  ? 'Crea una contraseña para acceder al portal de cliente y gestionar tus pedidos'
-                  : 'Crea una contraseña para acceder a tu cuenta')
+                  ? `Has sido invitado a acceder al portal de cliente. Crea una contraseña segura para comenzar a gestionar tus pedidos, ver cotizaciones y acceder a información de calidad.`
+                  : 'Has sido invitado a acceder al sistema. Crea una contraseña segura para comenzar a usar tu cuenta.')
               : (searchParams.get('type') === 'recovery'
                   ? 'Ingresa una nueva contraseña para tu cuenta'
                   : 'Crea una nueva contraseña para tu cuenta')}
