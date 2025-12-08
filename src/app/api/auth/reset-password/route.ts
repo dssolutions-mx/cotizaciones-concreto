@@ -37,18 +37,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Check if user exists
-    const { data: userData, error: userError } = await supabaseAdmin.auth.admin.getUserByEmail(email);
-
-    if (userError || !userData?.user) {
-      // Don't reveal if user exists or not (security best practice)
-      // Return success even if user doesn't exist to prevent email enumeration
-      console.log('User not found for password reset:', email);
-      return NextResponse.json({
-        success: true,
-        message: 'If an account exists with this email, a password reset link has been sent.',
-      });
-    }
+    // Try to generate recovery link - Supabase will handle invalid emails gracefully
+    // We don't check if user exists first to prevent email enumeration attacks
 
     // Get origin URL - use dcconcretos-hub.com as default
     const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com';
@@ -63,14 +53,18 @@ export async function POST(request: NextRequest) {
     });
 
     if (linkError || !linkData?.properties?.action_link) {
-      console.error('Error generating recovery link:', linkError);
-      return NextResponse.json(
-        { error: 'Failed to generate password reset link' },
-        { status: 500 }
-      );
+      // Don't reveal if user exists or not (security best practice)
+      // Return success even if link generation fails to prevent email enumeration
+      console.log('Error generating recovery link (user may not exist):', linkError?.message);
+      // Still return success to prevent email enumeration
+      return NextResponse.json({
+        success: true,
+        message: 'If an account exists with this email, a password reset link has been sent.',
+      });
     }
 
     const resetLink = linkData.properties.action_link;
+    console.log('Recovery link generated successfully, sending email via SendGrid');
 
     // Custom email template
     const emailHtml = `
@@ -179,53 +173,64 @@ Si no solicitaste este cambio, tu cuenta permanece segura. Simplemente ignora es
     const sendgridApiKey = process.env.SENDGRID_API_KEY;
     let emailSent = false;
 
-    if (sendgridApiKey) {
-      try {
-        const sendgridResponse = await fetch('https://api.sendgrid.com/v3/mail/send', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${sendgridApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            personalizations: [{
-              to: [{ email }],
-            }],
-            from: {
-              email: 'juan.aguirre@dssolutions-mx.com',
-              name: 'DC Concretos',
-            },
-            subject: 'Restablecer Contraseña - DC HUB',
-            content: [{
-              type: 'text/html',
-              value: emailHtml,
-            }],
-            tracking_settings: {
-              click_tracking: {
-                enable: false, // Disable click tracking to prevent link wrapping
-              },
-              open_tracking: {
-                enable: true, // Keep open tracking for analytics
-              },
-            },
-          }),
-        });
-
-        if (!sendgridResponse.ok) {
-          const errorText = await sendgridResponse.text();
-          console.error('Error sending password reset email via SendGrid:', errorText);
-          emailSent = false;
-        } else {
-          console.log('Password reset email sent via SendGrid');
-          emailSent = true;
-        }
-      } catch (sendgridError) {
-        console.error('Exception sending password reset email via SendGrid:', sendgridError);
-        emailSent = false;
-      }
+    if (!sendgridApiKey) {
+      console.error('SENDGRID_API_KEY not configured');
+      return NextResponse.json(
+        { error: 'Email service not configured. Please contact support.' },
+        { status: 500 }
+      );
     }
 
-    // If SendGrid email failed, return error (no fallback to avoid SendGrid tracking issues)
+    try {
+      console.log('Attempting to send password reset email via SendGrid to:', email);
+      const sendgridResponse = await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${sendgridApiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          personalizations: [{
+            to: [{ email }],
+          }],
+          from: {
+            email: 'juan.aguirre@dssolutions-mx.com',
+            name: 'DC Concretos',
+          },
+          subject: 'Restablecer Contraseña - DC HUB',
+          content: [{
+            type: 'text/html',
+            value: emailHtml,
+          }],
+          tracking_settings: {
+            click_tracking: {
+              enable: false, // Disable click tracking to prevent link wrapping
+            },
+            open_tracking: {
+              enable: true, // Keep open tracking for analytics
+            },
+          },
+        }),
+      });
+
+      if (!sendgridResponse.ok) {
+        const errorText = await sendgridResponse.text();
+        console.error('SendGrid API error response:', {
+          status: sendgridResponse.status,
+          statusText: sendgridResponse.statusText,
+          error: errorText,
+        });
+        emailSent = false;
+      } else {
+        console.log('Password reset email sent successfully via SendGrid to:', email);
+        emailSent = true;
+      }
+    } catch (sendgridError) {
+      console.error('Exception sending password reset email via SendGrid:', sendgridError);
+      emailSent = false;
+    }
+
+    // If SendGrid email failed, return error
     if (!emailSent) {
       console.error('Failed to send password reset email via SendGrid');
       return NextResponse.json(

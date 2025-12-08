@@ -896,46 +896,55 @@ function UpdatePasswordForm() {
             )}
             <div className="mt-4 text-center">
               <button
-                onClick={async () => {
-                  // Only force logout for invitation flow, not recovery flow
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  
+                  console.log('Iniciar Sesión button clicked', { invitationFlow, isClientPortalUser });
+                  
+                  // Use a synchronous redirect to ensure it always works
                   if (invitationFlow) {
+                    // Invitation flow: Force logout and redirect
+                    console.log('Invitation flow: Redirecting to login with logout');
+                    
+                    // Perform logout asynchronously but redirect immediately
+                    supabase.auth.signOut({ scope: 'global' }).catch(err => {
+                      console.error('Logout error (continuing anyway):', err);
+                    });
+                    
+                    // Clear storage synchronously
                     try {
-                      console.log('Forcing logout before redirecting to login (invitation flow)');
-                      await supabase.auth.signOut({ scope: 'global' });
-                      
-                      // Clear all storage
-                      try {
-                        Object.keys(localStorage).forEach(key => {
-                          if (key.toLowerCase().includes('auth') || 
-                              key.toLowerCase().includes('token') || 
-                              key.toLowerCase().includes('supabase') || 
-                              key.toLowerCase().includes('sb-')) {
-                            localStorage.removeItem(key);
-                          }
-                        });
-                        sessionStorage.clear();
-                      } catch (e) {
-                        console.error('Error clearing storage:', e);
-                      }
-                      
-                      // Hard redirect to login with force_logout flag
-                      window.location.href = '/login?force_logout=true&password_set=true';
-                    } catch (error) {
-                      console.error('Error during logout:', error);
-                      // Still redirect even if logout fails
-                      window.location.href = '/login?force_logout=true&password_set=true';
+                      Object.keys(localStorage).forEach(key => {
+                        if (key.toLowerCase().includes('auth') || 
+                            key.toLowerCase().includes('token') || 
+                            key.toLowerCase().includes('supabase') || 
+                            key.toLowerCase().includes('sb-')) {
+                          localStorage.removeItem(key);
+                        }
+                      });
+                      sessionStorage.clear();
+                    } catch (storageErr) {
+                      console.error('Storage clear error:', storageErr);
                     }
+                    
+                    // Immediate redirect
+                    window.location.href = '/login?force_logout=true&password_set=true';
                   } else {
-                    // Recovery flow: Just redirect to login normally (user is already logged in)
+                    // Recovery flow: Just redirect to login normally
+                    console.log('Recovery flow: Redirecting to login');
                     const redirectUrl = new URL('/login', window.location.origin);
                     redirectUrl.searchParams.set('updated', 'true');
                     if (isClientPortalUser) {
                       redirectUrl.searchParams.set('redirect', '/client-portal');
                     }
+                    console.log('Redirecting to:', redirectUrl.toString());
                     window.location.href = redirectUrl.toString();
                   }
                 }}
-                className="inline-block px-6 py-3 text-callout font-medium text-white bg-blue-600 rounded-2xl hover:bg-blue-700 transition-all shadow-lg"
+                className="inline-block px-6 py-3 text-callout font-medium text-white bg-blue-600 rounded-2xl hover:bg-blue-700 transition-all shadow-lg cursor-pointer active:bg-blue-800"
+                disabled={loading}
+                style={{ pointerEvents: loading ? 'none' : 'auto' }}
               >
                 Ir a Iniciar Sesión Ahora
               </button>
