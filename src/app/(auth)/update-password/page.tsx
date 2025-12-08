@@ -821,18 +821,14 @@ function UpdatePasswordForm() {
           <h1 className="text-title-1 font-bold text-label-primary">
             {invitationFlow 
               ? (isClientPortalUser ? '¡Bienvenido al Portal de Cliente!' : '¡Bienvenido! Configura tu Contraseña')
-              : (searchParams.get('type') === 'recovery' 
-                  ? 'Restablecer Contraseña'
-                  : 'Actualizar Contraseña')}
+              : 'Restablecer Contraseña'}
           </h1>
           <p className="mt-2 text-callout text-label-secondary">
             {invitationFlow 
               ? (isClientPortalUser 
                   ? `Has sido invitado a acceder al portal de cliente. Crea una contraseña segura para comenzar a gestionar tus pedidos, ver cotizaciones y acceder a información de calidad.`
                   : 'Has sido invitado a acceder al sistema. Crea una contraseña segura para comenzar a usar tu cuenta.')
-              : (searchParams.get('type') === 'recovery'
-                  ? 'Ingresa una nueva contraseña para tu cuenta'
-                  : 'Crea una nueva contraseña para tu cuenta')}
+              : 'Ingresa una nueva contraseña para tu cuenta. Asegúrate de usar una contraseña segura que no hayas usado anteriormente.'}
           </p>
           {userName && (
             <p className="mt-2 text-body font-semibold text-label-primary">
