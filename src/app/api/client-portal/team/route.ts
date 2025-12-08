@@ -306,9 +306,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Get origin URL
-    const origin = process.env.NEXT_PUBLIC_APP_URL || 
-      (typeof window !== 'undefined' ? window.location.origin : 'https://cotizaciones-concreto.vercel.app');
+    // Get origin URL - use dcconcretos-hub.com as default
+    const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com';
 
     // If user doesn't exist, create them manually (without sending Supabase email)
     if (!newUserId) {
@@ -489,6 +488,14 @@ Si no solicitaste esta invitación, puedes ignorar este mensaje de forma segura.
                 type: 'text/html',
                 value: emailHtml,
               }],
+              tracking_settings: {
+                click_tracking: {
+                  enable: false, // Disable click tracking to prevent link wrapping
+                },
+                open_tracking: {
+                  enable: true, // Keep open tracking for analytics
+                },
+              },
             }),
           });
 

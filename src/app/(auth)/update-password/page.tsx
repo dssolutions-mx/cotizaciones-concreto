@@ -707,7 +707,11 @@ function UpdatePasswordForm() {
       
       // Update password directly using the authenticated session
       const { data: userData, error } = await supabase.auth.updateUser({
-        password: password
+        password: password,
+        data: {
+          password_set: true, // Mark that user has set their password
+          password_set_at: new Date().toISOString(),
+        }
       });
 
       if (error) {

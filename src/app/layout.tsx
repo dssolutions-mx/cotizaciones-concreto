@@ -302,11 +302,14 @@ function Navigation({ children }: { children: React.ReactNode }) {
       // Also check user metadata for invitation indicators
       const userMetadata = session.user.user_metadata || {};
       const isInvitationMetadata = userMetadata.invited === true || userMetadata.role === 'EXTERNAL_CLIENT';
+      const hasPasswordSet = userMetadata.password_set === true; // Check if password has been set
       
-      if (isNewUser || isInvitationMetadata) {
-        console.log('Root layout: Detected new user/invitation, redirecting to update-password', {
+      // Only redirect if user is new/invited AND hasn't set password yet
+      if ((isNewUser || isInvitationMetadata) && !hasPasswordSet) {
+        console.log('Root layout: Detected new user/invitation without password, redirecting to update-password', {
           isNewUser,
           isInvitationMetadata,
+          hasPasswordSet,
           email: session.user.email
         });
         router.replace('/update-password?type=invite');

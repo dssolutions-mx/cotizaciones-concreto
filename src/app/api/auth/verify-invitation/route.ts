@@ -85,8 +85,7 @@ export async function GET(request: NextRequest) {
 
     // Generate a magic link for the user to establish session
     // This creates a one-time link that establishes the session when clicked
-    const origin = process.env.NEXT_PUBLIC_APP_URL || 
-      (typeof request.headers.get('host') ? `https://${request.headers.get('host')}` : 'https://cotizaciones-concreto.vercel.app');
+    const origin = process.env.NEXT_PUBLIC_APP_URL || 'https://dcconcretos-hub.com';
     
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: 'magiclink',
