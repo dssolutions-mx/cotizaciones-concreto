@@ -335,12 +335,18 @@ export function getSiteChecks(data: ClientQualityData): any[] {
 
 /**
  * Calculate quality statistics for analysis
- * IMPORTANT: Uses all edad_garantia ensayos (including fuera de tiempo)
+ * IMPORTANT: Only uses edad_garantia ensayos that are NOT fuera de tiempo
+ * Ensayos fuera de tiempo should NOT count for compliance measurement
  */
 export function calculateQualityStats(data: ClientQualityData) {
   const allEnsayos = data.remisiones.flatMap(r => 
     r.muestreos.flatMap(m => 
-      m.muestras.flatMap(mu => mu.ensayos.filter(e => e.isEdadGarantia))
+      m.muestras.flatMap(mu => mu.ensayos.filter(e => 
+        e.isEdadGarantia && 
+        !e.isEnsayoFueraTiempo &&
+        (e.resistenciaCalculada || 0) > 0 &&
+        (e.porcentajeCumplimiento || 0) > 0
+      ))
     )
   );
   

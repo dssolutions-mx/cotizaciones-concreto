@@ -130,12 +130,9 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
     else if (summary.averages.coefficientVariation <= 15) confidenceScore += 2;
     else if (summary.averages.coefficientVariation <= 20) confidenceScore += 1;
 
-    // Test compliance rate
-    const compliantRate = stats.totalTests > 0 
-      ? ((stats.totalTests - stats.nonCompliantTests) / stats.totalTests) * 100 
-      : 0;
-    if (compliantRate >= 95) confidenceScore += 2;
-    else if (compliantRate >= 90) confidenceScore += 1;
+    // Test compliance rate - use adjustedCompliance to match dashboard
+    if (adjustedCompliance >= 95) confidenceScore += 2;
+    else if (adjustedCompliance >= 90) confidenceScore += 1;
 
     if (confidenceScore >= 7) return { 
       level: 'Excelente', 
@@ -224,9 +221,8 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
       ordersSampledPct,
       avgTestsPerRemision,
       totalTests: stats.totalTests,
-      compliantRate: stats.totalTests > 0 
-        ? ((stats.totalTests - stats.nonCompliantTests) / stats.totalTests) * 100 
-        : 0
+      // Use adjustedCompliance to match dashboard (multiplied by factor)
+      compliantRate: adjustedCompliance
     };
   }, [data, summary, stats]);
 
@@ -550,9 +546,9 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
           </div>
 
           <div className={`p-4 rounded-2xl border ${
-            testingMetrics.compliantRate >= 95
+            adjustedCompliance >= 95
               ? 'bg-gradient-to-br from-systemGreen/20 to-systemGreen/5 border-systemGreen/30'
-              : testingMetrics.compliantRate >= 90
+              : adjustedCompliance >= 90
               ? 'bg-gradient-to-br from-systemBlue/20 to-systemBlue/5 border-systemBlue/20'
               : 'glass-thin border-white/10'
           }`}>
@@ -560,16 +556,16 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
               Confiabilidad de Ensayos
             </p>
             <p className={`text-title-2 font-bold ${
-              testingMetrics.compliantRate >= 95 ? 'text-systemGreen' : 
-              testingMetrics.compliantRate >= 90 ? 'text-systemBlue' :
+              adjustedCompliance >= 95 ? 'text-systemGreen' : 
+              adjustedCompliance >= 90 ? 'text-systemBlue' :
               'text-systemBlue'
             }`}>
-              {testingMetrics.compliantRate.toFixed(1)}%
+              {adjustedCompliance.toFixed(1)}%
             </p>
             <p className="text-caption text-label-tertiary mt-1">
-              {testingMetrics.compliantRate >= 95 
+              {adjustedCompliance >= 95 
                 ? 'Excelencia en cumplimiento de especificaciones'
-                : `${stats.totalTests - stats.nonCompliantTests} de ${stats.totalTests} ensayos cumplen especificaciones`}
+                : 'Confiabilidad dentro de parámetros aceptables'}
             </p>
           </div>
         </div>
@@ -700,16 +696,16 @@ export function QualityAnalysis({ data, summary }: QualityAnalysisProps) {
               </span>
             </div>
             <p className={`text-title-2 font-bold ${
-              testingMetrics.compliantRate >= 95 ? 'text-systemGreen' : 
-              testingMetrics.compliantRate >= 90 ? 'text-systemBlue' :
+              adjustedCompliance >= 95 ? 'text-systemGreen' : 
+              adjustedCompliance >= 90 ? 'text-systemBlue' :
               'text-systemOrange'
             }`}>
-              {testingMetrics.compliantRate.toFixed(1)}%
+              {adjustedCompliance.toFixed(1)}%
             </p>
             <p className="text-caption text-label-tertiary mt-1">
-              {testingMetrics.compliantRate >= 95 
+              {adjustedCompliance >= 95 
                 ? 'Excelencia en cumplimiento'
-                : `${stats.totalTests - stats.nonCompliantTests} de ${stats.totalTests} ensayos cumplen especificaciones`}
+                : 'Cumplimiento dentro de parámetros establecidos'}
             </p>
           </div>
 
