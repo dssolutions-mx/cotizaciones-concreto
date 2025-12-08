@@ -870,12 +870,40 @@ function UpdatePasswordForm() {
               </p>
             )}
             <div className="mt-4 text-center">
-              <Link
-                href="/login?force_logout=true"
+              <button
+                onClick={async () => {
+                  // Force complete logout before redirecting
+                  try {
+                    console.log('Forcing logout before redirecting to login');
+                    await supabase.auth.signOut({ scope: 'global' });
+                    
+                    // Clear all storage
+                    try {
+                      Object.keys(localStorage).forEach(key => {
+                        if (key.toLowerCase().includes('auth') || 
+                            key.toLowerCase().includes('token') || 
+                            key.toLowerCase().includes('supabase') || 
+                            key.toLowerCase().includes('sb-')) {
+                          localStorage.removeItem(key);
+                        }
+                      });
+                      sessionStorage.clear();
+                    } catch (e) {
+                      console.error('Error clearing storage:', e);
+                    }
+                    
+                    // Hard redirect to login with force_logout flag
+                    window.location.href = '/login?force_logout=true&password_set=true';
+                  } catch (error) {
+                    console.error('Error during logout:', error);
+                    // Still redirect even if logout fails
+                    window.location.href = '/login?force_logout=true&password_set=true';
+                  }
+                }}
                 className="inline-block px-6 py-3 text-callout font-medium text-white bg-blue-600 rounded-2xl hover:bg-blue-700 transition-all shadow-lg"
               >
                 Ir a Iniciar Sesión Ahora
-              </Link>
+              </button>
             </div>
           </div>
         )}

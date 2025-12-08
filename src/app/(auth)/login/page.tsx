@@ -40,6 +40,16 @@ function LoginForm() {
       profileId: profile?.id
     });
     
+    // Check for force_logout or password_set - don't auto-redirect in these cases
+    // User needs to log in with their new password
+    const forceLogout = searchParams.get('force_logout') === 'true';
+    const passwordSet = searchParams.get('password_set') === 'true';
+    
+    if (forceLogout || passwordSet) {
+      console.log('[Login] Force logout/password set detected - showing login form instead of auto-redirecting');
+      return; // Don't auto-redirect, let user log in manually
+    }
+    
     // Check for redirect parameter first (from password update flow)
     const redirectParam = searchParams.get('redirect');
     if (redirectParam && profile && !loading) {
@@ -85,10 +95,32 @@ function LoginForm() {
     }
 
     const forceLogout = searchParams.get('force_logout') === 'true';
-    if (forceLogout) {
-      // Simple logout for password reset scenarios
-      supabase.auth.signOut({ scope: 'global' });
-      setSuccess('La sesión se ha cerrado. Por favor, inicia sesión con tu nueva contraseña.');
+    const passwordSet = searchParams.get('password_set') === 'true';
+    
+    if (forceLogout || passwordSet) {
+      // Force logout for password reset/setup scenarios
+      supabase.auth.signOut({ scope: 'global' }).then(() => {
+        // Clear all storage after sign out
+        try {
+          Object.keys(localStorage).forEach(key => {
+            if (key.toLowerCase().includes('auth') || 
+                key.toLowerCase().includes('token') || 
+                key.toLowerCase().includes('supabase') || 
+                key.toLowerCase().includes('sb-')) {
+              localStorage.removeItem(key);
+            }
+          });
+          sessionStorage.clear();
+        } catch (e) {
+          console.error('Error clearing storage:', e);
+        }
+      });
+      
+      if (passwordSet) {
+        setSuccess('¡Contraseña configurada exitosamente! Por favor, inicia sesión con tu nueva contraseña.');
+      } else {
+        setSuccess('La sesión se ha cerrado. Por favor, inicia sesión con tu nueva contraseña.');
+      }
     }
   }, [searchParams]);
 
