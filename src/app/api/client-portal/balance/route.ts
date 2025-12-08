@@ -130,12 +130,24 @@ export async function GET(request: Request) {
 
     // Fetch balance adjustments - RLS will filter automatically
     const { data: adjustments, error: adjustmentsError } = await supabase
-      .rpc('get_client_balance_adjustments', { p_client_id: clientId })
-      .limit(10);
+      .rpc('get_client_balance_adjustments', { p_client_id: clientId });
 
     if (adjustmentsError) {
       console.error('Balance API: Adjustments query error:', adjustmentsError);
     }
+
+    // Compute net adjustments (DEBT aumenta saldo, CREDIT lo reduce)
+    const netAdjustments =
+      (adjustments || []).reduce((sum: number, a: any) => {
+        const amount = parseFloat(a.amount) || 0;
+        const dir =
+          a.transfer_type === 'DEBT'
+            ? 1
+            : a.transfer_type === 'CREDIT'
+            ? -1
+            : 0;
+        return sum + dir * amount;
+      }, 0) || 0;
 
     // Get orders with construction site information for the selected date range
     let ordersQuery = supabase
@@ -237,7 +249,9 @@ export async function GET(request: Request) {
         current_balance: parseFloat(generalBalance?.current_balance as any) || 0,
         total_delivered: totalConsumption,
         total_paid: totalPaid,
-        total_volume: totalDeliveredVolume
+        total_volume: totalDeliveredVolume,
+        total_adjustments: netAdjustments,
+        expected_balance: totalConsumption - totalPaid + netAdjustments
       },
       sites: sitesWithVolume,
       recentPayments: (payments || []).map(p => ({

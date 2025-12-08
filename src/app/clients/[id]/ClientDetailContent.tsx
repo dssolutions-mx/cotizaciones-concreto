@@ -547,6 +547,38 @@ function EditSiteForm({ site, clientId, onSiteUpdated, onCancel }: { site: Const
 function ClientBalanceSummary({ balances }: { balances: ClientBalance[] }) {
   const generalBalance = balances.find(balance => balance.construction_site === null);
   const siteBalances = balances.filter(balance => balance.construction_site !== null);
+  const [netAdjustments, setNetAdjustments] = useState<number>(0);
+  const [loadingAdjustments, setLoadingAdjustments] = useState<boolean>(false);
+
+  // Cargar ajustes netos (DEBT suma, CREDIT resta) para mostrar que el balance general ya los incluye
+  useEffect(() => {
+    const loadAdjustments = async () => {
+      try {
+        setLoadingAdjustments(true);
+        const { data, error } = await supabase.rpc('get_client_balance_adjustments', { p_client_id: generalBalance?.client_id });
+        if (error) {
+          console.error('Error loading adjustments (summary):', error);
+          setNetAdjustments(0);
+          return;
+        }
+        const list = (data as any[]) || [];
+        // Usar effect_on_client que ya tiene el signo correcto calculado en el servidor
+        const net = list.reduce((sum, a: any) => {
+          const effect = Number(a.effect_on_client) || 0;
+          return sum + effect;
+        }, 0);
+        setNetAdjustments(net);
+      } catch (e) {
+        console.error('Unexpected error loading adjustments (summary):', e);
+        setNetAdjustments(0);
+      } finally {
+        setLoadingAdjustments(false);
+      }
+    };
+    if (generalBalance?.client_id) {
+      loadAdjustments();
+    }
+  }, [generalBalance?.client_id]);
 
   // Format balance helper
   const formatBal = (amount: number | undefined) => {
@@ -565,11 +597,17 @@ function ClientBalanceSummary({ balances }: { balances: ClientBalance[] }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {/* General Balance */}
-        <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
           <div className="flex justify-between items-center">
-            <span className="text-gray-700 font-medium">Balance Total</span>
+            <span className="text-gray-700 font-medium">Balance Total (incluye ajustes)</span>
             <span className={`text-lg font-bold ${generalBalance && generalBalance.current_balance > 0 ? 'text-red-600' : 'text-green-600'}`}>
               {formatBal(generalBalance?.current_balance)}
+            </span>
+          </div>
+          <div className="flex justify-between text-sm text-gray-700">
+            <span>Ajustes netos</span>
+            <span className={`${netAdjustments > 0 ? 'text-red-600' : netAdjustments < 0 ? 'text-green-600' : 'text-gray-700'} font-semibold`}>
+              {loadingAdjustments ? 'Cargando...' : formatBal(netAdjustments)}
             </span>
           </div>
         </div>
@@ -683,10 +721,13 @@ function ClientBalanceBreakdown({
           return;
         }
         const list = (data as any[]) || [];
+        // Usar effect_on_client que ya tiene el signo correcto calculado en el servidor
+        // Considera si el cliente es SOURCE o TARGET de transferencias
         const net = list.reduce((sum, a: any) => {
-          const amount = Number(a.amount) || 0;
-          const dir = a.transfer_type === 'DEBT' ? 1 : -1; // DEBT incrementa saldo, CREDIT reduce
-          return sum + dir * amount;
+          // effect_on_client ya tiene el signo correcto:
+          // + = aumenta deuda del cliente, - = reduce deuda del cliente
+          const effect = Number(a.effect_on_client) || 0;
+          return sum + effect;
         }, 0);
         setNetAdjustments(net);
         setAdjustmentCount(list.length);
@@ -843,19 +884,26 @@ function ClientBalanceBreakdown({
       const consumption = ordersForSite.reduce((sum, r) => sum + computeOrderWithVat(r), 0);
       const paymentsForSite = (payments || []).filter(p => (p.construction_site || '::GENERAL') === key);
       const paymentsSum = paymentsForSite.reduce((s, p) => s + (p.amount || 0), 0);
+      // Calcular ajustes usando effect_on_client (ya tiene el signo correcto)
+      // Los ajustes solo se aplican a General; las obras no tienen ajustes directos
       let adjustmentsSum = 0;
-      (adjustmentsList || []).forEach((a: any) => {
-        const dir = a.transfer_type === 'DEBT' ? 1 : -1; // DEBT incrementa saldo, CREDIT reduce
-        if (a.adjustment_type === 'SITE_TRANSFER') {
-          if ((a.source_site || '::GENERAL') === key) adjustmentsSum += dir * (Number(a.amount) || 0);
-          if ((a.target_site || '::GENERAL') === key) adjustmentsSum += -dir * (Number(a.amount) || 0);
-        } else if (a.adjustment_type === 'TRANSFER') {
-          if (key === '::GENERAL') adjustmentsSum += dir * (Number(a.amount) || 0);
-        } else if (a.adjustment_type === 'MANUAL_ADDITION') {
-          const site = (a.source_site || '::GENERAL');
-          if (site === key) adjustmentsSum += dir * (Number(a.amount) || 0);
-        }
-      });
+      if (key === '::GENERAL') {
+        // Para General, sumar todos los effect_on_client
+        adjustmentsSum = (adjustmentsList || []).reduce((sum, a: any) => {
+          return sum + (Number(a.effect_on_client) || 0);
+        }, 0);
+      } else {
+        // Para ajustes por obra específica (SITE_TRANSFER), usar effect_on_client también
+        (adjustmentsList || []).forEach((a: any) => {
+          if (a.adjustment_type === 'SITE_TRANSFER') {
+            if ((a.source_site || '') === key || (a.target_site || '') === key) {
+              adjustmentsSum += Number(a.effect_on_client) || 0;
+            }
+          } else if (a.adjustment_type === 'MANUAL_ADDITION' && a.source_site === key) {
+            adjustmentsSum += Number(a.effect_on_client) || 0;
+          }
+        });
+      }
       const current = balances.find(b => (b.construction_site || '::GENERAL') === key)?.current_balance || 0;
       const expected = consumption - paymentsSum + adjustmentsSum;
       bySite[key] = {
@@ -881,8 +929,11 @@ function ClientBalanceBreakdown({
       return acc;
     }, { consumptionWithVat: 0, payments: 0, adjustments: 0, expected: 0 });
     // IMPORTANT: Saldo actual en totales debe ser el balance general (no suma de obras)
-    return { ...base, currentBalance: generalBalance } as { consumptionWithVat: number; payments: number; adjustments: number; expected: number; currentBalance: number };
-  }, [perSiteBreakdown, generalBalance]);
+    // Los ajustes se muestran como neto global (DEBT suma, CREDIT resta)
+    const adjustmentsNet = netAdjustments;
+    const expectedWithAdjustments = base.consumptionWithVat - base.payments + adjustmentsNet;
+    return { ...base, adjustments: adjustmentsNet, expected: expectedWithAdjustments, currentBalance: generalBalance } as { consumptionWithVat: number; payments: number; adjustments: number; expected: number; currentBalance: number };
+  }, [perSiteBreakdown, generalBalance, netAdjustments]);
 
   const toggleSite = (key: string) => {
     setExpandedSites(prev => {
@@ -943,7 +994,7 @@ function ClientBalanceBreakdown({
                   <TableHead>Obra</TableHead>
                   <TableHead className="text-right">Consumo (IVA)</TableHead>
                   <TableHead className="text-right">Pagos</TableHead>
-                  <TableHead className="text-right">Ajustes</TableHead>
+                  <TableHead className="text-right">Ajustes (solo general)</TableHead>
                   <TableHead className="text-right">Saldo esperado</TableHead>
                   <TableHead className="text-right">Saldo actual</TableHead>
                   <TableHead className="text-right">Detalle</TableHead>
@@ -954,14 +1005,27 @@ function ClientBalanceBreakdown({
                   const s = perSiteBreakdown[key];
                   if (!s) return null;
                   const isExpanded = expandedSites.has(key);
+                  const isGeneral = key === '::GENERAL';
+                  const adjValue = isGeneral ? netAdjustments : 0;
+                  const expectedValue = isGeneral
+                    ? s.consumptionWithVat - s.payments + adjValue
+                    : s.expected;
                   return (
                     <React.Fragment key={key}>
                       <TableRow>
                         <TableCell className="truncate" title={s.label}>{s.label}</TableCell>
                         <TableCell className="text-right">{formatCurrency(s.consumptionWithVat)}</TableCell>
                         <TableCell className="text-right text-green-700">− {formatCurrency(s.payments)}</TableCell>
-                        <TableCell className={`text-right ${s.adjustments >= 0 ? 'text-red-700' : 'text-green-700'}`}>{s.adjustments >= 0 ? '+ ' : '− '}{formatCurrency(Math.abs(s.adjustments))}</TableCell>
-                        <TableCell className="text-right font-medium">{formatCurrency(s.expected)}</TableCell>
+                        <TableCell className={`text-right ${adjValue >= 0 ? 'text-red-700' : 'text-green-700'}`}>
+                          {isGeneral ? (
+                            <>
+                              {adjValue >= 0 ? '+ ' : '− '}{formatCurrency(Math.abs(adjValue))}
+                            </>
+                          ) : (
+                            '—'
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right font-medium">{formatCurrency(expectedValue)}</TableCell>
                         <TableCell className={`text-right ${s.currentBalance > 0 ? 'text-red-700' : 'text-green-700'}`}>{formatCurrency(s.currentBalance)}</TableCell>
                         <TableCell className="text-right">
                           <Button variant="ghost" size="sm" onClick={() => toggleSite(key)} className="h-8 px-2">
