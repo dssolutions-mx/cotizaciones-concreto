@@ -139,21 +139,34 @@ function UpdatePasswordForm() {
         const isRecoveryFlow = type === 'recovery';
         const isInvitationFlow = type === 'invite' || type === 'signup' || tokenType === 'invite' || tokenType === 'signup';
         
+        console.log('Flow detection:', { type, tokenType, isRecoveryFlow, isInvitationFlow });
+        
         if (isRecoveryFlow) {
-          console.log('Detected password recovery flow from URL parameters');
+          console.log('✅ Detected password recovery flow from URL parameters - setting invitationFlow to FALSE');
           setInvitationFlow(false); // Recovery flow, not invitation
         } else if (isInvitationFlow) {
-          console.log('Detected invitation flow from URL parameters');
+          console.log('✅ Detected invitation flow from URL parameters - setting invitationFlow to TRUE');
           setInvitationFlow(true);
         } else {
           // If no type parameter, check if user is new (created_at === last_sign_in_at)
           // This handles cases where the type parameter might be missing
-          const { data: sessionCheck } = await supabase.auth.getSession();
-          if (sessionCheck?.session) {
-            const isNewUser = sessionCheck.session.user?.created_at === sessionCheck.session.user?.last_sign_in_at;
-            if (isNewUser) {
-              console.log('Detected new user from session (no type parameter), assuming invitation flow');
-              setInvitationFlow(true);
+          // But first, check if we have a recovery type in URL params
+          const urlType = searchParams.get('type');
+          if (urlType === 'recovery') {
+            console.log('Detected recovery flow from URL parameter (else branch)');
+            setInvitationFlow(false);
+          } else {
+            const { data: sessionCheck } = await supabase.auth.getSession();
+            if (sessionCheck?.session) {
+              const isNewUser = sessionCheck.session.user?.created_at === sessionCheck.session.user?.last_sign_in_at;
+              if (isNewUser) {
+                console.log('Detected new user from session (no type parameter), assuming invitation flow');
+                setInvitationFlow(true);
+              } else {
+                // Existing user without type parameter - could be recovery, default to false
+                console.log('Existing user without type parameter, defaulting to recovery flow');
+                setInvitationFlow(false);
+              }
             }
           }
         }
@@ -356,7 +369,12 @@ function UpdatePasswordForm() {
           console.log('Session found in fallback check', data.session.user.email);
           setSessionEstablished(true);
           setInviteEmail(data.session.user.email || null);
-          setInvitationFlow(true);
+          
+          // Check URL parameter to determine flow type
+          const typeParam = searchParams.get('type');
+          const isRecovery = typeParam === 'recovery';
+          console.log('Fallback check - flow type:', typeParam, 'isRecovery:', isRecovery);
+          setInvitationFlow(!isRecovery); // Only set to true if NOT recovery
         } else {
           console.log('No session found in fallback check');
         }
