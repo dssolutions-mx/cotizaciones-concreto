@@ -40,13 +40,16 @@ function LoginForm() {
       profileId: profile?.id
     });
     
-    // Check for force_logout or password_set - don't auto-redirect in these cases
+    // Check for invitation flow (password_set) - don't auto-redirect in this case
     // User needs to log in with their new password
+    // Recovery flow (updated=true) should allow normal auto-redirect
     const forceLogout = searchParams.get('force_logout') === 'true';
     const passwordSet = searchParams.get('password_set') === 'true';
     
-    if (forceLogout || passwordSet) {
-      console.log('[Login] Force logout/password set detected - showing login form instead of auto-redirecting');
+    // Only prevent auto-redirect for invitation flow (both force_logout AND password_set)
+    // Recovery flow (updated=true) should work normally
+    if (forceLogout && passwordSet) {
+      console.log('[Login] Invitation flow detected - showing login form instead of auto-redirecting');
       return; // Don't auto-redirect, let user log in manually
     }
     
@@ -89,16 +92,13 @@ function LoginForm() {
 
   // Handle URL parameters
   useEffect(() => {
-    const isUpdated = searchParams.get('updated') === 'true';
-    if (isUpdated) {
-      setSuccess('Tu contraseña ha sido actualizada con éxito. Por favor, inicia sesión con tu nueva contraseña.');
-    }
-
     const forceLogout = searchParams.get('force_logout') === 'true';
     const passwordSet = searchParams.get('password_set') === 'true';
+    const updated = searchParams.get('updated') === 'true';
     
-    if (forceLogout || passwordSet) {
-      // Force logout for password reset/setup scenarios
+    // Only force logout for invitation flow (password_set), not recovery flow (updated)
+    if (forceLogout && passwordSet) {
+      // Force logout for password setup scenarios (invitation flow)
       supabase.auth.signOut({ scope: 'global' }).then(() => {
         // Clear all storage after sign out
         try {
@@ -116,11 +116,10 @@ function LoginForm() {
         }
       });
       
-      if (passwordSet) {
-        setSuccess('¡Contraseña configurada exitosamente! Por favor, inicia sesión con tu nueva contraseña.');
-      } else {
-        setSuccess('La sesión se ha cerrado. Por favor, inicia sesión con tu nueva contraseña.');
-      }
+      setSuccess('¡Contraseña configurada exitosamente! Por favor, inicia sesión con tu nueva contraseña.');
+    } else if (updated) {
+      // Recovery flow: Just show success message, don't force logout
+      setSuccess('Tu contraseña ha sido actualizada con éxito. Ya puedes usar tu nueva contraseña.');
     }
   }, [searchParams]);
 

@@ -3,7 +3,7 @@ import { ExistingOrderMatch } from './arkikOrderMatcher';
 import { hasStrictRecipeMatch } from './arkikMatchingUtils';
 
 export interface OrderGroupingOptions {
-  processingMode: 'dedicated' | 'commercial';
+  processingMode: 'dedicated' | 'commercial' | 'hybrid';
   existingOrderMatches?: ExistingOrderMatch[];
   manualAssignments?: Map<string, string>; // remision_number -> order_id
 }
@@ -13,7 +13,7 @@ export class ArkikOrderGrouper {
     remisiones: StagingRemision[], 
     options: OrderGroupingOptions = { processingMode: 'dedicated' }
   ): OrderSuggestion[] {
-    if (options.processingMode === 'commercial') {
+    if (options.processingMode === 'commercial' || options.processingMode === 'hybrid') {
       return this.groupWithExistingOrders(
         remisiones, 
         options.existingOrderMatches || [], 

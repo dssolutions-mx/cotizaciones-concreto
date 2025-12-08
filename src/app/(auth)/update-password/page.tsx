@@ -528,23 +528,31 @@ function UpdatePasswordForm() {
                 countdownInterval = null;
               }
               
-          // IMPORTANT: Use full page reload based on user type
-          // Client portal users go to login, internal users go to their dashboard
-          console.log('Countdown complete, performing hard redirect');
+          // IMPORTANT: Use full page reload based on user type and flow type
+          // Recovery flow: Just redirect to login (user can log in normally)
+          // Invitation flow: Force logout and require login with new password
+          console.log('Countdown complete, performing hard redirect', { invitationFlow });
           
-          // Determine redirect target based on user role
+          // Determine redirect target based on user role and flow type
           let redirectTarget = '/login';
-          if (isClientPortalUser) {
-            redirectTarget = '/login?redirect=/client-portal';
-          } else {
-            // Internal users go to login with updated flag
-            redirectTarget = '/login?updated=true';
-          }
-          
           const redirectUrl = new URL(redirectTarget, window.location.origin);
-          redirectUrl.searchParams.set('force_logout', 'true');
-          redirectUrl.searchParams.set('t', Date.now().toString());
-          redirectUrl.searchParams.set('reason', 'password_update');
+          
+          if (invitationFlow) {
+            // Invitation flow: Force logout and require login with new password
+            if (isClientPortalUser) {
+              redirectUrl.searchParams.set('redirect', '/client-portal');
+            }
+            redirectUrl.searchParams.set('force_logout', 'true');
+            redirectUrl.searchParams.set('password_set', 'true');
+            redirectUrl.searchParams.set('t', Date.now().toString());
+            redirectUrl.searchParams.set('reason', 'password_setup');
+          } else {
+            // Recovery flow: Just redirect to login normally (user already logged in via recovery link)
+            redirectUrl.searchParams.set('updated', 'true');
+            if (isClientPortalUser) {
+              redirectUrl.searchParams.set('redirect', '/client-portal');
+            }
+          }
           
           // Force a hard navigation through window.location instead of router
           window.location.href = redirectUrl.toString();
@@ -566,66 +574,76 @@ function UpdatePasswordForm() {
   // Add a dedicated auto-redirect after successful password update
   useEffect(() => {
     if (message && countdown === 0) {
-      console.log('Auto-redirecting to login page after password update');
+      console.log('Auto-redirecting to login page after password update', { invitationFlow });
       
-      // Set the special flag to ensure login page knows this is a complete logout
-      try {
-        sessionStorage.setItem('force_complete_logout', 'true');
-      } catch (_error) {
-        console.error('Failed to set session storage flag');
+      // Only force logout and clear storage for invitation flow
+      if (invitationFlow) {
+        // Set the special flag to ensure login page knows this is a complete logout
+        try {
+          sessionStorage.setItem('force_complete_logout', 'true');
+        } catch (_error) {
+          console.error('Failed to set session storage flag');
+        }
+        
+        // Do one final storage clearing before navigation (only for invitation flow)
+        try {
+          // Clear localStorage thoroughly
+          const keysToTry = [
+            'supabase.auth.token',
+            'sb-access-token',
+            'sb-refresh-token',
+            'supabase.auth.expires_at',
+            'supabase.auth.expires_in'
+          ];
+          
+          keysToTry.forEach(key => {
+            try { localStorage.removeItem(key); } catch (_storageError) {}
+          });
+          
+          Object.keys(localStorage).forEach(key => {
+            if (key.toLowerCase().includes('auth') || 
+                key.toLowerCase().includes('token') || 
+                key.toLowerCase().includes('supabase') || 
+                key.toLowerCase().includes('sb-')) {
+              localStorage.removeItem(key);
+            }
+          });
+          
+          // Clear cookies 
+          document.cookie.split(';').forEach(c => {
+            const cookieName = c.split('=')[0].trim();
+            document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
+            document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
+          });
+        } catch (_clearError) {
+          console.error('Error in final storage clearing:', _clearError);
+        }
       }
       
-      // Do one final storage clearing before navigation
-      try {
-        // Clear localStorage thoroughly
-        const keysToTry = [
-          'supabase.auth.token',
-          'sb-access-token',
-          'sb-refresh-token',
-          'supabase.auth.expires_at',
-          'supabase.auth.expires_in'
-        ];
-        
-        keysToTry.forEach(key => {
-          try { localStorage.removeItem(key); } catch (_storageError) {}
-        });
-        
-        Object.keys(localStorage).forEach(key => {
-          if (key.toLowerCase().includes('auth') || 
-              key.toLowerCase().includes('token') || 
-              key.toLowerCase().includes('supabase') || 
-              key.toLowerCase().includes('sb-')) {
-            localStorage.removeItem(key);
-          }
-        });
-        
-        // Clear cookies 
-        document.cookie.split(';').forEach(c => {
-          const cookieName = c.split('=')[0].trim();
-          document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
-          document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${window.location.hostname};`;
-        });
-      } catch (_clearError) {
-        console.error('Error in final storage clearing:', _clearError);
-      }
+      // Determine redirect target based on user type and flow type
+      const redirectUrl = new URL('/login', window.location.origin);
       
-      // Determine redirect target based on user type
-      let redirectTarget = '/login';
-      if (isClientPortalUser) {
-        redirectTarget = '/login?redirect=/client-portal';
+      if (invitationFlow) {
+        // Invitation flow: Force logout and require login with new password
+        if (isClientPortalUser) {
+          redirectUrl.searchParams.set('redirect', '/client-portal');
+        }
+        redirectUrl.searchParams.set('force_logout', 'true');
+        redirectUrl.searchParams.set('password_set', 'true');
+        redirectUrl.searchParams.set('t', Date.now().toString());
+        redirectUrl.searchParams.set('reason', 'password_setup');
       } else {
-        redirectTarget = '/login?updated=true';
+        // Recovery flow: Just redirect to login normally (user already logged in via recovery link)
+        redirectUrl.searchParams.set('updated', 'true');
+        if (isClientPortalUser) {
+          redirectUrl.searchParams.set('redirect', '/client-portal');
+        }
       }
-      
-      const redirectUrl = new URL(redirectTarget, window.location.origin);
-      redirectUrl.searchParams.set('force_logout', 'true');
-      redirectUrl.searchParams.set('t', Date.now().toString());
-      redirectUrl.searchParams.set('reason', 'password_update');
       
       // Force a hard navigation through window.location
       window.location.href = redirectUrl.toString();
     }
-  }, [message, countdown, router]);
+  }, [message, countdown, router, invitationFlow, isClientPortalUser]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -706,13 +724,20 @@ function UpdatePasswordForm() {
       }
       
       // Update password directly using the authenticated session
-      const { data: userData, error } = await supabase.auth.updateUser({
+      // Only set password_set metadata for invitation flow, not recovery flow
+      const updateData: { password: string; data?: Record<string, unknown> } = {
         password: password,
-        data: {
+      };
+      
+      // Only mark password_set for invitation flow (new users), not recovery
+      if (invitationFlow) {
+        updateData.data = {
           password_set: true, // Mark that user has set their password
           password_set_at: new Date().toISOString(),
-        }
-      });
+        };
+      }
+      
+      const { data: userData, error } = await supabase.auth.updateUser(updateData);
 
       if (error) {
         console.error('Error al actualizar la contraseña:', error);
@@ -872,32 +897,42 @@ function UpdatePasswordForm() {
             <div className="mt-4 text-center">
               <button
                 onClick={async () => {
-                  // Force complete logout before redirecting
-                  try {
-                    console.log('Forcing logout before redirecting to login');
-                    await supabase.auth.signOut({ scope: 'global' });
-                    
-                    // Clear all storage
+                  // Only force logout for invitation flow, not recovery flow
+                  if (invitationFlow) {
                     try {
-                      Object.keys(localStorage).forEach(key => {
-                        if (key.toLowerCase().includes('auth') || 
-                            key.toLowerCase().includes('token') || 
-                            key.toLowerCase().includes('supabase') || 
-                            key.toLowerCase().includes('sb-')) {
-                          localStorage.removeItem(key);
-                        }
-                      });
-                      sessionStorage.clear();
-                    } catch (e) {
-                      console.error('Error clearing storage:', e);
+                      console.log('Forcing logout before redirecting to login (invitation flow)');
+                      await supabase.auth.signOut({ scope: 'global' });
+                      
+                      // Clear all storage
+                      try {
+                        Object.keys(localStorage).forEach(key => {
+                          if (key.toLowerCase().includes('auth') || 
+                              key.toLowerCase().includes('token') || 
+                              key.toLowerCase().includes('supabase') || 
+                              key.toLowerCase().includes('sb-')) {
+                            localStorage.removeItem(key);
+                          }
+                        });
+                        sessionStorage.clear();
+                      } catch (e) {
+                        console.error('Error clearing storage:', e);
+                      }
+                      
+                      // Hard redirect to login with force_logout flag
+                      window.location.href = '/login?force_logout=true&password_set=true';
+                    } catch (error) {
+                      console.error('Error during logout:', error);
+                      // Still redirect even if logout fails
+                      window.location.href = '/login?force_logout=true&password_set=true';
                     }
-                    
-                    // Hard redirect to login with force_logout flag
-                    window.location.href = '/login?force_logout=true&password_set=true';
-                  } catch (error) {
-                    console.error('Error during logout:', error);
-                    // Still redirect even if logout fails
-                    window.location.href = '/login?force_logout=true&password_set=true';
+                  } else {
+                    // Recovery flow: Just redirect to login normally (user is already logged in)
+                    const redirectUrl = new URL('/login', window.location.origin);
+                    redirectUrl.searchParams.set('updated', 'true');
+                    if (isClientPortalUser) {
+                      redirectUrl.searchParams.set('redirect', '/client-portal');
+                    }
+                    window.location.href = redirectUrl.toString();
                   }
                 }}
                 className="inline-block px-6 py-3 text-callout font-medium text-white bg-blue-600 rounded-2xl hover:bg-blue-700 transition-all shadow-lg"

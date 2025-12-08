@@ -90,7 +90,7 @@ export default function ArkikProcessor() {
   const [selectedRemisionForProcessing, setSelectedRemisionForProcessing] = useState<StagingRemision | null>(null);
   
   // Processing mode toggle
-  const [processingMode, setProcessingMode] = useState<'dedicated' | 'commercial'>('dedicated');
+  const [processingMode, setProcessingMode] = useState<'dedicated' | 'commercial' | 'hybrid'>('hybrid');
   
   // Statistics
   const [stats, setStats] = useState({
@@ -273,9 +273,9 @@ Fin del reporte
 
     setLoading(true);
     try {
-      if (processingMode === 'commercial') {
-        // Commercial mode: Duplicates already handled, proceed to status processing
-        console.log('[ArkikProcessor] Commercial mode: Duplicates already handled, proceeding to status processing');
+      if (processingMode === 'commercial' || processingMode === 'hybrid') {
+        // Commercial and Hybrid modes: Duplicates already handled, proceed to status processing
+        console.log(`[ArkikProcessor] ${processingMode === 'hybrid' ? 'Hybrid' : 'Commercial'} mode: Duplicates already handled, proceeding to status processing`);
         handleStatusProcessing();
       } else {
         // Dedicated mode: Check for duplicates after validation is complete
@@ -769,6 +769,37 @@ Fin del reporte
           return;
         }
         
+      } else if (processingMode === 'hybrid') {
+        // Hybrid mode: try to match existing orders first, then create new orders for unmatched
+        console.log('[ArkikProcessor] Hybrid mode: Looking for existing orders to match, then creating new orders for unmatched');
+        
+        const { ArkikOrderMatcher } = await import('@/services/arkikOrderMatcher');
+        const matcher = new ArkikOrderMatcher(currentPlant!.id);
+        
+        const { matchedOrders, unmatchedRemisiones } = await matcher.findMatchingOrders(readyForOrderCreation);
+        
+        console.log('[ArkikProcessor] Order matching results:', {
+          totalRemisiones: readyForOrderCreation.length,
+          matchedOrders: matchedOrders.length,
+          unmatchedRemisiones: unmatchedRemisiones.length
+        });
+        
+        // Import the order grouper service
+        const { ArkikOrderGrouper } = await import('@/services/arkikOrderGrouper');
+        const grouper = new ArkikOrderGrouper();
+        
+        // Group with existing orders and create new orders for unmatched remisiones
+        // The grouper will handle both matched and unmatched remisiones automatically
+        suggestions = grouper.groupRemisiones(readyForOrderCreation, {
+          processingMode: 'hybrid',
+          existingOrderMatches: matchedOrders
+        });
+        
+        if (suggestions.length === 0) {
+          alert('No hay órdenes sugeridas en modo Híbrido. Verifica precios/códigos y vuelve a intentar.');
+          return;
+        }
+        
       } else {
         // Dedicated site mode: create new orders automatically
         console.log('[ArkikProcessor] Dedicated site mode: Creating new orders');
@@ -887,8 +918,8 @@ Fin del reporte
     try {
       if (!duplicateHandler) return;
 
-      // In commercial mode, we need to work with staging data since duplicates were checked before validation
-      const dataToProcess = processingMode === 'commercial' ? stagingData : (result?.validated || []);
+      // In commercial and hybrid modes, we need to work with staging data since duplicates were checked before validation
+      const dataToProcess = (processingMode === 'commercial' || processingMode === 'hybrid') ? stagingData : (result?.validated || []);
       
       if (dataToProcess.length === 0) return;
 
@@ -903,10 +934,10 @@ Fin del reporte
         summary: duplicateResult.summary
       });
 
-      // In commercial mode, validate the processed remisiones now
+      // In commercial and hybrid modes, validate the processed remisiones now
       let updatedValidated: StagingRemision[];
-      if (processingMode === 'commercial' && processed.length > 0) {
-        console.log('[ArkikProcessor] Commercial mode: Validating processed remisiones after duplicate handling...');
+      if ((processingMode === 'commercial' || processingMode === 'hybrid') && processed.length > 0) {
+        console.log(`[ArkikProcessor] ${processingMode === 'hybrid' ? 'Hybrid' : 'Commercial'} mode: Validating processed remisiones after duplicate handling...`);
         const validator = new DebugArkikValidator(currentPlant!.id);
         const { validated: validatedProcessed, errors: validationErrors } = await validator.validateBatch(processed);
         
@@ -1572,9 +1603,9 @@ Fin del reporte
         } as StagingRemision));
 
       // Handle processing based on mode
-      if (processingMode === 'commercial') {
-        // Commercial mode: Check duplicates BEFORE validation
-        console.log('[ArkikProcessor] Commercial mode: Checking duplicates before validation...');
+      if (processingMode === 'commercial' || processingMode === 'hybrid') {
+        // Commercial and Hybrid modes: Check duplicates BEFORE validation
+        console.log(`[ArkikProcessor] ${processingMode === 'hybrid' ? 'Hybrid' : 'Commercial'} mode: Checking duplicates before validation...`);
         
         const duplicateHandlerInstance = new ArkikDuplicateHandler(currentPlant.id);
         setDuplicateHandler(duplicateHandlerInstance);
@@ -1941,7 +1972,7 @@ Fin del reporte
                   </p>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div 
                     className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
                       processingMode === 'dedicated' 
@@ -1982,6 +2013,28 @@ Fin del reporte
                       <div>
                         <div className="font-medium text-gray-900">Comercial</div>
                         <div className="text-sm text-gray-600">Vincular a órdenes existentes cuando sea posible</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div 
+                    className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                      processingMode === 'hybrid' 
+                        ? 'border-blue-500 bg-blue-100' 
+                        : 'border-gray-300 bg-white hover:border-blue-300'
+                    }`}
+                    onClick={() => setProcessingMode('hybrid')}
+                  >
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="radio" 
+                        checked={processingMode === 'hybrid'} 
+                        onChange={() => setProcessingMode('hybrid')}
+                        className="text-blue-600"
+                      />
+                      <div>
+                        <div className="font-medium text-gray-900">Híbrido</div>
+                        <div className="text-sm text-gray-600">Inteligente: Vincular a órdenes existentes cuando sea posible, crear nuevas cuando no</div>
                       </div>
                     </div>
                   </div>
@@ -2821,14 +2874,18 @@ Fin del reporte
                   <Badge variant="outline" className={
                     processingMode === 'commercial' 
                       ? 'bg-blue-100 text-blue-800 border-blue-300'
+                      : processingMode === 'hybrid'
+                      ? 'bg-purple-100 text-purple-800 border-purple-300'
                       : 'bg-green-100 text-green-800 border-green-300'
                   }>
-                    {processingMode === 'commercial' ? 'Comercial' : 'Obra Dedicada'}
+                    {processingMode === 'commercial' ? 'Comercial' : processingMode === 'hybrid' ? 'Híbrido' : 'Obra Dedicada'}
                   </Badge>
                 </div>
                 <div className="text-sm text-gray-600 mt-1">
                   {processingMode === 'commercial' 
                     ? 'Las remisiones se vinculan a órdenes existentes cuando es posible'
+                    : processingMode === 'hybrid'
+                    ? 'Inteligente: Se vinculan a órdenes existentes cuando es posible, se crean nuevas cuando no'
                     : 'Se crean nuevas órdenes automáticamente'
                   }
                 </div>
