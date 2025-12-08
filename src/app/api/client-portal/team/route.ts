@@ -442,7 +442,7 @@ Acepta tu invitación para acceder a todas las herramientas y servicios disponib
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
 <tr>
 <td align="center" style="padding: 0 0 40px 0;">
-<a href="${invitationUrl}" style="display: inline-block; background: #00B050; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-weight: 600; font-size: 17px; letter-spacing: -0.2px; box-shadow: 0 4px 12px rgba(0, 176, 80, 0.3);">Aceptar invitación</a>
+<a clicktracking="off" href="${invitationUrl}" style="display: inline-block; background: #00B050; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-weight: 600; font-size: 17px; letter-spacing: -0.2px; box-shadow: 0 4px 12px rgba(0, 176, 80, 0.3);">Aceptar invitación</a>
 </td>
 </tr>
 </table>
