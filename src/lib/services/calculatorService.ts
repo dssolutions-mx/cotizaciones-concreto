@@ -535,13 +535,15 @@ export const calculatorService = {
 };
 
 // Extended save with decisions for master/variant governance
+// PERFORMANCE: Processes recipes in batches to avoid database timeouts
 export async function saveRecipesWithDecisions(
   recipes: CalculatorRecipe[],
   decisions: CalculatorSaveDecision[],
   plantId: string,
   userId: string,
   selection?: CalculatorMaterialSelection,
-  arkik?: ArkikDefaults
+  arkik?: ArkikDefaults,
+  onProgress?: (current: number, total: number, recipeName: string) => void
 ): Promise<void> {
   // Build maps for lookup
   const decisionByCode = new Map<string, CalculatorSaveDecision>();
@@ -554,7 +556,26 @@ export async function saveRecipesWithDecisions(
   const { data: allMaterials } = await supabase.from('materials').select('*').eq('plant_id', plantId);
   const materialMap = new Map((allMaterials || []).map(m => [m.id, m]));
 
-  for (const r of recipes) {
+  // PERFORMANCE: Process recipes in batches to avoid database overload
+  const BATCH_SIZE = 5; // Process 5 recipes at a time
+  const BATCH_DELAY_MS = 100; // Small delay between batches
+
+  const totalRecipes = recipes.length;
+  console.log(`[Calculator] Starting batch save of ${totalRecipes} recipes (batch size: ${BATCH_SIZE})`);
+
+  for (let i = 0; i < totalRecipes; i++) {
+    const r = recipes[i];
+    
+    // Report progress
+    if (onProgress) {
+      onProgress(i + 1, totalRecipes, r.code);
+    }
+    
+    // Add delay between batches (not on first item)
+    if (i > 0 && i % BATCH_SIZE === 0) {
+      console.log(`[Calculator] Processed ${i}/${totalRecipes} recipes, pausing briefly...`);
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+    }
     const decision = decisionByCode.get(r.code);
     if (!decision) continue;
 
