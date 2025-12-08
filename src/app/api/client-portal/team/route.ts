@@ -374,6 +374,142 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Generate secure invitation token (SendGrid-compatible - uses query params not hash)
+    const crypto = await import('crypto');
+    const invitationToken = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7); // Token valid for 7 days
+
+    // Store token in database
+    const { error: tokenError } = await supabaseAdmin
+      .from('invitation_tokens')
+      .insert({
+        token: invitationToken,
+        user_id: newUserId,
+        email,
+        invited_by: user.id,
+        client_id: clientId,
+        role: 'EXTERNAL_CLIENT',
+        expires_at: expiresAt.toISOString(),
+        metadata: {
+          first_name: normalizedFirstName,
+          last_name: normalizedLastName,
+        },
+      });
+
+    if (tokenError) {
+      console.error('Error storing invitation token:', tokenError);
+      // Continue anyway - Supabase email was already sent
+    } else {
+      // Send custom email with token-based URL (SendGrid-compatible)
+      const sendgridApiKey = process.env.SENDGRID_API_KEY;
+      const invitationUrl = `${origin}/api/auth/verify-invitation?token=${invitationToken}`;
+      
+      if (sendgridApiKey) {
+        const emailHtml = `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invitación a DC HUB</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; background-color: #f5f5f7; -webkit-font-smoothing: antialiased;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f5f5f7; padding: 40px 20px;">
+<tr>
+<td align="center">
+<table width="560" cellpadding="0" cellspacing="0" border="0" style="background-color: #ffffff; border-radius: 18px; overflow: hidden; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08); max-width: 100%;">
+<tr>
+<td style="padding: 48px 32px 32px; text-align: center; background: linear-gradient(135deg, #f0f9f4 0%, #ffffff 100%);">
+<table width="64" height="64" cellpadding="0" cellspacing="0" border="0" align="center" style="margin: 0 auto 20px; background: linear-gradient(135deg, #00B050 0%, #00D563 100%); border-radius: 16px; box-shadow: 0 8px 16px rgba(0, 176, 80, 0.25);">
+<tr>
+<td align="center" valign="middle">
+<img src="data:image/svg+xml,%3Csvg viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath fill='white' d='M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z'/%3E%3C/svg%3E" width="32" height="32" alt="Mail" style="display: block;" />
+</td>
+</tr>
+</table>
+<h1 style="margin: 0 0 8px 0; font-size: 28px; font-weight: 600; color: #1E3A5F; letter-spacing: -0.5px;">Tienes una invitación</h1>
+<p style="margin: 0; font-size: 17px; color: #86868b; font-weight: 400;">DC Concretos</p>
+</td>
+</tr>
+<tr>
+<td style="padding: 32px;">
+<p style="margin: 0 0 24px 0; font-size: 17px; color: #1d1d1f; line-height: 1.6;">
+Has sido invitado a unirte a <strong style="font-weight: 600; color: #00B050;">DC HUB</strong>, nuestra plataforma integral de gestión y colaboración.
+</p>
+<p style="margin: 0 0 40px 0; font-size: 17px; color: #1d1d1f; line-height: 1.6;">
+Acepta tu invitación para acceder a todas las herramientas y servicios disponibles para tu equipo.
+</p>
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td align="center" style="padding: 0 0 40px 0;">
+<a href="${invitationUrl}" style="display: inline-block; background: #00B050; color: #ffffff; text-decoration: none; padding: 16px 48px; border-radius: 12px; font-weight: 600; font-size: 17px; letter-spacing: -0.2px; box-shadow: 0 4px 12px rgba(0, 176, 80, 0.3);">Aceptar invitación</a>
+</td>
+</tr>
+</table>
+<p style="margin: 0 0 32px 0; font-size: 15px; color: #86868b; text-align: center; line-height: 1.5;">
+¿Necesitas ayuda? Estamos aquí para asistirte en cualquier momento.
+</p>
+<table width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td style="padding: 0 0 32px 0;">
+<div style="height: 1px; background: linear-gradient(90deg, transparent, #d2d2d7, transparent);"></div>
+</td>
+</tr>
+</table>
+<p style="margin: 0; font-size: 13px; color: #86868b; line-height: 1.6; text-align: center;">
+Si no solicitaste esta invitación, puedes ignorar este mensaje de forma segura.
+</p>
+</td>
+</tr>
+<tr>
+<td style="padding: 32px; text-align: center; background-color: #f5f5f7;">
+<p style="margin: 0; font-size: 12px; color: #a1a1a6; font-weight: 500;">
+© 2025 DC Concretos. Todos los derechos reservados.
+</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>`;
+
+        try {
+          const sendgridResponse = await fetch('https://api.sendgrid.com/v3/mail/send', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${sendgridApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              personalizations: [{
+                to: [{ email }],
+              }],
+              from: {
+                email: 'juan.aguirre@dssolutions-mx.com',
+                name: 'DC Concretos',
+              },
+              subject: 'Invitación a DC HUB',
+              content: [{
+                type: 'text/html',
+                value: emailHtml,
+              }],
+            }),
+          });
+
+          if (!sendgridResponse.ok) {
+            const errorText = await sendgridResponse.text();
+            console.error('Error sending email via SendGrid:', errorText);
+          } else {
+            console.log('Custom invitation email sent via SendGrid with token URL');
+          }
+        } catch (sendgridError) {
+          console.error('Exception sending email via SendGrid:', sendgridError);
+        }
+      }
+    }
+
     // Ensure user profile exists with correct role and portal user flag
     // Use upsert to handle race condition where trigger may have created profile first
     // This ensures the profile always has EXTERNAL_CLIENT role and is_portal_user=true
