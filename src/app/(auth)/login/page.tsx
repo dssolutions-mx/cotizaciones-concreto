@@ -40,29 +40,18 @@ function LoginForm() {
       profileId: profile?.id
     });
     
-    // Check for invitation flow (password_set) - don't auto-redirect in this case
-    // User needs to log in with their new password
-    // Recovery flow (updated=true) should allow normal auto-redirect
-    const forceLogout = searchParams.get('force_logout') === 'true';
-    const passwordSet = searchParams.get('password_set') === 'true';
-    
-    // Only prevent auto-redirect for invitation flow (both force_logout AND password_set)
-    // Recovery flow (updated=true) should work normally
-    if (forceLogout && passwordSet) {
-      console.log('[Login] Invitation flow detected - showing login form instead of auto-redirecting');
-      return; // Don't auto-redirect, let user log in manually
-    }
-    
-    // Check for redirect parameter first (from password update flow)
-    const redirectParam = searchParams.get('redirect');
-    if (redirectParam && profile && !loading) {
-      console.log(`[Login] Redirecting to specified target: ${redirectParam}`);
-      router.push(redirectParam);
-      return;
-    }
-    
-    // If we have a profile and not loading, redirect to appropriate page
+    // If user is authenticated (has profile), always redirect them
+    // Don't check URL parameters if user is already logged in
     if (profile && !loading) {
+      // Check for redirect parameter first (from password update flow)
+      const redirectParam = searchParams.get('redirect');
+      if (redirectParam) {
+        console.log(`[Login] Redirecting authenticated user to specified target: ${redirectParam}`);
+        router.push(redirectParam);
+        return;
+      }
+      
+      // Determine target based on role
       let target = '/dashboard';
 
       switch (profile.role) {
@@ -80,12 +69,26 @@ function LoginForm() {
           target = '/dashboard';
       }
 
-      console.log(`[Login] Redirecting ${profile.role} user to ${target}`);
+      console.log(`[Login] Redirecting authenticated ${profile.role} user to ${target}`);
       router.push(target);
-    } else {
-      console.log('[Login] Not redirecting:', { 
-        reason: !profile ? 'no profile' : 'still loading'
-      });
+      return;
+    }
+    
+    // Only prevent auto-redirect if user is NOT authenticated AND has invitation flow parameters
+    // This allows users to log in manually after setting password
+    const forceLogout = searchParams.get('force_logout') === 'true';
+    const passwordSet = searchParams.get('password_set') === 'true';
+    
+    // Only prevent auto-redirect for invitation flow when user is NOT logged in
+    // Once they log in successfully, the check above will redirect them
+    if (!profile && forceLogout && passwordSet) {
+      console.log('[Login] Invitation flow detected - user not authenticated, showing login form');
+      return; // Don't auto-redirect, let user log in manually
+    }
+    
+    // If no profile and not loading, user needs to log in
+    if (!profile && !loading) {
+      console.log('[Login] User not authenticated, showing login form');
     }
 
   }, [profile, loading, router, searchParams]);
