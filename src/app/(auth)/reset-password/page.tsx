@@ -17,17 +17,6 @@ export default function ResetPasswordPage() {
     setLoading(true);
 
     try {
-      // Get the site URL with fallback
-      const origin = typeof window !== 'undefined' 
-        ? window.location.origin 
-        : process.env.NEXT_PUBLIC_APP_URL || 'https://cotizaciones-concreto.vercel.app';
-      
-      console.log('Using origin for reset password:', origin);
-      
-      // Use unified auth callback entry point for consistency
-      const redirectTo = `${origin}/auth/callback`;
-      console.log('Reset password redirect URL:', redirectTo);
-      
       // Clear any existing sessions before sending reset email to avoid conflicts
       try {
         await supabase.auth.signOut();
@@ -37,17 +26,22 @@ export default function ResetPasswordPage() {
         // Continue anyway
       }
       
-      // Send the password reset email
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo
+      // Send password reset email via custom API route (uses SendGrid)
+      const response = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
       });
 
-      if (error) {
-        console.error('Reset password error:', error);
-        setError(error.message);
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('Reset password error:', data.error);
+        setError(data.error || 'Ocurrió un error al enviar el correo. Por favor, intenta de nuevo.');
       } else {
         console.log('Reset password email sent successfully');
-        console.log('Email will contain a link to:', redirectTo);
         setMessage(
           'Se ha enviado un correo para restablecer tu contraseña. Por favor, revisa tu bandeja de entrada.'
         );
